@@ -4,7 +4,6 @@ members = [
     "crates/engine",
     "crates/cli",
     "crates/llm",
-    "crates/bridge",
     "app/rust",
 ]
 

@@ -1,5 +1,8 @@
-//! cdylib shell for the Flutter app. All flutter_rust_bridge surface lives
-//! in the `spokenrectifier-bridge` crate; this crate only wraps it into the
-//! dynamic/static library cargokit links into the Windows runner.
+//! The flutter_rust_bridge seam between the Flutter shell and the engine,
+//! compiled as the cdylib the app loads (see `api.rs` for the surface).
 
-pub use spokenrectifier_bridge::*;
+mod api;
+
+pub use api::*;
+
+mod frb_generated; /* AUTO INJECTED BY flutter_rust_bridge. This line may not be accurate, and you can change it according to your needs. */

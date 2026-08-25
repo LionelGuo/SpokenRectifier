@@ -71,8 +71,8 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
-        stem: 'spokenrectifier_bridge',
-        ioDirectory: '../crates/bridge/target/release/',
+        stem: 'rust_lib_spokenrectifier_app',
+        ioDirectory: 'rust/target/release/',
         webPrefix: 'pkg/',
         wasmBindgenName: 'wasm_bindgen',
       );

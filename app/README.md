@@ -20,7 +20,7 @@ cd app
 flutter run -d windows
 ```
 
-Rust 侧(`../crates/bridge` 及其依赖)由 cargokit 在构建中自动编译,无需手动 cargo build。
+Rust 侧(`rust/` 桥接 crate 及其依赖)由 cargokit 在构建中自动编译,无需手动 cargo build。
 
 ## 开发(改桥接 API 后重新生成绑定)
 
@@ -31,6 +31,6 @@ flutter_rust_bridge_codegen generate
 flutter analyze && flutter test
 ```
 
-桥接 API 在 `../crates/bridge/src/api.rs`(`Bridge*` 线类型与引擎类型解耦);UI 逻辑全部在
+桥接 API 在 `rust/src/api.rs`(`Bridge*` 线类型与引擎类型解耦);UI 逻辑全部在
 `lib/app_state.dart` + `lib/app_root.dart`,经 `SpeechEngineGateway` 注入,widget 测试用纯 Dart
 假网关(`test/fake_gateway.dart`),不依赖 Rust 动态库。

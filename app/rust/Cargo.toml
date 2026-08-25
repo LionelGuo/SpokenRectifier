@@ -1,6 +1,6 @@
 [package]
 name = "rust_lib_spokenrectifier_app"
-description = "cdylib shell: links the bridge crate's flutter_rust_bridge entry points into the library the Flutter app loads."
+description = "flutter_rust_bridge seam: engine commands and the event stream for the Flutter shell, compiled into the library the app loads."
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -9,5 +9,10 @@ license = "Apache-2.0"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+anyhow = "1"
 flutter_rust_bridge = "=2.13.0"
-spokenrectifier-bridge = { path = "../../crates/bridge" }
+spokenrectifier-engine = { path = "../../crates/engine" }
+tokio = { version = "1", features = ["macros", "rt", "sync", "time", "rt-multi-thread"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
