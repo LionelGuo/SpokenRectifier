@@ -33,6 +33,10 @@ pub enum AsrStep {
     Partial(String),
     /// Reports cumulative silence of `elapsed_ms` since the last speech.
     Silence(u64),
+    /// Reports a VAD speech-activity change.
+    Speech(bool),
+    /// Fails the stream mid-session.
+    Fail(String),
 }
 
 /// Fake ASR provider: each `open_stream` consumes the next scripted session
@@ -71,6 +75,8 @@ impl AsrProvider for ScriptedAsr {
                 ],
                 AsrStep::Partial(text) => vec![AsrEvent::Partial { text }],
                 AsrStep::Silence(elapsed_ms) => vec![AsrEvent::Silence { elapsed_ms }],
+                AsrStep::Speech(speaking) => vec![AsrEvent::SpeechActivity { speaking }],
+                AsrStep::Fail(message) => vec![AsrEvent::Failed { message }],
             })
             .collect::<Vec<_>>();
         Ok(stream::iter(events).boxed())

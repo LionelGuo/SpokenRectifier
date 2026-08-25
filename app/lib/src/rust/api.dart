@@ -9,14 +9,23 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `global`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`
+// These functions are ignored because they are not marked as `pub`: `global`, `token_scripts`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `SpeechSource`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
 
+/// Build the engine behind the bridge with the real default microphone:
+/// capture + VAD as the ASR provider (speech activity, silence semantics,
+/// device-failure feedback), a scripted cycling LLM, and a recording
+/// inserter. Session semantics (passage mode, silence thresholds) load
+/// from the `[engine]` section of the layered config files. Idempotent: a
+/// second call is a no-op.
+Future<void> createEngine({required List<String> llmResponses}) =>
+    RustLib.instance.api.crateApiCreateEngine(llmResponses: llmResponses);
+
 /// Build the engine behind the bridge with all-fake collaborators.
-/// `llm_responses` queues one scripted rectify response per entry (streamed
-/// in small chunks); running past the queue fails the session with an Error
-/// event, like a real provider outage. Idempotent: a second call is a no-op.
+/// `llm_responses` become the scripted rectify responses (streamed in small
+/// chunks), repeating forever — the demo host never runs dry no matter how
+/// many sessions or rerolls come. Idempotent: a second call is a no-op.
 Future<void> createFakeEngine({required List<String> llmResponses}) =>
     RustLib.instance.api.crateApiCreateFakeEngine(llmResponses: llmResponses);
 
@@ -77,6 +86,8 @@ sealed class BridgeEvent with _$BridgeEvent {
   const factory BridgeEvent.liveTranscriptUpdated({required String text}) =
       BridgeEvent_LiveTranscriptUpdated;
   const factory BridgeEvent.paragraphMarked() = BridgeEvent_ParagraphMarked;
+  const factory BridgeEvent.speechActivityChanged({required bool speaking}) =
+      BridgeEvent_SpeechActivityChanged;
   const factory BridgeEvent.rectifiedTextChunk({required String delta}) =
       BridgeEvent_RectifiedTextChunk;
   const factory BridgeEvent.previewTextUpdated({required String text}) =

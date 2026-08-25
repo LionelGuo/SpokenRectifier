@@ -12,6 +12,9 @@ class FakeGateway implements SpeechEngineGateway {
   final commands = <String>[];
   final said = <String>[];
 
+  /// When set, the next startSession throws this (e.g. no microphone).
+  Object? failNextStart;
+
   final _events = StreamController<BridgeEventEnvelope>.broadcast();
   int _seq = 0;
   BridgeSessionState _state = BridgeSessionState.idle;
@@ -44,6 +47,11 @@ class FakeGateway implements SpeechEngineGateway {
   @override
   Future<void> startSession() async {
     commands.add('startSession');
+    if (failNextStart != null) {
+      final failure = failNextStart;
+      failNextStart = null;
+      throw failure!;
+    }
     _transition(BridgeSessionState.recording);
   }
 

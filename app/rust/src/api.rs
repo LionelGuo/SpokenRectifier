@@ -6,10 +6,11 @@
 //! from the engine's own types so the engine can evolve without breaking
 //! the Dart side.
 //!
-//! The engine is built with all-fake collaborators (scripted ASR fed by
-//! `fake_say` / `fake_silence`, scripted LLM responses passed to
-//! `create_fake_engine`, recording inserter), so the shell drives the whole
-//! interaction with no microphone, network, or target window.
+//! Two engine flavors: `create_engine` wires the real default microphone
+//! (capture + VAD as the ASR provider; session semantics from the
+//! `[engine]` config section) with a scripted cycling LLM and a recording
+//! inserter, while `create_fake_engine` keeps the all-fake setup (scripted
+//! speech via `fake_say` / `fake_silence`) for tests and headless demos.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -18,11 +19,13 @@ use tokio::runtime::Runtime;
 
 use crate::frb_generated::StreamSink;
 
+use spokenrectifier_audio::{MicVadAsr, VadConfig};
 use spokenrectifier_engine::fakes::{
     AsrFeed, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedLlm,
 };
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState, Style,
+    TokioClock,
 };
 
 // -- wire types ---------------------------------------------------------------
@@ -69,6 +72,9 @@ pub enum BridgeEvent {
         text: String,
     },
     ParagraphMarked,
+    SpeechActivityChanged {
+        speaking: bool,
+    },
     RectifiedTextChunk {
         delta: String,
     },
@@ -150,6 +156,9 @@ impl From<EngineEvent> for BridgeEvent {
                 BridgeEvent::LiveTranscriptUpdated { text }
             }
             EngineEvent::ParagraphMarked => BridgeEvent::ParagraphMarked,
+            EngineEvent::SpeechActivityChanged { speaking } => {
+                BridgeEvent::SpeechActivityChanged { speaking }
+            }
             EngineEvent::RectifiedTextChunk { delta } => BridgeEvent::RectifiedTextChunk { delta },
             EngineEvent::PreviewTextUpdated { text } => BridgeEvent::PreviewTextUpdated { text },
             EngineEvent::TextInserted { text } => BridgeEvent::TextInserted { text },
@@ -171,24 +180,80 @@ impl From<EventEnvelope> for BridgeEventEnvelope {
 
 // -- bridge state --------------------------------------------------------------
 
+/// Where speech comes from for the current engine.
+enum SpeechSource {
+    /// Scripted speech through `fake_say` / `fake_silence`.
+    Fake {
+        scripter: ChannelScripter,
+        feed: Mutex<Option<AsrFeed>>,
+    },
+    /// The real default microphone, through capture + VAD.
+    Mic,
+}
+
 struct Global {
     rt: Runtime,
     engine: Engine,
-    scripter: ChannelScripter,
+    source: SpeechSource,
     inserter: std::sync::Arc<FakeInserter>,
-    /// Feed of the currently open fake ASR session, if recording.
-    feed: Mutex<Option<AsrFeed>>,
 }
 
 static GLOBAL: OnceLock<Global> = OnceLock::new();
 
 fn global() -> anyhow::Result<&'static Global> {
-    GLOBAL
-        .get()
-        .ok_or_else(|| anyhow!("engine not created yet; call create_fake_engine first"))
+    GLOBAL.get().ok_or_else(|| {
+        anyhow!("engine not created yet; call create_engine or create_fake_engine first")
+    })
 }
 
 // -- api ------------------------------------------------------------------------
+
+/// Chunk a text into scripted token deltas, mirroring how a real LLM
+/// streams: a few characters at a time.
+fn token_scripts(llm_responses: &[String]) -> Vec<Vec<LlmStep>> {
+    llm_responses
+        .iter()
+        .map(|text| {
+            let chars: Vec<char> = text.chars().collect();
+            chars
+                .chunks(4)
+                .map(|chunk| LlmStep::Token(chunk.iter().collect()))
+                .collect()
+        })
+        .collect()
+}
+
+/// Build the engine behind the bridge with the real default microphone:
+/// capture + VAD as the ASR provider (speech activity, silence semantics,
+/// device-failure feedback), a scripted cycling LLM, and a recording
+/// inserter. Session semantics (passage mode, silence thresholds) load
+/// from the `[engine]` section of the layered config files. Idempotent: a
+/// second call is a no-op.
+pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
+    if GLOBAL.get().is_some() {
+        return Ok(());
+    }
+    let config = engine_config_from_dir(&std::env::current_dir()?)?;
+    let asr = std::sync::Arc::new(MicVadAsr::new(VadConfig::default()));
+    let llm = ScriptedLlm::new_cycling(token_scripts(&llm_responses));
+    let inserter = FakeInserter::new();
+    let engine = Engine::new(
+        config,
+        EngineDeps {
+            asr,
+            llm,
+            inserter: inserter.clone(),
+            clock: std::sync::Arc::new(TokioClock::new()),
+        },
+    );
+    let _ = GLOBAL.set(Global {
+        rt: Runtime::new()?,
+        engine,
+        source: SpeechSource::Mic,
+        inserter,
+    });
+    Ok(())
+}
 
 /// Build the engine behind the bridge with all-fake collaborators.
 /// `llm_responses` become the scripted rectify responses (streamed in small
@@ -198,18 +263,8 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     if GLOBAL.get().is_some() {
         return Ok(());
     }
-    let scripts: Vec<Vec<LlmStep>> = llm_responses
-        .iter()
-        .map(|text| {
-            let chars: Vec<char> = text.chars().collect();
-            chars
-                .chunks(4)
-                .map(|chunk| LlmStep::Token(chunk.iter().collect()))
-                .collect()
-        })
-        .collect();
     let (asr, scripter) = ChannelAsr::new();
-    let llm = ScriptedLlm::new_cycling(scripts);
+    let llm = ScriptedLlm::new_cycling(token_scripts(&llm_responses));
     let inserter = FakeInserter::new();
     let engine = Engine::new(
         EngineConfig::default(),
@@ -223,9 +278,11 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     let _ = GLOBAL.set(Global {
         rt: Runtime::new()?,
         engine,
-        scripter,
+        source: SpeechSource::Fake {
+            scripter,
+            feed: Mutex::new(None),
+        },
         inserter,
-        feed: Mutex::new(None),
     });
     Ok(())
 }
@@ -235,8 +292,10 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
 pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
     let g = global()?;
     // Ending a session also ends its fake speech feed.
-    if matches!(command, BridgeCommand::StopSession | BridgeCommand::Cancel) {
-        *g.feed.lock().unwrap() = None;
+    if let SpeechSource::Fake { feed, .. } = &g.source {
+        if matches!(command, BridgeCommand::StopSession | BridgeCommand::Cancel) {
+            *feed.lock().unwrap() = None;
+        }
     }
     g.rt.block_on(g.engine.execute(command.into()))?;
     Ok(())
@@ -277,15 +336,24 @@ pub fn subscribe(sink: StreamSink<BridgeEventEnvelope>) -> anyhow::Result<()> {
 /// feed it. Call before `execute(BridgeCommand::StartSession)`.
 pub fn fake_begin_session() -> anyhow::Result<()> {
     let g = global()?;
-    *g.feed.lock().unwrap() = Some(g.scripter.begin_session());
+    let SpeechSource::Fake { scripter, feed } = &g.source else {
+        return Err(anyhow!(
+            "engine is in microphone mode; fake speech is unavailable"
+        ));
+    };
+    *feed.lock().unwrap() = Some(scripter.begin_session());
     Ok(())
 }
 
 /// Feed one scripted phrase (partial, then final) into the open session.
 pub fn fake_say(text: String) -> anyhow::Result<()> {
     let g = global()?;
-    let feed = g
-        .feed
+    let SpeechSource::Fake { feed, .. } = &g.source else {
+        return Err(anyhow!(
+            "engine is in microphone mode; fake speech is unavailable"
+        ));
+    };
+    let feed = feed
         .lock()
         .unwrap()
         .clone()
@@ -298,8 +366,12 @@ pub fn fake_say(text: String) -> anyhow::Result<()> {
 /// session.
 pub fn fake_silence(elapsed_ms: u64) -> anyhow::Result<()> {
     let g = global()?;
-    let feed = g
-        .feed
+    let SpeechSource::Fake { feed, .. } = &g.source else {
+        return Err(anyhow!(
+            "engine is in microphone mode; fake speech is unavailable"
+        ));
+    };
+    let feed = feed
         .lock()
         .unwrap()
         .clone()
@@ -307,6 +379,10 @@ pub fn fake_silence(elapsed_ms: u64) -> anyhow::Result<()> {
     g.rt.block_on(feed.silence(elapsed_ms));
     Ok(())
 }
+
+// -- engine config ----------------------------------------------------------------
+
+use crate::engine_config::engine_config_from_dir;
 
 #[cfg(test)]
 mod tests {
@@ -415,16 +491,15 @@ mod tests {
             ));
 
             execute(BridgeCommand::StopSession).unwrap();
-            let outcome = block_on(wait_for(
-                &mut rx,
-                |event| {
-                    matches!(
-                        event,
-                        EngineEvent::SessionStateChanged { to: SessionState::Preview, .. }
-                            | EngineEvent::Error { .. }
-                    )
-                },
-            ));
+            let outcome = block_on(wait_for(&mut rx, |event| {
+                matches!(
+                    event,
+                    EngineEvent::SessionStateChanged {
+                        to: SessionState::Preview,
+                        ..
+                    } | EngineEvent::Error { .. }
+                )
+            }));
             if let EngineEvent::Error { message } = outcome.event {
                 panic!("session {session} failed after stop: {message}");
             }
@@ -481,6 +556,7 @@ mod tests {
                 text: "你好".into(),
             },
             EngineEvent::ParagraphMarked,
+            EngineEvent::SpeechActivityChanged { speaking: true },
             EngineEvent::RectifiedTextChunk {
                 delta: "好".into()
             },

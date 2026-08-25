@@ -6,6 +6,16 @@
 # Everything below is optional: omit a file (or any field) and the built-in
 # defaults apply. Local values win over shared ones, field by field.
 
+# Recording session semantics (read by the app's engine assembly).
+# passage_mode = true  : long pauses only mark paragraph boundaries; the
+#                        session ends on the explicit stop hotkey only.
+# passage_mode = false : a pause of session_end_silence_ms auto-ends the
+#                        session (short-content mode).
+[engine]
+passage_mode = true
+paragraph_silence_ms = 1200
+session_end_silence_ms = 3000
+
 # Cloud ASR provider (Aliyun qwen3-asr-flash-realtime, pay-as-you-go).
 # Schema lands with the ASR adapter work.
 [asr.aliyun]

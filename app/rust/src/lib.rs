@@ -2,6 +2,7 @@
 //! compiled as the cdylib the app loads (see `api.rs` for the surface).
 
 mod api;
+mod engine_config;
 
 pub use api::*;
 

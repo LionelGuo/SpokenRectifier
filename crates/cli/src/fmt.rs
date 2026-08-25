@@ -8,6 +8,13 @@ pub fn fmt_event(event: &EngineEvent) -> String {
         EngineEvent::SessionStateChanged { from, to } => format!("state {from} -> {to}"),
         EngineEvent::LiveTranscriptUpdated { text } => format!("live {text:?}"),
         EngineEvent::ParagraphMarked => "paragraph marked".to_string(),
+        EngineEvent::SpeechActivityChanged { speaking } => {
+            if *speaking {
+                "speech started".to_string()
+            } else {
+                "speech ended".to_string()
+            }
+        }
         EngineEvent::RectifiedTextChunk { delta } => format!("chunk {delta:?}"),
         EngineEvent::PreviewTextUpdated { text } => format!("preview -> {text:?}"),
         EngineEvent::TextInserted { text } => format!("inserted {text:?}"),

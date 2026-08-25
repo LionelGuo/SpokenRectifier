@@ -158,7 +158,10 @@ mod tests {
         assert_eq!(config.light_touch_max_chars, 40);
         assert_eq!(config.model.model, "deepseek-v4-flash");
         assert_eq!(config.model.vendor, Vendor::DeepSeek);
-        assert_eq!(config.model.api_key_env.as_deref(), Some("DEEPSEEK_API_KEY"));
+        assert_eq!(
+            config.model.api_key_env.as_deref(),
+            Some("DEEPSEEK_API_KEY")
+        );
     }
 
     #[test]

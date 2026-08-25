@@ -59,6 +59,9 @@ pub enum EngineEvent {
     LiveTranscriptUpdated { text: String },
     /// A silence long enough to mark a paragraph boundary (passage mode).
     ParagraphMarked,
+    /// The user started / stopped speaking per VAD. Only flows while
+    /// recording; the shell mirrors it into the orb's speaking state.
+    SpeechActivityChanged { speaking: bool },
     /// An incremental piece of the rectified text.
     RectifiedTextChunk { delta: String },
     /// The preview text changed because of user edits.

@@ -16,7 +16,7 @@ import 'app_root.dart' show SpokenRectifierApp, orbWindowSize, windowSizeFor;
 import 'app_state.dart';
 import 'gateway.dart';
 import 'sample_speech.dart';
-import 'src/rust/api.dart' show BridgeSessionState, createFakeEngine;
+import 'src/rust/api.dart' show BridgeSessionState, createEngine;
 import 'src/rust/frb_generated.dart' show RustLib;
 
 const _toggleOrbKey = 'toggle-orb';
@@ -42,13 +42,12 @@ Future<void> main() async {
   });
 
   await RustLib.init();
-  await createFakeEngine(llmResponses: sampleRectified);
+  // Real default microphone (capture + VAD) as the speech source; the
+  // rectify responses stay scripted until the real-LLM wiring lands.
+  await createEngine(llmResponses: sampleRectified);
   await TrayManager.instance.setIcon('assets/tray_icon.ico');
 
-  final controller = SpeechController(
-    gateway: RustSpeechEngineGateway(),
-    scriptedPhrases: sampleUtterance,
-  );
+  final controller = SpeechController(gateway: RustSpeechEngineGateway());
 
   await _installHotkey(controller);
 

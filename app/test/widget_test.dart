@@ -47,9 +47,10 @@ void main() {
     await tester.tap(find.byIcon(Icons.mic_none));
     await tester.pump(const Duration(milliseconds: 350));
 
-    expect(gateway.commands, containsAll(['fakeBeginSession', 'startSession']));
+    // No scripted phrases: the mic-mode engine needs no fake session armed.
+    expect(gateway.commands, ['startSession']);
     expect(controller.phase, BridgeSessionState.recording);
-    expect(find.byIcon(Icons.mic), findsOneWidget);
+    expect(find.byIcon(Icons.mic_off), findsOneWidget);
   });
 
   testWidgets('live transcript streams into the expanded panel', (
@@ -59,8 +60,8 @@ void main() {
     final controller = await pumpController(tester, gateway);
 
     await pumpToRecording(tester, controller);
-    // Tap the pulsing orb to expand the panel.
-    await tester.tap(find.byIcon(Icons.mic));
+    // Tap the (silent) recording orb to expand the panel.
+    await tester.tap(find.byIcon(Icons.mic_off));
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.byKey(const Key('live-transcript')), findsOneWidget);
 
@@ -68,6 +69,63 @@ void main() {
     await tester.pump();
     expect(find.text('你好\n世界'), findsOneWidget);
     expect(find.textContaining('段落 0'), findsOneWidget);
+  });
+
+  testWidgets('speech activity drives the orb and panel speaking state', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    expect(find.byIcon(Icons.mic_off), findsOneWidget);
+    expect(controller.speaking, isFalse);
+
+    gateway.emit(const BridgeEvent.speechActivityChanged(speaking: true));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.speaking, isTrue);
+    expect(find.byIcon(Icons.mic), findsOneWidget);
+    expect(find.byIcon(Icons.mic_off), findsNothing);
+
+    gateway.emit(const BridgeEvent.speechActivityChanged(speaking: false));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.speaking, isFalse);
+    expect(find.byIcon(Icons.mic_off), findsOneWidget);
+
+    // The panel header mirrors the state too.
+    controller.togglePanel();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.textContaining('静音'), findsOneWidget);
+  });
+
+  testWidgets('a failed start surfaces the error and stays idle', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()..failNextStart = Exception('no default input device');
+    final controller = await pumpController(tester, gateway);
+
+    await controller.startSession();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(controller.phase, BridgeSessionState.idle);
+    expect(controller.lastError, contains('no default input device'));
+    expect(find.byKey(const Key('error-flash')), findsOneWidget);
+  });
+
+  testWidgets('a new session resets the speaking flag', (tester) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    gateway.emit(const BridgeEvent.speechActivityChanged(speaking: true));
+    await tester.pump();
+    expect(controller.speaking, isTrue);
+
+    await controller.cancelSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    await controller.startSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.speaking, isFalse);
   });
 
   testWidgets('stop streams chunks into preview, Enter confirms, back to orb', (

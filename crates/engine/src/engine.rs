@@ -75,6 +75,12 @@ struct Session {
     partial: String,
     /// Whether the current silence run already emitted a paragraph mark.
     paragraph_marked_current_silence: bool,
+    /// Speech happened since the last paragraph mark (VAD activity or
+    /// transcript events) — the next threshold silence closes a paragraph.
+    speech_since_mark: bool,
+    /// Any speech at all this session. A session with none is discarded on
+    /// stop/auto-end instead of rectifying an empty utterance.
+    any_speech: bool,
     /// Raw transcript frozen when recording ended.
     frozen: Option<FrozenUtterance>,
     /// The rectified text as it will be inserted (possibly user-edited).
@@ -188,6 +194,8 @@ impl Engine {
                 current_paragraph: String::new(),
                 partial: String::new(),
                 paragraph_marked_current_silence: false,
+                speech_since_mark: false,
+                any_speech: false,
                 frozen: None,
                 preview_text: String::new(),
                 asr_cancel: CancellationToken::new(),
@@ -319,9 +327,9 @@ impl Inner {
     fn emit_stream_event(&self, st: &mut SharedState, sid: SessionId, event: EngineEvent) {
         let session_current = session_matches(st, sid);
         let allowed = match &event {
-            EngineEvent::LiveTranscriptUpdated { .. } | EngineEvent::ParagraphMarked => {
-                st.state == SessionState::Recording
-            }
+            EngineEvent::LiveTranscriptUpdated { .. }
+            | EngineEvent::ParagraphMarked
+            | EngineEvent::SpeechActivityChanged { .. } => st.state == SessionState::Recording,
             EngineEvent::RectifiedTextChunk { .. } => st.state == SessionState::Rectifying,
             EngineEvent::PreviewTextUpdated { .. } => st.state == SessionState::Preview,
             _ => true,
@@ -362,6 +370,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
         let Some(session) = st.session.as_mut() else {
             return;
         };
+        let sid = session.id;
         let (cancel, request) = match state {
             SessionState::Recording => {
                 session.asr_cancel.cancel();
@@ -375,6 +384,12 @@ fn begin_rectify(inner: &Arc<Inner>) {
                     paragraphs.push(current);
                 }
                 let raw_transcript = paragraphs.join("\n");
+                if raw_transcript.is_empty() && !session.any_speech {
+                    // A speechless session (noise only, nothing recognized):
+                    // discard it rather than rectify an empty utterance.
+                    inner.finish_session(&mut st, sid, SessionState::Cancelled);
+                    return;
+                }
                 session.frozen = Some(FrozenUtterance {
                     raw_transcript: raw_transcript.clone(),
                     paragraphs: paragraphs.clone(),
@@ -408,7 +423,6 @@ fn begin_rectify(inner: &Arc<Inner>) {
             }
             _ => return,
         };
-        let sid = session.id;
         inner.transition(&mut st, sid, SessionState::Rectifying);
         (sid, cancel, request)
     };
@@ -459,6 +473,8 @@ async fn consume_asr(
                         // Interim speech still disarms the silence-run flag:
                         // the user resumed talking.
                         session.paragraph_marked_current_silence = false;
+                        session.speech_since_mark = true;
+                        session.any_speech = true;
                         let live = session.live_text();
                         inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
                     }
@@ -466,20 +482,24 @@ async fn consume_asr(
                         session.partial.clear();
                         session.current_paragraph.push_str(&text);
                         session.paragraph_marked_current_silence = false;
+                        session.speech_since_mark = true;
+                        session.any_speech = true;
                         let live = session.live_text();
                         inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
                     }
                     AsrEvent::Silence { elapsed_ms } => {
                         if inner.config.passage_mode {
-                            // Only mark a paragraph when there is finalized
-                            // speech to close: silence before talking marks
-                            // nothing, and cutting mid-partial speech into a
-                            // new paragraph would be premature.
+                            // Only mark a paragraph when speech happened
+                            // since the last mark: silence before talking
+                            // marks nothing. Transcript text is not required
+                            // — until the real ASR adapter lands, VAD speech
+                            // bursts alone carry the paragraph structure.
                             if elapsed_ms >= inner.config.paragraph_silence_ms
-                                && !session.current_paragraph.is_empty()
+                                && session.speech_since_mark
                                 && !session.paragraph_marked_current_silence
                             {
                                 session.paragraph_marked_current_silence = true;
+                                session.speech_since_mark = false;
                                 if !session.current_paragraph.is_empty() {
                                     session.paragraphs.push(std::mem::take(&mut session.current_paragraph));
                                 }
@@ -491,6 +511,27 @@ async fn consume_asr(
                             begin_rectify(&inner);
                             break;
                         }
+                    }
+                    AsrEvent::SpeechActivity { speaking } => {
+                        if speaking {
+                            // The user resumed talking: re-arm the marker
+                            // even with no transcript event in between.
+                            session.paragraph_marked_current_silence = false;
+                            session.speech_since_mark = true;
+                            session.any_speech = true;
+                        }
+                        inner.emit_stream_event(
+                            &mut st,
+                            sid,
+                            EngineEvent::SpeechActivityChanged { speaking },
+                        );
+                    }
+                    AsrEvent::Failed { message } => {
+                        // e.g. the microphone vanished mid-session: end with
+                        // feedback instead of wedging in Recording.
+                        inner.emit_stream_event(&mut st, sid, EngineEvent::Error { message });
+                        inner.finish_session(&mut st, sid, SessionState::Cancelled);
+                        break;
                     }
                 }
             }

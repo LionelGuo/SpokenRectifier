@@ -19,6 +19,14 @@ pub enum AsrEvent {
     /// Cumulative silence since the last speech event (VAD). The engine
     /// compares this against its configured silence thresholds.
     Silence { elapsed_ms: u64 },
+    /// Speech activity changed per VAD: the user is talking / fell silent.
+    /// Drives the orb's speaking state and re-arms paragraph marking even
+    /// before any transcript text exists.
+    SpeechActivity { speaking: bool },
+    /// The provider failed mid-session (e.g. the microphone vanished).
+    /// The engine ends the session with feedback instead of wedging in
+    /// `Recording`.
+    Failed { message: String },
 }
 
 #[derive(Debug, thiserror::Error)]

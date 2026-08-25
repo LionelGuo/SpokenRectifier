@@ -3,6 +3,9 @@
 /// the rectifying card (streaming chunks), and the preview card
 /// (confirm on Enter / cancel on Esc).
 ///
+/// While recording, the orb and panel reflect the VAD speaking state: lit
+/// red with a live mic while talking, muted with a slashed mic in pauses.
+///
 /// Pure widgets on top of [SpeechController] — no platform channels here,
 /// so everything is widget-testable.
 
@@ -164,19 +167,25 @@ class _RecordingOrbState extends State<RecordingOrb>
 
   @override
   Widget build(BuildContext context) {
+    final speaking = widget.controller.speaking;
     return Align(
       alignment: Alignment.bottomRight,
       child: Padding(
         padding: const EdgeInsets.all(4),
         child: ScaleTransition(
           scale: Tween(
-            begin: 0.94,
-            end: 1.14,
+            begin: speaking ? 0.94 : 0.97,
+            end: speaking ? 1.14 : 1.05,
           ).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut)),
           child: _OrbShell(
-            color: const Color(0xFFB3261E),
+            color: speaking ? const Color(0xFFB3261E) : const Color(0xFF3A4A63),
             onTap: widget.controller.togglePanel,
-            child: const Icon(Icons.mic, color: Colors.white, size: 34),
+            child: Icon(
+              speaking ? Icons.mic : Icons.mic_off,
+              key: Key(speaking ? 'orb-speaking' : 'orb-silent'),
+              color: Colors.white,
+              size: 34,
+            ),
           ),
         ),
       ),
@@ -245,7 +254,10 @@ class RecordingPanel extends StatelessWidget {
             children: [
               const _RecordingDot(),
               const SizedBox(width: 8),
-              Text('录音中 · 段落 ${controller.paragraphMarks}'),
+              Text(
+                '录音中 · ${controller.speaking ? '说话中' : '静音'} · '
+                '段落 ${controller.paragraphMarks}',
+              ),
               const Spacer(),
               IconButton(
                 tooltip: '收起',

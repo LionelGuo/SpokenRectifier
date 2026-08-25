@@ -1,0 +1,13 @@
+[package]
+name = "spokenrectifier-audio"
+description = "Microphone capture and VAD: real audio in, ASR events out (the mic side of the AsrProvider seam)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+cpal = "0.15"
+futures.workspace = true
+spokenrectifier-engine = { path = "../engine" }
+tokio.workspace = true

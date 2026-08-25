@@ -55,6 +55,10 @@ class SpeechController extends ChangeNotifier {
   /// Number of paragraph marks in the current session.
   int paragraphMarks = 0;
 
+  /// Whether the user is speaking per VAD; only meaningful while recording.
+  /// Mirrors speech-activity events from the microphone pipeline.
+  bool speaking = false;
+
   /// The rectified text being previewed: streamed chunks, then user edits.
   String previewText = '';
 
@@ -95,9 +99,18 @@ class SpeechController extends ChangeNotifier {
   Future<void> startSession() async {
     lastError = null;
     lastInserted = null;
-    await gateway.fakeBeginSession();
-    await gateway.startSession();
-    _startScriptedSpeech();
+    try {
+      // Fake speech needs its session armed first; a microphone-mode engine
+      // has no fake feed (scriptedPhrases is empty there).
+      if (scriptedPhrases.isNotEmpty) {
+        await gateway.fakeBeginSession();
+      }
+      await gateway.startSession();
+      _startScriptedSpeech();
+    } catch (e) {
+      // e.g. the microphone could not be opened: show it, stay idle.
+      lastError = '无法开始录音:$e';
+    }
     notifyListeners();
   }
 
@@ -171,6 +184,7 @@ class SpeechController extends ChangeNotifier {
         if (to == BridgeSessionState.recording) {
           liveText = '';
           paragraphMarks = 0;
+          speaking = false;
           previewText = '';
           _chunkTail = '';
         } else if (to == BridgeSessionState.rectifying) {
@@ -186,6 +200,8 @@ class SpeechController extends ChangeNotifier {
         liveText = text;
       case BridgeEvent_ParagraphMarked():
         paragraphMarks += 1;
+      case BridgeEvent_SpeechActivityChanged(:final speaking):
+        this.speaking = speaking;
       case BridgeEvent_RectifiedTextChunk(:final delta):
         _chunkTail += delta;
         previewText = _chunkTail;
