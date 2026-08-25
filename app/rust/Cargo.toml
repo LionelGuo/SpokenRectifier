@@ -1,0 +1,13 @@
+[package]
+name = "rust_lib_spokenrectifier_app"
+description = "cdylib shell: links the bridge crate's flutter_rust_bridge entry points into the library the Flutter app loads."
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.13.0"
+spokenrectifier-bridge = { path = "../../crates/bridge" }

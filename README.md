@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-早期开发中。已落地:**Rust 引擎 crate(命令进、事件出的单一测试缝)与全假件确定性测试、`sr-replay` 脚本回放驱动器、修正管线(`crates/llm`:强度分档 + 保真 prompt + OpenAI 兼容流式客户端)与 `sr-rectify` 真 LLM 演示驱动器**。真实 ASR 适配器、Flutter 壳尚未开始。
+早期开发中。已落地:**Rust 引擎 crate(命令进、事件出的单一测试缝)与全假件确定性测试、`sr-replay` 脚本回放驱动器、修正管线(`crates/llm`:强度分档 + 保真 prompt + OpenAI 兼容流式客户端)与 `sr-rectify` 真 LLM 演示驱动器、Flutter 壳(`app/`:托盘 + 热键 + 悬浮球 + 预览窗,假 Provider 驱动)**。真实 ASR 适配器尚未开始。
 
 ## 布局
 
@@ -14,6 +14,8 @@
 crates/engine   核心引擎:会话状态机 + Provider trait(ASR / 修正 LLM / 插入器 / 时钟)
 crates/llm      修正管线:强度分档、prompt 组装(保真铁律/五类变换)、OpenAI 兼容流式客户端
 crates/cli      sr-replay:脚本化假会话回放;sr-rectify:canned 口语段 × 真 LLM 演示
+crates/bridge   flutter_rust_bridge 缝:引擎命令/事件流暴露给 Flutter(Bridge* 线类型)
+app/            Flutter 壳:托盘常驻、Ctrl+Alt+V 全局热键、悬浮球、预览窗(假件驱动)
 ```
 
 引擎公共 API 即测试缝:命令(`StartSession` / `StopSession` / `Cancel` / `ConfirmInsert` / `Reroll` / …)经 `Engine::execute` 进入,事件(`SessionStateChanged` / `LiveTranscriptUpdated` / `ParagraphMarked` / `RectifiedTextChunk` / …)经 `Engine::subscribe` 流出。ASR、LLM、插入器、时钟全部为可注入 trait,全部测试无需网络与真实音频设备。

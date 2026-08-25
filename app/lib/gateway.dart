@@ -1,0 +1,47 @@
+/// The Rust-backed gateway: thin wrappers over the generated
+/// flutter_rust_bridge bindings. Requires `RustLib.init()` and
+/// `createFakeEngine` to have run first (see main.dart).
+
+library;
+
+import 'src/rust/api.dart' as rust;
+
+import 'app_state.dart';
+
+class RustSpeechEngineGateway implements SpeechEngineGateway {
+  @override
+  Future<void> startSession() =>
+      rust.execute(command: rust.BridgeCommand.startSession());
+
+  @override
+  Future<void> stopSession() =>
+      rust.execute(command: rust.BridgeCommand.stopSession());
+
+  @override
+  Future<void> cancelSession() =>
+      rust.execute(command: rust.BridgeCommand.cancel());
+
+  @override
+  Future<void> confirmInsert() =>
+      rust.execute(command: rust.BridgeCommand.confirmInsert());
+
+  @override
+  Future<void> reroll() => rust.execute(command: rust.BridgeCommand.reroll());
+
+  @override
+  Future<void> updatePreviewText(String text) =>
+      rust.execute(command: rust.BridgeCommand.updatePreviewText(text: text));
+
+  @override
+  Future<void> fakeBeginSession() => rust.fakeBeginSession();
+
+  @override
+  Future<void> fakeSay(String text) => rust.fakeSay(text: text);
+
+  @override
+  Future<void> fakeSilence(int elapsedMs) =>
+      rust.fakeSilence(elapsedMs: BigInt.from(elapsedMs));
+
+  @override
+  Stream<rust.BridgeEventEnvelope> events() => rust.subscribe();
+}
