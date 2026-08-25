@@ -5,6 +5,7 @@ members = [
     "crates/audio",
     "crates/aliyun",
     "crates/cli",
+    "crates/insertion",
     "crates/llm",
     "app/rust",
 ]

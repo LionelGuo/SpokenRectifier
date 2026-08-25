@@ -15,6 +15,8 @@
 passage_mode = true
 paragraph_silence_ms = 1200
 session_end_silence_ms = 3000
+rectify_timeout_ms = 25000                  # hard cap per rectify attempt
+                                            #  (each reroll gets a fresh one)
 
 # Cloud ASR (Aliyun qwen3-asr-flash-realtime over the DashScope realtime
 # WebSocket, pay-as-you-go). With a key resolved the app streams real
@@ -30,6 +32,18 @@ api_key_env = "DASHSCOPE_API_KEY"          # or api_key in spokenrectifier.local
 # region = "cn-beijing"                    # or "ap-southeast-1" (scoped host only)
 # base_url = "wss://..."                   # full host override (everything
 #                                          #  before /api-ws/v1/realtime)
+
+# How confirmed text reaches the target window. The target is the window
+# you were typing in when the session started (the hotkey flow); editing
+# the preview hands focus to SpokenRectifier, and it is handed back
+# before the text goes out.
+[insertion]
+mode = "paste"                # paste: clipboard + Ctrl+V, restored after
+                              # typing: per-key SendInput, for apps that
+                              # block paste (slower, touches no clipboard)
+focus_settle_ms = 50          # wait after re-focusing the target
+paste_settle_ms = 250         # wait after Ctrl+V before clipboard restore
+typing_delay_ms = 8           # pause between typed characters
 
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
 # One model per mode: light-touch vs full rectify is decided by length

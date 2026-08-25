@@ -1,0 +1,25 @@
+[package]
+name = "spokenrectifier-insertion"
+description = "Real text insertion into the target window: clipboard save/replace/paste with restore, or a per-key typing fallback (glossary: 预览窗 → 目标输入框)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+serde = { version = "1", features = ["derive"] }
+spokenrectifier-engine = { path = "../engine" }
+thiserror.workspace = true
+toml = "0.8"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }

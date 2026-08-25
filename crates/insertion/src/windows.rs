@@ -1,0 +1,283 @@
+//! The Win32 [`InputOs`]: clipboard save/restore over global memory,
+//! keystrokes over `SendInput`, and the foreground window as the
+//! insertion target.
+//!
+//! Only the two-liner would be untestable here; everything with logic to
+//! it lives in the crate's OS-agnostic orchestration and is covered by the
+//! fake-driven tests.
+
+use std::sync::Mutex;
+
+use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+};
+use windows::Win32::System::Memory::{
+    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
+    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_RETURN,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+};
+
+use crate::os::{InputOs, SavedClipboard};
+
+/// The 'V' virtual-key code (layout-independent: VK codes follow the US
+/// layout, so Ctrl+V is Ctrl+V everywhere).
+const VK_V: VIRTUAL_KEY = VIRTUAL_KEY(0x56);
+
+// Standard clipboard format ids (documented Win32 constants, stable ABI;
+// declared locally so the Ole feature is not pulled in for numbers).
+const CF_DIB: u32 = 8;
+const CF_UNICODETEXT: u32 = 13;
+const CF_HDROP: u32 = 15;
+
+/// The formats preserved across a paste: text, bitmap images
+/// (screenshots), and file lists. Synthesized and exotic application
+/// formats are not — a documented boundary of the clipboard restore.
+const PRESERVED_FORMATS: [u32; 3] = [CF_UNICODETEXT, CF_DIB, CF_HDROP];
+
+pub struct Win32Os {
+    /// The remembered target window handle. Stored as `usize`: `HWND`
+    /// wraps a pointer, which is not `Send`, and the OS seam must be.
+    target: Mutex<Option<usize>>,
+}
+
+impl Win32Os {
+    pub fn new() -> Self {
+        Self {
+            target: Mutex::new(None),
+        }
+    }
+}
+
+impl Default for Win32Os {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InputOs for Win32Os {
+    fn clipboard_save(&self) -> Result<SavedClipboard, String> {
+        with_clipboard(|| {
+            let mut formats = Vec::new();
+            for format in PRESERVED_FORMATS {
+                // An absent format is not an error — most clipboards hold
+                // one format.
+                let Ok(handle) = (unsafe { GetClipboardData(format) }) else {
+                    continue;
+                };
+                let Some(bytes) = read_global(handle) else {
+                    continue;
+                };
+                formats.push((format, bytes));
+            }
+            Ok(if formats.is_empty() {
+                SavedClipboard::Empty
+            } else {
+                SavedClipboard::Formats(formats)
+            })
+        })
+    }
+
+    fn clipboard_set_text(&self, text: &str) -> Result<(), String> {
+        let mut units: Vec<u16> = text.encode_utf16().collect();
+        units.push(0); // CF_UNICODETEXT is NUL-terminated
+        let bytes =
+            unsafe { std::slice::from_raw_parts(units.as_ptr().cast::<u8>(), units.len() * 2) };
+        with_clipboard(|| {
+            win_call(unsafe { EmptyClipboard() }, "EmptyClipboard")?;
+            let handle = write_global(bytes)?;
+            let placed = unsafe { SetClipboardData(CF_UNICODETEXT, Some(HANDLE(handle.0))) };
+            if let Err(err) = placed {
+                // The system did not take ownership of the block, so it is
+                // ours to free — but windows-rs prunes GlobalFree. Leak the
+                // one small block instead of reaching for undocumented
+                // equivalents; this path needs SetClipboardData itself to
+                // fail, which is nearer to unreachable than to rare.
+                return Err(format!("SetClipboardData failed: {err}"));
+            }
+            Ok(())
+        })
+    }
+
+    fn clipboard_restore(&self, saved: SavedClipboard) -> Result<(), String> {
+        let formats = match saved {
+            SavedClipboard::Empty => Vec::new(),
+            SavedClipboard::Formats(formats) => formats,
+        };
+        with_clipboard(|| {
+            win_call(unsafe { EmptyClipboard() }, "EmptyClipboard")?;
+            for (format, bytes) in formats {
+                let handle = write_global(&bytes)?;
+                if let Err(err) = unsafe { SetClipboardData(format, Some(HANDLE(handle.0))) } {
+                    // See clipboard_set_text for the deliberate leak.
+                    return Err(format!("SetClipboardData failed: {err}"));
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn note_target(&self) {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd.is_invalid() {
+            return;
+        }
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+        if pid == std::process::id() {
+            // Our own window is foreground (the session started from a
+            // click on the orb, not the hotkey): remembering it would make
+            // us our own insertion target.
+            return;
+        }
+        *self.target.lock().unwrap() = Some(hwnd.0 as usize);
+    }
+
+    fn activate_target(&self) -> bool {
+        let Some(handle) = *self.target.lock().unwrap() else {
+            return false;
+        };
+        let hwnd = HWND(handle as *mut core::ffi::c_void);
+        // Handing foreground away is permitted while we hold it (the
+        // preview window had focus for editing). A refused call leaves
+        // the current foreground alone, which the paste flow tolerates.
+        unsafe { SetForegroundWindow(hwnd) }.as_bool()
+    }
+
+    fn send_paste(&self) -> Result<(), String> {
+        send_inputs(&[
+            key_input(VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
+            key_input(VK_V, KEYBD_EVENT_FLAGS(0)),
+            key_input(VK_V, KEYEVENTF_KEYUP),
+            key_input(VK_CONTROL, KEYEVENTF_KEYUP),
+        ])
+    }
+
+    fn send_char(&self, ch: char) -> Result<(), String> {
+        // One down/up pair per UTF-16 unit: non-BMP characters arrive as
+        // a surrogate pair the system reassembles.
+        let mut buffer = [0u16; 2];
+        let units: Vec<u16> = ch.encode_utf16(&mut buffer).to_vec();
+        let mut inputs = Vec::with_capacity(units.len() * 2);
+        for unit in units {
+            inputs.push(unicode_input(unit, KEYEVENTF_UNICODE));
+            inputs.push(unicode_input(unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+        }
+        send_inputs(&inputs)
+    }
+
+    fn send_enter(&self) -> Result<(), String> {
+        send_inputs(&[
+            key_input(VK_RETURN, KEYBD_EVENT_FLAGS(0)),
+            key_input(VK_RETURN, KEYEVENTF_KEYUP),
+        ])
+    }
+
+    fn wait_ms(&self, ms: u64) {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+}
+
+// -- clipboard plumbing ------------------------------------------------------
+
+/// Run `body` with the clipboard open, retrying briefly: the clipboard is
+/// a shared resource another app may be holding.
+fn with_clipboard<T>(body: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    for attempt in 0..8 {
+        if unsafe { OpenClipboard(None) }.is_ok() {
+            let result = body();
+            unsafe { CloseClipboard() }.ok();
+            return result;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25 * (attempt + 1)));
+    }
+    Err("the clipboard stayed busy (another app holds it)".into())
+}
+
+/// Map a fallible Win32 call to a `String` error, naming the API.
+fn win_call<T>(result: windows::core::Result<T>, api: &str) -> Result<T, String> {
+    result.map_err(|err| format!("{api} failed: {err}"))
+}
+
+/// Copy a global-memory block owned by someone else into a Vec.
+fn read_global(handle: HANDLE) -> Option<Vec<u8>> {
+    let global = HGLOBAL(handle.0);
+    let size = unsafe { GlobalSize(global) };
+    if size == 0 {
+        return None;
+    }
+    let src = unsafe { GlobalLock(global) };
+    if src.is_null() {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(src.cast::<u8>(), size) }.to_vec();
+    unsafe { GlobalUnlock(global) }.ok();
+    Some(bytes)
+}
+
+/// Copy `bytes` into a fresh global-memory block ready for
+/// `SetClipboardData`.
+fn write_global(bytes: &[u8]) -> Result<HGLOBAL, String> {
+    let handle = win_call(
+        unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes.len()) },
+        "GlobalAlloc",
+    )?;
+    let dst = unsafe { GlobalLock(handle) };
+    if dst.is_null() {
+        // windows-rs prunes GlobalFree; the empty GlobalAlloc failure block
+        // leaks rather than reaches for undocumented equivalents.
+        return Err("GlobalLock failed".into());
+    }
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst.cast::<u8>(), bytes.len()) };
+    unsafe { GlobalUnlock(handle) }.ok();
+    Ok(handle)
+}
+
+// -- keystrokes ---------------------------------------------------------------
+
+fn key_input(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+fn unicode_input(unit: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(0),
+                wScan: unit,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+fn send_inputs(inputs: &[INPUT]) -> Result<(), String> {
+    let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent == inputs.len() as u32 {
+        Ok(())
+    } else {
+        Err(format!(
+            "SendInput delivered {sent} of {} events",
+            inputs.len()
+        ))
+    }
+}

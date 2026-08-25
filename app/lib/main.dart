@@ -42,12 +42,18 @@ Future<void> main() async {
   });
 
   await RustLib.init();
-  // Real default microphone (capture + VAD) as the speech source; the
-  // rectify responses stay scripted until the real-LLM wiring lands.
-  await createEngine(llmResponses: sampleRectified);
-  await TrayManager.instance.setIcon('assets/tray_icon.ico');
-
+  // Real default microphone (capture + VAD) as the speech source; real
+  // rectify LLM and real insertion when the config keys resolve, with the
+  // scripted responses as the pure-demo fallback.
   final controller = SpeechController(gateway: RustSpeechEngineGateway());
+  try {
+    await createEngine(llmResponses: sampleRectified);
+  } catch (e) {
+    // e.g. an ASR key without an LLM key: keep the app alive and show the
+    // problem instead of failing the launch with a dead window.
+    controller.reportStartupError('初始化失败:$e');
+  }
+  await TrayManager.instance.setIcon('assets/tray_icon.ico');
 
   await _installHotkey(controller);
 

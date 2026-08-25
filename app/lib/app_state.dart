@@ -128,6 +128,13 @@ class SpeechController extends ChangeNotifier {
 
   Future<void> confirmInsert() => gateway.confirmInsert();
 
+  /// Surface a startup failure (engine assembly refused to run) the same
+  /// way session errors surface, keeping the shell alive to show it.
+  void reportStartupError(String message) {
+    lastError = message;
+    notifyListeners();
+  }
+
   Future<void> reroll() => gateway.reroll();
 
   Future<void> updatePreviewText(String text) =>

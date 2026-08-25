@@ -333,4 +333,34 @@ void main() {
     );
     await controller.cancelSession();
   });
+
+  testWidgets('the raw transcript comparison expands under the rectified text',
+      (tester) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    gateway.emit(const BridgeEvent.liveTranscriptUpdated(text: '嗯那个\n原话'));
+    await tester.pump();
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['整理好的书面文本']);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // Hidden until asked; the rectified editor is always there.
+    expect(find.byKey(const Key('raw-transcript')), findsNothing);
+    expect(find.byKey(const Key('preview-field')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('preview-raw-toggle')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byKey(const Key('preview-field')), findsOneWidget);
+    expect(find.text('原始转写'), findsOneWidget);
+    expect(find.text('嗯那个\n原话'), findsOneWidget);
+
+    // Toggling again hides the comparison; the edit flow is unaffected.
+    await tester.tap(find.byKey(const Key('preview-raw-toggle')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byKey(const Key('raw-transcript')), findsNothing);
+    expect(controller.previewText, '整理好的书面文本');
+  });
 }

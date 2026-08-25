@@ -3,6 +3,7 @@
 
 mod api;
 mod engine_config;
+mod engine_factory;
 
 pub use api::*;
 

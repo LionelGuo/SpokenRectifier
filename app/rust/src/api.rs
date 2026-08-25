@@ -9,12 +9,14 @@
 //! Two engine flavors: `create_engine` wires the real default microphone
 //! with, when the `[asr]` config yields a key, the Aliyun realtime
 //! adapter streaming real transcripts (otherwise the mic+VAD provider's
-//! session semantics alone; `[engine]` config section for either), a
-//! scripted cycling LLM and a recording inserter, while
+//! session semantics alone), the real rectify LLM when `[llm]` yields a
+//! key (a scripted cycling demo LLM otherwise, but never under a real
+//! ASR key — see `engine_factory`), and the production inserter
+//! (clipboard paste or typing at the remembered target window), while
 //! `create_fake_engine` keeps the all-fake setup (scripted speech via
 //! `fake_say` / `fake_silence`) for tests and headless demos.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::anyhow;
 use tokio::runtime::Runtime;
@@ -28,9 +30,11 @@ use spokenrectifier_engine::fakes::{
 };
 use spokenrectifier_engine::AsrProvider;
 use spokenrectifier_engine::{
-    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState, Style,
-    TokioClock,
+    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, RectifyLlm,
+    SessionState, Style, TokioClock,
 };
+
+use crate::engine_factory::{app_llm_choice, app_production_inserter, LlmChoice};
 
 // -- wire types ---------------------------------------------------------------
 
@@ -199,7 +203,16 @@ struct Global {
     rt: Runtime,
     engine: Engine,
     source: SpeechSource,
-    inserter: std::sync::Arc<FakeInserter>,
+    inserter: InserterSlot,
+}
+
+/// The real engine's inserter: the production one remembers the target
+/// window (the fake engine's needs no target).
+enum InserterSlot {
+    /// Demo introspection: everything the fake inserter received.
+    Fake(Arc<FakeInserter>),
+    /// Real insertion at the remembered target window.
+    Real(Arc<spokenrectifier_insertion::TargetInserter>),
 }
 
 static GLOBAL: OnceLock<Global> = OnceLock::new();
@@ -231,31 +244,40 @@ fn token_scripts(llm_responses: &[String]) -> Vec<Vec<LlmStep>> {
 /// and, when the `[asr]` config yields an API key, the Aliyun realtime
 /// adapter streaming real transcripts. Without a key the mic+VAD provider
 /// keeps the session semantics (speech activity, silence, device
-/// failure). A scripted cycling LLM and a recording inserter complete the
-/// assembly. Session semantics load from the `[engine]` section of the
-/// layered config files. Idempotent: a second call is a no-op.
+/// failure). The rectify LLM is the real OpenAI-compatible client when
+/// `[llm]` yields a key; the scripted demo LLM otherwise — but that
+/// combination is refused under a real ASR key (see `engine_factory`).
+/// Insertion is the production inserter (clipboard paste with restore, or
+/// typing per the `[insertion]` config). Session semantics load from the
+/// `[engine]` section of the layered config files. Idempotent: a second
+/// call is a no-op.
 pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     if GLOBAL.get().is_some() {
         return Ok(());
     }
     let config = engine_config()?;
     let asr = asr_provider()?;
-    let llm = ScriptedLlm::new_cycling(token_scripts(&llm_responses));
-    let inserter = FakeInserter::new();
+    let llm: Arc<dyn RectifyLlm> = match app_llm_choice()? {
+        LlmChoice::Real(llm) => llm,
+        LlmChoice::ScriptedDemo => ScriptedLlm::new_cycling(token_scripts(&llm_responses)),
+    };
+    let inserter = app_production_inserter()?;
     let engine = Engine::new(
         config,
         EngineDeps {
             asr,
             llm,
+            // The same instance the slot holds, so `note_target` on
+            // StartSession arms the very inserter ConfirmInsert runs.
             inserter: inserter.clone(),
-            clock: std::sync::Arc::new(TokioClock::new()),
+            clock: Arc::new(TokioClock::new()),
         },
     );
     let _ = GLOBAL.set(Global {
         rt: Runtime::new()?,
         engine,
         source: SpeechSource::Mic,
-        inserter,
+        inserter: InserterSlot::Real(inserter),
     });
     Ok(())
 }
@@ -305,7 +327,7 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
             scripter,
             feed: Mutex::new(None),
         },
-        inserter,
+        inserter: InserterSlot::Fake(inserter),
     });
     Ok(())
 }
@@ -314,6 +336,14 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
 /// commands (wrong state); asynchronous outcomes arrive on the event stream.
 pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
     let g = global()?;
+    // Starting a session remembers the window the user was typing in, so
+    // ConfirmInsert can bring it back before pasting (the preview window
+    // takes the focus while its field is edited).
+    if matches!(command, BridgeCommand::StartSession) {
+        if let InserterSlot::Real(inserter) = &g.inserter {
+            inserter.note_target();
+        }
+    }
     // Ending a session also ends its fake speech feed.
     if let SpeechSource::Fake { feed, .. } = &g.source {
         if matches!(command, BridgeCommand::StopSession | BridgeCommand::Cancel) {
@@ -330,8 +360,15 @@ pub fn state() -> anyhow::Result<BridgeSessionState> {
 }
 
 /// Everything the fake inserter received, in order (demo introspection).
+/// The production inserter does not record; insertion outcomes arrive on
+/// the event stream instead (`TextInserted` / `Error`).
 pub fn inserted_texts() -> anyhow::Result<Vec<String>> {
-    Ok(global()?.inserter.inserted_texts())
+    match &global()?.inserter {
+        InserterSlot::Fake(fake) => Ok(fake.inserted_texts()),
+        InserterSlot::Real(_) => Err(anyhow!(
+            "the production inserter does not record inserted texts"
+        )),
+    }
 }
 
 /// Subscribe the Dart side to the engine's event stream. Each call spawns

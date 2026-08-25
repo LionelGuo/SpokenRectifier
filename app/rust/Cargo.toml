@@ -16,6 +16,8 @@ toml = "0.8"
 spokenrectifier-aliyun = { path = "../../crates/aliyun" }
 spokenrectifier-audio = { path = "../../crates/audio" }
 spokenrectifier-engine = { path = "../../crates/engine" }
+spokenrectifier-insertion = { path = "../../crates/insertion" }
+spokenrectifier-llm = { path = "../../crates/llm" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time", "rt-multi-thread"] }
 
 [lints.rust]

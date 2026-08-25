@@ -355,6 +355,11 @@ fn session_matches(st: &SharedState, sid: SessionId) -> bool {
     st.session.as_ref().is_some_and(|s| s.id == sid)
 }
 
+/// The user-facing message when the hard cap expires.
+fn rectify_timeout_message(timeout_ms: u64) -> String {
+    format!("rectify timed out after the {timeout_ms} ms hard cap; retry or cancel")
+}
+
 fn current_sid(st: &SharedState) -> SessionId {
     st.session.as_ref().expect("active session").id
 }
@@ -542,7 +547,9 @@ async fn consume_asr(
 
 /// Stream one rectify attempt: token deltas out as
 /// [`EngineEvent::RectifiedTextChunk`], then `Preview`; errors abort the
-/// session. Exits silently if the attempt is cancelled or superseded.
+/// session. The attempt runs under the configured wall-clock hard cap
+/// (fresh per attempt, rerolls included); expiry aborts with a visible
+/// error. Exits silently if the attempt is cancelled or superseded.
 async fn rectify_task(
     inner: Arc<Inner>,
     sid: SessionId,
@@ -550,11 +557,21 @@ async fn rectify_task(
     request: RectifyRequest,
     cancel: CancellationToken,
 ) {
-    let stream: RectifyTokenStream = match llm.rectify(request).await {
-        Ok(stream) => stream,
-        Err(err) => {
-            inner.abort_rectifying(sid, format!("rectify failed: {}", err.0));
+    let cap = std::time::Duration::from_millis(inner.config.rectify_timeout_ms);
+    let deadline = tokio::time::Instant::now() + cap;
+    let stream: RectifyTokenStream = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return,
+        _ = tokio::time::sleep_until(deadline) => {
+            inner.abort_rectifying(sid, rectify_timeout_message(inner.config.rectify_timeout_ms));
             return;
+        }
+        stream = llm.rectify(request) => match stream {
+            Ok(stream) => stream,
+            Err(err) => {
+                inner.abort_rectifying(sid, format!("rectify failed: {}", err.0));
+                return;
+            }
         }
     };
     let mut stream = Box::pin(stream);
@@ -563,6 +580,10 @@ async fn rectify_task(
         tokio::select! {
             biased;
             _ = cancel.cancelled() => return,
+            _ = tokio::time::sleep_until(deadline) => {
+                inner.abort_rectifying(sid, rectify_timeout_message(inner.config.rectify_timeout_ms));
+                return;
+            }
             item = stream.next() => {
                 match item {
                     Some(Ok(delta)) => {

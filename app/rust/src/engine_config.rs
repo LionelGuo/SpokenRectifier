@@ -15,6 +15,7 @@ struct EngineSection {
     passage_mode: Option<bool>,
     paragraph_silence_ms: Option<u64>,
     session_end_silence_ms: Option<u64>,
+    rectify_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -43,6 +44,9 @@ pub fn engine_config_from_dir(dir: &Path) -> anyhow::Result<EngineConfig> {
             }
             if let Some(v) = engine.session_end_silence_ms {
                 config.session_end_silence_ms = v;
+            }
+            if let Some(v) = engine.rectify_timeout_ms {
+                config.rectify_timeout_ms = v;
             }
         }
     }

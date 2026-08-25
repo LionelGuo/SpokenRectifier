@@ -357,6 +357,10 @@ class _PreviewCardState extends State<PreviewCard> {
   Timer? _editDebounce;
   String _lastSynced = '';
 
+  /// Whether the raw transcript shows under the editable rectified text
+  /// (原始转写对照: the session's raw speech next to its rectification).
+  bool _showRaw = false;
+
   @override
   void initState() {
     super.initState();
@@ -419,6 +423,67 @@ class _PreviewCardState extends State<PreviewCard> {
     });
   }
 
+  /// The editable rectified text.
+  Widget get _editor => Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.white24),
+        ),
+        padding: const EdgeInsets.all(10),
+        child: EditableText(
+          key: const Key('preview-field'),
+          controller: _text,
+          focusNode: _fieldFocus,
+          backgroundCursorColor: Colors.white38,
+          keyboardType: TextInputType.multiline,
+          maxLines: null,
+          expands: true,
+          forceLine: false,
+          onChanged: _onEdited,
+          style: const TextStyle(
+            fontSize: 15,
+            height: 1.5,
+            color: Colors.white,
+          ),
+          cursorColor: Colors.white,
+        ),
+      );
+
+  /// The session's raw transcript, read-only, under the rectified text.
+  Widget get _rawPanel => Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.white12),
+          color: Colors.black.withValues(alpha: 0.25),
+        ),
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '原始转写',
+              style: TextStyle(fontSize: 11, color: Colors.white54),
+            ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: SingleChildScrollView(
+                reverse: true,
+                child: Text(
+                  widget.controller.liveText,
+                  key: const Key('raw-transcript'),
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    color: Colors.white70,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     return CallbackShortcuts(
@@ -445,6 +510,14 @@ class _PreviewCardState extends State<PreviewCard> {
                   const Icon(Icons.rate_review_outlined, size: 18),
                   const SizedBox(width: 8),
                   const Text('预览确认'),
+                  IconButton(
+                    key: const Key('preview-raw-toggle'),
+                    tooltip: '对照原文',
+                    visualDensity: VisualDensity.compact,
+                    isSelected: _showRaw,
+                    onPressed: () => setState(() => _showRaw = !_showRaw),
+                    icon: const Icon(Icons.compare_arrows, size: 18),
+                  ),
                   const Spacer(),
                   Text(
                     hintKeyLabels,
@@ -454,30 +527,15 @@ class _PreviewCardState extends State<PreviewCard> {
               ),
               const Divider(height: 12),
               Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  padding: const EdgeInsets.all(10),
-                  child: EditableText(
-                    key: const Key('preview-field'),
-                    controller: _text,
-                    focusNode: _fieldFocus,
-                    backgroundCursorColor: Colors.white38,
-                    keyboardType: TextInputType.multiline,
-                    maxLines: null,
-                    expands: true,
-                    forceLine: false,
-                    onChanged: _onEdited,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      height: 1.5,
-                      color: Colors.white,
-                    ),
-                    cursorColor: Colors.white,
-                  ),
-                ),
+                child: _showRaw
+                    ? Column(
+                        children: [
+                          Expanded(child: _editor),
+                          const Divider(height: 14),
+                          SizedBox(height: 130, child: _rawPanel),
+                        ],
+                      )
+                    : _editor,
               ),
               const SizedBox(height: 10),
               Row(
