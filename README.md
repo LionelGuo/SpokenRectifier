@@ -6,13 +6,14 @@
 
 ## 当前状态
 
-早期开发中。已落地:**Rust 引擎 crate(命令进、事件出的单一测试缝)与全假件确定性测试、`sr-replay` 脚本回放驱动器**。真实 ASR 适配器、修正管线、Flutter 壳尚未开始。
+早期开发中。已落地:**Rust 引擎 crate(命令进、事件出的单一测试缝)与全假件确定性测试、`sr-replay` 脚本回放驱动器、修正管线(`crates/llm`:强度分档 + 保真 prompt + OpenAI 兼容流式客户端)与 `sr-rectify` 真 LLM 演示驱动器**。真实 ASR 适配器、Flutter 壳尚未开始。
 
 ## 布局
 
 ```
 crates/engine   核心引擎:会话状态机 + Provider trait(ASR / 修正 LLM / 插入器 / 时钟)
-crates/cli      sr-replay:脚本化假会话回放驱动器,打印完整事件流
+crates/llm      修正管线:强度分档、prompt 组装(保真铁律/五类变换)、OpenAI 兼容流式客户端
+crates/cli      sr-replay:脚本化假会话回放;sr-rectify:canned 口语段 × 真 LLM 演示
 ```
 
 引擎公共 API 即测试缝:命令(`StartSession` / `StopSession` / `Cancel` / `ConfirmInsert` / `Reroll` / …)经 `Engine::execute` 进入,事件(`SessionStateChanged` / `LiveTranscriptUpdated` / `ParagraphMarked` / `RectifiedTextChunk` / …)经 `Engine::subscribe` 流出。ASR、LLM、插入器、时钟全部为可注入 trait,全部测试无需网络与真实音频设备。
@@ -33,9 +34,21 @@ cargo run -p sr-replay -- crates/cli/demo-script.txt
 
 演示脚本包含两场会话:篇章模式下静音只分段随后取消(零输出),以及完整链路(停止 → 流式修正 → 预览编辑 → 确认插入)。脚本语法见 `crates/cli/src/main.rs` 顶部注释。
 
+## 修正演示(真 LLM,无需麦克风)
+
+```
+# 密钥:在仓库根目录创建 spokenrectifier.local.toml(git 忽略),写入
+#   [llm.standard]
+#   api_key = "sk-..."     # DeepSeek;快档 ARK_API_KEY 同理
+# 或导出 DEEPSEEK_API_KEY 环境变量。参见 spokenrectifier.example.toml。
+cargo run -p sr-replay --bin sr-rectify -- crates/cli/demo-utterance.txt
+```
+
+`demo-utterance.txt` 含两场会话:39 字短句(低于阈值 → 轻修 + 快档)与中长会议口述(全量修正 + 标准档),覆盖口头更正、补充、磕巴、中英夹杂与中文数字。修正文本以 token 增量流式打印,随后插入 stdout。
+
 ## 配置与密钥
 
-本地密钥配置文件(`*.local.toml`,如 `spokenrectifier.local.toml`)被版本控制忽略,永不入库;参见 [`spokenrectifier.example.toml`](spokenrectifier.example.toml)。配置 schema 将随配置体系工作定稿。
+配置分两层:`spokenrectifier.toml`(可入库的共享配置)与 `spokenrectifier.local.toml`(git 忽略,`api_key` 只能放这里,或用各档 `api_key_env` 指定的环境变量);本地值逐字段覆盖共享值。完整 schema 见 [`spokenrectifier.example.toml`](spokenrectifier.example.toml)。
 
 ## 许可
 

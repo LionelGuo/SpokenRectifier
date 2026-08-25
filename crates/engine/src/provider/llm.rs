@@ -22,6 +22,10 @@ pub struct RectifyRequest {
     pub paragraphs: Vec<String>,
     /// Target output style.
     pub style: Style,
+    /// Domain terms from the hotword dictionary, verbatim-preserved in the
+    /// rectified text. Filled by the hotword pipeline; the rectify prompt
+    /// renders them as a reference list.
+    pub terms: Vec<String>,
 }
 
 /// Stream of rectified-text token deltas.

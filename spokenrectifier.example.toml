@@ -1,17 +1,46 @@
-# SpokenRectifier local configuration example.
-# Copy to spokenrectifier.local.toml and fill in your own keys.
-# *.local.toml is git-ignored: keys never enter version control.
+# SpokenRectifier configuration example.
+# - spokenrectifier.toml        committed shared config (all fields optional)
+# - spokenrectifier.local.toml  git-ignored; the ONLY place an api_key may
+#                               live, or use the tier's environment variable.
 #
-# NOTE: the schema is a placeholder; it is finalized with the
-# configuration system work (styles, model tiers, retention).
+# Everything below is optional: omit a file (or any field) and the built-in
+# defaults apply. Local values win over shared ones, field by field.
 
 # Cloud ASR provider (Aliyun qwen3-asr-flash-realtime, pay-as-you-go).
+# Schema lands with the ASR adapter work.
 [asr.aliyun]
 api_key = ""
 
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
-# Default tier: DeepSeek V4-Flash with thinking disabled.
+# Intensity tiering is automatic: utterances below light_touch_max_chars
+# take light-touch rectify on the fast tier; longer ones take full rectify
+# on the standard tier. Rewrite wants thinking OFF by default (latency and
+# over-rectify risk); flip `thinking` to true if you want it.
 [llm]
-api_key = ""
-base_url = "https://api.deepseek.com/v1"
+thinking = false
+light_touch_max_chars = 40
+
+# Standard tier (full rectify): DeepSeek V4-Flash, thinking disabled.
+[llm.standard]
+vendor = "deepseek"                     # deepseek | volcengine | qwen | openai
+base_url = "https://api.deepseek.com"   # everything before /chat/completions
 model = "deepseek-v4-flash"
+api_key_env = "DEEPSEEK_API_KEY"        # or api_key in spokenrectifier.local.toml
+
+# Fast tier (light-touch): doubao-seed-2.0-lite on Volcengine Ark.
+# No Ark key? Point it at any endpoint you have, e.g. DeepSeek:
+#   [llm.fast]
+#   vendor = "deepseek"
+#   base_url = "https://api.deepseek.com"
+#   model = "deepseek-v4-flash"
+#   api_key_env = "DEEPSEEK_API_KEY"
+[llm.fast]
+vendor = "volcengine"
+base_url = "https://ark.cn-beijing.volces.com/api/v3"
+model = "doubao-seed-2.0-lite"
+api_key_env = "ARK_API_KEY"
+
+# Escape hatch, per tier: merged into the request body last, so it can
+# override anything this config models.
+# [llm.standard.extra_body]
+# top_p = 0.9

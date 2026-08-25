@@ -387,6 +387,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         raw_transcript,
                         paragraphs,
                         style: *inner.style.read().unwrap(),
+                        terms: Vec::new(),
                     },
                 )
             }
@@ -401,6 +402,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         raw_transcript: frozen.raw_transcript.clone(),
                         paragraphs: frozen.paragraphs.clone(),
                         style: *inner.style.read().unwrap(),
+                        terms: Vec::new(),
                     },
                 )
             }
