@@ -1,5 +1,5 @@
 //! The OpenAI-compatible client against a mock server: request shape
-//! (auth, model per tier, thinking field), SSE streaming, error mapping.
+//! (auth, single model, thinking field), SSE streaming, error mapping.
 
 mod common;
 
@@ -73,45 +73,36 @@ async fn thinking_on_sends_the_enabled_pair() {
 }
 
 #[tokio::test]
-async fn short_utterance_routes_to_the_fast_tier_model() {
+async fn short_and_long_utterances_call_the_same_model() {
+    // One configured model serves both intensities; only the prompt's
+    // intensity directive differs (轻修 below the threshold, 全量修正 at
+    // or above it).
     let server = MockServer::start();
-    let mock = server.mock(|when, then| {
+    let short = server.mock(|when, then| {
         when.method(Method::POST)
             .path("/chat/completions")
-            .body_contains("\"model\":\"fast-model\"");
+            .body_contains("\"model\":\"test-model\"")
+            .body_contains("轻修(本次输入较短)");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(sse_body());
+    });
+    let long = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/chat/completions")
+            .body_contains("\"model\":\"test-model\"")
+            .body_contains("全量修正(本次输入为中长段)");
         then.status(200)
             .header("content-type", "text/event-stream")
             .body(sse_body());
     });
 
-    let mut config = config_with_base(server.base_url(), false);
-    config.fast.model = "fast-model".into();
-    let llm = OpenAiCompatLlm::new(config).unwrap();
-
-    // 39 chars: strictly below the threshold, light-touch on the fast tier.
-    let deltas = collect(&llm, request(&"字".repeat(39))).await;
-    assert_eq!(deltas, vec!["会议", "纪要"]);
-    mock.assert_hits(1);
-}
-
-#[tokio::test]
-async fn long_utterance_routes_to_the_standard_tier_model() {
-    let server = MockServer::start();
-    let mock = server.mock(|when, then| {
-        when.method(Method::POST)
-            .path("/chat/completions")
-            .body_contains("\"model\":\"standard-model\"");
-        then.status(200)
-            .header("content-type", "text/event-stream")
-            .body(sse_body());
-    });
-
-    let mut config = config_with_base(server.base_url(), false);
-    config.standard.model = "standard-model".into();
-    let llm = OpenAiCompatLlm::new(config).unwrap();
-
+    let llm = OpenAiCompatLlm::new(config_with_base(server.base_url(), false)).unwrap();
+    collect(&llm, request(&"字".repeat(39))).await; // strictly below, light-touch
     collect(&llm, long_request()).await;
-    mock.assert_hits(1);
+
+    short.assert_hits(1);
+    long.assert_hits(1);
 }
 
 #[tokio::test]
@@ -136,8 +127,8 @@ async fn http_error_maps_status_and_message() {
 #[tokio::test]
 async fn missing_api_key_is_a_clear_error() {
     let mut config = config_with_base("http://unused.invalid".into(), false);
-    config.standard.api_key = None;
-    config.standard.api_key_env = Some("SR_UNSET_TEST_KEY".into());
+    config.model.api_key = None;
+    config.model.api_key_env = Some("SR_UNSET_TEST_KEY".into());
     let llm = OpenAiCompatLlm::new(config).unwrap();
 
     let err = match llm.rectify(long_request()).await {

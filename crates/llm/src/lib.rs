@@ -2,7 +2,7 @@
 //! [`RectifyLlm`] seam and a real OpenAI-compatible endpoint.
 //!
 //! - [`select_intensity`] picks light-touch vs full rectify by utterance
-//!   length, which also routes the request to the fast or standard model.
+//!   length — a prompt-level choice only; the configured model serves both.
 //! - [`compose_prompt`] renders the fidelity rule, the five transforms, and
 //!   the intensity/style/term directives.
 //! - [`OpenAiCompatLlm`] streams token deltas from any OpenAI-compatible

@@ -1,8 +1,9 @@
 //! Intensity tiering (glossary: 整理强度, 轻修, 全量修正).
 //!
-//! Short utterances get light-touch rectify on the fast model; medium and
-//! long ones get full rectify on the standard model. The threshold is the
-//! character count of the raw transcript (CJK counts one per character).
+//! Short utterances get light-touch rectify; medium and long ones get full
+//! rectify. The threshold is the character count of the raw transcript
+//! (CJK counts one per character). Intensity changes only how the prompt
+//! asks for rectify — the model stays the same either way.
 
 /// How deeply rectify may intervene.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

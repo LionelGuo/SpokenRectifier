@@ -16,7 +16,7 @@ use spokenrectifier_engine::provider::llm::{
 };
 
 use crate::config::{LlmConfig, ModelConfig};
-use crate::intensity::{Intensity, select_intensity};
+use crate::intensity::select_intensity;
 use crate::prompt::{ChatPrompt, compose_prompt};
 
 /// A rectify LLM backed by any OpenAI-compatible endpoint.
@@ -38,31 +38,30 @@ impl OpenAiCompatLlm {
 #[async_trait]
 impl RectifyLlm for OpenAiCompatLlm {
     async fn rectify(&self, request: RectifyRequest) -> Result<RectifyTokenStream, RectifyError> {
+        // Length picks the intensity — how the prompt asks for rectify —
+        // never the model: one endpoint serves both.
         let intensity =
             select_intensity(&request.raw_transcript, self.config.light_touch_max_chars);
-        let (tier, tier_name) = match intensity {
-            Intensity::LightTouch => (&self.config.fast, "fast"),
-            Intensity::Full => (&self.config.standard, "standard"),
-        };
-        let key = tier.resolve_key().ok_or_else(|| {
-            let env_hint = tier
+        let model = &self.config.model;
+        let key = model.resolve_key().ok_or_else(|| {
+            let env_hint = model
                 .api_key_env
                 .as_deref()
                 .map(|name| format!(" or export {name}"))
                 .unwrap_or_default();
             RectifyError(format!(
-                "no API key for the {tier_name} tier (model {}): set api_key in \
+                "no API key for the rectify model ({}): set api_key in \
                  spokenrectifier.local.toml{env_hint}",
-                tier.model
+                model.model
             ))
         })?;
         let prompt = compose_prompt(&request, intensity);
-        let url = format!("{}/chat/completions", tier.base_url.trim_end_matches('/'));
+        let url = format!("{}/chat/completions", model.base_url.trim_end_matches('/'));
         let response = self
             .http
             .post(&url)
             .bearer_auth(&key)
-            .json(&request_body(tier, &prompt, self.config.thinking))
+            .json(&request_body(model, &prompt, self.config.thinking))
             .send()
             .await
             .map_err(|err| RectifyError(format!("request to {url} failed: {err}")))?;
@@ -352,7 +351,7 @@ mod tests {
 
     #[test]
     fn request_body_shape_thinking_and_extra() {
-        let mut model = LlmConfig::defaults().standard;
+        let mut model = LlmConfig::defaults().model;
         let prompt = ChatPrompt {
             system: "sys".into(),
             user: "usr".into(),

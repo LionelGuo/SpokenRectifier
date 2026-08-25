@@ -40,13 +40,13 @@ cargo run -p sr-replay -- crates/cli/demo-script.txt
 
 ```
 # 密钥:在仓库根目录创建 spokenrectifier.local.toml(git 忽略),写入
-#   [llm.standard]
-#   api_key = "sk-..."     # DeepSeek;快档 ARK_API_KEY 同理
+#   [llm]
+#   api_key = "sk-..."     # DeepSeek
 # 或导出 DEEPSEEK_API_KEY 环境变量。参见 spokenrectifier.example.toml。
 cargo run -p sr-replay --bin sr-rectify -- crates/cli/demo-utterance.txt
 ```
 
-`demo-utterance.txt` 含两场会话:39 字短句(低于阈值 → 轻修 + 快档)与中长会议口述(全量修正 + 标准档),覆盖口头更正、补充、磕巴、中英夹杂与中文数字。修正文本以 token 增量流式打印,随后插入 stdout。
+`demo-utterance.txt` 含两场会话:39 字短句(低于阈值 → 轻修)与中长会议口述(全量修正),同一模型、仅 prompt 强度不同,覆盖口头更正、补充、磕巴、中英夹杂与中文数字。修正文本以 token 增量流式打印,随后插入 stdout。
 
 ## 配置与密钥
 
