@@ -171,12 +171,26 @@ pub enum LlmStep {
 /// the next scripted response. Calling with no script left fails.
 pub struct ScriptedLlm {
     scripts: Mutex<VecDeque<Vec<LlmStep>>>,
+    /// When set, a drained queue refills from this copy instead of failing.
+    cycle_from: Option<Vec<Vec<LlmStep>>>,
     requests: Mutex<Vec<RectifyRequest>>,
 }
 
 impl ScriptedLlm {
     pub fn new(scripts: Vec<Vec<LlmStep>>) -> Arc<Self> {
         Arc::new(Self {
+            scripts: Mutex::new(scripts.into()),
+            cycle_from: None,
+            requests: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Like [`new`], but the scripts repeat forever: a drained queue
+    /// refills from the start instead of failing. For long-running demo
+    /// hosts that must never run dry.
+    pub fn new_cycling(scripts: Vec<Vec<LlmStep>>) -> Arc<Self> {
+        Arc::new(Self {
+            cycle_from: (!scripts.is_empty()).then(|| scripts.clone()),
             scripts: Mutex::new(scripts.into()),
             requests: Mutex::new(Vec::new()),
         })
@@ -196,12 +210,17 @@ impl ScriptedLlm {
 impl RectifyLlm for ScriptedLlm {
     async fn rectify(&self, request: RectifyRequest) -> Result<RectifyTokenStream, RectifyError> {
         self.requests.lock().unwrap().push(request);
-        let script = self
-            .scripts
-            .lock()
-            .unwrap()
-            .pop_front()
-            .ok_or_else(|| RectifyError("no scripted LLM response left".into()))?;
+        let script = {
+            let mut scripts = self.scripts.lock().unwrap();
+            if scripts.is_empty()
+                && let Some(originals) = &self.cycle_from
+            {
+                scripts.extend(originals.iter().cloned());
+            }
+            scripts
+                .pop_front()
+                .ok_or_else(|| RectifyError("no scripted LLM response left".into()))?
+        };
         let items = script
             .into_iter()
             .map(|step| match step {

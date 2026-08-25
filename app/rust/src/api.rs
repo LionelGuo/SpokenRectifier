@@ -191,9 +191,9 @@ fn global() -> anyhow::Result<&'static Global> {
 // -- api ------------------------------------------------------------------------
 
 /// Build the engine behind the bridge with all-fake collaborators.
-/// `llm_responses` queues one scripted rectify response per entry (streamed
-/// in small chunks); running past the queue fails the session with an Error
-/// event, like a real provider outage. Idempotent: a second call is a no-op.
+/// `llm_responses` become the scripted rectify responses (streamed in small
+/// chunks), repeating forever — the demo host never runs dry no matter how
+/// many sessions or rerolls come. Idempotent: a second call is a no-op.
 pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     if GLOBAL.get().is_some() {
         return Ok(());
@@ -209,7 +209,7 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
         })
         .collect();
     let (asr, scripter) = ChannelAsr::new();
-    let llm = ScriptedLlm::new(scripts);
+    let llm = ScriptedLlm::new_cycling(scripts);
     let inserter = FakeInserter::new();
     let engine = Engine::new(
         EngineConfig::default(),
@@ -392,6 +392,50 @@ mod tests {
         let err = execute(BridgeCommand::StopSession).unwrap_err().to_string();
         assert!(err.contains("rejected"), "got: {err}");
         assert_eq!(state().unwrap(), BridgeSessionState::Idle);
+    }
+
+    /// The demo host runs indefinitely: sessions keep working no matter how
+    /// many rectify attempts came before. Past the scripted queue, a failed
+    /// rectify surfaces as an Error event (never Preview), then Idle.
+    #[test]
+    fn repeated_sessions_never_run_dry() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        let mut rx = global().unwrap().engine.subscribe();
+
+        // More sessions than the queued script count (setup queues 16).
+        for session in 1..=20 {
+            fake_begin_session().unwrap();
+            execute(BridgeCommand::StartSession).unwrap();
+            fake_say("第几场".into()).unwrap();
+            fake_silence(1300).unwrap();
+            block_on(wait_for(
+                &mut rx,
+                |event| matches!(event, EngineEvent::LiveTranscriptUpdated { text } if text.contains("第几场")),
+            ));
+
+            execute(BridgeCommand::StopSession).unwrap();
+            let outcome = block_on(wait_for(
+                &mut rx,
+                |event| {
+                    matches!(
+                        event,
+                        EngineEvent::SessionStateChanged { to: SessionState::Preview, .. }
+                            | EngineEvent::Error { .. }
+                    )
+                },
+            ));
+            if let EngineEvent::Error { message } = outcome.event {
+                panic!("session {session} failed after stop: {message}");
+            }
+
+            execute(BridgeCommand::ConfirmInsert).unwrap();
+            block_on(wait_state(&mut rx, SessionState::Idle));
+        }
+        assert_eq!(
+            inserted_texts().unwrap().last(),
+            Some(&"修正后的书面文本".to_string())
+        );
     }
 
     #[test]
