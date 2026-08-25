@@ -1,0 +1,13 @@
+[package]
+name = "spokenrectifier-engine"
+description = "SpokenRectifier core engine: commands in, events out. The single test seam."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true

@@ -1,0 +1,23 @@
+# SpokenRectifier scripted session replay — one run covering paragraph
+# marking (passage mode), cancel with zero output, and confirm-insert.
+# Run: cargo run -p sr-replay -- crates/cli/demo-script.txt
+
+# --- Session 1: passage mode, silence only marks a paragraph, then cancel
+start
+say 那个这次会议的主题是季度总结
+silence 1300
+say 不对,是下季度的规划,再补充一点,预算部分也要包含
+silence 1300
+await paragraph
+cancel
+await Idle
+
+# --- Session 2: stop -> rectify (scripted LLM) -> preview edit -> insert
+llm 会议主题为下季度规划,需包含预算部分。
+start
+say 那个这次会议的主题是季度总结,不对,是下季度的规划,再补充一点,预算部分也要包含
+stop
+await Preview
+edit 会议主题为下季度规划(含预算)。
+confirm
+await Idle

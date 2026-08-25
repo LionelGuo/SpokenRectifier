@@ -1,0 +1,11 @@
+[package]
+name = "sr-replay"
+description = "Scripted session replay driver for the SpokenRectifier engine. Prints the full event stream."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+futures.workspace = true
+spokenrectifier-engine = { path = "../engine" }
+tokio.workspace = true
