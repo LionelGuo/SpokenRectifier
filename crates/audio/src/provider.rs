@@ -110,21 +110,7 @@ mod tests {
     use futures::StreamExt;
     use std::time::Duration;
 
-    use crate::vad::FRAME_SAMPLES;
-
-    fn tone_frame(amplitude: f32) -> Vec<i16> {
-        (0..FRAME_SAMPLES)
-            .map(|k| {
-                let t = k as f32 / 16_000.0;
-                (amplitude * (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 32_767.0).round()
-                    as i16
-            })
-            .collect()
-    }
-
-    fn zero_frame() -> Vec<i16> {
-        vec![0; FRAME_SAMPLES]
-    }
+    use crate::test_support::{tone_frame, zero_frame};
 
     /// Wire a scripted source into the provider and collect its events
     /// until the stream ends or the deadline passes.
@@ -179,8 +165,8 @@ mod tests {
         // 4 calibration zeros, speech, then quiet: speaking opens, closes
         // after hangover, silence accumulates.
         let mut sends: Vec<MicEvent> = (0..4).map(|_| MicEvent::Frame(zero_frame())).collect();
-        sends.extend((0..3).map(|_| MicEvent::Frame(tone_frame(0.6))));
-        sends.extend((0..6).map(|_| MicEvent::Frame(zero_frame())));
+        sends.extend((4..7).map(|i| MicEvent::Frame(tone_frame(0.6, i))));
+        sends.extend((7..13).map(|_| MicEvent::Frame(zero_frame())));
         let events = run_provider(sends).await;
 
         let speaking_on = events

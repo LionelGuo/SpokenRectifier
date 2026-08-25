@@ -49,6 +49,34 @@ pub fn engine_config_from_dir(dir: &Path) -> anyhow::Result<EngineConfig> {
     Ok(config)
 }
 
+/// The first directory in `dirs` holding either config file, if any. Pure
+/// so the search order is testable.
+fn pick_config_dir<'a>(dirs: &[&'a Path]) -> Option<&'a Path> {
+    dirs.iter()
+        .copied()
+        .find(|dir| CONFIG_FILE_NAMES.iter().any(|name| dir.join(name).exists()))
+}
+
+const CONFIG_FILE_NAMES: [&str; 2] = ["spokenrectifier.toml", "spokenrectifier.local.toml"];
+
+/// Load the session semantics for the app: from the first directory that
+/// has either config file — the working directory first (dev runs and CLI
+/// parity), then the executable's directory (a double-clicked portable exe
+/// has an arbitrary cwd). No file anywhere means defaults.
+pub fn engine_config() -> anyhow::Result<EngineConfig> {
+    let cwd = std::env::current_dir()?;
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf));
+    let candidates: Vec<&Path> = std::iter::once(cwd.as_path())
+        .chain(exe_dir.as_deref())
+        .collect();
+    match pick_config_dir(&candidates) {
+        Some(dir) => engine_config_from_dir(dir),
+        None => Ok(EngineConfig::default()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +129,30 @@ mod tests {
         let err = engine_config_from_dir(&dir).unwrap_err().to_string();
         assert!(err.contains("spokenrectifier.local.toml"), "got: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn first_dir_with_a_config_file_wins_and_none_means_default() {
+        let with_files = std::env::temp_dir().join("sr-bridge-engine-config-pick-a");
+        let also_files = std::env::temp_dir().join("sr-bridge-engine-config-pick-b");
+        let empty = std::env::temp_dir().join("sr-bridge-engine-config-pick-empty");
+        for dir in [&with_files, &also_files, &empty] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(
+            also_files.join("spokenrectifier.local.toml"),
+            "[engine]\npassage_mode = false\n",
+        )
+        .unwrap();
+
+        // The earlier directory wins when it holds a file; a file-less
+        // prefix is skipped.
+        let picked = pick_config_dir(&[&empty, &also_files, &with_files]).unwrap();
+        assert_eq!(picked, also_files);
+        // Nothing anywhere: no directory is picked.
+        assert_eq!(pick_config_dir(&[&empty]), None);
+        std::fs::remove_dir_all(&with_files).unwrap();
+        std::fs::remove_dir_all(&also_files).unwrap();
+        std::fs::remove_dir_all(&empty).unwrap();
     }
 }

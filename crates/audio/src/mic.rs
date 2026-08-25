@@ -123,51 +123,59 @@ fn open_on_this_thread() -> Result<(mpsc::Receiver<MicEvent>, cpal::Stream, Arc<
     let dead = Arc::new(AtomicBool::new(false));
 
     let stream = match supported.sample_format() {
-        SampleFormat::F32 => device.build_input_stream(
-            &config,
-            {
-                let mut pipeline = CapturePipeline::new(channels, rate);
-                let mut forward = frame_forwarder(tx.clone(), dead.clone());
-                move |data: &[f32], _: &InputCallbackInfo| pipeline.push(data, &mut forward)
-            },
-            error_forwarder(tx.clone(), dead.clone()),
-            None,
-        ),
-        SampleFormat::I16 => device.build_input_stream(
-            &config,
-            {
-                let mut pipeline = CapturePipeline::new(channels, rate);
-                let mut forward = frame_forwarder(tx.clone(), dead.clone());
-                move |data: &[i16], _: &InputCallbackInfo| {
-                    let floats: Vec<f32> = data.iter().map(|s| f32::from(*s) / 32_768.0).collect();
-                    pipeline.push(&floats, &mut forward)
-                }
-            },
-            error_forwarder(tx.clone(), dead.clone()),
-            None,
-        ),
-        SampleFormat::U16 => device.build_input_stream(
-            &config,
-            {
-                let mut pipeline = CapturePipeline::new(channels, rate);
-                let mut forward = frame_forwarder(tx.clone(), dead.clone());
-                move |data: &[u16], _: &InputCallbackInfo| {
-                    let floats: Vec<f32> = data
-                        .iter()
-                        .map(|s| (f32::from(*s) - 32_768.0) / 32_768.0)
-                        .collect();
-                    pipeline.push(&floats, &mut forward)
-                }
-            },
-            error_forwarder(tx.clone(), dead.clone()),
-            None,
-        ),
+        SampleFormat::F32 => {
+            converting_stream::<f32, _>(&device, &config, channels, rate, &tx, &dead, |data| {
+                data.to_vec()
+            })?
+        }
+        SampleFormat::I16 => {
+            converting_stream::<i16, _>(&device, &config, channels, rate, &tx, &dead, |data| {
+                data.iter().map(|s| f32::from(*s) / 32_768.0).collect()
+            })?
+        }
+        SampleFormat::U16 => {
+            converting_stream::<u16, _>(&device, &config, channels, rate, &tx, &dead, |data| {
+                data.iter()
+                    .map(|s| (f32::from(*s) - 32_768.0) / 32_768.0)
+                    .collect()
+            })?
+        }
         other => return Err(format!("unsupported input sample format: {other:?}")),
-    }
-    .map_err(|e| format!("failed to open input stream: {e}"))?;
+    };
 
     stream
         .play()
         .map_err(|e| format!("input stream failed to start: {e}"))?;
     Ok((rx, stream, dead))
+}
+
+/// Build an input stream whose callback first converts each chunk to f32,
+/// then feeds the shared capture pipeline. The three format arms of
+/// `open_on_this_thread` differ in nothing else.
+fn converting_stream<T, F>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    channels: u16,
+    rate: u32,
+    tx: &mpsc::Sender<MicEvent>,
+    dead: &Arc<AtomicBool>,
+    convert: F,
+) -> Result<cpal::Stream, String>
+where
+    T: cpal::SizedSample,
+    F: Fn(&[T]) -> Vec<f32> + Send + 'static,
+{
+    let mut pipeline = CapturePipeline::new(channels, rate);
+    let mut forward = frame_forwarder(tx.clone(), dead.clone());
+    device
+        .build_input_stream(
+            config,
+            move |data: &[T], _: &InputCallbackInfo| {
+                let floats = convert(data);
+                pipeline.push(&floats, &mut forward);
+            },
+            error_forwarder(tx.clone(), dead.clone()),
+            None,
+        )
+        .map_err(|e| format!("failed to open input stream: {e}"))
 }

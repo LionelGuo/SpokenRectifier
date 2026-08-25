@@ -233,7 +233,7 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     if GLOBAL.get().is_some() {
         return Ok(());
     }
-    let config = engine_config_from_dir(&std::env::current_dir()?)?;
+    let config = engine_config()?;
     let asr = std::sync::Arc::new(MicVadAsr::new(VadConfig::default()));
     let llm = ScriptedLlm::new_cycling(token_scripts(&llm_responses));
     let inserter = FakeInserter::new();
@@ -345,19 +345,23 @@ pub fn fake_begin_session() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Feed one scripted phrase (partial, then final) into the open session.
-pub fn fake_say(text: String) -> anyhow::Result<()> {
-    let g = global()?;
+/// The open fake-session feed, shared by `fake_say` / `fake_silence`.
+fn open_fake_feed(g: &Global) -> anyhow::Result<AsrFeed> {
     let SpeechSource::Fake { feed, .. } = &g.source else {
         return Err(anyhow!(
             "engine is in microphone mode; fake speech is unavailable"
         ));
     };
-    let feed = feed
-        .lock()
+    feed.lock()
         .unwrap()
         .clone()
-        .ok_or_else(|| anyhow!("no fake session open; call fake_begin_session first"))?;
+        .ok_or_else(|| anyhow!("no fake session open; call fake_begin_session first"))
+}
+
+/// Feed one scripted phrase (partial, then final) into the open session.
+pub fn fake_say(text: String) -> anyhow::Result<()> {
+    let g = global()?;
+    let feed = open_fake_feed(g)?;
     g.rt.block_on(feed.say(&text));
     Ok(())
 }
@@ -366,23 +370,14 @@ pub fn fake_say(text: String) -> anyhow::Result<()> {
 /// session.
 pub fn fake_silence(elapsed_ms: u64) -> anyhow::Result<()> {
     let g = global()?;
-    let SpeechSource::Fake { feed, .. } = &g.source else {
-        return Err(anyhow!(
-            "engine is in microphone mode; fake speech is unavailable"
-        ));
-    };
-    let feed = feed
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or_else(|| anyhow!("no fake session open; call fake_begin_session first"))?;
+    let feed = open_fake_feed(g)?;
     g.rt.block_on(feed.silence(elapsed_ms));
     Ok(())
 }
 
 // -- engine config ----------------------------------------------------------------
 
-use crate::engine_config::engine_config_from_dir;
+use crate::engine_config::engine_config;
 
 #[cfg(test)]
 mod tests {

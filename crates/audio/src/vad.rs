@@ -159,28 +159,7 @@ fn frame_rms(frame: &[i16]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Deterministic 440 Hz tone frames at the given amplitude.
-    fn tone(amplitude: f32, frames: usize) -> Vec<Vec<i16>> {
-        (0..frames)
-            .map(|i| {
-                (0..FRAME_SAMPLES)
-                    .map(|k| {
-                        let t = (i * FRAME_SAMPLES + k) as f32 / TARGET_RATE as f32;
-                        to_test_s16(amplitude * (2.0 * std::f32::consts::PI * 440.0 * t).sin())
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-
-    fn zeros(frames: usize) -> Vec<Vec<i16>> {
-        vec![vec![0; FRAME_SAMPLES]; frames]
-    }
-
-    fn to_test_s16(v: f32) -> i16 {
-        (v.clamp(-1.0, 1.0) * 32_767.0).round() as i16
-    }
+    use crate::test_support::{tone_frames as tone, zero_frames as zeros};
 
     fn decisions(config: VadConfig, frames: &[Vec<i16>]) -> Vec<VadDecision> {
         let mut vad = Vad::new(config);

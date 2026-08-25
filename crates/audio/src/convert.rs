@@ -69,7 +69,7 @@ impl Resampler {
 }
 
 /// Map a [-1, 1] float sample to s16 with saturation.
-fn to_s16(value: f32) -> i16 {
+pub(crate) fn to_s16(value: f32) -> i16 {
     (value.clamp(-1.0, 1.0) * 32_767.0).round() as i16
 }
 

@@ -444,6 +444,15 @@ impl Session {
         }
         text
     }
+
+    /// Speech happened (transcript or VAD activity): re-arm the paragraph
+    /// marker for the next silence run and remember the session had
+    /// content.
+    fn note_speech(&mut self) {
+        self.paragraph_marked_current_silence = false;
+        self.speech_since_mark = true;
+        self.any_speech = true;
+    }
 }
 
 /// Consume the ASR event stream of one session: forward transcript updates,
@@ -470,20 +479,14 @@ async fn consume_asr(
                 match event {
                     AsrEvent::Partial { text } => {
                         session.partial = text;
-                        // Interim speech still disarms the silence-run flag:
-                        // the user resumed talking.
-                        session.paragraph_marked_current_silence = false;
-                        session.speech_since_mark = true;
-                        session.any_speech = true;
+                        session.note_speech();
                         let live = session.live_text();
                         inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
                     }
                     AsrEvent::Final { text } => {
                         session.partial.clear();
                         session.current_paragraph.push_str(&text);
-                        session.paragraph_marked_current_silence = false;
-                        session.speech_since_mark = true;
-                        session.any_speech = true;
+                        session.note_speech();
                         let live = session.live_text();
                         inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
                     }
@@ -516,9 +519,7 @@ async fn consume_asr(
                         if speaking {
                             // The user resumed talking: re-arm the marker
                             // even with no transcript event in between.
-                            session.paragraph_marked_current_silence = false;
-                            session.speech_since_mark = true;
-                            session.any_speech = true;
+                            session.note_speech();
                         }
                         inner.emit_stream_event(
                             &mut st,
