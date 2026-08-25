@@ -18,6 +18,27 @@ import 'src/rust/api.dart' show BridgeSessionState;
 
 const hotkeyHint = 'Ctrl+Alt+V 开始 / 结束';
 
+/// Window footprints per phase. Rectifying shares the preview footprint:
+/// reroll cycles preview <-> rectifying, and shrinking the window under the
+/// still-fading outgoing preview card would clip it mid-transition.
+const orbWindowSize = Size(100, 116);
+const recordingPanelWindowSize = Size(480, 340);
+const previewWindowSize = Size(580, 440);
+
+/// The window size for a phase; `panelExpanded` only matters while
+/// recording (collapsed orb vs expanded transcript panel).
+Size windowSizeFor(BridgeSessionState phase, {required bool panelExpanded}) {
+  return switch (phase) {
+    BridgeSessionState.idle ||
+    BridgeSessionState.inserted ||
+    BridgeSessionState.cancelled => orbWindowSize,
+    BridgeSessionState.recording =>
+      panelExpanded ? recordingPanelWindowSize : orbWindowSize,
+    BridgeSessionState.rectifying || BridgeSessionState.preview =>
+      previewWindowSize,
+  };
+}
+
 class SpokenRectifierApp extends StatelessWidget {
   const SpokenRectifierApp({super.key, required this.controller});
 
@@ -335,8 +356,11 @@ class _PreviewCardState extends State<PreviewCard> {
   }
 
   /// Keep the field in step with streamed reroll output, without stomping
-  /// the user's cursor while they edit.
+  /// the user's cursor while they edit. Ignored once a reroll or confirm
+  /// moves the phase on: the card may still be fading out, and syncing the
+  /// reset preview would blank its text mid-fade.
   void _syncFromStream() {
+    if (widget.controller.phase != BridgeSessionState.preview) return;
     final streamed = widget.controller.previewText;
     if (streamed != _lastSynced && streamed != _text.text) {
       _text.value = TextEditingValue(
@@ -376,6 +400,9 @@ class _PreviewCardState extends State<PreviewCard> {
     _lastSynced = value;
     _editDebounce?.cancel();
     _editDebounce = Timer(const Duration(milliseconds: 350), () {
+      // An edit racing a reroll: once rectifying starts, this edit is
+      // stale — pushing it would be rejected by the engine anyway.
+      if (widget.controller.phase != BridgeSessionState.preview) return;
       widget.controller.updatePreviewText(value);
     });
   }

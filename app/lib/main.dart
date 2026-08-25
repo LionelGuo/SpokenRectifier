@@ -12,19 +12,12 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'app_root.dart';
+import 'app_root.dart' show SpokenRectifierApp, orbWindowSize, windowSizeFor;
 import 'app_state.dart';
 import 'gateway.dart';
 import 'sample_speech.dart';
 import 'src/rust/api.dart' show BridgeSessionState, createFakeEngine;
 import 'src/rust/frb_generated.dart' show RustLib;
-
-/// Window sizes per phase: the orb stays a small corner dot, the panels
-/// grow the window in place.
-const _orbSize = Size(100, 116);
-const _recordingPanelSize = Size(480, 340);
-const _rectifySize = Size(480, 220);
-const _previewSize = Size(580, 440);
 
 const _toggleOrbKey = 'toggle-orb';
 const _exitKey = 'exit';
@@ -34,8 +27,8 @@ Future<void> main() async {
   await windowManager.ensureInitialized();
 
   const options = WindowOptions(
-    size: _orbSize,
-    minimumSize: _orbSize,
+    size: orbWindowSize,
+    minimumSize: orbWindowSize,
     alwaysOnTop: true,
     skipTaskbar: true,
     title: 'SpokenRectifier',
@@ -89,7 +82,7 @@ class _ShellState extends State<_Shell> with TrayListener {
   /// not rebuild the menu.
   BridgeSessionState? _trayPhase;
   bool? _trayOrbVisible;
-  Size _lastSize = _orbSize;
+  Size _lastSize = orbWindowSize;
 
   @override
   void initState() {
@@ -116,19 +109,10 @@ class _ShellState extends State<_Shell> with TrayListener {
   }
 
   Future<void> _morphWindow() async {
-    final Size target;
-    switch (controller.phase) {
-      case BridgeSessionState.idle:
-      case BridgeSessionState.inserted:
-      case BridgeSessionState.cancelled:
-        target = _orbSize;
-      case BridgeSessionState.recording:
-        target = controller.panelExpanded ? _recordingPanelSize : _orbSize;
-      case BridgeSessionState.rectifying:
-        target = _rectifySize;
-      case BridgeSessionState.preview:
-        target = _previewSize;
-    }
+    final target = windowSizeFor(
+      controller.phase,
+      panelExpanded: controller.panelExpanded,
+    );
     if (target != _lastSize) {
       _lastSize = target;
       await windowManager.setSize(target);

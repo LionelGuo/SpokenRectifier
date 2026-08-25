@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:spokenrectifier_app/app_root.dart';
+import 'package:spokenrectifier_app/app_root.dart' show SpokenRectifierApp, windowSizeFor;
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeSessionState;
@@ -201,6 +201,30 @@ void main() {
     expect(controller.previewText, '改过的初稿');
   });
 
+  testWidgets('an edit racing a reroll is dropped, not pushed stale', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['初稿']);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // Edit, then immediately reroll before the debounce fires: once
+    // rectifying starts, that edit is stale and must not be pushed.
+    await tester.enterText(find.byKey(const Key('preview-field')), '改了一半');
+    await controller.reroll();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      gateway.commands.where((c) => c.startsWith('updatePreviewText')),
+      isEmpty,
+    );
+  });
+
   testWidgets('engine errors surface next to the orb', (tester) async {
     final gateway = FakeGateway();
     await pumpController(tester, gateway);
@@ -209,6 +233,14 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('error-flash')), findsOneWidget);
     expect(find.textContaining('没有 API key'), findsOneWidget);
+  });
+
+  test('rectifying shares the preview window footprint so reroll never resizes',
+      () {
+    expect(
+      windowSizeFor(BridgeSessionState.rectifying, panelExpanded: false),
+      windowSizeFor(BridgeSessionState.preview, panelExpanded: false),
+    );
   });
 
   test('toggleSession maps hotkey presses to start and stop', () async {
