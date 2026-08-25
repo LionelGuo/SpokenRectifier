@@ -42,18 +42,28 @@ Future<void> main() async {
   });
 
   await RustLib.init();
-  // Real default microphone (capture + VAD) as the speech source; real
-  // rectify LLM and real insertion when the config keys resolve, with the
-  // scripted responses as the pure-demo fallback.
-  final controller = SpeechController(gateway: RustSpeechEngineGateway());
+  // The engine must exist before anything subscribes to its event stream:
+  // the controller's constructor subscribes immediately, and a subscribe
+  // that races engine creation errors out and takes the pending
+  // createEngine future down with it (ghost window, no hotkey). So:
+  // create, then build the shell around the outcome.
+  String? startupError;
   try {
+    // Real default microphone (capture + VAD) as the speech source; real
+    // rectify LLM and real insertion when the config keys resolve, with
+    // the scripted responses as the pure-demo fallback.
     await createEngine(llmResponses: sampleRectified);
   } catch (e) {
     // e.g. an ASR key without an LLM key: keep the app alive and show the
     // problem instead of failing the launch with a dead window.
-    controller.reportStartupError('初始化失败:$e');
+    startupError = '初始化失败:$e';
   }
   await TrayManager.instance.setIcon('assets/tray_icon.ico');
+
+  final controller = SpeechController(gateway: RustSpeechEngineGateway());
+  if (startupError != null) {
+    controller.reportStartupError(startupError);
+  }
 
   await _installHotkey(controller);
 

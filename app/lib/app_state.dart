@@ -34,7 +34,10 @@ class SpeechController extends ChangeNotifier {
     this.scriptedPhrases = const [],
     this.speechInterval = const Duration(milliseconds: 900),
   }) {
-    _subscription = gateway.events().listen(_onEnvelope);
+    // onError: a subscribe against a not-yet-created engine emits a stream
+    // error; the command paths surface the same failure with better
+    // wording, so swallow it here instead of leaving it unhandled.
+    _subscription = gateway.events().listen(_onEnvelope, onError: (Object _) {});
   }
 
   final SpeechEngineGateway gateway;
