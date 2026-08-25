@@ -334,6 +334,31 @@ void main() {
     await controller.cancelSession();
   });
 
+  testWidgets('Enter within the debounce window inserts the edited text',
+      (tester) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['初稿']);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // Edit and press Enter immediately — well inside the 350 ms debounce.
+    await tester.enterText(find.byKey(const Key('preview-field')), '改完的终稿');
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // The edit reached the engine before the confirm, not after it.
+    final commands = gateway.commands;
+    final editAt = commands.indexOf('updatePreviewText:改完的终稿');
+    final confirmAt = commands.indexOf('confirmInsert');
+    expect(editAt, greaterThanOrEqualTo(0));
+    expect(confirmAt, greaterThan(editAt));
+    expect(controller.phase, BridgeSessionState.idle);
+  });
+
   testWidgets('the raw transcript comparison expands under the rectified text',
       (tester) async {
     final gateway = FakeGateway();

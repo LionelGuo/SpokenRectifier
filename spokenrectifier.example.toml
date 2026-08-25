@@ -44,6 +44,8 @@ mode = "paste"                # paste: clipboard + Ctrl+V, restored after
 focus_settle_ms = 50          # wait after re-focusing the target
 paste_settle_ms = 250         # wait after Ctrl+V before clipboard restore
 typing_delay_ms = 8           # pause between typed characters
+                              # Known limit: elevated (administrator) target
+                              # windows drop simulated keystrokes (UIPI).
 
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
 # One model per mode: light-touch vs full rectify is decided by length

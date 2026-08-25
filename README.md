@@ -14,7 +14,7 @@
 crates/engine   核心引擎:会话状态机 + Provider trait(ASR / 修正 LLM / 插入器 / 时钟)
 crates/audio    麦克风采集 + VAD:cpal 默认输入设备 → 16k mono s16 → 能量 VAD → AsrProvider
 crates/aliyun   阿里云端 ASR 适配器:qwen3-asr-flash-realtime 实时 WS 协议、上链门控、断线重连
-crates/insertion 真实插入:剪贴板借还 + Ctrl+V 粘贴 / 逐字键入回退,目标窗口记忆与焦点归还
+crates/insertion 真实插入:剪贴板借还 + Ctrl+V 粘贴 / 逐字键入回退,目标窗口记忆与焦点归还(已知边界:管理员/提权目标窗口按 UIPI 规则丢弃模拟按键,两种模式均失效)
 crates/llm      修正管线:强度分档、prompt 组装(保真铁律/五类变换)、OpenAI 兼容流式客户端
 crates/cli      sr-replay:脚本化假会话回放;sr-rectify:canned 口语段 × 真 LLM 演示
 app/            Flutter 壳:托盘常驻、Ctrl+Alt+V 全局热键、悬浮球、预览窗(真麦克风)

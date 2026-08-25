@@ -410,7 +410,7 @@ class _PreviewCardState extends State<PreviewCard> {
         selection: TextSelection.collapsed(offset: stripped.length),
       );
       _lastSynced = stripped;
-      widget.controller.confirmInsert();
+      _confirmNow();
       return;
     }
     _lastSynced = value;
@@ -421,6 +421,22 @@ class _PreviewCardState extends State<PreviewCard> {
       if (widget.controller.phase != BridgeSessionState.preview) return;
       widget.controller.updatePreviewText(value);
     });
+  }
+
+  /// Confirm, flushing whatever is on screen into the engine first: the
+  /// edit debounce means the engine can be up to 350 ms behind the field,
+  /// and Enter must insert what the user sees, not the last snapshot. The
+  /// engine's own mirror of the preview text is the source of truth for
+  /// what still needs pushing.
+  Future<void> _confirmNow() async {
+    _editDebounce?.cancel();
+    final current = _text.text;
+    if (widget.controller.phase == BridgeSessionState.preview &&
+        current != widget.controller.previewText) {
+      _lastSynced = current;
+      await widget.controller.updatePreviewText(current);
+    }
+    await widget.controller.confirmInsert();
   }
 
   /// The editable rectified text.
@@ -491,8 +507,7 @@ class _PreviewCardState extends State<PreviewCard> {
         // Enter confirms while the editable field does not hold focus
         // (the field keeps Enter for itself while editing, so the IME's
         // Enter-to-commit keeps working; the hotkey also confirms).
-        const SingleActivator(LogicalKeyboardKey.enter): () =>
-            widget.controller.confirmInsert(),
+        const SingleActivator(LogicalKeyboardKey.enter): _confirmNow,
         const SingleActivator(LogicalKeyboardKey.escape): () =>
             widget.controller.cancelSession(),
       },
@@ -555,7 +570,7 @@ class _PreviewCardState extends State<PreviewCard> {
                   const SizedBox(width: 8),
                   FilledButton(
                     key: const Key('preview-confirm'),
-                    onPressed: widget.controller.confirmInsert,
+                    onPressed: _confirmNow,
                     child: const Text('确认插入 (Enter)'),
                   ),
                 ],

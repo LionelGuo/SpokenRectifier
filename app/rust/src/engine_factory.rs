@@ -30,12 +30,11 @@ pub enum LlmChoice {
 /// fake rectifications of the user's actual speech. Fail loudly instead
 /// (the same "incomplete config is an error" rule the ASR side follows).
 pub fn llm_choice(dir: Option<&Path>) -> anyhow::Result<LlmChoice> {
-    let llm_key = llm_config(dir).map(|config| {
-        config
-            .model
-            .resolve_key()
-            .is_some_and(|key| !key.is_empty())
-    })?;
+    let config = llm_config(dir)?;
+    let llm_key = config
+        .model
+        .resolve_key()
+        .is_some_and(|key| !key.is_empty());
     if !llm_key {
         if asr_key_resolves(dir)? {
             return Err(anyhow!(
@@ -47,7 +46,6 @@ pub fn llm_choice(dir: Option<&Path>) -> anyhow::Result<LlmChoice> {
         }
         return Ok(LlmChoice::ScriptedDemo);
     }
-    let config = llm_config(dir)?;
     let llm = spokenrectifier_llm::OpenAiCompatLlm::new(config)
         .map_err(|err| anyhow!("LLM {}", err.0))?;
     Ok(LlmChoice::Real(Arc::new(llm)))

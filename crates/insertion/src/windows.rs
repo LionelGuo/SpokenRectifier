@@ -124,12 +124,7 @@ impl InputOs for Win32Os {
 
     fn note_target(&self) {
         let hwnd = unsafe { GetForegroundWindow() };
-        if hwnd.is_invalid() {
-            return;
-        }
-        let mut pid = 0u32;
-        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
-        if pid == std::process::id() {
+        if hwnd.is_invalid() || window_belongs_to_us(hwnd) {
             // Our own window is foreground (the session started from a
             // click on the orb, not the hotkey): remembering it would make
             // us our own insertion target.
@@ -147,6 +142,11 @@ impl InputOs for Win32Os {
         // preview window had focus for editing). A refused call leaves
         // the current foreground alone, which the paste flow tolerates.
         unsafe { SetForegroundWindow(hwnd) }.as_bool()
+    }
+
+    fn foreground_is_own_process(&self) -> bool {
+        let hwnd = unsafe { GetForegroundWindow() };
+        !hwnd.is_invalid() && window_belongs_to_us(hwnd)
     }
 
     fn send_paste(&self) -> Result<(), String> {
@@ -181,6 +181,15 @@ impl InputOs for Win32Os {
     fn wait_ms(&self, ms: u64) {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
+}
+
+// -- window plumbing ----------------------------------------------------------
+
+/// Whether `hwnd` belongs to this process.
+fn window_belongs_to_us(hwnd: HWND) -> bool {
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    pid == std::process::id()
 }
 
 // -- clipboard plumbing ------------------------------------------------------

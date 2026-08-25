@@ -61,13 +61,13 @@ impl TargetInserter {
     }
 
     fn paste_steps(&self, text: &str) -> Result<(), InsertError> {
+        // Without a remembered target the keys go to whatever holds the
+        // foreground — right whenever the user focused the target
+        // themselves, wrong when that window is our own preview.
+        self.focus_somewhere()?;
         self.os
             .clipboard_set_text(text)
             .map_err(|err| InsertError(format!("clipboard set failed: {err}")))?;
-        // Best effort: with no remembered target the keys go to whatever
-        // holds the foreground, which is right whenever the user focused
-        // the target themselves.
-        let _ = self.os.activate_target();
         self.os.wait_ms(self.config.focus_settle_ms);
         self.os
             .send_paste()
@@ -77,7 +77,7 @@ impl TargetInserter {
     }
 
     fn insert_by_typing(&self, text: &str) -> Result<(), InsertError> {
-        let _ = self.os.activate_target();
+        self.focus_somewhere()?;
         self.os.wait_ms(self.config.focus_settle_ms);
         for ch in text.chars() {
             match ch {
@@ -94,6 +94,25 @@ impl TargetInserter {
                     .map_err(|err| InsertError(format!("typing failed at {ch:?}: {err}")))?,
             }
             self.os.wait_ms(self.config.typing_delay_ms);
+        }
+        Ok(())
+    }
+
+    /// Point the keyboard at somewhere that is not us: the remembered
+    /// target when there is one, the current foreground otherwise — but
+    /// never our own window (a session started from the orb with the
+    /// preview still focused would paste into itself).
+    fn focus_somewhere(&self) -> Result<(), InsertError> {
+        if self.os.activate_target() {
+            return Ok(());
+        }
+        if self.os.foreground_is_own_process() {
+            return Err(InsertError(
+                "no target window to insert into: start sessions with the \
+                 hotkey from the app you type in, or focus the target before \
+                 confirming"
+                    .into(),
+            ));
         }
         Ok(())
     }
@@ -149,6 +168,7 @@ mod tests {
         calls: std::sync::Mutex<Vec<OsCall>>,
         save_result: std::sync::Mutex<SavedClipboard>,
         activate_result: AtomicBool,
+        own_foreground: AtomicBool,
         failures: std::sync::Mutex<VecDeque<(&'static str, String)>>,
     }
 
@@ -161,6 +181,7 @@ mod tests {
                     b"old text".to_vec(),
                 )])),
                 activate_result: AtomicBool::new(true),
+                own_foreground: AtomicBool::new(false),
                 failures: std::sync::Mutex::new(VecDeque::new()),
             }
         }
@@ -229,6 +250,11 @@ mod tests {
             activated
         }
 
+        fn foreground_is_own_process(&self) -> bool {
+            // A query, not an action: never recorded in the call log.
+            self.own_foreground.load(Ordering::SeqCst)
+        }
+
         fn send_paste(&self) -> Result<(), String> {
             self.calls.lock().unwrap().push(OsCall::Paste);
             if let Some(message) = self.take_failure("paste") {
@@ -293,9 +319,9 @@ mod tests {
             fake.calls(),
             vec![
                 OsCall::Save,
+                OsCall::Activate(true),
                 // LF became CRLF: the Windows clipboard convention.
                 OsCall::SetText("第一行\r\n第二行".into()),
-                OsCall::Activate(true),
                 OsCall::Wait(50),
                 OsCall::Paste,
                 OsCall::Wait(250),
@@ -312,8 +338,8 @@ mod tests {
             fake.calls(),
             vec![
                 OsCall::Save,
-                OsCall::SetText("a\r\nb".into()),
                 OsCall::Activate(true),
+                OsCall::SetText("a\r\nb".into()),
                 OsCall::Wait(50),
                 OsCall::Paste,
                 OsCall::Wait(250),
@@ -353,6 +379,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn without_a_target_and_our_own_window_focused_paste_refuses() {
+        let fake = Arc::new(FakeOs::new());
+        fake.activate_result.store(false, Ordering::SeqCst);
+        fake.own_foreground.store(true, Ordering::SeqCst);
+
+        let err = insert(&fake, InsertionMode::Paste, "话").await.unwrap_err();
+        assert!(err.0.contains("no target window"), "got: {}", err.0);
+        // Refused before touching the clipboard contents or pasting; the
+        // saved snapshot is still restored (a no-op net effect).
+        assert_eq!(
+            fake.calls(),
+            vec![
+                OsCall::Save,
+                OsCall::Activate(false),
+                OsCall::Restore(old_clipboard()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_target_and_our_own_window_focused_typing_refuses() {
+        let fake = Arc::new(FakeOs::new());
+        fake.activate_result.store(false, Ordering::SeqCst);
+        fake.own_foreground.store(true, Ordering::SeqCst);
+
+        let err = insert(&fake, InsertionMode::Typing, "话")
+            .await
+            .unwrap_err();
+        assert!(err.0.contains("no target window"), "got: {}", err.0);
+        assert_eq!(fake.calls(), vec![OsCall::Activate(false)]);
+    }
+
+    #[tokio::test]
     async fn failed_focus_activation_does_not_abort_the_paste() {
         let fake = Arc::new(FakeOs::new());
         fake.activate_result.store(false, Ordering::SeqCst);
@@ -363,8 +422,8 @@ mod tests {
             fake.calls(),
             vec![
                 OsCall::Save,
-                OsCall::SetText("话".into()),
                 OsCall::Activate(false),
+                OsCall::SetText("话".into()),
                 OsCall::Wait(50),
                 OsCall::Paste,
                 OsCall::Wait(250),

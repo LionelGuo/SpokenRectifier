@@ -35,6 +35,12 @@ pub trait InputOs: Send + Sync + 'static {
     /// whether a target was remembered and activation was attempted.
     fn activate_target(&self) -> bool;
 
+    /// Whether the window currently holding the foreground belongs to
+    /// this process. With no remembered target and our own window in the
+    /// foreground, there is nothing to insert into — the flows refuse
+    /// instead of pasting into ourselves.
+    fn foreground_is_own_process(&self) -> bool;
+
     /// Send a Ctrl+V paste keystroke to the foreground window.
     fn send_paste(&self) -> Result<(), String>;
 
@@ -73,6 +79,10 @@ impl InputOs for UnsupportedOs {
     fn note_target(&self) {}
 
     fn activate_target(&self) -> bool {
+        false
+    }
+
+    fn foreground_is_own_process(&self) -> bool {
         false
     }
 
