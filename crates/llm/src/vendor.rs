@@ -41,13 +41,6 @@ impl Vendor {
     }
 }
 
-/// Convenience wrapper used by the client: the thinking-mode request fields
-/// for a vendor. Kept as a free function so config validation can render it
-/// in diagnostics.
-pub fn thinking_field(vendor: Vendor, thinking: bool) -> Vec<(&'static str, Value)> {
-    vendor.thinking_fields(thinking)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,14 +48,14 @@ mod tests {
     #[test]
     fn deepseek_disabled_by_default_shape() {
         assert_eq!(
-            thinking_field(Vendor::DeepSeek, false),
+            Vendor::DeepSeek.thinking_fields(false),
             vec![("thinking", json!({"type": "disabled"}))]
         );
     }
 
     #[test]
     fn deepseek_enabled_requires_effort_pair() {
-        let fields = thinking_field(Vendor::DeepSeek, true);
+        let fields = Vendor::DeepSeek.thinking_fields(true);
         assert_eq!(
             fields,
             vec![
@@ -75,7 +68,7 @@ mod tests {
     #[test]
     fn volcengine_uses_type_object() {
         assert_eq!(
-            thinking_field(Vendor::Volcengine, false),
+            Vendor::Volcengine.thinking_fields(false),
             vec![("thinking", json!({"type": "disabled"}))]
         );
     }
@@ -83,17 +76,17 @@ mod tests {
     #[test]
     fn qwen_uses_boolean_flag() {
         assert_eq!(
-            thinking_field(Vendor::Qwen, false),
+            Vendor::Qwen.thinking_fields(false),
             vec![("enable_thinking", json!(false))]
         );
         assert_eq!(
-            thinking_field(Vendor::Qwen, true),
+            Vendor::Qwen.thinking_fields(true),
             vec![("enable_thinking", json!(true))]
         );
     }
 
     #[test]
     fn openai_plain_sends_nothing_when_off() {
-        assert!(thinking_field(Vendor::OpenAi, false).is_empty());
+        assert!(Vendor::OpenAi.thinking_fields(false).is_empty());
     }
 }

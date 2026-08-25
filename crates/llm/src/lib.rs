@@ -19,4 +19,4 @@ pub use client::OpenAiCompatLlm;
 pub use config::{ConfigError, LlmConfig, ModelConfig, load_llm_config};
 pub use intensity::{Intensity, select_intensity};
 pub use prompt::{ChatPrompt, compose_prompt};
-pub use vendor::{Vendor, thinking_field};
+pub use vendor::Vendor;

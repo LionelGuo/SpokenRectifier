@@ -173,6 +173,11 @@ class SpeechController extends ChangeNotifier {
           paragraphMarks = 0;
           previewText = '';
           _chunkTail = '';
+        } else if (to == BridgeSessionState.rectifying) {
+          // Every attempt (first stop and every reroll) streams fresh
+          // chunks; accumulate from scratch or attempts concatenate.
+          _chunkTail = '';
+          previewText = '';
         } else if (to == BridgeSessionState.idle) {
           _stopScriptedSpeech();
           panelExpanded = false;

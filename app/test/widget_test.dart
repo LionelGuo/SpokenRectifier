@@ -130,6 +130,53 @@ void main() {
     expect(controller.phase, BridgeSessionState.rectifying);
   });
 
+  testWidgets('reroll restarts chunk accumulation instead of concatenating',
+      (tester) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['第一版']);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.previewText, '第一版');
+
+    // Reroll and stream a second attempt.
+    await controller.reroll();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['第二版']);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(controller.previewText, '第二版');
+    final field = tester.widget<EditableText>(
+      find.byKey(const Key('preview-field')),
+    );
+    expect(field.controller.text, '第二版');
+  });
+
+  testWidgets('Enter inside the editing field confirms, not newline',
+      (tester) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['待确认文本']);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // Focus the field itself, then press Enter: the appended newline is
+    // interpreted as confirm (IME composing keeps its own Enter).
+    await tester.tap(find.byKey(const Key('preview-field')));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(gateway.commands, contains('confirmInsert'));
+    expect(controller.phase, BridgeSessionState.idle);
+  });
+
   testWidgets('editing the preview pushes updates after the debounce', (
     tester,
   ) async {

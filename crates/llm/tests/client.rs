@@ -1,41 +1,13 @@
 //! The OpenAI-compatible client against a mock server: request shape
 //! (auth, model per tier, thinking field), SSE streaming, error mapping.
 
+mod common;
+
+use common::{config_with_base, long_request, request};
 use futures::StreamExt;
 use httpmock::{Method, MockServer};
 use spokenrectifier_engine::provider::llm::{RectifyLlm, RectifyRequest};
-use spokenrectifier_llm::{LlmConfig, ModelConfig, OpenAiCompatLlm};
-
-fn config_with_base(base_url: String, thinking: bool) -> LlmConfig {
-    let tier = ModelConfig {
-        base_url,
-        model: "test-model".into(),
-        api_key: Some("sk-test".into()),
-        api_key_env: None,
-        vendor: spokenrectifier_llm::Vendor::DeepSeek,
-        extra_body: None,
-    };
-    LlmConfig {
-        thinking,
-        light_touch_max_chars: 40,
-        standard: tier.clone(),
-        fast: tier,
-    }
-}
-
-fn request(text: &str) -> RectifyRequest {
-    RectifyRequest {
-        raw_transcript: text.into(),
-        paragraphs: vec![text.into()],
-        style: spokenrectifier_engine::Style::GeneralWritten,
-        terms: vec![],
-    }
-}
-
-/// Long text (>= 40 chars) so the standard tier is chosen.
-fn long_request() -> RectifyRequest {
-    request(&"字".repeat(40))
-}
+use spokenrectifier_llm::OpenAiCompatLlm;
 
 fn sse_body() -> String {
     concat!(

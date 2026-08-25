@@ -6,6 +6,8 @@ use spokenrectifier_engine::Style;
 use spokenrectifier_engine::provider::llm::RectifyRequest;
 use spokenrectifier_llm::{Intensity, compose_prompt};
 
+// NOTE: this helper is deliberately duplicated in examples/gen_golden.rs;
+// the golden assertions below fail loudly if the two ever drift.
 fn request(style: Style, terms: &[&str], paragraphs: &[&str]) -> RectifyRequest {
     RectifyRequest {
         raw_transcript: paragraphs.join("\n"),

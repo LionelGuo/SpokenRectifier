@@ -96,6 +96,8 @@ class _ShellState extends State<_Shell> with TrayListener {
     super.initState();
     trayManager.addListener(this);
     controller.addListener(_onControllerChanged);
+    // Paint the initial tooltip and menu before any event arrives.
+    _refreshTray();
   }
 
   @override

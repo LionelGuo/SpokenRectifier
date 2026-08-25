@@ -10,25 +10,9 @@ use spokenrectifier_engine::fakes::{AsrStep, FakeClock, FakeInserter, ScriptedAs
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState,
 };
-use spokenrectifier_llm::{LlmConfig, ModelConfig, OpenAiCompatLlm};
+mod common;
 
-fn mock_backed_llm(server: &MockServer) -> OpenAiCompatLlm {
-    let tier = ModelConfig {
-        base_url: server.base_url(),
-        model: "test-model".into(),
-        api_key: Some("sk-test".into()),
-        api_key_env: None,
-        vendor: spokenrectifier_llm::Vendor::DeepSeek,
-        extra_body: None,
-    };
-    OpenAiCompatLlm::new(LlmConfig {
-        thinking: false,
-        light_touch_max_chars: 40,
-        standard: tier.clone(),
-        fast: tier,
-    })
-    .unwrap()
-}
+use common::{config_with_base, mock_backed_llm};
 
 async fn next_event(rx: &mut tokio::sync::broadcast::Receiver<EventEnvelope>) -> EventEnvelope {
     tokio::time::timeout(Duration::from_secs(2), rx.recv())
@@ -59,7 +43,7 @@ async fn utterance_flows_through_the_real_client_to_preview_and_insert() {
         EngineDeps {
             // The fake constructors already return Arc<Self>.
             asr: ScriptedAsr::new(vec![vec![AsrStep::Say("嗯那个明天开会".into())]]),
-            llm: Arc::new(mock_backed_llm(&server)),
+            llm: Arc::new(mock_backed_llm(config_with_base(server.base_url(), false))),
             inserter: inserter.clone(),
             clock: FakeClock::new(1_000),
         },

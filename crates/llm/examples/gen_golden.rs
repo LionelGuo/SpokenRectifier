@@ -11,6 +11,8 @@ use spokenrectifier_engine::Style;
 use spokenrectifier_engine::provider::llm::RectifyRequest;
 use spokenrectifier_llm::{Intensity, compose_prompt};
 
+// NOTE: kept in sync with the copy in tests/golden.rs; a mismatch fails
+// the golden tests on the next run.
 fn request(style: Style, terms: &[&str], paragraphs: &[&str]) -> RectifyRequest {
     RectifyRequest {
         raw_transcript: paragraphs.join("\n"),

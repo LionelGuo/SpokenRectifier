@@ -94,9 +94,19 @@ class IdleOrb extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (controller.lastInserted != null)
-              _InsertedFlash(text: controller.lastInserted!),
+              _FlashBanner(
+                key: const Key('inserted-flash'),
+                icon: Icons.check_circle,
+                color: Colors.greenAccent,
+                label: '已插入:${controller.lastInserted}',
+              ),
             if (controller.lastError != null)
-              _ErrorFlash(message: controller.lastError!),
+              _FlashBanner(
+                key: const Key('error-flash'),
+                icon: Icons.error_outline,
+                color: Colors.redAccent,
+                label: controller.lastError!,
+              ),
             _OrbShell(
               color: const Color(0xFF2E3A59),
               onTap: controller.startSession,
@@ -348,6 +358,21 @@ class _PreviewCardState extends State<PreviewCard> {
   }
 
   void _onEdited(String value) {
+    // Bare Enter in an unfocused-IME field arrives as an appended newline;
+    // treat it as confirm (chat-input style). While the IME is composing,
+    // Enter commits the composition instead — no newline is appended, so
+    // it safely falls through to the composing commit.
+    final composing = _text.value.composing;
+    if (value.endsWith('\n') && composing == TextRange.empty) {
+      final stripped = value.substring(0, value.length - 1);
+      _text.value = TextEditingValue(
+        text: stripped,
+        selection: TextSelection.collapsed(offset: stripped.length),
+      );
+      _lastSynced = stripped;
+      widget.controller.confirmInsert();
+      return;
+    }
     _lastSynced = value;
     _editDebounce?.cancel();
     _editDebounce = Timer(const Duration(milliseconds: 350), () {
@@ -519,65 +544,36 @@ class _RecordingDotState extends State<_RecordingDot>
   }
 }
 
-class _InsertedFlash extends StatelessWidget {
-  const _InsertedFlash({required this.text});
+class _FlashBanner extends StatelessWidget {
+  const _FlashBanner({
+    super.key,
+    required this.icon,
+    required this.color,
+    required this.label,
+  });
 
-  final String text;
+  final IconData icon;
+  final Color color;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      key: const Key('inserted-flash'),
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       constraints: const BoxConstraints(maxWidth: 380),
       decoration: BoxDecoration(
         color: const Color(0xEE1B2436),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.check_circle, size: 16, color: Colors.greenAccent),
+          Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
           Flexible(
-            child: Text(
-              '已插入:$text',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorFlash extends StatelessWidget {
-  const _ErrorFlash({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const Key('error-flash'),
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      constraints: const BoxConstraints(maxWidth: 380),
-      decoration: BoxDecoration(
-        color: const Color(0xEE1B2436),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.error_outline, size: 16, color: Colors.redAccent),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(message, maxLines: 1, overflow: TextOverflow.ellipsis),
+            child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ],
       ),
