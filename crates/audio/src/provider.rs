@@ -21,12 +21,56 @@ use std::task::{Context, Poll};
 use spokenrectifier_engine::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
 
 use crate::mic::{self, MicEvent};
-use crate::vad::{Vad, VadConfig};
+use crate::vad::{Vad, VadConfig, VadDecision};
 
 /// A fresh capture to pump: the receiver of [`MicEvent`]s.
 pub type FrameStream = mpsc::Receiver<MicEvent>;
 /// Factory for frame streams; injectable so tests script the microphone.
 pub type FrameSource = Arc<dyn Fn() -> Result<FrameStream, String> + Send + Sync>;
+
+/// Maps VAD decisions onto the engine's per-frame ASR events: speech
+/// transitions plus the silence clock. Shared by every provider that
+/// drives the engine from local VAD — mic-only and cloud alike, so their
+/// session semantics stay identical.
+pub struct FrameEvents {
+    speaking: bool,
+}
+
+impl Default for FrameEvents {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FrameEvents {
+    pub fn new() -> Self {
+        Self { speaking: false }
+    }
+
+    /// The events one analyzed frame produces (in emission order).
+    pub fn push(&mut self, decision: &VadDecision) -> Vec<AsrEvent> {
+        let mut events = Vec::with_capacity(2);
+        if decision.speaking != self.speaking {
+            self.speaking = decision.speaking;
+            events.push(AsrEvent::SpeechActivity {
+                speaking: self.speaking,
+            });
+        }
+        if !self.speaking {
+            // The silence clock the engine's paragraph / auto-end
+            // thresholds compare against.
+            events.push(AsrEvent::Silence {
+                elapsed_ms: decision.silence_ms,
+            });
+        }
+        events
+    }
+
+    /// The current smoothed speaking state.
+    pub fn speaking(&self) -> bool {
+        self.speaking
+    }
+}
 
 /// The mic+VAD ASR provider.
 pub struct MicVadAsr {
@@ -57,25 +101,10 @@ impl AsrProvider for MicVadAsr {
         // is tiny but must not stall the async runtime.
         std::thread::spawn(move || {
             let mut vad = Vad::new(config);
-            let mut speaking = false;
+            let mut frame_events = FrameEvents::new();
             for event in frames {
                 let out = match event {
-                    MicEvent::Frame(frame) => {
-                        let decision = vad.push(&frame);
-                        let mut events = Vec::with_capacity(2);
-                        if decision.speaking != speaking {
-                            speaking = decision.speaking;
-                            events.push(AsrEvent::SpeechActivity { speaking });
-                        }
-                        if !speaking {
-                            // The silence clock the engine's paragraph /
-                            // auto-end thresholds compare against.
-                            events.push(AsrEvent::Silence {
-                                elapsed_ms: decision.silence_ms,
-                            });
-                        }
-                        events
-                    }
+                    MicEvent::Frame(frame) => frame_events.push(&vad.push(&frame)),
                     MicEvent::Error(message) => vec![AsrEvent::Failed { message }],
                 };
                 for event in out {

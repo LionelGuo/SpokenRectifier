@@ -16,10 +16,19 @@ passage_mode = true
 paragraph_silence_ms = 1200
 session_end_silence_ms = 3000
 
-# Cloud ASR provider (Aliyun qwen3-asr-flash-realtime, pay-as-you-go).
-# Schema lands with the ASR adapter work.
-[asr.aliyun]
-api_key = ""
+# Cloud ASR (Aliyun qwen3-asr-flash-realtime over the DashScope realtime
+# WebSocket, pay-as-you-go). With a key resolved the app streams real
+# transcripts; without one it falls back to the mic-only provider (speech
+# state and silence semantics, no text). The endpoint host is
+# workspace-scoped: find the workspace id in the Bailian console.
+[asr]
+model = "qwen3-asr-flash-realtime"
+workspace_id = ""                          # required unless base_url is set
+region = "cn-beijing"                      # or "ap-southeast-1"
+language = "zh"                            # zh covers mixed zh/en dictation
+api_key_env = "DASHSCOPE_API_KEY"          # or api_key in spokenrectifier.local.toml
+# base_url = "wss://..."                   # full host override (everything
+#                                          #  before /api-ws/v1/realtime)
 
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
 # One model per mode: light-touch vs full rectify is decided by length

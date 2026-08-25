@@ -6,13 +6,14 @@
 
 ## 当前状态
 
-早期开发中。已落地:**Rust 引擎 crate(命令进、事件出的单一测试缝)与全假件确定性测试、`sr-replay` 脚本回放驱动器、修正管线(`crates/llm`:强度分档 + 保真 prompt + OpenAI 兼容流式客户端)与 `sr-rectify` 真 LLM 演示驱动器、麦克风采集与 VAD(`crates/audio`:cpal 采集 + 能量 VAD,真实 AsrProvider——说话状态、静音语义、设备失效反馈;无声段不判语音即幻觉抑制门)、Flutter 壳(`app/`:托盘 + 热键 + 悬浮球 + 预览窗,真麦克风驱动,转写文本待 ASR 适配器)**。真实 ASR 适配器尚未开始。
+早期开发中。已落地:**Rust 引擎 crate(命令进、事件出的单一测试缝)与全假件确定性测试、`sr-replay` 脚本回放驱动器、修正管线(`crates/llm`:强度分档 + 保真 prompt + OpenAI 兼容流式客户端)与 `sr-rectify` 真 LLM 演示驱动器、麦克风采集与 VAD(`crates/audio`:cpal 采集 + 能量 VAD,真实 AsrProvider——说话状态、静音语义、设备失效反馈;无声段不判语音即幻觉抑制门)、阿里云端 ASR 适配器(`crates/aliyun`:qwen3-asr-flash-realtime 实时 WebSocket 协议,`[asr]` 配置带 key 即启用——说话段+拖尾静音才上链、断线限次重连补发、部分/最终转写回流引擎;无 key 自动回退纯麦克风模式)、Flutter 壳(`app/`:托盘 + 热键 + 悬浮球 + 预览窗,真麦克风驱动)**。
 
 ## 布局
 
 ```
 crates/engine   核心引擎:会话状态机 + Provider trait(ASR / 修正 LLM / 插入器 / 时钟)
 crates/audio    麦克风采集 + VAD:cpal 默认输入设备 → 16k mono s16 → 能量 VAD → AsrProvider
+crates/aliyun   阿里云端 ASR 适配器:qwen3-asr-flash-realtime 实时 WS 协议、上链门控、断线重连
 crates/llm      修正管线:强度分档、prompt 组装(保真铁律/五类变换)、OpenAI 兼容流式客户端
 crates/cli      sr-replay:脚本化假会话回放;sr-rectify:canned 口语段 × 真 LLM 演示
 app/            Flutter 壳:托盘常驻、Ctrl+Alt+V 全局热键、悬浮球、预览窗(真麦克风)

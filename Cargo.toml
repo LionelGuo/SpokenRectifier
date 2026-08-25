@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/engine",
     "crates/audio",
+    "crates/aliyun",
     "crates/cli",
     "crates/llm",
     "app/rust",

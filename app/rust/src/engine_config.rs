@@ -59,11 +59,12 @@ fn pick_config_dir<'a>(dirs: &[&'a Path]) -> Option<&'a Path> {
 
 const CONFIG_FILE_NAMES: [&str; 2] = ["spokenrectifier.toml", "spokenrectifier.local.toml"];
 
-/// Load the session semantics for the app: from the first directory that
-/// has either config file — the working directory first (dev runs and CLI
-/// parity), then the executable's directory (a double-clicked portable exe
-/// has an arbitrary cwd). No file anywhere means defaults.
-pub fn engine_config() -> anyhow::Result<EngineConfig> {
+/// The first directory that has either config file — the working
+/// directory first (dev runs and CLI parity), then the executable's
+/// directory (a double-clicked portable exe has an arbitrary cwd). Every
+/// config section loader ([`engine_config`], the `[asr]` loader) resolves
+/// this same directory.
+pub fn config_dir() -> anyhow::Result<Option<std::path::PathBuf>> {
     let cwd = std::env::current_dir()?;
     let exe_dir = std::env::current_exe()
         .ok()
@@ -71,8 +72,14 @@ pub fn engine_config() -> anyhow::Result<EngineConfig> {
     let candidates: Vec<&Path> = std::iter::once(cwd.as_path())
         .chain(exe_dir.as_deref())
         .collect();
-    match pick_config_dir(&candidates) {
-        Some(dir) => engine_config_from_dir(dir),
+    Ok(pick_config_dir(&candidates).map(Path::to_path_buf))
+}
+
+/// Load the session semantics for the app from [`config_dir`]; no file
+/// anywhere means defaults.
+pub fn engine_config() -> anyhow::Result<EngineConfig> {
+    match config_dir()? {
+        Some(dir) => engine_config_from_dir(&dir),
         None => Ok(EngineConfig::default()),
     }
 }

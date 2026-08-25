@@ -7,10 +7,12 @@
 //! the Dart side.
 //!
 //! Two engine flavors: `create_engine` wires the real default microphone
-//! (capture + VAD as the ASR provider; session semantics from the
-//! `[engine]` config section) with a scripted cycling LLM and a recording
-//! inserter, while `create_fake_engine` keeps the all-fake setup (scripted
-//! speech via `fake_say` / `fake_silence`) for tests and headless demos.
+//! with, when the `[asr]` config yields a key, the Aliyun realtime
+//! adapter streaming real transcripts (otherwise the mic+VAD provider's
+//! session semantics alone; `[engine]` config section for either), a
+//! scripted cycling LLM and a recording inserter, while
+//! `create_fake_engine` keeps the all-fake setup (scripted speech via
+//! `fake_say` / `fake_silence`) for tests and headless demos.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -19,10 +21,12 @@ use tokio::runtime::Runtime;
 
 use crate::frb_generated::StreamSink;
 
+use spokenrectifier_aliyun::{load_asr_config, AliyunAsr, AsrConfig};
 use spokenrectifier_audio::{MicVadAsr, VadConfig};
 use spokenrectifier_engine::fakes::{
     AsrFeed, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedLlm,
 };
+use spokenrectifier_engine::AsrProvider;
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState, Style,
     TokioClock,
@@ -223,18 +227,19 @@ fn token_scripts(llm_responses: &[String]) -> Vec<Vec<LlmStep>> {
         .collect()
 }
 
-/// Build the engine behind the bridge with the real default microphone:
-/// capture + VAD as the ASR provider (speech activity, silence semantics,
-/// device-failure feedback), a scripted cycling LLM, and a recording
-/// inserter. Session semantics (passage mode, silence thresholds) load
-/// from the `[engine]` section of the layered config files. Idempotent: a
-/// second call is a no-op.
+/// Build the engine behind the bridge with the real default microphone
+/// and, when the `[asr]` config yields an API key, the Aliyun realtime
+/// adapter streaming real transcripts. Without a key the mic+VAD provider
+/// keeps the session semantics (speech activity, silence, device
+/// failure). A scripted cycling LLM and a recording inserter complete the
+/// assembly. Session semantics load from the `[engine]` section of the
+/// layered config files. Idempotent: a second call is a no-op.
 pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     if GLOBAL.get().is_some() {
         return Ok(());
     }
     let config = engine_config()?;
-    let asr = std::sync::Arc::new(MicVadAsr::new(VadConfig::default()));
+    let asr = asr_provider()?;
     let llm = ScriptedLlm::new_cycling(token_scripts(&llm_responses));
     let inserter = FakeInserter::new();
     let engine = Engine::new(
@@ -253,6 +258,24 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
         inserter,
     });
     Ok(())
+}
+
+/// The ASR provider for the real engine: the Aliyun realtime adapter when
+/// the layered `[asr]` config resolves a key (an incomplete cloud config —
+/// key but no endpoint — is an error, not a silent fallback), the mic+VAD
+/// provider otherwise.
+fn asr_provider() -> anyhow::Result<std::sync::Arc<dyn AsrProvider>> {
+    let config = match crate::engine_config::config_dir()? {
+        Some(dir) => load_asr_config(&dir).map_err(|err| anyhow::anyhow!("ASR {}", err.0))?,
+        None => AsrConfig::defaults(),
+    };
+    match config.resolve_key() {
+        Some(_) => Ok(std::sync::Arc::new(
+            AliyunAsr::new(config, VadConfig::default())
+                .map_err(|err| anyhow::anyhow!("ASR {}", err.0))?,
+        )),
+        None => Ok(std::sync::Arc::new(MicVadAsr::new(VadConfig::default()))),
+    }
 }
 
 /// Build the engine behind the bridge with all-fake collaborators.
