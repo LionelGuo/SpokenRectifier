@@ -19,12 +19,29 @@ pub struct RealtimeChannel {
     pub rx: mpsc::Receiver<Result<String, String>>,
 }
 
+/// Why a connect attempt failed.
+#[derive(Debug, Clone)]
+pub enum ConnectError {
+    /// Credentials rejected (HTTP 401/403): retrying will not help.
+    Auth(String),
+    /// Anything else — unreachable, timed out, protocol trouble.
+    Other(String),
+}
+
+impl std::fmt::Display for ConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConnectError::Auth(message) | ConnectError::Other(message) => f.write_str(message),
+        }
+    }
+}
+
 /// Factory for realtime connections; injectable so tests script the
 /// server. `Err` from `connect` failed before the session began (auth,
 /// unreachable endpoint).
 #[async_trait]
 pub trait RealtimeConnect: Send + Sync {
-    async fn connect(&self) -> Result<RealtimeChannel, String>;
+    async fn connect(&self) -> Result<RealtimeChannel, ConnectError>;
 }
 
 /// Production transport: tokio-tungstenite against the DashScope realtime
@@ -42,7 +59,7 @@ impl TungsteniteConnect {
 
 #[async_trait]
 impl RealtimeConnect for TungsteniteConnect {
-    async fn connect(&self) -> Result<RealtimeChannel, String> {
+    async fn connect(&self) -> Result<RealtimeChannel, ConnectError> {
         use tokio_tungstenite::tungstenite::Message;
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
         use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
@@ -51,12 +68,12 @@ impl RealtimeConnect for TungsteniteConnect {
             .url
             .as_str()
             .into_client_request()
-            .map_err(|e| format!("bad endpoint URL: {e}"))?;
+            .map_err(|e| ConnectError::Other(format!("bad endpoint URL: {e}")))?;
         request.headers_mut().insert(
             AUTHORIZATION,
             format!("Bearer {}", self.api_key)
                 .parse()
-                .map_err(|_| "invalid api key".to_string())?,
+                .map_err(|_| ConnectError::Other("invalid api key".to_string()))?,
         );
 
         let (ws, _response) =
@@ -64,9 +81,15 @@ impl RealtimeConnect for TungsteniteConnect {
                 .await
                 .map_err(|e| match e {
                     tokio_tungstenite::tungstenite::Error::Http(resp) => {
-                        format!("handshake rejected: HTTP {}", resp.status().as_u16())
+                        let status = resp.status().as_u16();
+                        let message = format!("handshake rejected: HTTP {status}");
+                        if status == 401 || status == 403 {
+                            ConnectError::Auth(message)
+                        } else {
+                            ConnectError::Other(message)
+                        }
                     }
-                    other => format!("connection failed: {other}"),
+                    other => ConnectError::Other(format!("connection failed: {other}")),
                 })?;
 
         let (client_tx, mut client_rx) = mpsc::channel::<String>(64);

@@ -35,9 +35,8 @@ mod provider;
 mod transport;
 
 pub use config::{AsrConfig, AsrConfigError, load_asr_config};
-pub use gate::{PAD_MS, SendGate};
 pub use provider::AliyunAsr;
-pub use transport::{RealtimeChannel, RealtimeConnect, TungsteniteConnect};
+pub use transport::{ConnectError, RealtimeChannel, RealtimeConnect};
 
 /// Synthetic 100 ms frame builders for the crate's deterministic tests —
 /// the same shape the audio crate's tests use, kept local because its

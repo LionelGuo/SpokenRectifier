@@ -65,11 +65,6 @@ impl FrameEvents {
         }
         events
     }
-
-    /// The current smoothed speaking state.
-    pub fn speaking(&self) -> bool {
-        self.speaking
-    }
 }
 
 /// The mic+VAD ASR provider.

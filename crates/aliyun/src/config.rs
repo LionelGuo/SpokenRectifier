@@ -12,7 +12,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 /// Everything the adapter needs to reach the model.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct AsrConfig {
     /// Model name, also the `?model=` query parameter.
     pub model: String,
@@ -30,6 +30,21 @@ pub struct AsrConfig {
     /// `session.update` transcription language; `zh` covers the
     /// mixed-Chinese-English code-switching v1 targets.
     pub language: String,
+}
+
+/// Manual impl: the key never reaches logs or panic messages.
+impl std::fmt::Debug for AsrConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsrConfig")
+            .field("model", &self.model)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("api_key_env", &self.api_key_env)
+            .field("workspace_id", &self.workspace_id)
+            .field("region", &self.region)
+            .field("base_url", &self.base_url)
+            .field("language", &self.language)
+            .finish()
+    }
 }
 
 impl AsrConfig {
@@ -126,23 +141,43 @@ fn apply(config: &mut AsrConfig, file: FileConfig) {
     }
 }
 
-fn read_layer(config: &mut AsrConfig, path: &Path) -> Result<(), AsrConfigError> {
+fn read_layer(
+    config: &mut AsrConfig,
+    path: &Path,
+    secrets_allowed: bool,
+) -> Result<(), AsrConfigError> {
     let Ok(text) = fs::read_to_string(path) else {
         return Ok(()); // optional file
     };
     let parsed: FileConfig = toml::from_str(&text)
         .map_err(|err| AsrConfigError(format!("{}: {err}", path.display())))?;
+    if !secrets_allowed
+        && parsed
+            .asr
+            .as_ref()
+            .and_then(|section| section.api_key.as_deref())
+            .is_some_and(|key| !key.is_empty())
+    {
+        // Fail loudly rather than accept a key into a file that gets
+        // committed.
+        return Err(AsrConfigError(format!(
+            "{}: api_key may not live in the shared committed config; \
+             move it to spokenrectifier.local.toml",
+            path.display()
+        )));
+    }
     apply(config, parsed);
     Ok(())
 }
 
 /// Load the `[asr]` config from a directory: defaults, overlaid with
-/// `spokenrectifier.toml`, then `spokenrectifier.local.toml` (which wins).
-/// Missing files are fine; malformed ones are an error naming the file.
+/// `spokenrectifier.toml`, then `spokenrectifier.local.toml` (which wins,
+/// and is the only layer an `api_key` may come from). Missing files are
+/// fine; malformed ones are an error naming the file.
 pub fn load_asr_config(dir: &Path) -> Result<AsrConfig, AsrConfigError> {
     let mut config = AsrConfig::defaults();
-    read_layer(&mut config, &dir.join("spokenrectifier.toml"))?;
-    read_layer(&mut config, &dir.join("spokenrectifier.local.toml"))?;
+    read_layer(&mut config, &dir.join("spokenrectifier.toml"), false)?;
+    read_layer(&mut config, &dir.join("spokenrectifier.local.toml"), true)?;
     Ok(config)
 }
 
@@ -215,6 +250,22 @@ mod tests {
         std::fs::write(dir.join("spokenrectifier.toml"), "[asr\nbroken").unwrap();
         let err = load_asr_config(&dir).unwrap_err().0;
         assert!(err.contains("spokenrectifier.toml"), "got: {err}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn api_key_in_the_shared_committed_file_is_rejected() {
+        let dir = std::env::temp_dir().join("sr-asr-config-test-shared-key");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[asr]\napi_key = \"sk-oops\"\n",
+        )
+        .unwrap();
+
+        let err = load_asr_config(&dir).unwrap_err().0;
+        assert!(err.contains("spokenrectifier.toml"), "got: {err}");
+        assert!(err.contains("local"), "got: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

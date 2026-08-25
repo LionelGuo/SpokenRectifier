@@ -15,6 +15,7 @@ use spokenrectifier_audio::VadDecision;
 /// configure (400 ms).
 pub const PAD_MS: u64 = 1000;
 
+/// Which frames may travel to the recognizer: decides per VAD decision.
 pub struct SendGate {
     pad_ms: u64,
     active: bool,

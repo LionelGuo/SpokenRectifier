@@ -36,7 +36,7 @@ use spokenrectifier_engine::provider::asr::{AsrEvent, AsrOpenError, AsrProvider}
 
 use crate::config::{AsrConfig, AsrConfigError};
 use crate::gate::{PAD_MS, SendGate};
-use crate::transport::{RealtimeChannel, RealtimeConnect, TungsteniteConnect};
+use crate::transport::{ConnectError, RealtimeChannel, RealtimeConnect, TungsteniteConnect};
 
 /// Reconnect attempts after a connection is lost before giving up; healthy
 /// server traffic replenishes the budget.
@@ -58,6 +58,8 @@ pub struct AliyunAsr {
     vad: VadConfig,
     source: FrameSource,
     connect: Arc<dyn RealtimeConnect>,
+    /// Handshake budget per (re)connect attempt; injectable for tests.
+    connect_timeout: Duration,
 }
 
 impl AliyunAsr {
@@ -74,6 +76,7 @@ impl AliyunAsr {
             vad,
             Arc::new(spokenrectifier_audio::open_mic),
             Arc::new(TungsteniteConnect::new(endpoint, api_key)),
+            CONNECT_TIMEOUT,
         ))
     }
 
@@ -83,12 +86,14 @@ impl AliyunAsr {
         vad: VadConfig,
         source: FrameSource,
         connect: Arc<dyn RealtimeConnect>,
+        connect_timeout: Duration,
     ) -> Self {
         Self {
             config,
             vad,
             source,
             connect,
+            connect_timeout,
         }
     }
 }
@@ -97,7 +102,7 @@ impl AliyunAsr {
 impl AsrProvider for AliyunAsr {
     async fn open_stream(&self) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
         let frames = (self.source)().map_err(AsrOpenError)?;
-        let mut channel = connect_once(self.connect.as_ref()).await?;
+        let mut channel = connect_once(self.connect.as_ref(), self.connect_timeout).await?;
         let (tx, rx) = async_mpsc::channel::<AsrEvent>(64);
 
         // Bridge the blocking mic receiver into async land; when the pump
@@ -113,15 +118,12 @@ impl AsrProvider for AliyunAsr {
         });
 
         let connect = self.connect.clone();
-        let vad_config = self.vad;
         let language = self.config.language.clone();
+        let connect_timeout = self.connect_timeout;
+        let vad_config = self.vad;
 
         tokio::spawn(async move {
-            let mut vad = Vad::new(vad_config);
-            let mut frame_events = FrameEvents::new();
-            let mut gate = SendGate::new(PAD_MS);
-            let mut reconnects_left = MAX_RECONNECTS;
-            let mut offline_buffer: VecDeque<Vec<i16>> = VecDeque::new();
+            let mut pump = Pump::new(vad_config);
 
             let _ = channel.tx.send(session_update_payload(&language)).await;
 
@@ -136,25 +138,18 @@ impl AsrProvider for AliyunAsr {
                                 break 'session;
                             }
                             Some(MicEvent::Frame(frame)) => {
-                                let decision = vad.push(&frame);
-                                if !emit(&tx, frame_events.push(&decision)).await {
+                                let (events, on_wire) = pump.analyze(&frame);
+                                if !emit(&tx, events).await {
                                     break 'session; // engine side gone
                                 }
-                                if gate.push(&decision)
+                                if on_wire
                                     && channel.tx.send(append_payload(&frame)).await.is_err()
                                 {
                                     // Writer gone: same story as a lost
                                     // connection — reconnect.
                                     match try_reconnect(
-                                        &connect,
-                                        &language,
-                                        &mut frame_rx,
-                                        &mut vad,
-                                        &mut frame_events,
-                                        &mut gate,
-                                        &tx,
-                                        &mut reconnects_left,
-                                        &mut offline_buffer,
+                                        &connect, &language, connect_timeout,
+                                        &mut frame_rx, &mut pump, &tx,
                                     )
                                     .await
                                     {
@@ -171,25 +166,18 @@ impl AsrProvider for AliyunAsr {
                                 if let Some(event) = server_event(&text) {
                                     let failed = matches!(event, AsrEvent::Failed { .. });
                                     // Healthy traffic replenishes the budget.
-                                    reconnects_left = MAX_RECONNECTS;
+                                    pump.reconnects_left = MAX_RECONNECTS;
                                     if !emit(&tx, vec![event]).await || failed {
                                         break 'session;
                                     }
                                 } else {
-                                    reconnects_left = MAX_RECONNECTS;
+                                    pump.reconnects_left = MAX_RECONNECTS;
                                 }
                             }
                             Some(Err(_)) | None => {
                                 match try_reconnect(
-                                    &connect,
-                                    &language,
-                                    &mut frame_rx,
-                                    &mut vad,
-                                    &mut frame_events,
-                                    &mut gate,
-                                    &tx,
-                                    &mut reconnects_left,
-                                    &mut offline_buffer,
+                                    &connect, &language, connect_timeout,
+                                    &mut frame_rx, &mut pump, &tx,
                                 )
                                 .await
                                 {
@@ -210,26 +198,64 @@ impl AsrProvider for AliyunAsr {
             while let Ok(Some(Ok(text))) =
                 tokio::time::timeout_at(deadline, channel.rx.recv()).await
             {
-                match server_event(&text) {
-                    Some(event @ AsrEvent::Failed { .. }) => {
-                        let _ = tx.send(event).await;
-                        break;
-                    }
-                    Some(event) => {
-                        if tx.send(event).await.is_err() {
-                            break;
-                        }
-                    }
-                    None => {
-                        if text.contains("session.finished") {
-                            break;
-                        }
-                    }
+                let event_type = serde_json::from_str::<serde_json::Value>(&text)
+                    .ok()
+                    .and_then(|value| value["type"].as_str().map(str::to_string));
+                if event_type.as_deref() == Some("session.finished") {
+                    break;
+                }
+                let Some(event) = server_event(&text) else {
+                    continue;
+                };
+                if matches!(event, AsrEvent::Failed { .. }) {
+                    let _ = tx.send(event).await;
+                    break;
+                }
+                if tx.send(event).await.is_err() {
+                    break; // engine side gone
                 }
             }
         });
 
         Ok(RecvAsrStream { rx }.boxed())
+    }
+}
+
+/// The per-session analysis state shared by the live loop and reconnects:
+/// one place for the VAD, the frame-to-event mapping, the send gate, and
+/// the offline audio buffer.
+struct Pump {
+    vad: Vad,
+    frame_events: FrameEvents,
+    gate: SendGate,
+    offline_buffer: VecDeque<Vec<i16>>,
+    reconnects_left: u32,
+}
+
+impl Pump {
+    fn new(vad_config: VadConfig) -> Self {
+        Self {
+            vad: Vad::new(vad_config),
+            frame_events: FrameEvents::new(),
+            gate: SendGate::new(PAD_MS),
+            offline_buffer: VecDeque::new(),
+            reconnects_left: MAX_RECONNECTS,
+        }
+    }
+
+    /// Analyze one frame: the engine events it produces, and whether it
+    /// belongs on the wire.
+    fn analyze(&mut self, frame: &[i16]) -> (Vec<AsrEvent>, bool) {
+        let decision = self.vad.push(frame);
+        (self.frame_events.push(&decision), self.gate.push(&decision))
+    }
+
+    /// Stash a wire frame while offline; overflow drops the oldest.
+    fn buffer_offline(&mut self, frame: Vec<i16>) {
+        if self.offline_buffer.len() == RECONNECT_BUFFER_FRAMES {
+            self.offline_buffer.pop_front();
+        }
+        self.offline_buffer.push_back(frame);
     }
 }
 
@@ -255,50 +281,51 @@ async fn emit(tx: &async_mpsc::Sender<AsrEvent>, events: Vec<AsrEvent>) -> bool 
     true
 }
 
-async fn connect_once(connect: &dyn RealtimeConnect) -> Result<RealtimeChannel, AsrOpenError> {
-    tokio::time::timeout(CONNECT_TIMEOUT, connect.connect())
+async fn connect_once(
+    connect: &dyn RealtimeConnect,
+    timeout: Duration,
+) -> Result<RealtimeChannel, AsrOpenError> {
+    tokio::time::timeout(timeout, connect.connect())
         .await
         .map_err(|_| AsrOpenError("connecting to the ASR endpoint timed out".into()))?
-        .map_err(AsrOpenError)
+        .map_err(|err| AsrOpenError(err.to_string()))
 }
 
 /// Replace a lost connection. While a reconnect is pending the mic keeps
 /// being analyzed (the orb stays live) and gate-approved frames are
 /// buffered; on success the session is reconfigured and the buffer
-/// flushed. Returns `None` when the session must end — the `Failed`
-/// feedback (or a dead engine/source) has already been emitted or makes
-/// further work moot.
-#[allow(clippy::too_many_arguments)]
+/// flushed. Each attempt gets the handshake budget — a hanging reconnect
+/// fails over instead of wedging the session offline. Returns `None` when
+/// the session must end — the `Failed` feedback (or a dead engine/source)
+/// has already been emitted or makes further work moot.
 async fn try_reconnect(
     connect: &Arc<dyn RealtimeConnect>,
     language: &str,
+    connect_timeout: Duration,
     frame_rx: &mut async_mpsc::Receiver<MicEvent>,
-    vad: &mut Vad,
-    frame_events: &mut FrameEvents,
-    gate: &mut SendGate,
+    pump: &mut Pump,
     engine_tx: &async_mpsc::Sender<AsrEvent>,
-    reconnects_left: &mut u32,
-    offline_buffer: &mut VecDeque<Vec<i16>>,
 ) -> Option<RealtimeChannel> {
-    while *reconnects_left > 0 {
-        *reconnects_left -= 1;
+    while pump.reconnects_left > 0 {
+        pump.reconnects_left -= 1;
+        let deadline = tokio::time::Instant::now() + connect_timeout;
         let attempt = {
             let fut = connect.connect();
             tokio::pin!(fut);
             loop {
                 tokio::select! {
                     result = &mut fut => break result,
+                    _ = tokio::time::sleep_until(deadline) => {
+                        break Err(ConnectError::Other("reconnecting timed out".into()));
+                    }
                     maybe = frame_rx.recv() => match maybe {
                         Some(MicEvent::Frame(frame)) => {
-                            let decision = vad.push(&frame);
-                            if !emit(engine_tx, frame_events.push(&decision)).await {
+                            let (events, on_wire) = pump.analyze(&frame);
+                            if !emit(engine_tx, events).await {
                                 return None; // engine side gone
                             }
-                            if gate.push(&decision) {
-                                if offline_buffer.len() == RECONNECT_BUFFER_FRAMES {
-                                    offline_buffer.pop_front();
-                                }
-                                offline_buffer.push_back(frame);
+                            if on_wire {
+                                pump.buffer_offline(frame);
                             }
                         }
                         Some(MicEvent::Error(message)) => {
@@ -321,7 +348,7 @@ async fn try_reconnect(
                     continue; // died instantly; try again
                 }
                 let mut flushed = true;
-                while let Some(frame) = offline_buffer.pop_front() {
+                while let Some(frame) = pump.offline_buffer.pop_front() {
                     if channel.tx.send(append_payload(&frame)).await.is_err() {
                         flushed = false;
                         break;
@@ -331,12 +358,11 @@ async fn try_reconnect(
                     return Some(channel);
                 }
             }
-            Err(err) => {
-                if is_auth_failure(&err) {
-                    let _ = engine_tx.send(AsrEvent::Failed { message: err }).await;
-                    return None; // credentials will not heal by retrying
-                }
+            Err(ConnectError::Auth(message)) => {
+                let _ = engine_tx.send(AsrEvent::Failed { message }).await;
+                return None; // credentials will not heal by retrying
             }
+            Err(ConnectError::Other(_)) => {} // transient; bounded retry
         }
     }
     let _ = engine_tx
@@ -345,14 +371,6 @@ async fn try_reconnect(
         })
         .await;
     None
-}
-
-fn is_auth_failure(message: &str) -> bool {
-    let message = message.to_ascii_lowercase();
-    message.contains("401")
-        || message.contains("403")
-        || message.contains("unauthorized")
-        || message.contains("forbidden")
 }
 
 fn session_update_payload(language: &str) -> String {
@@ -439,7 +457,7 @@ mod tests {
             release: Option<mpsc::Receiver<()>>,
         },
         /// Fail before the session begins (auth, unreachable).
-        Fail(String),
+        Fail(ConnectError),
     }
 
     /// The halves of a planned connection the test keeps: watch what the
@@ -486,19 +504,19 @@ mod tests {
 
     #[async_trait]
     impl RealtimeConnect for ScriptedConnect {
-        async fn connect(&self) -> Result<RealtimeChannel, String> {
+        async fn connect(&self) -> Result<RealtimeChannel, ConnectError> {
             self.connect_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let entry = self.plan.lock().unwrap().pop_front();
             match entry {
-                Some(PlanEntry::Fail(message)) => Err(message),
+                Some(PlanEntry::Fail(err)) => Err(err),
                 Some(PlanEntry::Live { channel, release }) => {
                     if let Some(mut release) = release {
                         let _ = release.recv().await;
                     }
                     Ok(channel)
                 }
-                None => Err("no more planned connections".into()),
+                None => Err(ConnectError::Other("no more planned connections".into())),
             }
         }
     }
@@ -527,21 +545,13 @@ mod tests {
         })
     }
 
-    fn provider(connect: Arc<ScriptedConnect>, sends: Vec<MicEvent>) -> AliyunAsr {
+    fn provider(connect: Arc<ScriptedConnect>, sends: Vec<MicEvent>, stay_open: bool) -> AliyunAsr {
         AliyunAsr::with_parts(
             AsrConfig::defaults(),
             Default::default(),
-            scripted_source(sends, false),
+            scripted_source(sends, stay_open),
             connect,
-        )
-    }
-
-    fn provider_open_session(connect: Arc<ScriptedConnect>, sends: Vec<MicEvent>) -> AliyunAsr {
-        AliyunAsr::with_parts(
-            AsrConfig::defaults(),
-            Default::default(),
-            scripted_source(sends, true),
-            connect,
+            Duration::from_millis(500),
         )
     }
 
@@ -629,7 +639,7 @@ mod tests {
 
         let (entry, handles) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
-        let provider = provider(connect, sends);
+        let provider = provider(connect, sends, false);
         let stream = provider.open_stream().await.expect("open");
 
         // Server streams a partial then a final while audio flows.
@@ -693,7 +703,7 @@ mod tests {
 
         let (entry, handles) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
-        let provider = provider(connect, sends);
+        let provider = provider(connect, sends, false);
         let stream = provider.open_stream().await.expect("open");
 
         let events = collect(stream).await;
@@ -714,7 +724,7 @@ mod tests {
     async fn server_error_ends_the_session_with_feedback() {
         let (entry, handles) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
-        let provider = provider_open_session(connect, vec![]);
+        let provider = provider(connect, vec![], true);
         let stream = provider.open_stream().await.expect("open");
 
         handles
@@ -743,7 +753,7 @@ mod tests {
         let (release_tx, release_rx) = mpsc::channel(1);
         let (entry2, handles2) = live_conn(Some(release_rx));
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry1, entry2]));
-        let provider = provider_open_session(connect, sends);
+        let provider = provider(connect, sends, true);
         let stream = provider.open_stream().await.expect("open");
 
         // Kill the first connection once speech is flowing.
@@ -753,9 +763,8 @@ mod tests {
             .await
             .unwrap();
 
-        // The reconnect is held open (connect #2 pending); the adapter
-        // keeps processing frames meanwhile. Release it.
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Release the held-open reconnect (connect #2 was pending); the
+        // assertions below wait on observed state, not on timing.
         release_tx.send(()).await.unwrap();
 
         // Fresh connection re-configures the session and carries on: the
@@ -782,10 +791,10 @@ mod tests {
         let (entry1, handles1) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![
             entry1,
-            PlanEntry::Fail("connection failed: dns".into()),
-            PlanEntry::Fail("connection failed: dns".into()),
+            PlanEntry::Fail(ConnectError::Other("connection failed: dns".into())),
+            PlanEntry::Fail(ConnectError::Other("connection failed: dns".into())),
         ]));
-        let provider = provider_open_session(connect, sends);
+        let provider = provider(connect, sends, true);
         let stream = provider.open_stream().await.expect("open");
 
         handles1
@@ -805,9 +814,9 @@ mod tests {
         let (entry1, handles1) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![
             entry1,
-            PlanEntry::Fail("handshake rejected: HTTP 401".into()),
+            PlanEntry::Fail(ConnectError::Auth("handshake rejected: HTTP 401".into())),
         ]));
-        let provider = provider_open_session(connect.clone(), vec![]);
+        let provider = provider(connect.clone(), vec![], true);
         let stream = provider.open_stream().await.expect("open");
 
         handles1
@@ -830,15 +839,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_hanging_reconnect_times_out_and_ends_with_feedback() {
+        // The second connection never resolves (no release); the handshake
+        // budget must turn it into a bounded failure, not an offline wedge.
+        let (entry1, handles1) = live_conn(None);
+        let (_release_tx, release_rx) = mpsc::channel(1);
+        let (entry2, _handles2) = live_conn(Some(release_rx));
+        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry1, entry2]));
+        let provider = AliyunAsr::with_parts(
+            AsrConfig::defaults(),
+            Default::default(),
+            scripted_source(vec![], true),
+            connect.clone(),
+            Duration::from_millis(150),
+        );
+        let stream = provider.open_stream().await.expect("open");
+
+        handles1
+            .feed
+            .send(Err("connection lost".into()))
+            .await
+            .unwrap();
+        let events = collect(stream).await;
+        assert!(
+            matches!(events.last(), Some(AsrEvent::Failed { .. })),
+            "got {events:?}"
+        );
+        assert!(
+            connect
+                .connect_count
+                .load(std::sync::atomic::Ordering::SeqCst)
+                >= 2
+        );
+    }
+
+    #[tokio::test]
     async fn auth_failure_at_open_is_an_open_error() {
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![PlanEntry::Fail(
-            "handshake rejected: HTTP 401".into(),
+            ConnectError::Auth("handshake rejected: HTTP 401".into()),
         )]));
-        let provider = provider(connect, vec![]);
+        let provider = provider(connect, vec![], true);
         let Err(err) = provider.open_stream().await else {
             panic!("expected open to fail");
         };
         assert!(err.0.contains("401"), "got: {}", err.0);
+        assert!(err.0.contains("handshake rejected"), "got: {}", err.0);
     }
 
     #[tokio::test]
@@ -850,7 +895,7 @@ mod tests {
 
         let (entry, handles) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
-        let provider = provider(connect, sends);
+        let provider = provider(connect, sends, false);
         let stream = provider.open_stream().await.expect("open");
 
         // Wait for the graceful finish once the frames run out.
