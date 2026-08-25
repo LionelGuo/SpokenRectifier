@@ -19,14 +19,15 @@ session_end_silence_ms = 3000
 # Cloud ASR (Aliyun qwen3-asr-flash-realtime over the DashScope realtime
 # WebSocket, pay-as-you-go). With a key resolved the app streams real
 # transcripts; without one it falls back to the mic-only provider (speech
-# state and silence semantics, no text). The endpoint host is
-# workspace-scoped: find the workspace id in the Bailian console.
+# state and silence semantics, no text). The default endpoint is the
+# shared DashScope domain — a key alone is enough.
 [asr]
 model = "qwen3-asr-flash-realtime"
-workspace_id = ""                          # required unless base_url is set
-region = "cn-beijing"                      # or "ap-southeast-1"
 language = "zh"                            # zh covers mixed zh/en dictation
 api_key_env = "DASHSCOPE_API_KEY"          # or api_key in spokenrectifier.local.toml
+# workspace_id = "llm-xxxx"                # switch to the workspace-scoped
+#                                          #  host ({id}.{region}.maas.aliyuncs.com)
+# region = "cn-beijing"                    # or "ap-southeast-1" (scoped host only)
 # base_url = "wss://..."                   # full host override (everything
 #                                          #  before /api-ws/v1/realtime)
 

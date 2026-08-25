@@ -67,7 +67,7 @@ impl AliyunAsr {
     /// configured endpoint. Fails when the config is incomplete (no key,
     /// no resolvable endpoint).
     pub fn new(config: AsrConfig, vad: VadConfig) -> Result<Self, AsrConfigError> {
-        let endpoint = config.endpoint()?;
+        let endpoint = config.endpoint();
         let api_key = config.resolve_key().ok_or_else(|| {
             AsrConfigError("no api key: set [asr] api_key in the local config".into())
         })?;

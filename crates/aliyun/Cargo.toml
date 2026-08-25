@@ -9,6 +9,10 @@ license.workspace = true
 async-trait.workspace = true
 base64 = "0.22"
 futures.workspace = true
+# Exactly one rustls crypto provider, chosen here: without it the first
+# TLS handshake panics ("could not determine the process-level
+# CryptoProvider"). ring over aws-lc-rs: no CMake/NASM on Windows builds.
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 spokenrectifier-audio = { path = "../audio" }
@@ -20,3 +24,4 @@ toml = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }

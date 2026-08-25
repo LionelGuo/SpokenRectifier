@@ -2,9 +2,10 @@
 //!
 //! Layered like `[llm]`: defaults, then `spokenrectifier.toml`, then
 //! `spokenrectifier.local.toml` (git-ignored; the only place an `api_key`
-//! may live). The default endpoint is the workspace-scoped realtime host
-//! (`wss://{workspace_id}.{region}.maas.aliyuncs.com`); `base_url`
-//! overrides the whole host part.
+//! may live). The default endpoint is the legacy shared domain
+//! (`wss://dashscope.aliyuncs.com`), which accepts a key from any
+//! workspace in the region; a `workspace_id` switches to the
+//! workspace-scoped host, and `base_url` overrides the whole host part.
 
 use std::fs;
 use std::path::Path;
@@ -72,25 +73,19 @@ impl AsrConfig {
         std::env::var(env_name).ok().filter(|k| !k.is_empty())
     }
 
-    /// The WebSocket endpoint URL. An explicit `base_url` wins; otherwise
-    /// the workspace-scoped realtime host is built (and a missing
-    /// `workspace_id` is an error naming the fix).
-    pub fn endpoint(&self) -> Result<String, AsrConfigError> {
-        let host = match &self.base_url {
-            Some(base) => base.trim_end_matches('/').to_string(),
-            None => {
-                let workspace = self
-                    .workspace_id
-                    .as_deref()
-                    .filter(|w| !w.is_empty())
-                    .ok_or(AsrConfigError(
-                        "asr endpoint needs a workspace_id (or a base_url override) in the config"
-                            .into(),
-                    ))?;
+    /// The WebSocket endpoint URL. An explicit `base_url` wins; a
+    /// `workspace_id` builds the workspace-scoped host; otherwise the
+    /// legacy shared domain — it accepts a key from any workspace in the
+    /// region, so key alone is enough to run.
+    pub fn endpoint(&self) -> String {
+        let host = match (&self.base_url, &self.workspace_id) {
+            (Some(base), _) => base.trim_end_matches('/').to_string(),
+            (None, Some(workspace)) if !workspace.is_empty() => {
                 format!("wss://{workspace}.{}.maas.aliyuncs.com", self.region)
             }
+            _ => "wss://dashscope.aliyuncs.com".to_string(),
         };
-        Ok(format!("{host}/api-ws/v1/realtime?model={}", self.model))
+        format!("{host}/api-ws/v1/realtime?model={}", self.model)
     }
 }
 
@@ -149,8 +144,29 @@ fn read_layer(
     let Ok(text) = fs::read_to_string(path) else {
         return Ok(()); // optional file
     };
-    let parsed: FileConfig = toml::from_str(&text)
-        .map_err(|err| AsrConfigError(format!("{}: {err}", path.display())))?;
+    let parsed: FileConfig = match toml::from_str(&text) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            // Not the crate's formatted message: it quotes the offending
+            // line, which may carry a key.
+            let (line, column) = match err.span() {
+                Some(range) => {
+                    let before = &text[..range.start];
+                    let line = before.matches('\n').count() + 1;
+                    let column = range.start - before.rfind('\n').map_or(0, |i| i + 1) + 1;
+                    (line, column)
+                }
+                None => (0, 0),
+            };
+            return Err(AsrConfigError(format!(
+                "{}: malformed TOML near line {}, column {}: {}",
+                path.display(),
+                line,
+                column,
+                err.message()
+            )));
+        }
+    };
     if !secrets_allowed
         && parsed
             .asr
@@ -194,25 +210,29 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_builds_the_workspace_host_and_base_url_wins() {
-        let mut config = AsrConfig::defaults();
-        config.workspace_id = Some("llm-abc123".into());
+    fn endpoint_defaults_to_the_shared_domain_and_overrides_win() {
+        // Key alone is enough: the legacy shared domain accepts a key from
+        // any workspace in the region.
+        let config = AsrConfig::defaults();
         assert_eq!(
-            config.endpoint().unwrap(),
+            config.endpoint(),
+            "wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime"
+        );
+
+        // A workspace id switches to the workspace-scoped host.
+        let mut scoped = AsrConfig::defaults();
+        scoped.workspace_id = Some("llm-abc123".into());
+        assert_eq!(
+            scoped.endpoint(),
             "wss://llm-abc123.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime"
         );
 
-        config.base_url = Some("wss://custom.example.com/".into());
+        // An explicit base_url outranks the workspace form.
+        scoped.base_url = Some("wss://custom.example.com/".into());
         assert_eq!(
-            config.endpoint().unwrap(),
+            scoped.endpoint(),
             "wss://custom.example.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime"
         );
-    }
-
-    #[test]
-    fn endpoint_without_workspace_or_base_url_is_a_named_error() {
-        let err = AsrConfig::defaults().endpoint().unwrap_err().0;
-        assert!(err.contains("workspace_id"), "got: {err}");
     }
 
     #[test]
