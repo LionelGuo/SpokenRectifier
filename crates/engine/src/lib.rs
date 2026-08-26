@@ -2,10 +2,10 @@
 //!
 //! Commands go in via [`Engine::execute`], events come out via
 //! [`Engine::subscribe`]. Every I/O collaborator (ASR, rectify LLM, text
-//! inserter, history recorder, clock) is an injectable trait, so the whole
-//! deterministic test suite and the `sr-replay` CLI driver run without
-//! network or audio devices. Glossary terms live in the repository
-//! `CONTEXT.md`.
+//! inserter, history recorder, hotword dictionary source, clock) is an
+//! injectable trait, so the whole deterministic test suite and the
+//! `sr-replay` CLI driver run without network or audio devices. Glossary
+//! terms live in the repository `CONTEXT.md`.
 
 pub mod clock;
 pub mod command;
@@ -26,4 +26,5 @@ pub use provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
 pub use provider::history::{RecordedSession, SessionRecorder};
 pub use provider::inserter::{InsertError, TextInserter};
 pub use provider::llm::{RectifyError, RectifyLlm, RectifyRequest};
+pub use provider::terms::TermSource;
 pub use style::Style;

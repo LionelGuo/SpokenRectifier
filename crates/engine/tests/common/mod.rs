@@ -15,6 +15,7 @@ use spokenrectifier_engine::fakes::{
 };
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EventEnvelope, SessionRecorder, SessionState,
+    TermSource,
 };
 
 pub struct Harness {
@@ -32,7 +33,7 @@ pub fn harness(
     asr_sessions: Vec<Vec<AsrStep>>,
     llm_scripts: Vec<Vec<LlmStep>>,
 ) -> (Harness, broadcast::Receiver<EventEnvelope>) {
-    harness_with_history(config, asr_sessions, llm_scripts, None)
+    harness_with(config, asr_sessions, llm_scripts, None, None)
 }
 
 /// [`harness`] with a session-history recorder injected.
@@ -41,6 +42,26 @@ pub fn harness_with_history(
     asr_sessions: Vec<Vec<AsrStep>>,
     llm_scripts: Vec<Vec<LlmStep>>,
     history: Option<Arc<dyn SessionRecorder>>,
+) -> (Harness, broadcast::Receiver<EventEnvelope>) {
+    harness_with(config, asr_sessions, llm_scripts, history, None)
+}
+
+/// [`harness`] with a hotword dictionary source injected.
+pub fn harness_with_terms(
+    config: EngineConfig,
+    asr_sessions: Vec<Vec<AsrStep>>,
+    llm_scripts: Vec<Vec<LlmStep>>,
+    terms: Arc<dyn TermSource>,
+) -> (Harness, broadcast::Receiver<EventEnvelope>) {
+    harness_with(config, asr_sessions, llm_scripts, None, Some(terms))
+}
+
+fn harness_with(
+    config: EngineConfig,
+    asr_sessions: Vec<Vec<AsrStep>>,
+    llm_scripts: Vec<Vec<LlmStep>>,
+    history: Option<Arc<dyn SessionRecorder>>,
+    terms: Option<Arc<dyn TermSource>>,
 ) -> (Harness, broadcast::Receiver<EventEnvelope>) {
     let asr = ScriptedAsr::new(asr_sessions);
     let llm = ScriptedLlm::new(llm_scripts);
@@ -53,6 +74,7 @@ pub fn harness_with_history(
             llm: llm.clone(),
             inserter: inserter.clone(),
             history,
+            terms,
             clock: clock.clone(),
         },
     );

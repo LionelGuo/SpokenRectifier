@@ -59,6 +59,7 @@ fn engine_with_llm(
             llm,
             inserter: spokenrectifier_engine::fakes::FakeInserter::new(),
             history: None,
+            terms: None,
             clock: spokenrectifier_engine::fakes::FakeClock::new(1_000),
         },
     );

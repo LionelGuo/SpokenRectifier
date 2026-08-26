@@ -9,10 +9,13 @@
 //! with a paragraph-marking silence after it. `#` lines are comments.
 //!
 //! Config: `spokenrectifier.toml` + `spokenrectifier.local.toml` (for API
-//! keys) are read from the working directory.
+//! keys) are read from the working directory, as is the hotword dictionary
+//! `spokenrectifier-terms.txt` (one term per line) — the scripted ASR has
+//! no recognition to bias, so the dictionary rides the rectify prompt.
 
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -21,7 +24,8 @@ use tokio::sync::broadcast;
 use spokenrectifier_engine::fakes::ChannelAsr;
 use spokenrectifier_engine::provider::inserter::{InsertError, TextInserter};
 use spokenrectifier_engine::{
-    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState, TokioClock,
+    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState,
+    TermSource, TokioClock,
 };
 use spokenrectifier_llm::{OpenAiCompatLlm, load_llm_config};
 use sr_replay::fmt::fmt_event;
@@ -29,6 +33,17 @@ use sr_replay::fmt::fmt_event;
 /// An inserter that just prints: the demo target is stdout, not a real
 /// input field.
 struct StdoutInserter;
+
+/// The dictionary file, re-read per session like the app does.
+struct FileTermSource {
+    dirs: Vec<PathBuf>,
+}
+
+impl TermSource for FileTermSource {
+    fn terms(&self) -> Vec<String> {
+        spokenrectifier_config::terms::load_terms(&self.dirs)
+    }
+}
 
 #[async_trait]
 impl TextInserter for StdoutInserter {
@@ -155,6 +170,7 @@ async fn run() -> Result<(), String> {
             llm: std::sync::Arc::new(llm),
             inserter: std::sync::Arc::new(StdoutInserter),
             history: None,
+            terms: Some(std::sync::Arc::new(FileTermSource { dirs: dirs.clone() })),
             clock: std::sync::Arc::new(TokioClock::new()),
         },
     );

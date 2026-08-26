@@ -46,6 +46,7 @@ async fn utterance_flows_through_the_real_client_to_preview_and_insert() {
             llm: Arc::new(mock_backed_llm(config_with_base(server.base_url(), false))),
             inserter: inserter.clone(),
             history: None,
+            terms: None,
             clock: FakeClock::new(1_000),
         },
     );

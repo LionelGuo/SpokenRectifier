@@ -11,6 +11,11 @@
 //! Error formatting never quotes the TOML source: the offending line may
 //! carry a secret from an unrelated section, so errors carry the file,
 //! a line and column, and the parser's message — nothing else.
+//!
+//! The hotword dictionary is not a TOML section: [`terms`] loads the
+//! plain-text, one-term-per-line file beside the layer files.
+
+pub mod terms;
 
 use std::path::{Path, PathBuf};
 

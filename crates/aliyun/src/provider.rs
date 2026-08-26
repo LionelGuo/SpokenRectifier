@@ -100,7 +100,10 @@ impl AliyunAsr {
 
 #[async_trait]
 impl AsrProvider for AliyunAsr {
-    async fn open_stream(&self) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
+    async fn open_stream(
+        &self,
+        terms: &[String],
+    ) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
         let frames = (self.source)().map_err(AsrOpenError)?;
         let mut channel = connect_once(self.connect.as_ref(), self.connect_timeout).await?;
         let (tx, rx) = async_mpsc::channel::<AsrEvent>(64);
@@ -119,13 +122,17 @@ impl AsrProvider for AliyunAsr {
 
         let connect = self.connect.clone();
         let language = self.config.language.clone();
+        let terms = terms.to_vec();
         let connect_timeout = self.connect_timeout;
         let vad_config = self.vad;
 
         tokio::spawn(async move {
             let mut pump = Pump::new(vad_config);
 
-            let _ = channel.tx.send(session_update_payload(&language)).await;
+            let _ = channel
+                .tx
+                .send(session_update_payload(&language, &terms))
+                .await;
 
             'session: loop {
                 tokio::select! {
@@ -148,7 +155,7 @@ impl AsrProvider for AliyunAsr {
                                     // Writer gone: same story as a lost
                                     // connection — reconnect.
                                     match try_reconnect(
-                                        &connect, &language, connect_timeout,
+                                        &connect, &language, &terms, connect_timeout,
                                         &mut frame_rx, &mut pump, &tx,
                                     )
                                     .await
@@ -176,7 +183,7 @@ impl AsrProvider for AliyunAsr {
                             }
                             Some(Err(_)) | None => {
                                 match try_reconnect(
-                                    &connect, &language, connect_timeout,
+                                    &connect, &language, &terms, connect_timeout,
                                     &mut frame_rx, &mut pump, &tx,
                                 )
                                 .await
@@ -301,6 +308,7 @@ async fn connect_once(
 async fn try_reconnect(
     connect: &Arc<dyn RealtimeConnect>,
     language: &str,
+    terms: &[String],
     connect_timeout: Duration,
     frame_rx: &mut async_mpsc::Receiver<MicEvent>,
     pump: &mut Pump,
@@ -341,7 +349,7 @@ async fn try_reconnect(
             Ok(channel) => {
                 if channel
                     .tx
-                    .send(session_update_payload(language))
+                    .send(session_update_payload(language, terms))
                     .await
                     .is_err()
                 {
@@ -373,13 +381,23 @@ async fn try_reconnect(
     None
 }
 
-fn session_update_payload(language: &str) -> String {
+/// Configure the recognition session. The hotword dictionary rides as the
+/// transcription corpus — this realtime protocol's recognition-biasing
+/// channel (the DashScope SDK's `TranscriptionParams.corpus_text`; weighted
+/// instant hotwords exist only on the run-task inference protocol). The
+/// server keeps each corpus text short, truncating from the end silently,
+/// so a very large dictionary biases only its head.
+fn session_update_payload(language: &str, terms: &[String]) -> String {
+    let mut transcription = serde_json::json!({ "language": language });
+    if !terms.is_empty() {
+        transcription["corpus"] = serde_json::json!({ "text": terms.join("、") });
+    }
     serde_json::json!({
         "type": "session.update",
         "session": {
             "input_audio_format": "pcm",
             "sample_rate": 16000,
-            "input_audio_transcription": { "language": language },
+            "input_audio_transcription": transcription,
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": 0.0,
@@ -555,6 +573,10 @@ mod tests {
         )
     }
 
+    fn terms(list: &[&str]) -> Vec<String> {
+        list.iter().map(|t| t.to_string()).collect()
+    }
+
     /// Collect adapter events until the stream ends, a Failed lands, or
     /// the deadline passes.
     async fn collect(mut stream: BoxStream<'static, AsrEvent>) -> Vec<AsrEvent> {
@@ -640,7 +662,7 @@ mod tests {
         let (entry, handles) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
         let provider = provider(connect, sends, false);
-        let stream = provider.open_stream().await.expect("open");
+        let stream = provider.open_stream(&[]).await.expect("open");
 
         // Server streams a partial then a final while audio flows.
         handles
@@ -677,6 +699,12 @@ mod tests {
             update["session"]["input_audio_transcription"]["language"],
             "zh"
         );
+        // No dictionary on this stream: nothing biases recognition.
+        assert!(
+            update["session"]["input_audio_transcription"]
+                .get("corpus")
+                .is_none()
+        );
 
         // Then appends: the 6 speech frames plus the quiet pad, nothing else.
         let mut sent_audio = Vec::new();
@@ -697,6 +725,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_dictionary_rides_the_session_as_the_transcription_corpus() {
+        // Speech throughout; the first connection dies mid-stream so the
+        // re-sent session.update on the reconnect is observed too.
+        let mut sends: Vec<MicEvent> = zeros(4).into_iter().map(MicEvent::Frame).collect();
+        sends.extend(tone(0.6, 12).into_iter().map(MicEvent::Frame));
+
+        let (entry1, handles1) = live_conn(None);
+        let (release_tx, release_rx) = mpsc::channel(1);
+        let (entry2, handles2) = live_conn(Some(release_rx));
+        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry1, entry2]));
+        let provider = provider(connect, sends, true);
+        let dictionary = terms(&["SpokenRectifier", "语音实验室"]);
+        let stream = provider.open_stream(&dictionary).await.expect("open");
+
+        // Wire: the corpus carries the dictionary as plain text.
+        let update = sent_matching(&handles1.observe, |v| json_type(v) == "session.update").await;
+        assert_eq!(
+            update["session"]["input_audio_transcription"]["corpus"]["text"],
+            "SpokenRectifier、语音实验室"
+        );
+
+        // The reconnect reconfigures the fresh connection with the same
+        // dictionary — the server forgets session state per connection.
+        handles1
+            .feed
+            .send(Err("connection lost".into()))
+            .await
+            .unwrap();
+        release_tx.send(()).await.unwrap();
+        let update = sent_matching(&handles2.observe, |v| json_type(v) == "session.update").await;
+        assert_eq!(
+            update["session"]["input_audio_transcription"]["corpus"]["text"],
+            "SpokenRectifier、语音实验室"
+        );
+
+        drop(stream);
+    }
+
+    #[tokio::test]
     async fn idle_session_never_sends_audio() {
         let mut sends: Vec<MicEvent> = zeros(30).into_iter().map(MicEvent::Frame).collect();
         sends.push(MicEvent::Error("device gone".into())); // end the session
@@ -704,7 +771,7 @@ mod tests {
         let (entry, handles) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
         let provider = provider(connect, sends, false);
-        let stream = provider.open_stream().await.expect("open");
+        let stream = provider.open_stream(&[]).await.expect("open");
 
         let events = collect(stream).await;
         assert_eq!(
@@ -725,7 +792,7 @@ mod tests {
         let (entry, handles) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
         let provider = provider(connect, vec![], true);
-        let stream = provider.open_stream().await.expect("open");
+        let stream = provider.open_stream(&[]).await.expect("open");
 
         handles
             .feed
@@ -754,7 +821,7 @@ mod tests {
         let (entry2, handles2) = live_conn(Some(release_rx));
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry1, entry2]));
         let provider = provider(connect, sends, true);
-        let stream = provider.open_stream().await.expect("open");
+        let stream = provider.open_stream(&[]).await.expect("open");
 
         // Kill the first connection once speech is flowing.
         handles1
@@ -795,7 +862,7 @@ mod tests {
             PlanEntry::Fail(ConnectError::Other("connection failed: dns".into())),
         ]));
         let provider = provider(connect, sends, true);
-        let stream = provider.open_stream().await.expect("open");
+        let stream = provider.open_stream(&[]).await.expect("open");
 
         handles1
             .feed
@@ -817,7 +884,7 @@ mod tests {
             PlanEntry::Fail(ConnectError::Auth("handshake rejected: HTTP 401".into())),
         ]));
         let provider = provider(connect.clone(), vec![], true);
-        let stream = provider.open_stream().await.expect("open");
+        let stream = provider.open_stream(&[]).await.expect("open");
 
         handles1
             .feed
@@ -853,7 +920,7 @@ mod tests {
             connect.clone(),
             Duration::from_millis(150),
         );
-        let stream = provider.open_stream().await.expect("open");
+        let stream = provider.open_stream(&[]).await.expect("open");
 
         handles1
             .feed
@@ -879,7 +946,7 @@ mod tests {
             ConnectError::Auth("handshake rejected: HTTP 401".into()),
         )]));
         let provider = provider(connect, vec![], true);
-        let Err(err) = provider.open_stream().await else {
+        let Err(err) = provider.open_stream(&[]).await else {
             panic!("expected open to fail");
         };
         assert!(err.0.contains("401"), "got: {}", err.0);
@@ -896,7 +963,7 @@ mod tests {
         let (entry, handles) = live_conn(None);
         let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
         let provider = provider(connect, sends, false);
-        let stream = provider.open_stream().await.expect("open");
+        let stream = provider.open_stream(&[]).await.expect("open");
 
         // Wait for the graceful finish once the frames run out.
         sent_matching(&handles.observe, |v| json_type(v) == "session.finish").await;

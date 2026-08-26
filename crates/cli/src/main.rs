@@ -203,6 +203,7 @@ async fn run() -> Result<(), String> {
             llm: llm.clone(),
             inserter: inserter.clone(),
             history: None,
+            terms: None,
             clock: clock.clone(),
         },
     );

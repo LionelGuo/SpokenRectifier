@@ -87,7 +87,12 @@ impl MicVadAsr {
 
 #[async_trait]
 impl AsrProvider for MicVadAsr {
-    async fn open_stream(&self) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
+    // Local recognition has no biasing hook: the dictionary rides the
+    // rectify prompt instead.
+    async fn open_stream(
+        &self,
+        _terms: &[String],
+    ) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
         let frames = (self.source)().map_err(AsrOpenError)?;
         let config = self.vad;
         let (tx, rx) = tokio::sync::mpsc::channel::<AsrEvent>(64);
@@ -152,7 +157,7 @@ mod tests {
             Ok(rx)
         });
         let provider = MicVadAsr::with_source(VadConfig::default(), source);
-        let mut stream = provider.open_stream().await.expect("open");
+        let mut stream = provider.open_stream(&[]).await.expect("open");
         let mut events = Vec::new();
         while let Ok(Some(event)) =
             tokio::time::timeout(Duration::from_millis(300), stream.next()).await
@@ -228,7 +233,7 @@ mod tests {
     async fn open_failure_maps_to_asr_open_error() {
         let source: FrameSource = Arc::new(|| Err("no default input device".into()));
         let provider = MicVadAsr::with_source(VadConfig::default(), source);
-        let Err(err) = provider.open_stream().await else {
+        let Err(err) = provider.open_stream(&[]).await else {
             panic!("expected the open to fail");
         };
         assert!(err.0.contains("no default input device"));

@@ -304,6 +304,9 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     let inserter = production_inserter(&dirs)?;
     // The same store the engine records into and the panel reads from.
     let history = crate::history::open_history(&dirs)?;
+    // The dictionary re-read per session: Aliyun recognition gets it as
+    // the transcription corpus, the rectify prompt as the term reference.
+    let terms = crate::terms::FileTermSource::new(dirs);
     let engine = Engine::new(
         config,
         EngineDeps {
@@ -313,6 +316,7 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
             // StartSession arms the very inserter ConfirmInsert runs.
             inserter: inserter.clone(),
             history: Some(history.clone()),
+            terms: Some(terms),
             clock: Arc::new(TokioClock::new()),
         },
     );
@@ -359,6 +363,9 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
             llm,
             inserter: inserter.clone(),
             history: None,
+            // The all-fake setup keeps no files either: no dictionary is
+            // read from whatever directory the test binary runs in.
+            terms: None,
             clock: FakeClock::new(0),
         },
     );

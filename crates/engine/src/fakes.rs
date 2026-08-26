@@ -40,26 +40,39 @@ pub enum AsrStep {
 }
 
 /// Fake ASR provider: each `open_stream` consumes the next scripted session
-/// and replays its steps instantly, in order.
+/// and replays its steps instantly, in order. The dictionary handed to each
+/// `open_stream` is recorded, so tests can assert the hotword path's
+/// payload.
 pub struct ScriptedAsr {
     sessions: Mutex<VecDeque<Vec<AsrStep>>>,
+    opened_terms: Mutex<Vec<Vec<String>>>,
 }
 
 impl ScriptedAsr {
     pub fn new(sessions: Vec<Vec<AsrStep>>) -> Arc<Self> {
         Arc::new(Self {
             sessions: Mutex::new(sessions.into()),
+            opened_terms: Mutex::new(Vec::new()),
         })
     }
 
     pub fn remaining_sessions(&self) -> usize {
         self.sessions.lock().unwrap().len()
     }
+
+    /// The terms each opened stream received, in open order.
+    pub fn opened_terms(&self) -> Vec<Vec<String>> {
+        self.opened_terms.lock().unwrap().clone()
+    }
 }
 
 #[async_trait]
 impl AsrProvider for ScriptedAsr {
-    async fn open_stream(&self) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
+    async fn open_stream(
+        &self,
+        terms: &[String],
+    ) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
+        self.opened_terms.lock().unwrap().push(terms.to_vec());
         let script = self
             .sessions
             .lock()
@@ -148,7 +161,10 @@ impl Stream for RecvAsrStream {
 
 #[async_trait]
 impl AsrProvider for ChannelAsr {
-    async fn open_stream(&self) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
+    async fn open_stream(
+        &self,
+        _terms: &[String],
+    ) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
         let rx = self
             .pending
             .lock()

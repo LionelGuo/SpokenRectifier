@@ -61,6 +61,18 @@ enabled = true              # false = keep-nothing mode: nothing is stored
 retention_days = 30         # sessions older than this are swept on launch
                             #  and on every new record
 
+# Hotword dictionary (术语词表): a separate plain-text file, NOT a section
+# here. Create spokenrectifier-terms.txt next to these config files, one
+# term per line (# comments allowed), and it takes effect from the next
+# session with no restart:
+#   spokenrectifier-terms.txt
+#   # 领域术语
+#   SpokenRectifier
+#   EGFR抑制剂
+# Providers that can bias recognition get the list injected into ASR
+# (Aliyun: the transcription corpus); every provider additionally gets it
+# as the rectify prompt's term reference, verbatim-preserved.
+
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
 # One model per mode: light-touch vs full rectify is decided by length
 # (below light_touch_max_chars takes light-touch) and changes only the

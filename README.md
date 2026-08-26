@@ -55,6 +55,8 @@ cargo run -p sr-replay --bin sr-rectify -- crates/cli/demo-utterance.txt
 
 配置分两层:`spokenrectifier.toml`(可入库的共享配置)与 `spokenrectifier.local.toml`(git 忽略,`api_key` 只能放这里,或用各档 `api_key_env` 指定的环境变量);共享文件的任何 section 下出现非空 `api_key` 都会在启动时被拒绝。本地值逐字段覆盖共享值;两个文件各自按「工作目录 → 可执行文件目录」查找。完整 schema 见 [`spokenrectifier.example.toml`](spokenrectifier.example.toml)。
 
+术语词表(工单 08)是同目录下的纯文本文件 `spokenrectifier-terms.txt`(git 忽略):一行一词,`#` 注释;每次会话开始时重读,改完即生效于下一会话。支持识别偏置的 Provider(阿里)把词表注入 ASR 识别;所有 Provider 同时把词表作为修正 prompt 的术语参考(逐字保留)兜底纠错。
+
 ## 许可
 
 计划采用 Apache-2.0,MVP 后公开源码。

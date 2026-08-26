@@ -5,6 +5,7 @@ mod api;
 mod engine_config;
 mod engine_factory;
 mod history;
+mod terms;
 
 pub use api::*;
 

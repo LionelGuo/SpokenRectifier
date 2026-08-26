@@ -35,5 +35,13 @@ pub struct AsrOpenError(pub String);
 
 #[async_trait]
 pub trait AsrProvider: Send + Sync + 'static {
-    async fn open_stream(&self) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError>;
+    /// Open one recognition stream. `terms` is the hotword dictionary as
+    /// of this session: providers that can bias recognition with it
+    /// inject it (as a context corpus, say); providers without such
+    /// support ignore it — for them the dictionary rides the rectify
+    /// prompt instead.
+    async fn open_stream(
+        &self,
+        terms: &[String],
+    ) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError>;
 }

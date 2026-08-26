@@ -22,6 +22,7 @@ use crate::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
 use crate::provider::history::{RecordedSession, SessionRecorder};
 use crate::provider::inserter::TextInserter;
 use crate::provider::llm::{RectifyLlm, RectifyRequest, RectifyTokenStream};
+use crate::provider::terms::TermSource;
 use crate::style::Style;
 
 /// Collaborators the engine is constructed with.
@@ -32,6 +33,8 @@ pub struct EngineDeps {
     pub clock: Arc<dyn Clock>,
     /// Receiver of finished sessions; `None` keeps no history.
     pub history: Option<Arc<dyn SessionRecorder>>,
+    /// Hotword dictionary; `None` injects nothing on either path.
+    pub terms: Option<Arc<dyn TermSource>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -58,6 +61,7 @@ struct Inner {
     llm: Arc<dyn RectifyLlm>,
     inserter: Arc<dyn TextInserter>,
     history: Option<Arc<dyn SessionRecorder>>,
+    terms: Option<Arc<dyn TermSource>>,
     clock: Arc<dyn Clock>,
     events: broadcast::Sender<EventEnvelope>,
     /// Serializes command handling; background tasks never take it, so
@@ -75,6 +79,10 @@ struct SharedState {
 
 struct Session {
     id: SessionId,
+    /// The hotword dictionary snapshotted when the session opened; the
+    /// session's recognition bias and rectify term reference both read it,
+    /// so mid-session dictionary edits wait for the next session.
+    terms: Vec<String>,
     /// Paragraphs closed by a paragraph mark.
     paragraphs: Vec<String>,
     /// Finalized speech since the last paragraph mark.
@@ -116,6 +124,7 @@ impl Engine {
                 llm: deps.llm,
                 inserter: deps.inserter,
                 history: deps.history,
+                terms: deps.terms,
                 clock: deps.clock,
                 events,
                 command_gate: tokio::sync::Mutex::new(()),
@@ -192,13 +201,16 @@ impl Engine {
                 });
             }
         }
-        let stream = self.inner.asr.open_stream().await?;
+        // One read feeds both injection paths for this session: the
+        // stream opens biased by it and the rectify request carries it.
+        let terms = self.inner.current_terms();
+        let stream = self.inner.asr.open_stream(&terms).await?;
         let (sid, cancel) = {
             let mut st = self.inner.state_lock();
             // The command gate serializes commands, so we are still idle.
             let id = SessionId(st.next_session_id);
             st.next_session_id += 1;
-            let session = Session::new(id);
+            let session = Session::new(id, terms);
             let cancel = session.asr_cancel.clone();
             st.session = Some(session);
             self.inner.transition(&mut st, id, SessionState::Recording);
@@ -229,7 +241,7 @@ impl Engine {
             let paragraphs: Vec<String> = raw_transcript.split('\n').map(str::to_string).collect();
             let id = SessionId(st.next_session_id);
             st.next_session_id += 1;
-            let mut session = Session::new(id);
+            let mut session = Session::new(id, self.inner.current_terms());
             session.frozen = Some(FrozenUtterance {
                 raw_transcript: raw_transcript.clone(),
                 paragraphs: paragraphs.clone(),
@@ -237,6 +249,7 @@ impl Engine {
             let cancel = CancellationToken::new();
             session.rectify_cancel = Some(cancel.clone());
             let sid = session.id;
+            let terms = session.terms.clone();
             st.session = Some(session);
             self.inner
                 .transition(&mut st, sid, SessionState::Rectifying);
@@ -258,7 +271,7 @@ impl Engine {
                     raw_transcript,
                     paragraphs,
                     style: *self.inner.style.read().unwrap(),
-                    terms: Vec::new(),
+                    terms,
                 },
             )
         };
@@ -366,6 +379,13 @@ impl Engine {
 impl Inner {
     fn state_lock(&self) -> MutexGuard<'_, SharedState> {
         self.state.lock().unwrap()
+    }
+
+    /// The hotword dictionary as it stands now. Read once per session
+    /// start (and once per history re-rectify) so both injection paths of
+    /// one session always agree.
+    fn current_terms(&self) -> Vec<String> {
+        self.terms.as_ref().map(|s| s.terms()).unwrap_or_default()
     }
 
     /// Emit an event; the guard must be held so `seq` order can never
@@ -477,13 +497,14 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 });
                 let cancel = CancellationToken::new();
                 session.rectify_cancel = Some(cancel.clone());
+                let terms = session.terms.clone();
                 (
                     cancel,
                     RectifyRequest {
                         raw_transcript,
                         paragraphs,
                         style: *inner.style.read().unwrap(),
-                        terms: Vec::new(),
+                        terms,
                     },
                 )
             }
@@ -492,13 +513,14 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 let frozen = session.frozen.as_ref().expect("frozen before preview");
                 let cancel = CancellationToken::new();
                 session.rectify_cancel = Some(cancel.clone());
+                let terms = session.terms.clone();
                 (
                     cancel,
                     RectifyRequest {
                         raw_transcript: frozen.raw_transcript.clone(),
                         paragraphs: frozen.paragraphs.clone(),
                         style: *inner.style.read().unwrap(),
-                        terms: Vec::new(),
+                        terms,
                     },
                 )
             }
@@ -513,10 +535,12 @@ fn begin_rectify(inner: &Arc<Inner>) {
 
 impl Session {
     /// A fresh session: nothing said, nothing frozen. Both session
-    /// openings (recording, history re-rectify) start from this shape.
-    fn new(id: SessionId) -> Self {
+    /// openings (recording, history re-rectify) start from this shape,
+    /// each snapshotting the dictionary as it opens.
+    fn new(id: SessionId, terms: Vec<String>) -> Self {
         Self {
             id,
+            terms,
             paragraphs: Vec::new(),
             current_paragraph: String::new(),
             partial: String::new(),
