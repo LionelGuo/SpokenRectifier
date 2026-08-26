@@ -20,7 +20,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_RETURN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, SetForegroundWindow,
 };
 
 use crate::os::{InjectedKey, InputOs, SavedClipboard, paced_paste_script};
@@ -58,7 +58,7 @@ impl Default for Win32Os {
 
 impl InputOs for Win32Os {
     fn clipboard_save(&self) -> Result<SavedClipboard, String> {
-        with_clipboard(|| {
+        let result = with_clipboard(|| {
             let mut formats = Vec::new();
             for format in PRESERVED_FORMATS {
                 // An absent format is not an error — most clipboards hold
@@ -76,7 +76,11 @@ impl InputOs for Win32Os {
             } else {
                 SavedClipboard::Formats(formats)
             })
-        })
+        });
+        if let Err(err) = &result {
+            debug_log(format!("[DEBUG-sr06f] clipboard_save failed: {err}"));
+        }
+        result
     }
 
     fn clipboard_set_text(&self, text: &str) -> Result<(), String> {
@@ -120,35 +124,59 @@ impl InputOs for Win32Os {
 
     fn note_target(&self) {
         let hwnd = unsafe { GetForegroundWindow() };
-        if hwnd.is_invalid() || window_belongs_to_us(hwnd) {
-            // Our own window is foreground (the session started from a
-            // click on the orb, not the hotkey): remembering it would make
-            // us our own insertion target.
+        if hwnd.is_invalid() {
+            debug_log("[DEBUG-sr06f] note_target: foreground invalid, keeping previous".into());
             return;
         }
+        if window_belongs_to_us(hwnd) {
+            debug_log(format!(
+                "[DEBUG-sr06f] note_target: foreground is ours ({}), keeping previous",
+                hwnd_desc(hwnd)
+            ));
+            return;
+        }
+        debug_log(format!(
+            "[DEBUG-sr06f] note_target: remembering {}",
+            hwnd_desc(hwnd)
+        ));
         *self.target.lock().unwrap() = Some(hwnd.0 as usize);
     }
 
     fn activate_target(&self) -> bool {
         let Some(handle) = *self.target.lock().unwrap() else {
+            debug_log("[DEBUG-sr06f] activate_target: no target remembered".into());
             return false;
         };
         let hwnd = HWND(handle as *mut core::ffi::c_void);
         // Handing foreground away is permitted while we hold it (the
         // preview window had focus for editing). A refused call leaves
         // the current foreground alone, which the paste flow tolerates.
-        unsafe { SetForegroundWindow(hwnd) }.as_bool()
+        let activated = unsafe { SetForegroundWindow(hwnd) }.as_bool();
+        debug_log(format!(
+            "[DEBUG-sr06f] activate_target: {} -> {activated}",
+            hwnd_desc(hwnd)
+        ));
+        activated
     }
 
     fn foreground_is_own_process(&self) -> bool {
         let hwnd = unsafe { GetForegroundWindow() };
-        !hwnd.is_invalid() && window_belongs_to_us(hwnd)
+        let ours = !hwnd.is_invalid() && window_belongs_to_us(hwnd);
+        debug_log(format!(
+            "[DEBUG-sr06f] foreground_is_own_process: {ours} ({})",
+            hwnd_desc(hwnd)
+        ));
+        ours
     }
 
     fn send_paste(&self) -> Result<(), String> {
         // Paced per the script's batches: the modifier must land before the
         // key it modifies goes out, or the target can see a bare 'v'
         // instead of Ctrl+V (see `paced_paste_script` for the measurement).
+        debug_log(format!(
+            "[DEBUG-sr06f] send_paste: fg now {}",
+            hwnd_desc(unsafe { GetForegroundWindow() })
+        ));
         for (keys, settle_ms) in paced_paste_script() {
             let inputs: Vec<INPUT> = keys.iter().map(&injected_to_input).collect();
             send_inputs(&inputs)?;
@@ -156,6 +184,7 @@ impl InputOs for Win32Os {
                 self.wait_ms(settle_ms);
             }
         }
+        debug_log("[DEBUG-sr06f] send_paste: all batches delivered".into());
         Ok(())
     }
 
@@ -193,6 +222,52 @@ fn window_belongs_to_us(hwnd: HWND) -> bool {
     pid == std::process::id()
 }
 
+// -- [DEBUG-sr06f] temporary insert-path instrumentation -----------------------
+//
+// Append-only log next to the exe (sr_insert_debug.log): every step of the
+// confirm-insert path with the window it acted on. Temporary for the
+// ticket-06 diagnosis; grep the tag and delete once insertion is accepted.
+
+fn debug_log(line: String) {
+    use std::io::Write as _;
+    let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    else {
+        return;
+    };
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("sr_insert_debug.log"))
+    else {
+        return;
+    };
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let _ = writeln!(file, "{ts} {line}");
+}
+
+/// A one-line window identity: handle, owning pid (flagged when ours), title.
+fn hwnd_desc(hwnd: HWND) -> String {
+    if hwnd.is_invalid() {
+        return "(invalid hwnd)".into();
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    let mut buf = [0u16; 128];
+    let n = unsafe { GetWindowTextW(hwnd, &mut buf) } as usize;
+    let title = String::from_utf16_lossy(&buf[..n]);
+    let ours = if pid == std::process::id() {
+        " OURS"
+    } else {
+        ""
+    };
+    format!("hwnd=0x{:x} pid={pid}{ours} '{title}'", hwnd.0 as usize)
+}
+
 // -- clipboard plumbing ------------------------------------------------------
 
 /// Run `body` with the clipboard open, retrying briefly: the clipboard is
@@ -206,6 +281,7 @@ fn with_clipboard<T>(body: impl FnOnce() -> Result<T, String>) -> Result<T, Stri
         }
         std::thread::sleep(std::time::Duration::from_millis(25 * (attempt + 1)));
     }
+    debug_log("[DEBUG-sr06f] clipboard open failed after 8 attempts".into());
     Err("the clipboard stayed busy (another app holds it)".into())
 }
 
@@ -296,6 +372,10 @@ fn send_inputs(inputs: &[INPUT]) -> Result<(), String> {
     if sent == inputs.len() as u32 {
         Ok(())
     } else {
+        debug_log(format!(
+            "[DEBUG-sr06f] SendInput delivered {sent} of {} events",
+            inputs.len()
+        ));
         Err(format!(
             "SendInput delivered {sent} of {} events",
             inputs.len()
