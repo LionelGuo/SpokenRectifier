@@ -359,6 +359,33 @@ void main() {
     expect(controller.phase, BridgeSessionState.idle);
   });
 
+  testWidgets('hotkey confirm within the edit debounce inserts what is on screen', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['初稿']);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // Edit, then the hotkey fires immediately — inside the 350 ms debounce
+    // window. The confirm must flush the on-screen text to the engine
+    // first, not insert the pre-edit snapshot.
+    await tester.enterText(find.byKey(const Key('preview-field')), '改完的终稿');
+    await controller.toggleSession();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    final commands = gateway.commands;
+    final editAt = commands.indexOf('updatePreviewText:改完的终稿');
+    final confirmAt = commands.indexOf('confirmInsert');
+    expect(editAt, greaterThanOrEqualTo(0));
+    expect(confirmAt, greaterThan(editAt));
+    expect(controller.phase, BridgeSessionState.idle);
+  });
+
   testWidgets('the raw transcript comparison expands under the rectified text',
       (tester) async {
     final gateway = FakeGateway();

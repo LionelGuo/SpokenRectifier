@@ -11,8 +11,6 @@
 
 library;
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey, TextInputType;
 
@@ -354,8 +352,6 @@ class _PreviewCardState extends State<PreviewCard> {
   late final TextEditingController _text;
   late final FocusNode _fieldFocus;
   late final FocusNode _cardFocus;
-  Timer? _editDebounce;
-  String _lastSynced = '';
 
   /// Whether the raw transcript shows under the editable rectified text
   /// (原始转写对照: the session's raw speech next to its rectification).
@@ -364,33 +360,17 @@ class _PreviewCardState extends State<PreviewCard> {
   @override
   void initState() {
     super.initState();
+    // The field renders the controller's previewText; from here on the
+    // only writer is the user (every change goes up to the controller,
+    // which owns the debounce). While the phase moves on, the card may
+    // still be fading out with its last text — nothing syncs it anymore.
     _text = TextEditingController(text: widget.controller.previewText);
     _fieldFocus = FocusNode(debugLabel: 'preview-field');
     _cardFocus = FocusNode(debugLabel: 'preview-card');
-    _lastSynced = widget.controller.previewText;
-    widget.controller.addListener(_syncFromStream);
-  }
-
-  /// Keep the field in step with streamed reroll output, without stomping
-  /// the user's cursor while they edit. Ignored once a reroll or confirm
-  /// moves the phase on: the card may still be fading out, and syncing the
-  /// reset preview would blank its text mid-fade.
-  void _syncFromStream() {
-    if (widget.controller.phase != BridgeSessionState.preview) return;
-    final streamed = widget.controller.previewText;
-    if (streamed != _lastSynced && streamed != _text.text) {
-      _text.value = TextEditingValue(
-        text: streamed,
-        selection: TextSelection.collapsed(offset: streamed.length),
-      );
-    }
-    _lastSynced = streamed;
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(_syncFromStream);
-    _editDebounce?.cancel();
     _fieldFocus.dispose();
     _cardFocus.dispose();
     _text.dispose();
@@ -409,34 +389,11 @@ class _PreviewCardState extends State<PreviewCard> {
         text: stripped,
         selection: TextSelection.collapsed(offset: stripped.length),
       );
-      _lastSynced = stripped;
-      _confirmNow();
+      widget.controller.editPreviewText(stripped);
+      widget.controller.confirmWhatYouSee();
       return;
     }
-    _lastSynced = value;
-    _editDebounce?.cancel();
-    _editDebounce = Timer(const Duration(milliseconds: 350), () {
-      // An edit racing a reroll: once rectifying starts, this edit is
-      // stale — pushing it would be rejected by the engine anyway.
-      if (widget.controller.phase != BridgeSessionState.preview) return;
-      widget.controller.updatePreviewText(value);
-    });
-  }
-
-  /// Confirm, flushing whatever is on screen into the engine first: the
-  /// edit debounce means the engine can be up to 350 ms behind the field,
-  /// and Enter must insert what the user sees, not the last snapshot. The
-  /// engine's own mirror of the preview text is the source of truth for
-  /// what still needs pushing.
-  Future<void> _confirmNow() async {
-    _editDebounce?.cancel();
-    final current = _text.text;
-    if (widget.controller.phase == BridgeSessionState.preview &&
-        current != widget.controller.previewText) {
-      _lastSynced = current;
-      await widget.controller.updatePreviewText(current);
-    }
-    await widget.controller.confirmInsert();
+    widget.controller.editPreviewText(value);
   }
 
   /// The editable rectified text.
@@ -506,8 +463,11 @@ class _PreviewCardState extends State<PreviewCard> {
       bindings: {
         // Enter confirms while the editable field does not hold focus
         // (the field keeps Enter for itself while editing, so the IME's
-        // Enter-to-commit keeps working; the hotkey also confirms).
-        const SingleActivator(LogicalKeyboardKey.enter): _confirmNow,
+        // Enter-to-commit keeps working; the hotkey also confirms). Every
+        // confirm path shares the controller's confirm-what-you-see entry.
+        const SingleActivator(
+          LogicalKeyboardKey.enter,
+        ): widget.controller.confirmWhatYouSee,
         const SingleActivator(LogicalKeyboardKey.escape): () =>
             widget.controller.cancelSession(),
       },
@@ -570,7 +530,7 @@ class _PreviewCardState extends State<PreviewCard> {
                   const SizedBox(width: 8),
                   FilledButton(
                     key: const Key('preview-confirm'),
-                    onPressed: _confirmNow,
+                    onPressed: widget.controller.confirmWhatYouSee,
                     child: const Text('确认插入 (Enter)'),
                   ),
                 ],

@@ -62,11 +62,18 @@ class SpeechController extends ChangeNotifier {
   /// Mirrors speech-activity events from the microphone pipeline.
   bool speaking = false;
 
-  /// The rectified text being previewed: streamed chunks, then user edits.
+  /// The rectified text as the user sees it — the single source the
+  /// preview card renders and every confirm path inserts. While rectifying
+  /// it accumulates the streamed chunks; while previewing it holds the
+  /// user's edits (adopted the instant they happen); everywhere else it is
+  /// empty. Confirm what you see.
   String previewText = '';
 
-  /// Chunks of the current rectify attempt (streamed output).
-  String _chunkTail = '';
+  /// Debounce for pushing preview edits to the engine: edits are adopted
+  /// into [previewText] at once, only the engine push waits.
+  Timer? _previewPushDebounce;
+
+  static const _previewPushDelay = Duration(milliseconds: 350);
 
   /// Whether the floating orb is visible at all.
   bool orbVisible = true;
@@ -83,7 +90,8 @@ class SpeechController extends ChangeNotifier {
   bool get isRecording => phase == BridgeSessionState.recording;
 
   /// Hotkey behavior: idle starts recording; recording stops into preview;
-  /// preview confirms; the transient terminal states are ignored.
+  /// preview confirms what is on screen; the transient terminal states are
+  /// ignored.
   Future<void> toggleSession() async {
     switch (phase) {
       case BridgeSessionState.idle:
@@ -91,7 +99,7 @@ class SpeechController extends ChangeNotifier {
       case BridgeSessionState.recording:
         await stopSession();
       case BridgeSessionState.preview:
-        await confirmInsert();
+        await confirmWhatYouSee();
       case BridgeSessionState.rectifying ||
           BridgeSessionState.inserted ||
           BridgeSessionState.cancelled:
@@ -129,7 +137,37 @@ class SpeechController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> confirmInsert() => gateway.confirmInsert();
+  /// The user edited the preview field: adopt the edit immediately so
+  /// [previewText] always mirrors what is on screen, then debounce the
+  /// push to the engine. Changes arriving once the phase has moved on
+  /// (a card fading out) belong to a dead attempt and are dropped.
+  void editPreviewText(String text) {
+    if (phase != BridgeSessionState.preview) return;
+    previewText = text;
+    _previewPushDebounce?.cancel();
+    _previewPushDebounce = Timer(_previewPushDelay, _pushPreviewEdit);
+  }
+
+  Future<void> _pushPreviewEdit() async {
+    _previewPushDebounce = null;
+    if (phase != BridgeSessionState.preview) return;
+    await gateway.updatePreviewText(previewText);
+  }
+
+  /// Confirm what is on screen — the one entry every confirm path shares
+  /// (button, Enter, hotkey): flush any edit still inside the debounce
+  /// window to the engine, then insert, so the inserted text is what the
+  /// user sees, not the last pushed snapshot.
+  Future<void> confirmWhatYouSee() async {
+    final pushPending = _previewPushDebounce != null;
+    _previewPushDebounce?.cancel();
+    _previewPushDebounce = null;
+    if (phase != BridgeSessionState.preview) return;
+    if (pushPending) {
+      await gateway.updatePreviewText(previewText);
+    }
+    await gateway.confirmInsert();
+  }
 
   /// Surface a startup failure (engine assembly refused to run) the same
   /// way session errors surface, keeping the shell alive to show it.
@@ -139,9 +177,6 @@ class SpeechController extends ChangeNotifier {
   }
 
   Future<void> reroll() => gateway.reroll();
-
-  Future<void> updatePreviewText(String text) =>
-      gateway.updatePreviewText(text);
 
   void setOrbVisible(bool visible) {
     orbVisible = visible;
@@ -195,16 +230,18 @@ class SpeechController extends ChangeNotifier {
           liveText = '';
           paragraphMarks = 0;
           speaking = false;
-          previewText = '';
-          _chunkTail = '';
-        } else if (to == BridgeSessionState.rectifying) {
-          // Every attempt (first stop and every reroll) streams fresh
-          // chunks; accumulate from scratch or attempts concatenate.
-          _chunkTail = '';
-          previewText = '';
         } else if (to == BridgeSessionState.idle) {
           _stopScriptedSpeech();
           panelExpanded = false;
+        }
+        if (to != BridgeSessionState.preview) {
+          // [previewText] lives only mid-flight: entering rectifying starts
+          // a fresh attempt (chunks accumulate from scratch), and the other
+          // states hold nothing. A pending edit push dies with the text it
+          // belonged to — stale edits never reach the engine.
+          _previewPushDebounce?.cancel();
+          _previewPushDebounce = null;
+          previewText = '';
         }
       case BridgeEvent_LiveTranscriptUpdated(:final text):
         liveText = text;
@@ -213,10 +250,11 @@ class SpeechController extends ChangeNotifier {
       case BridgeEvent_SpeechActivityChanged(:final speaking):
         this.speaking = speaking;
       case BridgeEvent_RectifiedTextChunk(:final delta):
-        _chunkTail += delta;
-        previewText = _chunkTail;
-      case BridgeEvent_PreviewTextUpdated(:final text):
-        previewText = text;
+        previewText += delta;
+      case BridgeEvent_PreviewTextUpdated():
+        // Echo of the controller's own push: previewText already holds the
+        // value, so this drives nothing (idempotent no-op).
+        break;
       case BridgeEvent_TextInserted(:final text):
         lastInserted = text;
       case BridgeEvent_Error(:final message):
@@ -228,6 +266,7 @@ class SpeechController extends ChangeNotifier {
   @override
   void dispose() {
     _stopScriptedSpeech();
+    _previewPushDebounce?.cancel();
     _subscription?.cancel();
     super.dispose();
   }
