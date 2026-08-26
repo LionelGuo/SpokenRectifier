@@ -38,7 +38,7 @@ const SELF_CORRECTION: &str = "\
 【自纠判定】只把\"明确的自我修正痕迹\"当作口头更正合并(说错后立刻更正的部分);当\"不对\"\"但是\"\"不过\"等词承载真实语义转折时,必须保留其语义,不得当作口头语删除。";
 
 const VERBATIM: &str = "\
-【逐字保留】术语、产品名、代码、URL、英文缩写、数字与单位,一律逐字保留,不得改写、翻译或\"纠正\"拼写。若下方给出术语参考,以其拼写为准。";
+【逐字保留】术语、产品名、代码、URL、英文缩写、数字与单位,一律逐字保留,不得改写、翻译或\"纠正\"拼写——\"拼写\"指内容本身,大小写等纯形态属性属语体范畴,随【目标语体】执行。若下方给出术语参考,以其拼写为准。";
 
 const NUMERALS: &str = "\
 【中文数字规范化】口语数字读法转为标准书面形式:\"百分之三十\"→\"30%\",\"一百二十万\"→\"120万\",\"六月二十一号\"→\"6月21日\";成语、习语与专有名词中的数字保持原样;拿不准时保留原样。";
@@ -53,11 +53,27 @@ const INTENSITY_FULL: &str = "\
 /// scenario directive is selected.
 const DEFAULT_REGISTER: &str = "通用书面语:清晰、准确、自然的现代书面汉语。";
 
-/// The line that rides a user's style directive, right under it: the
-/// directive shapes form and tone only, and the fidelity rule above
-/// outranks it — stated where the model reads the directive, not just in
-/// the rule block far above (ADR-0004: 铁律恒高于自定义指令).
-const DIRECTIVE_SUBORDINATION: &str = "(语体指令只塑造形式与语气;与【保真铁律】或任何其他规则冲突时,一律以铁律为准,不得因此增删或改写事实内容)";
+/// The header riding a user's style directive: enforcement framing, so
+/// the directive reads as an order, not a suggestion. Real-machine
+/// testing showed a bare directive line is followed only intermittently.
+const DIRECTIVE_ENFORCEMENT: &str = "(用户指定的输出形态,必须严格执行)";
+
+/// The precedence line right under a user's style directive. The
+/// directive outranks every FORM rule — including the verbatim-preservation
+/// clause's letter-case ("不得改写拼写" would otherwise eat an "all
+/// uppercase" directive) — and only the fidelity rule outranks it, scoped
+/// to facts and meaning, never to form (ADR-0004: 铁律恒高于自定义指令,
+/// but the 铁律 governs facts, not casing). An earlier wording ("与任何
+/// 其他规则冲突时以铁律为准") actively sabotaged directives by yielding
+/// to every rule in the prompt.
+const DIRECTIVE_PRECEDENCE: &str = "(优先级:本指令高于其他一切语体、格式与拼写形态规则——包括【逐字保留】与【术语参考】的大小写与拼写形态;仅【保真铁律】高于本指令:不得因此捏造信息或丢失用户明确表达的意思)";
+
+/// The reminder appended to the user message when a directive is active:
+/// recency at generation start, next to the text being transformed — the
+/// system prompt's directive block is far above by the time tokens are
+/// generated.
+const DIRECTIVE_REMINDER: &str =
+    "【语体指令】(必须逐字执行;高于一切拼写与格式保留规则,仅保真铁律例外)";
 
 fn intensity_directive(intensity: Intensity) -> &'static str {
     match intensity {
@@ -68,32 +84,29 @@ fn intensity_directive(intensity: Intensity) -> &'static str {
 
 /// Compose the full chat prompt for one rectify request.
 pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPrompt {
-    let style_line = match &request.style_directive {
-        None => format!("【目标语体】{DEFAULT_REGISTER}"),
-        Some(text) => format!("【目标语体】{text}"),
-    };
-    let mut system = [
-        HEADER,
-        "",
-        FIDELITY_RULE,
-        "",
-        TRANSFORMS,
-        "",
-        SELF_CORRECTION,
-        "",
-        VERBATIM,
-        "",
-        NUMERALS,
-        "",
-        intensity_directive(intensity),
-        "",
-        style_line.as_str(),
-    ]
-    .join("\n");
-    if request.style_directive.is_some() {
-        system.push('\n');
-        system.push_str(DIRECTIVE_SUBORDINATION);
+    let mut system_sections: Vec<String> = vec![
+        HEADER.into(),
+        String::new(),
+        FIDELITY_RULE.into(),
+        String::new(),
+        TRANSFORMS.into(),
+        String::new(),
+        SELF_CORRECTION.into(),
+        String::new(),
+        VERBATIM.into(),
+        String::new(),
+        NUMERALS.into(),
+        String::new(),
+        intensity_directive(intensity).into(),
+        String::new(),
+    ];
+    match &request.style_directive {
+        None => system_sections.push(format!("【目标语体】{DEFAULT_REGISTER}")),
+        Some(text) => system_sections.push(format!(
+            "【目标语体】{DIRECTIVE_ENFORCEMENT}\n{text}\n{DIRECTIVE_PRECEDENCE}"
+        )),
     }
+    let system = system_sections.join("\n");
 
     let mut user = format!("【原始转写】\n{}", request.paragraphs.join("\n\n"));
     if !request.terms.is_empty() {
@@ -106,6 +119,9 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
         user.push_str(&format!(
             "\n\n【术语参考】(逐字保留,以如下拼写为准)\n{list}"
         ));
+    }
+    if let Some(text) = &request.style_directive {
+        user.push_str(&format!("\n\n{DIRECTIVE_REMINDER}\n{text}"));
     }
 
     ChatPrompt { system, user }
@@ -158,31 +174,57 @@ mod tests {
     }
 
     #[test]
-    fn no_directive_means_the_default_register_without_subordination() {
+    fn no_directive_means_the_default_register_without_the_directive_guard() {
         let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
         assert!(prompt.system.contains("通用书面语"));
         // The built-in register is engine-owned and consistent with the
-        // rules; the subordination line is the user-directive guard.
-        assert!(!prompt.system.contains(DIRECTIVE_SUBORDINATION));
+        // rules; the enforcement framing is the user-directive guard.
+        assert!(!prompt.system.contains(DIRECTIVE_ENFORCEMENT));
+        assert!(!prompt.system.contains(DIRECTIVE_PRECEDENCE));
+        // And nothing rides the user message.
+        assert!(!prompt.user.contains("语体指令"));
     }
 
     #[test]
-    fn a_directive_rides_the_prompt_verbatim_and_subordinates_to_the_fidelity_rule() {
+    fn a_directive_rides_the_system_prompt_verbatim_with_enforcement_and_precedence() {
         let directive = "输出将直接用作 AI 提示词:可按逻辑分点、分行组织";
         let prompt = compose_prompt(&request(Some(directive), vec![]), Intensity::Full);
-        assert!(prompt.system.contains(&format!("【目标语体】{directive}")));
-        // The user's directive replaces the default register line, and the
-        // fidelity rule is restated right under it.
+        // The user's directive replaces the default register, framed as an
+        // order, with the precedence line right under it.
         assert!(!prompt.system.contains("通用书面语"));
-        assert!(prompt.system.contains(DIRECTIVE_SUBORDINATION));
-        let subordination_at = prompt
-            .system
-            .find(DIRECTIVE_SUBORDINATION)
-            .expect("subordination line present");
+        assert!(prompt.system.contains("【目标语体】"));
+        assert!(prompt.system.contains(DIRECTIVE_ENFORCEMENT));
         let directive_at = prompt.system.find(directive).expect("directive present");
+        let precedence_at = prompt
+            .system
+            .find(DIRECTIVE_PRECEDENCE)
+            .expect("precedence line present");
         let fidelity_at = prompt.system.find("【保真铁律】").expect("fidelity rule");
         assert!(fidelity_at < directive_at);
-        assert!(directive_at < subordination_at);
+        assert!(directive_at < precedence_at);
+    }
+
+    #[test]
+    fn a_directive_is_repeated_at_the_end_of_the_user_message_after_the_terms() {
+        let directive = "All English words are in uppercase letters.";
+        let mut req = request(Some(directive), vec![]);
+        req.paragraphs = vec!["第一段".into(), "第二段".into()];
+        req.terms = vec!["RESTful".into(), "URL".into()];
+        let prompt = compose_prompt(&req, Intensity::Full);
+        // The reminder is the LAST block of the user message — after the
+        // transcript and after the terms list, whose "以如下拼写为准"
+        // would otherwise be the final word on letter-case.
+        assert!(
+            prompt
+                .user
+                .ends_with(&format!("{DIRECTIVE_REMINDER}\n{directive}"))
+        );
+        let terms_at = prompt.user.find("【术语参考】").expect("terms block");
+        let reminder_at = prompt
+            .user
+            .find(DIRECTIVE_REMINDER)
+            .expect("reminder present");
+        assert!(terms_at < reminder_at);
     }
 
     #[test]
