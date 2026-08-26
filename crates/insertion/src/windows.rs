@@ -16,8 +16,9 @@ use windows::Win32::System::Memory::{
     GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_RETURN,
+    GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU,
+    VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, SetForegroundWindow,
@@ -178,8 +179,16 @@ impl InputOs for Win32Os {
             hwnd_desc(unsafe { GetForegroundWindow() })
         ));
         for (keys, settle_ms) in paced_paste_script() {
-            let inputs: Vec<INPUT> = keys.iter().map(&injected_to_input).collect();
-            send_inputs(&inputs)?;
+            if keys
+                .iter()
+                .any(|k| matches!(k, InjectedKey::AwaitPhysicalModifiersUp))
+            {
+                self.await_physical_modifiers_up(MODIFIER_RELEASE_TIMEOUT_MS);
+            }
+            let inputs: Vec<INPUT> = keys.iter().filter_map(injected_to_input).collect();
+            if !inputs.is_empty() {
+                send_inputs(&inputs)?;
+            }
             if settle_ms > 0 {
                 self.wait_ms(settle_ms);
             }
@@ -220,6 +229,69 @@ fn window_belongs_to_us(hwnd: HWND) -> bool {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     pid == std::process::id()
+}
+
+// -- modifier gate ---------------------------------------------------------------
+
+/// Modifiers whose PHYSICAL hold would turn an injected Ctrl+V into a
+/// different chord (Ctrl+Alt+V pastes nowhere). Names for the debug log.
+const PHYSICAL_MODIFIERS: [(VIRTUAL_KEY, &str); 5] = [
+    (VK_CONTROL, "ctrl"),
+    (VK_MENU, "alt"),
+    (VK_SHIFT, "shift"),
+    (VK_LWIN, "lwin"),
+    (VK_RWIN, "rwin"),
+];
+
+/// How long to wait for a physically held modifier to be released before
+/// flushing it with a synthetic key-up. Confirm fired by the Ctrl+Alt+V
+/// hotkey starts with those keys held; a normal hold lasts well under
+/// this, so the flush only covers a deliberately held or stuck modifier.
+const MODIFIER_RELEASE_TIMEOUT_MS: u64 = 500;
+
+impl Win32Os {
+    /// Wait until no modifier is physically held (the hotkey that fired
+    /// this confirm is still being pressed). On timeout, release whatever
+    /// is still held synthetically so the paste chord goes out clean.
+    fn await_physical_modifiers_up(&self, timeout_ms: u64) {
+        let started = std::time::Instant::now();
+        loop {
+            let held: Vec<&str> = PHYSICAL_MODIFIERS
+                .iter()
+                .filter(|(vk, _)| physical_down(*vk))
+                .map(|(_, name)| *name)
+                .collect();
+            if held.is_empty() {
+                let waited = started.elapsed().as_millis();
+                if waited > 0 {
+                    debug_log(format!(
+                        "[DEBUG-sr06f] modifier gate: clear after {waited}ms"
+                    ));
+                }
+                return;
+            }
+            if started.elapsed() >= std::time::Duration::from_millis(timeout_ms) {
+                debug_log(format!(
+                    "[DEBUG-sr06f] modifier gate: still held {held:?} after {timeout_ms}ms, releasing synthetically"
+                ));
+                for (vk, _) in PHYSICAL_MODIFIERS {
+                    if physical_down(vk) {
+                        // Best effort: a short count still leaves the chord
+                        // worth trying, so the result is only logged.
+                        let _ = send_inputs(&[key_input(vk, KEYEVENTF_KEYUP)]);
+                    }
+                }
+                return;
+            }
+            self.wait_ms(10);
+        }
+    }
+}
+
+/// Whether the key is physically down right now (high bit of
+/// GetAsyncKeyState), as opposed to our own injected state.
+fn physical_down(vk: VIRTUAL_KEY) -> bool {
+    (unsafe { GetAsyncKeyState(vk.0 as i32) }) < 0
 }
 
 // -- [DEBUG-sr06f] temporary insert-path instrumentation -----------------------
@@ -341,14 +413,18 @@ fn key_input(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
     }
 }
 
-/// Map a platform-independent pacing key onto its INPUT struct.
-fn injected_to_input(key: &InjectedKey) -> INPUT {
+/// Map a platform-independent script key onto its INPUT struct. `None` for
+/// the gate: it is executed inline (an OS wait), never injected.
+fn injected_to_input(key: &InjectedKey) -> Option<INPUT> {
     match key {
-        InjectedKey::CtrlDown => key_input(VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
-        InjectedKey::CtrlUp => key_input(VK_CONTROL, KEYEVENTF_KEYUP),
+        InjectedKey::AwaitPhysicalModifiersUp => None,
+        InjectedKey::CtrlDown => Some(key_input(VK_CONTROL, KEYBD_EVENT_FLAGS(0))),
+        InjectedKey::CtrlUp => Some(key_input(VK_CONTROL, KEYEVENTF_KEYUP)),
         // VK codes follow the US layout, so Ctrl+V is Ctrl+V everywhere.
-        InjectedKey::VkDown(code) => key_input(VIRTUAL_KEY(*code as u16), KEYBD_EVENT_FLAGS(0)),
-        InjectedKey::VkUp(code) => key_input(VIRTUAL_KEY(*code as u16), KEYEVENTF_KEYUP),
+        InjectedKey::VkDown(code) => {
+            Some(key_input(VIRTUAL_KEY(*code as u16), KEYBD_EVENT_FLAGS(0)))
+        }
+        InjectedKey::VkUp(code) => Some(key_input(VIRTUAL_KEY(*code as u16), KEYEVENTF_KEYUP)),
     }
 }
 

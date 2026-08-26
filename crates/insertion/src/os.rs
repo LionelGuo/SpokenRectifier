@@ -55,11 +55,16 @@ pub trait InputOs: Send + Sync + 'static {
     fn wait_ms(&self, ms: u64);
 }
 
-/// A platform-independent key event for injection pacing: the Win32 layer
-/// turns each into its INPUT struct; tests reason about the pacing here,
-/// where it is deterministic.
+/// A platform-independent step of an injected key script: the Win32 layer
+/// turns each into its INPUT struct (or, for the gate, an OS wait); tests
+/// reason about the pacing here, where it is deterministic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InjectedKey {
+    /// Not a keystroke: wait until no modifier is PHYSICALLY held before
+    /// continuing. Confirms fired by a modifier hotkey (Ctrl+Alt+V) run
+    /// while the user still holds those modifiers — pasting into that
+    /// delivers Ctrl+Alt+V to the target, which nothing treats as paste.
+    AwaitPhysicalModifiersUp,
     /// Ctrl modifier down.
     CtrlDown,
     /// Ctrl modifier up.
@@ -70,8 +75,9 @@ pub enum InjectedKey {
     VkUp(u8),
 }
 
-/// The paste keystroke as a PACED script: the modifier goes out in its own
-/// input batch, ahead of the key it modifies, with room between batches.
+/// The paste keystroke as a PACED script: first wait out any physically
+/// held modifiers, then the modifier goes out in its own input batch,
+/// ahead of the key it modifies, with room between batches.
 ///
 /// Why pacing: injected input travels the low-level keyboard hook chain
 /// (IME, clipboard tools) asynchronously. A Ctrl+V sent as one SendInput
@@ -84,6 +90,7 @@ pub fn paced_paste_script() -> Vec<(Vec<InjectedKey>, u64)> {
     const MODIFIER_SETTLE_MS: u64 = 40;
     const VK_V: u8 = 0x56;
     vec![
+        (vec![InjectedKey::AwaitPhysicalModifiersUp], 0),
         (vec![InjectedKey::CtrlDown], MODIFIER_SETTLE_MS),
         (
             vec![InjectedKey::VkDown(VK_V), InjectedKey::VkUp(VK_V)],
@@ -154,17 +161,24 @@ mod tests {
         let script = paced_paste_script();
 
         assert!(
-            script.len() >= 3,
-            "ctrl-down / v / ctrl-up as separate steps"
+            script.len() >= 4,
+            "await / ctrl-down / v / ctrl-up as separate steps"
         );
-        let (first_batch, first_settle) = &script[0];
+        let (gate_batch, _) = &script[0];
+        assert_eq!(
+            gate_batch,
+            &vec![InjectedKey::AwaitPhysicalModifiersUp],
+            "the script opens by waiting out physically held modifiers"
+        );
+
+        let (first_batch, first_settle) = &script[1];
         assert_eq!(first_batch, &vec![InjectedKey::CtrlDown]);
         assert!(
             *first_settle > 0,
             "settle after Ctrl down before V goes out"
         );
 
-        let (key_batch, key_settle) = &script[1];
+        let (key_batch, key_settle) = &script[2];
         assert!(
             !key_batch.is_empty(),
             "the modified key arrives in its own non-empty batch"
