@@ -1,16 +1,17 @@
 //! `[asr]` configuration: the Aliyun realtime endpoint, model, and key.
 //!
-//! Layered like `[llm]`: defaults, then `spokenrectifier.toml`, then
-//! `spokenrectifier.local.toml` (git-ignored; the only place an `api_key`
-//! may live). The default endpoint is the legacy shared domain
-//! (`wss://dashscope.aliyuncs.com`), which accepts a key from any
-//! workspace in the region; a `workspace_id` switches to the
+//! Layered like every section: defaults, then `spokenrectifier.toml`,
+//! then `spokenrectifier.local.toml` (git-ignored; the only place an
+//! `api_key` may live) — the loading rules live in the config crate; this
+//! module owns the `[asr]` shape. The default endpoint is the legacy
+//! shared domain (`wss://dashscope.aliyuncs.com`), which accepts a key
+//! from any workspace in the region; a `workspace_id` switches to the
 //! workspace-scoped host, and `base_url` overrides the whole host part.
 
-use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Deserialize;
+use spokenrectifier_config::load_section_layers;
 
 /// Everything the adapter needs to reach the model.
 #[derive(Clone, PartialEq)]
@@ -95,11 +96,7 @@ pub struct AsrConfigError(pub String);
 
 // -- file layering ----------------------------------------------------------
 
-#[derive(Debug, Default, Deserialize)]
-struct FileConfig {
-    asr: Option<AsrSection>,
-}
-
+/// The `[asr]` overlay: the config crate loads it, this crate folds it.
 #[derive(Debug, Default, Deserialize)]
 struct AsrSection {
     model: Option<String>,
@@ -111,8 +108,7 @@ struct AsrSection {
     language: Option<String>,
 }
 
-fn apply(config: &mut AsrConfig, file: FileConfig) {
-    let Some(asr) = file.asr else { return };
+fn apply(config: &mut AsrConfig, asr: AsrSection) {
     if let Some(v) = asr.model {
         config.model = v;
     }
@@ -136,64 +132,18 @@ fn apply(config: &mut AsrConfig, file: FileConfig) {
     }
 }
 
-fn read_layer(
-    config: &mut AsrConfig,
-    path: &Path,
-    secrets_allowed: bool,
-) -> Result<(), AsrConfigError> {
-    let Ok(text) = fs::read_to_string(path) else {
-        return Ok(()); // optional file
-    };
-    let parsed: FileConfig = match toml::from_str(&text) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            // Not the crate's formatted message: it quotes the offending
-            // line, which may carry a key.
-            let (line, column) = match err.span() {
-                Some(range) => {
-                    let before = &text[..range.start];
-                    let line = before.matches('\n').count() + 1;
-                    let column = range.start - before.rfind('\n').map_or(0, |i| i + 1) + 1;
-                    (line, column)
-                }
-                None => (0, 0),
-            };
-            return Err(AsrConfigError(format!(
-                "{}: malformed TOML near line {}, column {}: {}",
-                path.display(),
-                line,
-                column,
-                err.message()
-            )));
-        }
-    };
-    if !secrets_allowed
-        && parsed
-            .asr
-            .as_ref()
-            .and_then(|section| section.api_key.as_deref())
-            .is_some_and(|key| !key.is_empty())
-    {
-        // Fail loudly rather than accept a key into a file that gets
-        // committed.
-        return Err(AsrConfigError(format!(
-            "{}: api_key may not live in the shared committed config; \
-             move it to spokenrectifier.local.toml",
-            path.display()
-        )));
-    }
-    apply(config, parsed);
-    Ok(())
-}
-
-/// Load the `[asr]` config from a directory: defaults, overlaid with
-/// `spokenrectifier.toml`, then `spokenrectifier.local.toml` (which wins,
-/// and is the only layer an `api_key` may come from). Missing files are
-/// fine; malformed ones are an error naming the file.
-pub fn load_asr_config(dir: &Path) -> Result<AsrConfig, AsrConfigError> {
+/// Load the `[asr]` config from the layer files, wherever they live among
+/// `dirs`: defaults, overlaid with `spokenrectifier.toml`, then
+/// `spokenrectifier.local.toml` (which wins, and is the only layer an
+/// `api_key` may come from). Missing files are fine; malformed ones are
+/// an error naming the file.
+pub fn load_asr_config(dirs: &[PathBuf]) -> Result<AsrConfig, AsrConfigError> {
     let mut config = AsrConfig::defaults();
-    read_layer(&mut config, &dir.join("spokenrectifier.toml"), false)?;
-    read_layer(&mut config, &dir.join("spokenrectifier.local.toml"), true)?;
+    let layers =
+        load_section_layers::<AsrSection>(dirs, "asr").map_err(|err| AsrConfigError(err.0))?;
+    for layer in layers {
+        apply(&mut config, layer.value);
+    }
     Ok(config)
 }
 
@@ -250,42 +200,11 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_asr_config(&dir).unwrap();
+        let config = load_asr_config(std::slice::from_ref(&dir)).unwrap();
         assert_eq!(config.workspace_id.as_deref(), Some("llm-shared"));
         assert_eq!(config.language, "en");
         assert_eq!(config.api_key.as_deref(), Some("sk-local"));
         assert_eq!(config.region, "ap-southeast-1");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn missing_files_leave_defaults_and_malformed_names_the_path() {
-        assert_eq!(
-            load_asr_config(Path::new("/nonexistent")).unwrap(),
-            AsrConfig::defaults()
-        );
-
-        let dir = std::env::temp_dir().join("sr-asr-config-test-bad");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("spokenrectifier.toml"), "[asr\nbroken").unwrap();
-        let err = load_asr_config(&dir).unwrap_err().0;
-        assert!(err.contains("spokenrectifier.toml"), "got: {err}");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn api_key_in_the_shared_committed_file_is_rejected() {
-        let dir = std::env::temp_dir().join("sr-asr-config-test-shared-key");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("spokenrectifier.toml"),
-            "[asr]\napi_key = \"sk-oops\"\n",
-        )
-        .unwrap();
-
-        let err = load_asr_config(&dir).unwrap_err().0;
-        assert!(err.contains("spokenrectifier.toml"), "got: {err}");
-        assert!(err.contains("local"), "got: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

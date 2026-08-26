@@ -141,8 +141,10 @@ async fn run() -> Result<(), String> {
         return Err("no utterance blocks in the file".into());
     }
 
-    let config_dir = env::current_dir().map_err(|err| format!("no working directory: {err}"))?;
-    let llm = OpenAiCompatLlm::new(load_llm_config(&config_dir).map_err(|err| err.to_string())?)
+    // The same layer-file search the app uses: working directory first,
+    // then beside the executable.
+    let dirs = spokenrectifier_config::search_dirs();
+    let llm = OpenAiCompatLlm::new(load_llm_config(&dirs).map_err(|err| err.to_string())?)
         .map_err(|err| err.0)?;
 
     let (asr, scripter) = ChannelAsr::new();

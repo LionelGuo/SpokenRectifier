@@ -13,7 +13,7 @@ async fn main() {
         .nth(1)
         .expect("usage: probe <config-dir> [with-user-agent]");
     let with_ua = std::env::args().nth(2).is_some();
-    let config = load_asr_config(std::path::Path::new(&dir)).expect("config loads");
+    let config = load_asr_config(&[dir.into()]).expect("config loads");
     let endpoint = config.endpoint();
     println!("endpoint: {endpoint}");
     let key = config.resolve_key().expect("key resolves");

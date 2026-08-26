@@ -5,7 +5,7 @@
 //! the whole api module) does not pick these types up as part of the
 //! Dart-facing surface.
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -22,21 +22,22 @@ pub enum LlmChoice {
     ScriptedDemo,
 }
 
-/// Decide the real engine's LLM from the config directory: a resolved
-/// `[llm]` key means the real client; no key means the scripted demo.
+/// Decide the real engine's LLM from the layered config files among
+/// `dirs` (resolved once by the caller): a resolved `[llm]` key means the
+/// real client; no key means the scripted demo.
 ///
 /// One combination is an error, not a fallback: an `[asr]` key with no
 /// `[llm]` key would feed real transcripts to the demo script, showing
 /// fake rectifications of the user's actual speech. Fail loudly instead
 /// (the same "incomplete config is an error" rule the ASR side follows).
-pub fn llm_choice(dir: Option<&Path>) -> anyhow::Result<LlmChoice> {
-    let config = llm_config(dir)?;
+pub fn llm_choice(dirs: &[PathBuf]) -> anyhow::Result<LlmChoice> {
+    let config = llm_config(dirs)?;
     let llm_key = config
         .model
         .resolve_key()
         .is_some_and(|key| !key.is_empty());
     if !llm_key {
-        if asr_key_resolves(dir)? {
+        if asr_key_resolves(dirs)? {
             return Err(anyhow!(
                 "the [asr] key is set but no [llm] key resolved: real \
                  transcripts cannot be rectified by the demo script; add \
@@ -53,41 +54,19 @@ pub fn llm_choice(dir: Option<&Path>) -> anyhow::Result<LlmChoice> {
 
 /// The production inserter for the real engine: the `[insertion]` config
 /// over the Win32 layer (an erroring stub off Windows).
-pub fn production_inserter(dir: Option<&Path>) -> anyhow::Result<Arc<TargetInserter>> {
-    let config = match dir {
-        Some(dir) => load_insertion_config(dir).map_err(|err| anyhow!("insertion {}", err.0))?,
-        None => Default::default(),
-    };
+pub fn production_inserter(dirs: &[PathBuf]) -> anyhow::Result<Arc<TargetInserter>> {
+    let config = load_insertion_config(dirs).map_err(|err| anyhow!("insertion {}", err.0))?;
     Ok(Arc::new(TargetInserter::production(config)))
 }
 
-fn llm_config(dir: Option<&Path>) -> anyhow::Result<spokenrectifier_llm::LlmConfig> {
-    match dir {
-        Some(dir) => {
-            spokenrectifier_llm::load_llm_config(dir).map_err(|err| anyhow!("LLM {}", err.0))
-        }
-        None => Ok(spokenrectifier_llm::LlmConfig::defaults()),
-    }
+fn llm_config(dirs: &[PathBuf]) -> anyhow::Result<spokenrectifier_llm::LlmConfig> {
+    spokenrectifier_llm::load_llm_config(dirs).map_err(|err| anyhow!("LLM {}", err.0))
 }
 
-fn asr_key_resolves(dir: Option<&Path>) -> anyhow::Result<bool> {
-    let config = match dir {
-        Some(dir) => {
-            spokenrectifier_aliyun::load_asr_config(dir).map_err(|err| anyhow!("ASR {}", err.0))?
-        }
-        None => spokenrectifier_aliyun::AsrConfig::defaults(),
-    };
+fn asr_key_resolves(dirs: &[PathBuf]) -> anyhow::Result<bool> {
+    let config =
+        spokenrectifier_aliyun::load_asr_config(dirs).map_err(|err| anyhow!("ASR {}", err.0))?;
     Ok(config.resolve_key().is_some_and(|key| !key.is_empty()))
-}
-
-/// [`llm_choice`] for the app's resolved config directory.
-pub fn app_llm_choice() -> anyhow::Result<LlmChoice> {
-    llm_choice(crate::engine_config::config_dir()?.as_deref())
-}
-
-/// [`production_inserter`] for the app's resolved config directory.
-pub fn app_production_inserter() -> anyhow::Result<Arc<TargetInserter>> {
-    production_inserter(crate::engine_config::config_dir()?.as_deref())
 }
 
 #[cfg(test)]
@@ -111,7 +90,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            llm_choice(Some(&empty)).unwrap(),
+            llm_choice(std::slice::from_ref(&empty)).unwrap(),
             LlmChoice::ScriptedDemo
         ));
         std::fs::remove_dir_all(empty).unwrap();
@@ -127,7 +106,7 @@ mod tests {
         .unwrap();
 
         assert!(matches!(
-            llm_choice(Some(&with_key)).unwrap(),
+            llm_choice(std::slice::from_ref(&with_key)).unwrap(),
             LlmChoice::Real(_)
         ));
         std::fs::remove_dir_all(with_key).unwrap();
@@ -142,7 +121,7 @@ mod tests {
         )
         .unwrap();
 
-        let err = match llm_choice(Some(&mixed)) {
+        let err = match llm_choice(std::slice::from_ref(&mixed)) {
             Err(err) => err.to_string(),
             Ok(_) => panic!("an ASR key without an LLM key must be an error"),
         };
@@ -161,7 +140,7 @@ mod tests {
         .unwrap();
 
         // Still the mixed case: the empty string must not pass as a key.
-        assert!(llm_choice(Some(&empty_key)).is_err());
+        assert!(llm_choice(std::slice::from_ref(&empty_key)).is_err());
         std::fs::remove_dir_all(empty_key).unwrap();
     }
 
@@ -175,8 +154,8 @@ mod tests {
         .unwrap();
 
         // Building is the assertion: a bad mode or malformed file errors.
-        production_inserter(Some(&typing)).unwrap();
-        production_inserter(None).unwrap();
+        production_inserter(std::slice::from_ref(&typing)).unwrap();
+        production_inserter(&[]).unwrap();
         std::fs::remove_dir_all(typing).unwrap();
     }
 }

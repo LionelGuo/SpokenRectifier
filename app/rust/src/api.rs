@@ -23,7 +23,7 @@ use tokio::runtime::Runtime;
 
 use crate::frb_generated::StreamSink;
 
-use spokenrectifier_aliyun::{load_asr_config, AliyunAsr, AsrConfig};
+use spokenrectifier_aliyun::{load_asr_config, AliyunAsr};
 use spokenrectifier_audio::{MicVadAsr, VadConfig};
 use spokenrectifier_engine::fakes::{
     AsrFeed, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedLlm,
@@ -34,7 +34,7 @@ use spokenrectifier_engine::{
     SessionState, Style, TokioClock,
 };
 
-use crate::engine_factory::{app_llm_choice, app_production_inserter, LlmChoice};
+use crate::engine_factory::{llm_choice, production_inserter, LlmChoice};
 
 // -- wire types ---------------------------------------------------------------
 
@@ -255,13 +255,16 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     if GLOBAL.get().is_some() {
         return Ok(());
     }
-    let config = engine_config()?;
-    let asr = asr_provider()?;
-    let llm: Arc<dyn RectifyLlm> = match app_llm_choice()? {
+    // Resolved once: every section loader below reads the same layered
+    // files from the same directories.
+    let dirs = spokenrectifier_config::search_dirs();
+    let config = engine_config(&dirs)?;
+    let asr = asr_provider(&dirs)?;
+    let llm: Arc<dyn RectifyLlm> = match llm_choice(&dirs)? {
         LlmChoice::Real(llm) => llm,
         LlmChoice::ScriptedDemo => ScriptedLlm::new_cycling(token_scripts(&llm_responses)),
     };
-    let inserter = app_production_inserter()?;
+    let inserter = production_inserter(&dirs)?;
     let engine = Engine::new(
         config,
         EngineDeps {
@@ -286,11 +289,8 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
 /// the layered `[asr]` config resolves a key (an incomplete cloud config —
 /// key but no endpoint — is an error, not a silent fallback), the mic+VAD
 /// provider otherwise.
-fn asr_provider() -> anyhow::Result<std::sync::Arc<dyn AsrProvider>> {
-    let config = match crate::engine_config::config_dir()? {
-        Some(dir) => load_asr_config(&dir).map_err(|err| anyhow::anyhow!("ASR {}", err.0))?,
-        None => AsrConfig::defaults(),
-    };
+fn asr_provider(dirs: &[std::path::PathBuf]) -> anyhow::Result<std::sync::Arc<dyn AsrProvider>> {
+    let config = load_asr_config(dirs).map_err(|err| anyhow::anyhow!("ASR {}", err.0))?;
     match config.resolve_key() {
         Some(_) => Ok(std::sync::Arc::new(
             AliyunAsr::new(config, VadConfig::default())

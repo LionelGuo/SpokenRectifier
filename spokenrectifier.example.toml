@@ -2,9 +2,13 @@
 # - spokenrectifier.toml        committed shared config (all fields optional)
 # - spokenrectifier.local.toml  git-ignored; the ONLY place an api_key may
 #                               live, or use the configured environment variable.
+#                               An api_key under ANY section of the shared
+#                               file is rejected at startup.
 #
-# Everything below is optional: omit a file (or any field) and the built-in
-# defaults apply. Local values win over shared ones, field by field.
+# Each file is looked up in the working directory first, then beside the
+# executable. Everything below is optional: omit a file (or any field)
+# and the built-in defaults apply. Local values win over shared ones,
+# field by field.
 
 # Recording session semantics (read by the app's engine assembly).
 # passage_mode = true  : long pauses only mark paragraph boundaries; the

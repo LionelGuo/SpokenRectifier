@@ -1,17 +1,17 @@
 //! `[insertion]` configuration: how confirmed text reaches the target
 //! window, and the pacing of each mode.
 //!
-//! Layered like the other sections: defaults, then `spokenrectifier.toml`,
-//! then `spokenrectifier.local.toml` (which wins). No secrets live here,
-//! so both files are equal citizens.
+//! Layered like every section (loading rules live in the config crate).
+//! No secrets live here, so both files are equal citizens.
 
-use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Deserialize;
+use spokenrectifier_config::load_section_layers;
 
 /// How confirmed text is inserted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum InsertionMode {
     /// Replace the clipboard, send Ctrl+V at the target, restore the
     /// clipboard. The default: fast, layout-independent, works everywhere
@@ -50,74 +50,40 @@ impl Default for InsertionConfig {
 #[error("insertion config: {0}")]
 pub struct InsertionConfigError(pub String);
 
-impl InsertionMode {
-    fn parse(value: &str) -> Option<Self> {
-        match value.trim() {
-            "paste" => Some(InsertionMode::Paste),
-            "typing" => Some(InsertionMode::Typing),
-            _ => None,
-        }
-    }
-}
-
 // -- file layering ----------------------------------------------------------
 
-#[derive(Debug, Default, Deserialize)]
-struct FileConfig {
-    insertion: Option<InsertionSection>,
-}
-
+/// The `[insertion]` overlay: the config crate loads it (and validates
+/// the mode against the serde enum), this crate folds it.
 #[derive(Debug, Default, Deserialize)]
 struct InsertionSection {
-    mode: Option<String>,
+    mode: Option<InsertionMode>,
     focus_settle_ms: Option<u64>,
     paste_settle_ms: Option<u64>,
     typing_delay_ms: Option<u64>,
 }
 
-fn read_layer(config: &mut InsertionConfig, path: &Path) -> Result<(), InsertionConfigError> {
-    let Ok(text) = fs::read_to_string(path) else {
-        return Ok(()); // optional file
-    };
-    let parsed: FileConfig = toml::from_str(&text).map_err(|err| {
-        // Not the crate's formatted message: it quotes the offending line,
-        // which may carry a secret from another section.
-        InsertionConfigError(format!(
-            "{}: malformed TOML: {}",
-            path.display(),
-            err.message()
-        ))
-    })?;
-    let Some(section) = parsed.insertion else {
-        return Ok(());
-    };
-    if let Some(v) = section.mode {
-        config.mode = InsertionMode::parse(&v).ok_or_else(|| {
-            InsertionConfigError(format!(
-                "{}: insertion mode must be \"paste\" or \"typing\", got {v:?}",
-                path.display()
-            ))
-        })?;
-    }
-    if let Some(v) = section.focus_settle_ms {
-        config.focus_settle_ms = v;
-    }
-    if let Some(v) = section.paste_settle_ms {
-        config.paste_settle_ms = v;
-    }
-    if let Some(v) = section.typing_delay_ms {
-        config.typing_delay_ms = v;
-    }
-    Ok(())
-}
-
-/// Load the `[insertion]` config from a directory: defaults, overlaid with
-/// `spokenrectifier.toml`, then `spokenrectifier.local.toml` (which wins).
-/// Missing files are fine; malformed ones are an error naming the file.
-pub fn load_insertion_config(dir: &Path) -> Result<InsertionConfig, InsertionConfigError> {
+/// Load the `[insertion]` config from the layer files, wherever they live
+/// among `dirs`: defaults, overlaid with `spokenrectifier.toml`, then
+/// `spokenrectifier.local.toml` (which wins). Missing files are fine;
+/// malformed ones — or an unknown mode — are an error naming the file.
+pub fn load_insertion_config(dirs: &[PathBuf]) -> Result<InsertionConfig, InsertionConfigError> {
     let mut config = InsertionConfig::default();
-    read_layer(&mut config, &dir.join("spokenrectifier.toml"))?;
-    read_layer(&mut config, &dir.join("spokenrectifier.local.toml"))?;
+    let layers = load_section_layers::<InsertionSection>(dirs, "insertion")
+        .map_err(|err| InsertionConfigError(err.0))?;
+    for layer in layers {
+        if let Some(v) = layer.value.mode {
+            config.mode = v;
+        }
+        if let Some(v) = layer.value.focus_settle_ms {
+            config.focus_settle_ms = v;
+        }
+        if let Some(v) = layer.value.paste_settle_ms {
+            config.paste_settle_ms = v;
+        }
+        if let Some(v) = layer.value.typing_delay_ms {
+            config.typing_delay_ms = v;
+        }
+    }
     Ok(config)
 }
 
@@ -149,7 +115,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_insertion_config(&dir).unwrap();
+        let config = load_insertion_config(std::slice::from_ref(&dir)).unwrap();
         assert_eq!(config.mode, InsertionMode::Paste); // local wins
         assert_eq!(config.paste_settle_ms, 400); // shared file
         assert_eq!(config.typing_delay_ms, 12); // local file
@@ -167,17 +133,11 @@ mod tests {
         )
         .unwrap();
 
-        let err = load_insertion_config(&dir).unwrap_err().0;
+        let err = load_insertion_config(std::slice::from_ref(&dir))
+            .unwrap_err()
+            .0;
         assert!(err.contains("spokenrectifier.toml"), "got: {err}");
         assert!(err.contains("telepathy"), "got: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn missing_files_leave_defaults() {
-        assert_eq!(
-            load_insertion_config(Path::new("/nonexistent")).unwrap(),
-            InsertionConfig::default()
-        );
     }
 }

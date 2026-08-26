@@ -1,16 +1,16 @@
 //! LLM configuration: defaults from the v1 model matrix, overridable per
-//! field from `spokenrectifier.toml`, then `spokenrectifier.local.toml`
-//! (git-ignored; the only place an `api_key` may live).
+//! field from the layered config files (loading rules live in the config
+//! crate; an `api_key` may only come from the git-ignored local layer).
 //!
 //! One model per mode: every intensity (light-touch or full) calls the same
 //! endpoint — the length threshold only changes how the prompt asks the
 //! model to rectify, never which model answers.
 
-use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde_json::Value;
+use spokenrectifier_config::load_section_layers;
 
 use crate::vendor::Vendor;
 
@@ -81,11 +81,7 @@ pub struct ConfigError(pub String);
 
 // -- file layering ----------------------------------------------------------
 
-#[derive(Debug, Default, Deserialize)]
-struct FileConfig {
-    llm: Option<LlmSection>,
-}
-
+/// The `[llm]` overlay: the config crate loads it, this crate folds it.
 #[derive(Debug, Default, Deserialize)]
 struct LlmSection {
     thinking: Option<bool>,
@@ -98,8 +94,7 @@ struct LlmSection {
     extra_body: Option<serde_json::Map<String, Value>>,
 }
 
-fn apply(config: &mut LlmConfig, file: FileConfig) {
-    let Some(llm) = file.llm else { return };
+fn apply(config: &mut LlmConfig, llm: LlmSection) {
     if let Some(v) = llm.thinking {
         config.thinking = v;
     }
@@ -127,23 +122,17 @@ fn apply(config: &mut LlmConfig, file: FileConfig) {
     }
 }
 
-fn read_layer(config: &mut LlmConfig, path: &Path) -> Result<(), ConfigError> {
-    let Ok(text) = fs::read_to_string(path) else {
-        return Ok(()); // optional file
-    };
-    let parsed: FileConfig =
-        toml::from_str(&text).map_err(|err| ConfigError(format!("{}: {err}", path.display())))?;
-    apply(config, parsed);
-    Ok(())
-}
-
-/// Load the `[llm]` config from a directory: defaults, overlaid with
-/// `spokenrectifier.toml`, then `spokenrectifier.local.toml` (which wins).
-/// Missing files are fine; malformed ones are an error naming the file.
-pub fn load_llm_config(dir: &Path) -> Result<LlmConfig, ConfigError> {
+/// Load the `[llm]` config from the layer files, wherever they live among
+/// `dirs`: defaults, overlaid with `spokenrectifier.toml`, then
+/// `spokenrectifier.local.toml` (which wins). Missing files are fine;
+/// malformed ones are an error naming the file.
+pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
     let mut config = LlmConfig::defaults();
-    read_layer(&mut config, &dir.join("spokenrectifier.toml"))?;
-    read_layer(&mut config, &dir.join("spokenrectifier.local.toml"))?;
+    let layers =
+        load_section_layers::<LlmSection>(dirs, "llm").map_err(|err| ConfigError(err.0))?;
+    for layer in layers {
+        apply(&mut config, layer.value);
+    }
     Ok(config)
 }
 
@@ -179,27 +168,11 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_llm_config(&dir).unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
         assert!(config.thinking); // from the shared file
         assert_eq!(config.model.model, "deepseek-v4-pro"); // shared file
         assert_eq!(config.model.api_key.as_deref(), Some("sk-local")); // local wins
         assert_eq!(config.model.base_url, "https://api.deepseek.com"); // untouched default
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn missing_files_leave_defaults() {
-        let config = load_llm_config(Path::new("/nonexistent")).unwrap();
-        assert_eq!(config, LlmConfig::defaults());
-    }
-
-    #[test]
-    fn malformed_file_names_the_path() {
-        let dir = std::env::temp_dir().join("sr-llm-config-test-bad");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("spokenrectifier.toml"), "[llm\nbroken").unwrap();
-        let err = load_llm_config(&dir).unwrap_err().0;
-        assert!(err.contains("spokenrectifier.toml"), "got: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -53,7 +53,7 @@ cargo run -p sr-replay --bin sr-rectify -- crates/cli/demo-utterance.txt
 
 ## 配置与密钥
 
-配置分两层:`spokenrectifier.toml`(可入库的共享配置)与 `spokenrectifier.local.toml`(git 忽略,`api_key` 只能放这里,或用各档 `api_key_env` 指定的环境变量);本地值逐字段覆盖共享值。完整 schema 见 [`spokenrectifier.example.toml`](spokenrectifier.example.toml)。
+配置分两层:`spokenrectifier.toml`(可入库的共享配置)与 `spokenrectifier.local.toml`(git 忽略,`api_key` 只能放这里,或用各档 `api_key_env` 指定的环境变量);共享文件的任何 section 下出现非空 `api_key` 都会在启动时被拒绝。本地值逐字段覆盖共享值;两个文件各自按「工作目录 → 可执行文件目录」查找。完整 schema 见 [`spokenrectifier.example.toml`](spokenrectifier.example.toml)。
 
 ## 许可
 

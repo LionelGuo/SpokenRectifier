@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 async-trait.workspace = true
 futures.workspace = true
+spokenrectifier-config = { path = "../config" }
 spokenrectifier-engine = { path = "../engine" }
 spokenrectifier-llm = { path = "../llm" }
 tokio.workspace = true

@@ -2124,11 +2124,11 @@ dependencies = [
  "serde",
  "spokenrectifier-aliyun",
  "spokenrectifier-audio",
+ "spokenrectifier-config",
  "spokenrectifier-engine",
  "spokenrectifier-insertion",
  "spokenrectifier-llm",
  "tokio",
- "toml",
 ]
 
 [[package]]
@@ -2381,11 +2381,11 @@ dependencies = [
  "serde",
  "serde_json",
  "spokenrectifier-audio",
+ "spokenrectifier-config",
  "spokenrectifier-engine",
  "thiserror 2.0.20",
  "tokio",
  "tokio-tungstenite",
- "toml",
 ]
 
 [[package]]
@@ -2397,6 +2397,15 @@ dependencies = [
  "futures",
  "spokenrectifier-engine",
  "tokio",
+]
+
+[[package]]
+name = "spokenrectifier-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.20",
+ "toml",
 ]
 
 [[package]]
@@ -2416,10 +2425,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "serde",
+ "spokenrectifier-config",
  "spokenrectifier-engine",
  "thiserror 2.0.20",
  "tokio",
- "toml",
  "windows 0.62.2",
 ]
 
@@ -2433,10 +2442,10 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "spokenrectifier-config",
  "spokenrectifier-engine",
  "thiserror 2.0.20",
  "tokio",
- "toml",
 ]
 
 [[package]]
@@ -2445,6 +2454,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "spokenrectifier-config",
  "spokenrectifier-engine",
  "spokenrectifier-llm",
  "tokio",

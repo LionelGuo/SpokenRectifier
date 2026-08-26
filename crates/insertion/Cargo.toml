@@ -8,9 +8,9 @@ license.workspace = true
 [dependencies]
 async-trait.workspace = true
 serde = { version = "1", features = ["derive"] }
+spokenrectifier-config = { path = "../config" }
 spokenrectifier-engine = { path = "../engine" }
 thiserror.workspace = true
-toml = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
