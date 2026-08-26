@@ -45,6 +45,6 @@ cargo run -p sr-replay --bin sr-eval -- --report out.md # 另存 markdown
 ```
 
 注意:真 LLM 逐条调用,存在采样方差;个别用例偶发失败属正常,连续
-失败才是回归信号。夜间定时:`scripts/nightly-eval.sh`(报告落
+失败才是回归信号。如需定时(默认不设,按需手动跑):`scripts/nightly-eval.sh`(报告落
 `.scratch/eval/`,按日归档;该目录不入库,本机经 `.git/info/exclude`
 排除)。
