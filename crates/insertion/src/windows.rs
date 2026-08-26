@@ -23,11 +23,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
 };
 
-use crate::os::{InputOs, SavedClipboard};
-
-/// The 'V' virtual-key code (layout-independent: VK codes follow the US
-/// layout, so Ctrl+V is Ctrl+V everywhere).
-const VK_V: VIRTUAL_KEY = VIRTUAL_KEY(0x56);
+use crate::os::{InjectedKey, InputOs, SavedClipboard, paced_paste_script};
 
 // Standard clipboard format ids (documented Win32 constants, stable ABI;
 // declared locally so the Ole feature is not pulled in for numbers).
@@ -150,12 +146,17 @@ impl InputOs for Win32Os {
     }
 
     fn send_paste(&self) -> Result<(), String> {
-        send_inputs(&[
-            key_input(VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
-            key_input(VK_V, KEYBD_EVENT_FLAGS(0)),
-            key_input(VK_V, KEYEVENTF_KEYUP),
-            key_input(VK_CONTROL, KEYEVENTF_KEYUP),
-        ])
+        // Paced per the script's batches: the modifier must land before the
+        // key it modifies goes out, or the target can see a bare 'v'
+        // instead of Ctrl+V (see `paced_paste_script` for the measurement).
+        for (keys, settle_ms) in paced_paste_script() {
+            let inputs: Vec<INPUT> = keys.iter().map(&injected_to_input).collect();
+            send_inputs(&inputs)?;
+            if settle_ms > 0 {
+                self.wait_ms(settle_ms);
+            }
+        }
+        Ok(())
     }
 
     fn send_char(&self, ch: char) -> Result<(), String> {
@@ -261,6 +262,17 @@ fn key_input(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
                 dwExtraInfo: 0,
             },
         },
+    }
+}
+
+/// Map a platform-independent pacing key onto its INPUT struct.
+fn injected_to_input(key: &InjectedKey) -> INPUT {
+    match key {
+        InjectedKey::CtrlDown => key_input(VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
+        InjectedKey::CtrlUp => key_input(VK_CONTROL, KEYEVENTF_KEYUP),
+        // VK codes follow the US layout, so Ctrl+V is Ctrl+V everywhere.
+        InjectedKey::VkDown(code) => key_input(VIRTUAL_KEY(*code as u16), KEYBD_EVENT_FLAGS(0)),
+        InjectedKey::VkUp(code) => key_input(VIRTUAL_KEY(*code as u16), KEYEVENTF_KEYUP),
     }
 }
 

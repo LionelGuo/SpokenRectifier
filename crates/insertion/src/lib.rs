@@ -15,4 +15,4 @@ mod windows;
 
 pub use config::{InsertionConfig, InsertionConfigError, InsertionMode, load_insertion_config};
 pub use inserter::TargetInserter;
-pub use os::{InputOs, SavedClipboard};
+pub use os::{InjectedKey, InputOs, SavedClipboard, paced_paste_script};
