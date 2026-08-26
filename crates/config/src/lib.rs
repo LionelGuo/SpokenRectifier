@@ -13,8 +13,11 @@
 //! a line and column, and the parser's message — nothing else.
 //!
 //! The hotword dictionary is not a TOML section: [`terms`] loads the
-//! plain-text, one-term-per-line file beside the layer files.
+//! plain-text, one-term-per-line file beside the layer files. The
+//! scenario library is not a config layer either: [`scenarios`] loads the
+//! app-owned file of named style directives.
 
+pub mod scenarios;
 pub mod terms;
 
 use std::path::{Path, PathBuf};

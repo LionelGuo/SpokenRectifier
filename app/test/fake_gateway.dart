@@ -15,11 +15,11 @@ class FakeGateway implements SpeechEngineGateway {
   /// When set, the next startSession throws this (e.g. no microphone).
   Object? failNextStart;
 
-  /// When set, the next `style()` throws this (engine never assembled).
-  Object? failNextStyle;
+  /// When set, the next `scenarios()` throws this (engine never assembled).
+  Object? failNextScenarios;
 
-  /// When set, the next `setStyle` throws this.
-  Object? failNextSetStyle;
+  /// When set, the next `setStyleDirective` throws this.
+  Object? failNextSetStyleDirective;
 
   /// When set, the next `openConfigFile` throws this.
   Object? failNextOpenConfig;
@@ -35,9 +35,8 @@ class FakeGateway implements SpeechEngineGateway {
   /// What `rectifyText` streams back as the re-rectified text.
   String rectifyResponse = '重新修正后的文本';
 
-  /// The style the engine reports (what `loadStyle` paints from); the
-  /// setter keeps it in step, like the real engine's any-time switch.
-  BridgeStyle engineStyle = BridgeStyle.generalWritten;
+  /// The scenario library `scenarios()` hands back.
+  final scenarioLibrary = <BridgeScenario>[];
 
   final _events = StreamController<BridgeEventEnvelope>.broadcast();
   int _seq = 0;
@@ -139,25 +138,24 @@ class FakeGateway implements SpeechEngineGateway {
   }
 
   @override
-  Future<BridgeStyle> style() async {
-    commands.add('style');
-    if (failNextStyle != null) {
-      final failure = failNextStyle;
-      failNextStyle = null;
+  Future<List<BridgeScenario>> scenarios() async {
+    commands.add('scenarios');
+    if (failNextScenarios != null) {
+      final failure = failNextScenarios;
+      failNextScenarios = null;
       throw failure!;
     }
-    return engineStyle;
+    return List.of(scenarioLibrary);
   }
 
   @override
-  Future<void> setStyle(BridgeStyle value) async {
-    commands.add('setStyle:${value.name}');
-    if (failNextSetStyle != null) {
-      final failure = failNextSetStyle;
-      failNextSetStyle = null;
+  Future<void> setStyleDirective(String? directive) async {
+    commands.add('setStyleDirective:$directive');
+    if (failNextSetStyleDirective != null) {
+      final failure = failNextSetStyleDirective;
+      failNextSetStyleDirective = null;
       throw failure!;
     }
-    engineStyle = value;
   }
 
   @override

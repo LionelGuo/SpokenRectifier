@@ -2,10 +2,11 @@
 //! rectify pipeline (OpenAI-compatible LLM, streaming). No microphone — the
 //! utterance file drives the engine; the LLM does the rest.
 //!
-//! Usage: sr-rectify [--style <name>] <utterance-file>
+//! Usage: sr-rectify [--style-directive <text>] <utterance-file>
 //!
-//! `--style` picks the output style for every block (general-written,
-//! prompt, or formal-document); the default is general-written.
+//! `--style-directive` sets a style-directive text for every block (the
+//! same text a selected scenario would carry, e.g. "以 Markdown 分条、
+//! 行内代码用反引号"); the default is the built-in default register.
 //!
 //! The file contains one or more utterance blocks separated by `---` lines.
 //! Each non-empty line inside a block is spoken as one scripted phrase,
@@ -27,7 +28,7 @@ use tokio::sync::broadcast;
 use spokenrectifier_engine::fakes::ChannelAsr;
 use spokenrectifier_engine::provider::inserter::{InsertError, TextInserter};
 use spokenrectifier_engine::{
-    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState, Style,
+    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState,
     TermSource, TokioClock,
 };
 use spokenrectifier_llm::{OpenAiCompatLlm, load_llm_config};
@@ -150,25 +151,25 @@ async fn main() {
 }
 
 async fn run() -> Result<(), String> {
-    // Args: an optional --style <name>, then the utterance file.
-    let mut style = Style::default();
+    // Args: an optional --style-directive <text>, then the utterance file.
+    let mut style_directive: Option<String> = None;
     let mut path = None;
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--style" => {
-                let name = args
+            "--style-directive" => {
+                let text = args
                     .next()
-                    .ok_or_else(|| "--style needs a value".to_string())?;
-                style = Style::parse(&name)
-                    .ok_or_else(|| format!("unknown style {name:?}: {}", Style::valid_names()))?;
+                    .ok_or_else(|| "--style-directive needs a value".to_string())?;
+                style_directive = Some(text);
             }
             _ if path.is_none() => path = Some(arg),
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
     }
-    let path =
-        path.ok_or_else(|| "usage: sr-rectify [--style <name>] <utterance-file>".to_string())?;
+    let path = path.ok_or_else(|| {
+        "usage: sr-rectify [--style-directive <text>] <utterance-file>".to_string()
+    })?;
     let source = fs::read_to_string(&path).map_err(|err| format!("cannot read {path}: {err}"))?;
     let blocks = parse_blocks(&source);
     if blocks.is_empty() {
@@ -215,10 +216,10 @@ async fn run() -> Result<(), String> {
     });
     let mut rx = engine.subscribe();
 
-    // The picked style applies to every block's rectify, like a user
-    // switching before speaking.
+    // The directive applies to every block's rectify, like a user
+    // selecting a scenario before speaking.
     engine
-        .execute(Command::SetStyle(style))
+        .execute(Command::SetStyleDirective(style_directive))
         .await
         .map_err(|err| format!("command failed: {err}"))?;
 

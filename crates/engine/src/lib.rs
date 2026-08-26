@@ -15,8 +15,6 @@ pub mod event;
 pub mod fakes;
 pub mod provider;
 
-pub mod style;
-
 pub use clock::{Clock, TokioClock};
 pub use command::Command;
 pub use config::EngineConfig;
@@ -27,4 +25,3 @@ pub use provider::history::{RecordedSession, SessionRecorder};
 pub use provider::inserter::{InsertError, TextInserter};
 pub use provider::llm::{RectifyError, RectifyLlm, RectifyRequest};
 pub use provider::terms::TermSource;
-pub use style::Style;

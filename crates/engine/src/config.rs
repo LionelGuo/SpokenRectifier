@@ -2,8 +2,6 @@
 //! arrives with the configuration work (file-backed settings); the fields
 //! here cover the session semantics the state machine already needs.
 
-use crate::style::Style;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineConfig {
     /// Passage mode (篇章模式): silence only marks paragraphs; the session
@@ -17,9 +15,6 @@ pub struct EngineConfig {
     /// reroll each get a fresh budget). Expiry aborts the session with an
     /// Error event instead of wedging in `Rectifying`.
     pub rectify_timeout_ms: u64,
-    /// Default output style; [`Command::SetStyle`](crate::Command::SetStyle)
-    /// overrides it live.
-    pub style: Style,
 }
 
 impl Default for EngineConfig {
@@ -29,7 +24,6 @@ impl Default for EngineConfig {
             paragraph_silence_ms: 1200,
             session_end_silence_ms: 3000,
             rectify_timeout_ms: 25_000,
-            style: Style::default(),
         }
     }
 }

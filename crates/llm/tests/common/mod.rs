@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 //! Shared helpers for the llm crate's integration tests.
 
-use spokenrectifier_engine::Style;
 use spokenrectifier_engine::provider::llm::RectifyRequest;
 use spokenrectifier_llm::{LlmConfig, ModelConfig, OpenAiCompatLlm, Vendor};
 
@@ -27,12 +26,12 @@ pub fn mock_backed_llm(config: LlmConfig) -> OpenAiCompatLlm {
     OpenAiCompatLlm::new(config).expect("client builds")
 }
 
-/// A one-paragraph request of the given text.
+/// A one-paragraph request of the given text on the default register.
 pub fn request(text: &str) -> RectifyRequest {
     RectifyRequest {
         raw_transcript: text.into(),
         paragraphs: vec![text.into()],
-        style: Style::GeneralWritten,
+        style_directive: None,
         terms: vec![],
     }
 }

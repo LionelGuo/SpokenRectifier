@@ -21,8 +21,8 @@ abstract class SpeechEngineGateway {
   Future<void> reroll();
   Future<void> updatePreviewText(String text);
   Future<void> rectifyText(String rawTranscript);
-  Future<BridgeStyle> style();
-  Future<void> setStyle(BridgeStyle style);
+  Future<List<BridgeScenario>> scenarios();
+  Future<void> setStyleDirective(String? directive);
   Future<void> openConfigFile();
   Future<List<BridgeHistoryEntry>> historyList();
   Future<void> historyClear();
@@ -100,11 +100,13 @@ class SpeechController extends ChangeNotifier {
   /// Last engine error, shown until the next session.
   String? lastError;
 
-  /// Current output style (风格): what the next rectify targets, rerolls
-  /// included. Painted at startup from the engine's `[engine]` config
-  /// default ([loadStyle]); every switch goes straight to the engine and
-  /// applies to the next rectify — mid-preview switches shape the reroll.
-  BridgeStyle style = BridgeStyle.generalWritten;
+  /// The scenario library (场景库), loaded once at startup. Empty when the
+  /// library file is missing or blank — both pickers hide entirely then.
+  List<BridgeScenario> scenarios = const [];
+
+  /// The selected scenario's name; null = the built-in default register.
+  /// Never persisted: every launch starts on the default (ADR-0004).
+  String? selectedScenario;
 
   bool get isRecording => phase == BridgeSessionState.recording;
 
@@ -197,32 +199,45 @@ class SpeechController extends ChangeNotifier {
 
   Future<void> reroll() => gateway.reroll();
 
-  /// Paint the initial style from the engine (its `[engine]` config
-  /// default), so the switcher reflects a configured default instead of
-  /// assuming general-written. An engine that failed to assemble keeps
-  /// the default: the startup banner already explains that failure.
-  Future<void> loadStyle() async {
+  /// Load the scenario library at startup, painting both pickers. A
+  /// failed read keeps the empty library — exactly like an absent file:
+  /// the panel hides its row, the tray keeps just 默认. Selection always
+  /// starts on the default register (never persisted).
+  Future<void> loadScenarios() async {
     try {
-      style = await gateway.style();
+      scenarios = await gateway.scenarios();
     } catch (_) {
-      // Engine not created (startup error already surfaced).
+      // The library is decorative: degrade to empty, never block startup.
+      scenarios = const [];
     }
+    selectedScenario = null;
     notifyListeners();
   }
 
-  /// Switch the output style; the engine applies it from the next rectify
-  /// on. Both switchers (panel row, tray submenu) share this entry. The
-  /// UI adopts the pick at once; a failed engine call surfaces on the
-  /// error banner instead of vanishing (e.g. engine never assembled).
-  Future<void> setStyle(BridgeStyle value) async {
-    style = value;
+  /// Select a scenario — its directive text goes straight to the engine
+  /// and applies from the next rectify on, rerolls included; null returns
+  /// to the default register. Both pickers (panel row, tray submenu)
+  /// share this entry. The UI adopts the pick at once; a failed engine
+  /// call surfaces on the error banner instead of vanishing.
+  Future<void> selectScenario(String? name) async {
+    selectedScenario = name;
     notifyListeners();
     try {
-      await gateway.setStyle(value);
+      await gateway.setStyleDirective(_directiveOf(name));
     } catch (e) {
-      lastError = '风格切换失败:$e';
+      lastError = '场景切换失败:$e';
       notifyListeners();
     }
+  }
+
+  /// The selected scenario's directive text; a name with no matching
+  /// entry (a vanished scenario) reads as the default register.
+  String? _directiveOf(String? name) {
+    if (name == null) return null;
+    for (final scenario in scenarios) {
+      if (scenario.name == name) return scenario.directive;
+    }
+    return null;
   }
 
   /// Open the shared config file in the system editor — the tray's

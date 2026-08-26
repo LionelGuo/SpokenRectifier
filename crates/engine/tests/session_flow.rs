@@ -4,7 +4,7 @@ mod common;
 
 use common::{await_live, await_state, harness, next_matching, ok, summarize};
 use spokenrectifier_engine::fakes::{AsrStep, LlmStep};
-use spokenrectifier_engine::{Command, EngineConfig, EngineEvent, SessionId, SessionState, Style};
+use spokenrectifier_engine::{Command, EngineConfig, EngineEvent, SessionId, SessionState};
 
 #[tokio::test]
 async fn full_happy_path_event_sequence() {
@@ -62,7 +62,7 @@ async fn full_happy_path_event_sequence() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].raw_transcript, "你好世界");
     assert_eq!(requests[0].paragraphs, vec!["你好世界"]);
-    assert_eq!(requests[0].style, Style::GeneralWritten);
+    assert_eq!(requests[0].style_directive, None);
 
     // The inserter received the confirmed text, exactly once.
     assert_eq!(h.inserter.inserted_texts(), vec!["修好"]);

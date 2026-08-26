@@ -14,7 +14,8 @@
 //!   silence <ms>       scripted cumulative silence
 //!   llm <text>         queue the next scripted rectify response
 //!   edit <text>        replace the preview text
-//!   style <name>       general-written | prompt | formal-document
+//!   style <text>       set a style-directive text (a scenario's directive)
+//!   style-default      return to the built-in default register
 //!   await <target>     wait for a state (idle/recording/...) or `paragraph`
 
 use std::env;
@@ -26,7 +27,7 @@ use tokio::time::timeout;
 
 use spokenrectifier_engine::fakes::{ChannelAsr, FakeClock, FakeInserter, LlmStep, ScriptedLlm};
 use spokenrectifier_engine::{
-    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState, Style,
+    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState,
 };
 
 #[derive(Debug, Clone)]
@@ -40,7 +41,8 @@ enum Step {
     Silence(u64),
     Llm(String),
     Edit(String),
-    Style(Style),
+    /// Set a style-directive text; `None` = the default register.
+    StyleDirective(Option<String>),
     Await(AwaitTarget),
 }
 
@@ -90,13 +92,8 @@ fn parse_script(source: &str) -> Result<Vec<Step>, String> {
                 })?),
                 "llm" => Step::Llm(argument()?),
                 "edit" => Step::Edit(argument()?),
-                "style" => {
-                    let name = argument()?;
-                    Step::Style(
-                        Style::parse(&name)
-                            .ok_or_else(|| format!("line {}: unknown style `{name}`", index + 1))?,
-                    )
-                }
+                "style" => Step::StyleDirective(Some(argument()?)),
+                "style-default" => Step::StyleDirective(None),
                 "await" => {
                     let target = argument()?;
                     if target == "paragraph" {
@@ -263,9 +260,11 @@ async fn run() -> Result<(), String> {
                     .execute(Command::UpdatePreviewText(text.clone()))
                     .await
             }
-            Step::Style(style) => {
-                println!(">> SetStyle({})", style.name());
-                engine.execute(Command::SetStyle(*style)).await
+            Step::StyleDirective(directive) => {
+                println!(">> SetStyleDirective({directive:?})");
+                engine
+                    .execute(Command::SetStyleDirective(directive.clone()))
+                    .await
             }
             Step::Say(text) => {
                 let session = feed

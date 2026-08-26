@@ -52,10 +52,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeHistoryEntry dco_decode_bridge_history_entry(dynamic raw);
 
   @protected
-  BridgeSessionState dco_decode_bridge_session_state(dynamic raw);
+  BridgeScenario dco_decode_bridge_scenario(dynamic raw);
 
   @protected
-  BridgeStyle dco_decode_bridge_style(dynamic raw);
+  BridgeSessionState dco_decode_bridge_session_state(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -70,7 +70,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<BridgeHistoryEntry> dco_decode_list_bridge_history_entry(dynamic raw);
 
   @protected
+  List<BridgeScenario> dco_decode_list_bridge_scenario(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
 
   @protected
   BigInt dco_decode_u_64(dynamic raw);
@@ -116,12 +122,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BridgeScenario sse_decode_bridge_scenario(SseDeserializer deserializer);
+
+  @protected
   BridgeSessionState sse_decode_bridge_session_state(
     SseDeserializer deserializer,
   );
-
-  @protected
-  BridgeStyle sse_decode_bridge_style(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -138,7 +144,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<BridgeScenario> sse_decode_list_bridge_scenario(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_u_64(SseDeserializer deserializer);
@@ -192,13 +206,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_bridge_session_state(
-    BridgeSessionState self,
+  void sse_encode_bridge_scenario(
+    BridgeScenario self,
     SseSerializer serializer,
   );
 
   @protected
-  void sse_encode_bridge_style(BridgeStyle self, SseSerializer serializer);
+  void sse_encode_bridge_session_state(
+    BridgeSessionState self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -216,10 +233,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_bridge_scenario(
+    List<BridgeScenario> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_64(BigInt self, SseSerializer serializer);

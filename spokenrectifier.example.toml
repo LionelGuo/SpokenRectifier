@@ -21,12 +21,6 @@ paragraph_silence_ms = 1200
 session_end_silence_ms = 3000
 rectify_timeout_ms = 25000                  # hard cap per rectify attempt
                                             #  (each reroll gets a fresh one)
-style = "general-written"                   # startup default; the panel's
-                                            #  style row and the tray's 风格
-                                            #  submenu switch it live. Valid:
-                                            #  general-written | prompt |
-                                            #  formal-document (an unknown
-                                            #  value is rejected at startup)
 
 # Cloud ASR (Aliyun qwen3-asr-flash-realtime over the DashScope realtime
 # WebSocket, pay-as-you-go). With a key resolved the app streams real
@@ -78,6 +72,20 @@ retention_days = 30         # sessions older than this are swept on launch
 # Providers that can bias recognition get the list injected into ASR
 # (Aliyun: the transcription corpus); every provider additionally gets it
 # as the rectify prompt's term reference, verbatim-preserved.
+
+# Scenario library (场景库): a separate app-owned file, NOT a section
+# here. Create spokenrectifier-scenarios.toml next to these config files
+# to add named style directives beyond the built-in default register
+# (通用书面), e.g.:
+#   [[scenario]]
+#   name = "Prompt"
+#   directive = "输出将直接用作 AI 提示词:信息密度优先,可分点分行,行内代码用反引号"
+# The tray's 风格 submenu and the recording panel's scenario row switch
+# between 默认 and these entries; a pick applies from the next rectify on
+# (rerolls included) and is never persisted — every launch starts on the
+# default. A missing or corrupt file reads as an empty library (pickers
+# hide). Style directives shape form and tone only; the fidelity rule
+# always outranks them.
 
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
 # One model per mode: light-touch vs full rectify is decided by length

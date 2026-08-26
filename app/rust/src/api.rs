@@ -33,7 +33,7 @@ use spokenrectifier_engine::fakes::{
 use spokenrectifier_engine::AsrProvider;
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, RectifyLlm,
-    SessionState, Style, TokioClock,
+    SessionState, TokioClock,
 };
 use spokenrectifier_history::HistoryStore;
 
@@ -52,8 +52,11 @@ pub enum BridgeCommand {
     UpdatePreviewText {
         text: String,
     },
-    SetStyle {
-        style: BridgeStyle,
+    /// The selected scenario's style-directive text; `None` returns to
+    /// the built-in default register. The engine knows nothing about
+    /// scenario names.
+    SetStyleDirective {
+        directive: Option<String>,
     },
     /// History retrieval re-running a past utterance (see `RectifyText`).
     RectifyText {
@@ -61,12 +64,21 @@ pub enum BridgeCommand {
     },
 }
 
-/// Dart-side mirror of [`Style`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BridgeStyle {
-    GeneralWritten,
-    Prompt,
-    FormalDocument,
+/// Dart-side mirror of one scenario (场景): a user-named style directive
+/// from the scenario library.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeScenario {
+    pub name: String,
+    pub directive: String,
+}
+
+impl From<spokenrectifier_config::scenarios::Scenario> for BridgeScenario {
+    fn from(value: spokenrectifier_config::scenarios::Scenario) -> Self {
+        BridgeScenario {
+            name: value.name,
+            directive: value.directive,
+        }
+    }
 }
 
 /// Dart-side mirror of [`SessionState`].
@@ -147,28 +159,8 @@ impl From<BridgeCommand> for Command {
             BridgeCommand::ConfirmInsert => Command::ConfirmInsert,
             BridgeCommand::Reroll => Command::Reroll,
             BridgeCommand::UpdatePreviewText { text } => Command::UpdatePreviewText(text),
-            BridgeCommand::SetStyle { style } => Command::SetStyle(style.into()),
+            BridgeCommand::SetStyleDirective { directive } => Command::SetStyleDirective(directive),
             BridgeCommand::RectifyText { raw_transcript } => Command::RectifyText(raw_transcript),
-        }
-    }
-}
-
-impl From<BridgeStyle> for Style {
-    fn from(value: BridgeStyle) -> Self {
-        match value {
-            BridgeStyle::GeneralWritten => Style::GeneralWritten,
-            BridgeStyle::Prompt => Style::Prompt,
-            BridgeStyle::FormalDocument => Style::FormalDocument,
-        }
-    }
-}
-
-impl From<Style> for BridgeStyle {
-    fn from(value: Style) -> Self {
-        match value {
-            Style::GeneralWritten => BridgeStyle::GeneralWritten,
-            Style::Prompt => BridgeStyle::Prompt,
-            Style::FormalDocument => BridgeStyle::FormalDocument,
         }
     }
 }
@@ -411,10 +403,18 @@ pub fn state() -> anyhow::Result<BridgeSessionState> {
     Ok(global()?.engine.state().into())
 }
 
-/// Current output style, for the initial paint of the style switcher —
-/// the `[engine]` config's default until a `SetStyle` command lands.
-pub fn style() -> anyhow::Result<BridgeStyle> {
-    Ok(global()?.engine.style().into())
+/// The scenario library (场景库): user-named style directives from the
+/// app-owned `spokenrectifier-scenarios.toml`. A missing or corrupt file
+/// reads as an empty library — this never errors and never writes. The
+/// shell paints its pickers from the list and resolves the selected
+/// entry's directive text itself (selection lives app-side, never
+/// persisted; ADR-0004).
+pub fn scenarios() -> anyhow::Result<Vec<BridgeScenario>> {
+    let dirs = spokenrectifier_config::search_dirs();
+    Ok(spokenrectifier_config::scenarios::load_scenarios(&dirs)
+        .into_iter()
+        .map(BridgeScenario::from)
+        .collect())
 }
 
 /// Everything the fake inserter received, in order (demo introspection).
@@ -630,18 +630,17 @@ mod tests {
         assert_eq!(state().unwrap(), BridgeSessionState::Idle);
     }
 
-    /// The style switcher paints from this getter; a SetStyle through the
-    /// wire must be visible on it (valid any time, no state machine role).
+    /// A style directive rides the wire any time (no state machine role):
+    /// the engine accepts it and the default-register reset alike.
     #[test]
-    fn style_round_trips_through_the_bridge() {
+    fn style_directive_commands_are_valid_any_time() {
         let _guard = TEST_LOCK.lock().unwrap();
         setup();
-        assert_eq!(style().unwrap(), BridgeStyle::GeneralWritten);
-        execute(BridgeCommand::SetStyle {
-            style: BridgeStyle::Prompt,
+        execute(BridgeCommand::SetStyleDirective {
+            directive: Some("以 Markdown 分条输出".into()),
         })
         .unwrap();
-        assert_eq!(style().unwrap(), BridgeStyle::Prompt);
+        execute(BridgeCommand::SetStyleDirective { directive: None }).unwrap();
     }
 
     /// The demo host runs indefinitely: sessions keep working no matter how

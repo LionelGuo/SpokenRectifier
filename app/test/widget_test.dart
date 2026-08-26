@@ -12,7 +12,7 @@ import 'package:spokenrectifier_app/app_root.dart'
     show SpokenRectifierApp, historyWindowSize, windowSizeFor;
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgeHistoryEntry, BridgeSessionState, BridgeStyle;
+    show BridgeEvent, BridgeHistoryEntry, BridgeScenario, BridgeSessionState;
 
 import 'fake_gateway.dart';
 
@@ -552,7 +552,7 @@ void main() {
     );
   });
 
-  testWidgets('the recording panel switches style and the engine hears it', (
+  testWidgets('the scenario row stays hidden while the library is empty', (
     tester,
   ) async {
     final gateway = FakeGateway();
@@ -560,44 +560,94 @@ void main() {
         panelExpanded: true);
     await pumpToRecording(tester, controller);
 
-    expect(controller.style, BridgeStyle.generalWritten);
-    await tester.tap(find.byKey(const Key('style-segment-prompt')));
-    await tester.pump(const Duration(milliseconds: 350));
-
-    expect(controller.style, BridgeStyle.prompt);
-    expect(gateway.commands, contains('setStyle:prompt'));
-    // The engine-side mirror moved too, like the real any-time switch.
-    expect(gateway.engineStyle, BridgeStyle.prompt);
+    // No library: no picker, nothing to pick — the default register needs
+    // no switcher (ADR-0004).
+    expect(find.byKey(const Key('scenario-picker')), findsNothing);
+    expect(controller.selectedScenario, isNull);
+    expect(gateway.commands, isNot(contains('setStyleDirective')));
   });
 
-  testWidgets('loadStyle paints the configured default, not the assumption', (
+  testWidgets('the recording panel picks a scenario and the engine hears its directive', (
     tester,
   ) async {
-    final gateway = FakeGateway()..engineStyle = BridgeStyle.formalDocument;
-    final controller = await pumpController(tester, gateway);
+    final gateway = FakeGateway()
+      ..scenarioLibrary.add(const BridgeScenario(
+        name: 'Prompt 工程',
+        directive: '输出将直接用作 AI 提示词,可分点分行',
+      ));
+    final controller = await pumpController(tester, gateway,
+        panelExpanded: true);
+    await controller.loadScenarios();
+    await tester.pump(const Duration(milliseconds: 350));
+    await pumpToRecording(tester, controller);
 
-    await controller.loadStyle();
+    // 默认 paints while nothing is selected. (No pumpAndSettle here: the
+    // panel's recording dot blinks forever, so time the pumps instead.)
+    expect(find.text('默认'), findsOneWidget);
+    Future<void> openPicker() async {
+      await tester.tap(find.byKey(const Key('scenario-picker')));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    await openPicker();
+    await tester.tap(find.byKey(const Key('scenario-item-Prompt 工程')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
     await tester.pump(const Duration(milliseconds: 350));
 
-    expect(controller.style, BridgeStyle.formalDocument);
-    expect(gateway.commands, contains('style'));
-    // Switching away still works on top of the loaded default.
-    await controller.setStyle(BridgeStyle.generalWritten);
-    expect(gateway.commands, contains('setStyle:generalWritten'));
+    expect(controller.selectedScenario, 'Prompt 工程');
+    // The engine heard the entry's directive text, not its name.
+    expect(
+      gateway.commands,
+      contains('setStyleDirective:输出将直接用作 AI 提示词,可分点分行'),
+    );
+
+    // Back to 默认: the engine hears the reset.
+    await openPicker();
+    await tester.tap(find.byKey(const Key('scenario-item-default')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.selectedScenario, isNull);
+    expect(gateway.commands, contains('setStyleDirective:null'));
   });
 
-  testWidgets('a loadStyle against a dead engine keeps the default', (
+  testWidgets('a loadScenarios against a dead engine keeps the empty library', (
     tester,
   ) async {
     final gateway = FakeGateway();
     final controller = await pumpController(tester, gateway);
-    gateway.failNextStyle = StateError('engine not created yet');
+    gateway.failNextScenarios = StateError('engine not created yet');
 
-    await controller.loadStyle();
+    await controller.loadScenarios();
     await tester.pump(const Duration(milliseconds: 350));
 
-    // The startup banner owns that failure; the switcher stays paintable.
-    expect(controller.style, BridgeStyle.generalWritten);
+    // The library is decorative: degrade to empty, stay paintable.
+    expect(controller.scenarios, isEmpty);
+    expect(controller.selectedScenario, isNull);
+  });
+
+  testWidgets('a failed scenario switch surfaces on the error banner', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()
+      ..scenarioLibrary.add(const BridgeScenario(
+        name: '正式文档',
+        directive: '严谨规范',
+      ))
+      ..failNextSetStyleDirective = StateError('engine gone');
+    final controller = await pumpController(tester, gateway);
+    await controller.loadScenarios();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    await controller.selectScenario('正式文档');
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // The pick stays (the picker keeps painting it) but the failure is
+    // said out loud, not swallowed.
+    expect(controller.selectedScenario, '正式文档');
+    expect(controller.lastError, contains('场景切换失败'));
   });
 
   testWidgets('openConfigFile goes through the gateway', (tester) async {
@@ -606,21 +656,6 @@ void main() {
 
     await controller.openConfigFile();
     expect(gateway.commands, contains('openConfigFile'));
-  });
-
-  testWidgets('a failed style switch surfaces on the error banner', (
-    tester,
-  ) async {
-    final gateway = FakeGateway()..failNextSetStyle = StateError('engine gone');
-    final controller = await pumpController(tester, gateway);
-
-    await controller.setStyle(BridgeStyle.prompt);
-    await tester.pump(const Duration(milliseconds: 350));
-
-    // The pick stays (the switcher keeps painting it) but the failure is
-    // said out loud, not swallowed.
-    expect(controller.style, BridgeStyle.prompt);
-    expect(controller.lastError, contains('风格切换失败'));
   });
 
   testWidgets('a failed config open surfaces on the error banner', (

@@ -7,8 +7,6 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 
-use crate::style::Style;
-
 #[derive(Debug, thiserror::Error)]
 #[error("rectify LLM failed: {0}")]
 pub struct RectifyError(pub String);
@@ -20,8 +18,11 @@ pub struct RectifyRequest {
     pub raw_transcript: String,
     /// The raw transcript split at paragraph marks.
     pub paragraphs: Vec<String>,
-    /// Target output style.
-    pub style: Style,
+    /// The selected scenario's style-directive text, verbatim; `None`
+    /// means the built-in default register (通用书面). Only this resolved
+    /// text crosses the engine seam — scenario names and lists live in
+    /// the shell.
+    pub style_directive: Option<String>,
     /// Domain terms from the hotword dictionary, verbatim-preserved in the
     /// rectified text. Filled by the hotword pipeline; the rectify prompt
     /// renders them as a reference list.

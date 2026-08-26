@@ -23,7 +23,6 @@ use crate::provider::history::{RecordedSession, SessionRecorder};
 use crate::provider::inserter::TextInserter;
 use crate::provider::llm::{RectifyLlm, RectifyRequest, RectifyTokenStream};
 use crate::provider::terms::TermSource;
-use crate::style::Style;
 
 /// Collaborators the engine is constructed with.
 pub struct EngineDeps {
@@ -56,7 +55,10 @@ pub struct Engine {
 
 struct Inner {
     config: EngineConfig,
-    style: RwLock<Style>,
+    /// The selected scenario's style-directive text (`None` = the
+    /// built-in default register). Read fresh when each rectify request
+    /// is built, so a switch any time shapes the next attempt.
+    style_directive: RwLock<Option<String>>,
     asr: Arc<dyn AsrProvider>,
     llm: Arc<dyn RectifyLlm>,
     inserter: Arc<dyn TextInserter>,
@@ -118,7 +120,7 @@ impl Engine {
         let (events, _) = broadcast::channel(1024);
         Self {
             inner: Arc::new(Inner {
-                style: RwLock::new(config.style),
+                style_directive: RwLock::new(None),
                 config,
                 asr: deps.asr,
                 llm: deps.llm,
@@ -147,12 +149,6 @@ impl Engine {
     /// Current session state, for introspection and CLI display.
     pub fn state(&self) -> SessionState {
         self.inner.state_lock().state
-    }
-
-    /// Current output style: the config default until
-    /// [`Command::SetStyle`](crate::Command::SetStyle) overrides it live.
-    pub fn style(&self) -> Style {
-        *self.inner.style.read().unwrap()
     }
 
     /// Submit a command. Returns `Err` only for rejected commands (wrong
@@ -188,8 +184,13 @@ impl Engine {
                 Ok(())
             }
             Command::UpdatePreviewText(text) => self.update_preview_text(text),
-            Command::SetStyle(style) => {
-                *self.inner.style.write().unwrap() = style;
+            Command::SetStyleDirective(directive) => {
+                // Blank directive text reads as no directive: the default
+                // register. (Scenario entries with blank directives are
+                // already filtered by the library loader; this guards the
+                // engine seam itself.)
+                *self.inner.style_directive.write().unwrap() =
+                    directive.filter(|text| !text.trim().is_empty());
                 Ok(())
             }
         }
@@ -276,7 +277,7 @@ impl Engine {
                 RectifyRequest {
                     raw_transcript,
                     paragraphs,
-                    style: *self.inner.style.read().unwrap(),
+                    style_directive: self.inner.current_style_directive(),
                     terms,
                 },
             )
@@ -394,6 +395,13 @@ impl Inner {
         self.terms.as_ref().map(|s| s.terms()).unwrap_or_default()
     }
 
+    /// The style-directive text every rectify request stamps — read when
+    /// each request is built, so a switch any time shapes the next
+    /// attempt (first stop, reroll, and history re-rectify alike).
+    fn current_style_directive(&self) -> Option<String> {
+        self.style_directive.read().unwrap().clone()
+    }
+
     /// Emit an event; the guard must be held so `seq` order can never
     /// diverge from send order.
     fn emit(&self, st: &mut SharedState, sid: SessionId, event: EngineEvent) {
@@ -509,7 +517,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
                     RectifyRequest {
                         raw_transcript,
                         paragraphs,
-                        style: *inner.style.read().unwrap(),
+                        style_directive: inner.current_style_directive(),
                         terms,
                     },
                 )
@@ -525,7 +533,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
                     RectifyRequest {
                         raw_transcript: frozen.raw_transcript.clone(),
                         paragraphs: frozen.paragraphs.clone(),
-                        style: *inner.style.read().unwrap(),
+                        style_directive: inner.current_style_directive(),
                         terms,
                     },
                 )

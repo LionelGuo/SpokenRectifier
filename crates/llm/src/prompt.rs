@@ -1,11 +1,10 @@
-//! Prompt composition for rectify (glossary: 修正, 保真铁律).
+//! Prompt composition for rectify (glossary: 修正, 保真铁律, 风格指令).
 //!
 //! The system prompt carries the fidelity rule and every transform rule;
-//! intensity and style inject their own directives; terms render as a
-//! reference list in the user message. Composition is pure and
+//! intensity and the style directive inject their own lines; terms render
+//! as a reference list in the user message. Composition is pure and
 //! deterministic — golden tests freeze the exact text.
 
-use spokenrectifier_engine::Style;
 use spokenrectifier_engine::provider::llm::RectifyRequest;
 
 use crate::intensity::Intensity;
@@ -50,9 +49,15 @@ const INTENSITY_LIGHT_TOUCH: &str = "\
 const INTENSITY_FULL: &str = "\
 【整理强度】全量修正(本次输入为中长段):五类变换全部执行,允许篇章级逻辑重组、句序调整、合并与压缩提密,产出结构清晰、信息密度高的书面文本;铁律仍然优先。";
 
-const STYLE_GENERAL: &str = "通用书面语:清晰、准确、自然的现代书面汉语。";
-const STYLE_PROMPT: &str = "提示词语体:输出将直接用作 AI 提示词。保留全部技术细节与指令语义,信息密度优先,可按逻辑分点、分行组织;删除寒暄与冗余客套。";
-const STYLE_FORMAL: &str = "正式文档语体:严谨规范,用词正式,句式完整,避免口语化缩略与随意语气。";
+/// The single built-in default register (通用书面), used whenever no
+/// scenario directive is selected.
+const DEFAULT_REGISTER: &str = "通用书面语:清晰、准确、自然的现代书面汉语。";
+
+/// The line that rides a user's style directive, right under it: the
+/// directive shapes form and tone only, and the fidelity rule above
+/// outranks it — stated where the model reads the directive, not just in
+/// the rule block far above (ADR-0004: 铁律恒高于自定义指令).
+const DIRECTIVE_SUBORDINATION: &str = "(语体指令只塑造形式与语气;与【保真铁律】或任何其他规则冲突时,一律以铁律为准,不得因此增删或改写事实内容)";
 
 fn intensity_directive(intensity: Intensity) -> &'static str {
     match intensity {
@@ -61,18 +66,13 @@ fn intensity_directive(intensity: Intensity) -> &'static str {
     }
 }
 
-fn style_directive(style: Style) -> &'static str {
-    match style {
-        Style::GeneralWritten => STYLE_GENERAL,
-        Style::Prompt => STYLE_PROMPT,
-        Style::FormalDocument => STYLE_FORMAL,
-    }
-}
-
 /// Compose the full chat prompt for one rectify request.
 pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPrompt {
-    let style_line = format!("【目标语体】{}", style_directive(request.style));
-    let system = [
+    let style_line = match &request.style_directive {
+        None => format!("【目标语体】{DEFAULT_REGISTER}"),
+        Some(text) => format!("【目标语体】{text}"),
+    };
+    let mut system = [
         HEADER,
         "",
         FIDELITY_RULE,
@@ -90,6 +90,10 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
         style_line.as_str(),
     ]
     .join("\n");
+    if request.style_directive.is_some() {
+        system.push('\n');
+        system.push_str(DIRECTIVE_SUBORDINATION);
+    }
 
     let mut user = format!("【原始转写】\n{}", request.paragraphs.join("\n\n"));
     if !request.terms.is_empty() {
@@ -111,18 +115,18 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
 mod tests {
     use super::*;
 
-    fn request(style: Style, terms: Vec<&str>) -> RectifyRequest {
+    fn request(style_directive: Option<&str>, terms: Vec<&str>) -> RectifyRequest {
         RectifyRequest {
             raw_transcript: "嗯你好世界".into(),
             paragraphs: vec!["嗯你好世界".into()],
-            style,
+            style_directive: style_directive.map(String::from),
             terms: terms.into_iter().map(String::from).collect(),
         }
     }
 
     #[test]
     fn system_prompt_carries_the_fidelity_rule_and_all_transforms() {
-        let prompt = compose_prompt(&request(Style::GeneralWritten, vec![]), Intensity::Full);
+        let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
         for fragment in [
             "保真优先于信息密度",
             "不得捏造转写中没有的信息",
@@ -138,10 +142,7 @@ mod tests {
 
     #[test]
     fn light_touch_forbids_reordering_and_rewording() {
-        let prompt = compose_prompt(
-            &request(Style::GeneralWritten, vec![]),
-            Intensity::LightTouch,
-        );
+        let prompt = compose_prompt(&request(None, vec![]), Intensity::LightTouch);
         let intensity = INTENSITY_LIGHT_TOUCH;
         assert!(intensity.contains("禁止改变句序"));
         assert!(intensity.contains("禁止改写措辞风格"));
@@ -151,25 +152,42 @@ mod tests {
 
     #[test]
     fn full_rectify_allows_reorganization() {
-        let prompt = compose_prompt(&request(Style::GeneralWritten, vec![]), Intensity::Full);
+        let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
         assert!(INTENSITY_FULL.contains("允许篇章级逻辑重组"));
         assert!(prompt.system.contains("全量修正"));
     }
 
     #[test]
-    fn style_directives_differ_per_style() {
-        let base = request(Style::GeneralWritten, vec![]);
-        let general = compose_prompt(&base, Intensity::Full);
-        let prompt_style = compose_prompt(&request(Style::Prompt, vec![]), Intensity::Full);
-        let formal = compose_prompt(&request(Style::FormalDocument, vec![]), Intensity::Full);
-        assert!(general.system.contains("通用书面语"));
-        assert!(prompt_style.system.contains("提示词语体"));
-        assert!(formal.system.contains("正式文档语体"));
+    fn no_directive_means_the_default_register_without_subordination() {
+        let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
+        assert!(prompt.system.contains("通用书面语"));
+        // The built-in register is engine-owned and consistent with the
+        // rules; the subordination line is the user-directive guard.
+        assert!(!prompt.system.contains(DIRECTIVE_SUBORDINATION));
+    }
+
+    #[test]
+    fn a_directive_rides_the_prompt_verbatim_and_subordinates_to_the_fidelity_rule() {
+        let directive = "输出将直接用作 AI 提示词:可按逻辑分点、分行组织";
+        let prompt = compose_prompt(&request(Some(directive), vec![]), Intensity::Full);
+        assert!(prompt.system.contains(&format!("【目标语体】{directive}")));
+        // The user's directive replaces the default register line, and the
+        // fidelity rule is restated right under it.
+        assert!(!prompt.system.contains("通用书面语"));
+        assert!(prompt.system.contains(DIRECTIVE_SUBORDINATION));
+        let subordination_at = prompt
+            .system
+            .find(DIRECTIVE_SUBORDINATION)
+            .expect("subordination line present");
+        let directive_at = prompt.system.find(directive).expect("directive present");
+        let fidelity_at = prompt.system.find("【保真铁律】").expect("fidelity rule");
+        assert!(fidelity_at < directive_at);
+        assert!(directive_at < subordination_at);
     }
 
     #[test]
     fn user_message_joins_paragraphs_and_renders_terms() {
-        let mut req = request(Style::GeneralWritten, vec!["Kubernetes", "QRS 波群"]);
+        let mut req = request(None, vec!["Kubernetes", "QRS 波群"]);
         req.paragraphs = vec!["第一段".into(), "第二段".into()];
         let prompt = compose_prompt(&req, Intensity::Full);
         assert!(prompt.user.contains("第一段\n\n第二段"));
@@ -180,7 +198,7 @@ mod tests {
 
     #[test]
     fn no_terms_section_without_terms() {
-        let prompt = compose_prompt(&request(Style::GeneralWritten, vec![]), Intensity::Full);
+        let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
         assert!(!prompt.user.contains("术语参考"));
     }
 }

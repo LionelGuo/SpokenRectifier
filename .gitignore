@@ -6,3 +6,6 @@ spokenrectifier-history.db
 
 # Personal hotword dictionary (one term per line; force-add to share one)
 spokenrectifier-terms.txt
+
+# Personal scenario library (named style directives; app-owned file)
+spokenrectifier-scenarios.toml

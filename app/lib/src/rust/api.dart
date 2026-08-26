@@ -11,7 +11,7 @@ part 'api.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `asr_provider`, `global`, `launch_editor`, `open_fake_feed`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config yields an API key, the Aliyun realtime
@@ -42,9 +42,14 @@ Future<void> execute({required BridgeCommand command}) =>
 /// Current session state, for initial paint before any event arrives.
 Future<BridgeSessionState> state() => RustLib.instance.api.crateApiState();
 
-/// Current output style, for the initial paint of the style switcher —
-/// the `[engine]` config's default until a `SetStyle` command lands.
-Future<BridgeStyle> style() => RustLib.instance.api.crateApiStyle();
+/// The scenario library (场景库): user-named style directives from the
+/// app-owned `spokenrectifier-scenarios.toml`. A missing or corrupt file
+/// reads as an empty library — this never errors and never writes. The
+/// shell paints its pickers from the list and resolves the selected
+/// entry's directive text itself (selection lives app-side, never
+/// persisted; ADR-0004).
+Future<List<BridgeScenario>> scenarios() =>
+    RustLib.instance.api.crateApiScenarios();
 
 /// Everything the fake inserter received, in order (demo introspection).
 /// The production inserter does not record; insertion outcomes arrive on
@@ -98,8 +103,12 @@ sealed class BridgeCommand with _$BridgeCommand {
   const factory BridgeCommand.reroll() = BridgeCommand_Reroll;
   const factory BridgeCommand.updatePreviewText({required String text}) =
       BridgeCommand_UpdatePreviewText;
-  const factory BridgeCommand.setStyle({required BridgeStyle style}) =
-      BridgeCommand_SetStyle;
+
+  /// The selected scenario's style-directive text; `None` returns to
+  /// the built-in default register. The engine knows nothing about
+  /// scenario names.
+  const factory BridgeCommand.setStyleDirective({String? directive}) =
+      BridgeCommand_SetStyleDirective;
 
   /// History retrieval re-running a past utterance (see `RectifyText`).
   const factory BridgeCommand.rectifyText({required String rawTranscript}) =
@@ -192,6 +201,26 @@ class BridgeHistoryEntry {
           rectifiedText == other.rectifiedText;
 }
 
+/// Dart-side mirror of one scenario (场景): a user-named style directive
+/// from the scenario library.
+class BridgeScenario {
+  final String name;
+  final String directive;
+
+  const BridgeScenario({required this.name, required this.directive});
+
+  @override
+  int get hashCode => name.hashCode ^ directive.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeScenario &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          directive == other.directive;
+}
+
 /// Dart-side mirror of [`SessionState`].
 enum BridgeSessionState {
   idle,
@@ -201,6 +230,3 @@ enum BridgeSessionState {
   inserted,
   cancelled,
 }
-
-/// Dart-side mirror of [`Style`].
-enum BridgeStyle { generalWritten, prompt, formalDocument }

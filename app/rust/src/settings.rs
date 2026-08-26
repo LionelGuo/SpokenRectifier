@@ -19,7 +19,7 @@ const STUB: &str = "\
 # in spokenrectifier.local.toml instead (this file may be committed).
 
 [engine]
-# style = \"general-written\"   # general-written | prompt | formal-document
+# passage_mode = true   # long pauses mark paragraphs; stop is manual
 
 [llm]
 # model = \"deepseek-v4-flash\"
@@ -104,13 +104,13 @@ mod tests {
     fn an_early_call_does_not_overwrite_later_edits() {
         let dir = scratch("sr-settings-idempotent");
         let path = ensure_shared_config(std::slice::from_ref(&dir)).unwrap();
-        std::fs::write(&path, "[engine]\nstyle = \"prompt\"\n").unwrap();
+        std::fs::write(&path, "[llm]\nmodel = \"deepseek-v4-flash\"\n").unwrap();
 
         let again = ensure_shared_config(std::slice::from_ref(&dir)).unwrap();
         assert_eq!(again, path);
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "[engine]\nstyle = \"prompt\"\n"
+            "[llm]\nmodel = \"deepseek-v4-flash\"\n"
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

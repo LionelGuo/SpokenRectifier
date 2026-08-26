@@ -1,7 +1,5 @@
 //! Commands accepted by the engine (glossary: 会话, 修正, 预览窗).
 
-use crate::style::Style;
-
 /// A command into the engine. Commands are validated against the session
 /// state machine; illegal commands return
 /// [`EngineError::CommandRejected`](crate::EngineError::CommandRejected)
@@ -27,6 +25,9 @@ pub enum Command {
     Reroll,
     /// Replace the preview text with user edits. Valid in preview.
     UpdatePreviewText(String),
-    /// Switch the output style for the next rectify. Valid any time.
-    SetStyle(Style),
+    /// Set the style-directive text for the next rectify — a selected
+    /// scenario's resolved directive (the engine knows nothing about
+    /// scenario names). `None` returns to the built-in default register.
+    /// Valid any time.
+    SetStyleDirective(Option<String>),
 }

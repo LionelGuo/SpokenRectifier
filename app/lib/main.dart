@@ -13,16 +13,17 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_root.dart'
-    show SpokenRectifierApp, orbWindowSize, styleLabels, windowSizeFor;
+    show SpokenRectifierApp, orbWindowSize, windowSizeFor;
 import 'app_state.dart';
 import 'gateway.dart';
 import 'sample_speech.dart';
-import 'src/rust/api.dart'
-    show BridgeSessionState, BridgeStyle, createEngine;
+import 'src/rust/api.dart' show BridgeSessionState, createEngine;
 import 'src/rust/frb_generated.dart' show RustLib;
 
 const _toggleOrbKey = 'toggle-orb';
 const _styleMenuKey = 'style-menu';
+const _styleDefaultKey = 'style-default';
+const _styleScenarioKeyPrefix = 'style-scenario:';
 const _openConfigKey = 'open-config';
 const _clearHistoryKey = 'clear-history';
 const _exitKey = 'exit';
@@ -69,9 +70,9 @@ Future<void> main() async {
   if (startupError != null) {
     controller.reportStartupError(startupError);
   }
-  // Paint the style switchers from the engine's `[engine]` config default
-  // (a no-op that keeps the default when assembly failed).
-  await controller.loadStyle();
+  // Paint the scenario pickers from the library file (empty library =
+  // pickers hidden; selection always starts on the default register).
+  await controller.loadScenarios();
 
   await _installHotkey(controller);
 
@@ -105,7 +106,7 @@ class _ShellState extends State<_Shell> with TrayListener {
   /// not rebuild the menu.
   BridgeSessionState? _trayPhase;
   bool? _trayOrbVisible;
-  BridgeStyle? _trayStyle;
+  String? _trayScenario;
   Size _lastSize = orbWindowSize;
 
   @override
@@ -128,7 +129,7 @@ class _ShellState extends State<_Shell> with TrayListener {
     _morphWindow();
     if (_trayPhase != controller.phase ||
         _trayOrbVisible != controller.orbVisible ||
-        _trayStyle != controller.style) {
+        _trayScenario != controller.selectedScenario) {
       _refreshTray();
     }
   }
@@ -148,7 +149,7 @@ class _ShellState extends State<_Shell> with TrayListener {
   Future<void> _refreshTray() async {
     _trayPhase = controller.phase;
     _trayOrbVisible = controller.orbVisible;
-    _trayStyle = controller.style;
+    _trayScenario = controller.selectedScenario;
     final phase = switch (controller.phase) {
       BridgeSessionState.idle => '空闲',
       BridgeSessionState.recording => '录音中',
@@ -166,16 +167,25 @@ class _ShellState extends State<_Shell> with TrayListener {
             label: '显示悬浮球',
             checked: controller.orbVisible,
           ),
+          // The scenario submenu mirrors the panel's picker row: 默认
+          // plus every library entry. Scenario keys carry a `scenario:`
+          // prefix so an entry literally named "default" can never
+          // collide with the 默认 item's reserved key.
           MenuItem.submenu(
             key: _styleMenuKey,
             label: '风格',
             submenu: Menu(
               items: [
-                for (final entry in styleLabels.entries)
+                MenuItem.checkbox(
+                  key: _styleDefaultKey,
+                  label: '默认',
+                  checked: controller.selectedScenario == null,
+                ),
+                for (final scenario in controller.scenarios)
                   MenuItem.checkbox(
-                    key: 'style-${entry.key.name}',
-                    label: entry.value,
-                    checked: controller.style == entry.key,
+                    key: '$_styleScenarioKeyPrefix${scenario.name}',
+                    label: scenario.name,
+                    checked: controller.selectedScenario == scenario.name,
                   ),
               ],
             ),
@@ -204,11 +214,14 @@ class _ShellState extends State<_Shell> with TrayListener {
     switch (menuItem.key) {
       case _toggleOrbKey:
         controller.setOrbVisible(!controller.orbVisible);
-      // The style items derive their keys from the enum (`style-<name>`),
-      // so the submenu and this handler stay in step with one source.
-      case final String key when key.startsWith('style-'):
-        await controller.setStyle(
-          BridgeStyle.values.byName(key.substring('style-'.length)),
+      // The 默认 item owns its reserved key; scenario items carry the
+      // `style-scenario:` prefix plus the entry name, so the two can
+      // never collide (an entry named "default" stays reachable).
+      case _styleDefaultKey:
+        await controller.selectScenario(null);
+      case final String key when key.startsWith(_styleScenarioKeyPrefix):
+        await controller.selectScenario(
+          key.substring(_styleScenarioKeyPrefix.length),
         );
       case _openConfigKey:
         await controller.openConfigFile();

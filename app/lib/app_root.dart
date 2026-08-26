@@ -17,7 +17,7 @@ import 'package:flutter/services.dart'
 
 import 'app_state.dart';
 import 'src/rust/api.dart'
-    show BridgeHistoryEntry, BridgeSessionState, BridgeStyle;
+    show BridgeHistoryEntry, BridgeSessionState;
 
 const hotkeyHint = 'Ctrl+Alt+V 开始 / 结束';
 
@@ -270,18 +270,12 @@ class _OrbShell extends StatelessWidget {
   }
 }
 
-/// The user-facing label of each output style — shared by the panel's
-/// style row and the tray submenu so the two switchers cannot drift.
-const styleLabels = {
-  BridgeStyle.generalWritten: '通用书面',
-  BridgeStyle.prompt: 'Prompt',
-  BridgeStyle.formalDocument: '正式文档',
-};
-
-/// The style switcher (风格): what the next rectify targets, rerolls
-/// included. The tray submenu mirrors it for idle switching.
-class StyleSwitcher extends StatelessWidget {
-  const StyleSwitcher({super.key, required this.controller});
+/// The scenario picker (场景): pick the register the next rectify
+/// targets, rerolls included — 默认 (the built-in register) or one of the
+/// user's library entries. The tray's 风格 submenu mirrors it for idle
+/// switching.
+class ScenarioPicker extends StatelessWidget {
+  const ScenarioPicker({super.key, required this.controller});
 
   final SpeechController controller;
 
@@ -289,23 +283,30 @@ class StyleSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: 36,
-      child: SegmentedButton<BridgeStyle>(
-        key: const Key('style-switcher'),
-        // The highlighted segment reads as selected on its own; the extra
-        // check icon would only widen the row.
-        showSelectedIcon: false,
-        segments: [
-          for (final entry in styleLabels.entries)
-            ButtonSegment(
-              value: entry.key,
-              label: Text(
-                entry.value,
-                key: Key('style-segment-${entry.key.name}'),
-              ),
+      // The card is a bare Container: the dropdown needs a Material
+      // ancestor for its popup (and gains a sane default text style).
+      child: Material(
+        color: Colors.transparent,
+        child: DropdownButton<String?>(
+          key: const Key('scenario-picker'),
+          isExpanded: true,
+          value: controller.selectedScenario,
+          items: [
+            DropdownMenuItem<String?>(
+              value: null,
+              child: Text('默认', key: const Key('scenario-item-default')),
             ),
-        ],
-        selected: {controller.style},
-        onSelectionChanged: (selection) => controller.setStyle(selection.first),
+            for (final scenario in controller.scenarios)
+              DropdownMenuItem<String?>(
+                value: scenario.name,
+                child: Text(
+                  scenario.name,
+                  key: Key('scenario-item-${scenario.name}'),
+                ),
+              ),
+          ],
+          onChanged: controller.selectScenario,
+        ),
       ),
     );
   }
@@ -345,8 +346,12 @@ class RecordingPanel extends StatelessWidget {
             ],
           ),
           const Divider(height: 12),
-          StyleSwitcher(controller: controller),
-          const SizedBox(height: 8),
+          // An empty library hides the whole row: nothing to pick, no
+          // noise (ADR-0004) — the default register needs no switcher.
+          if (controller.scenarios.isNotEmpty) ...[
+            ScenarioPicker(controller: controller),
+            const SizedBox(height: 8),
+          ],
           Expanded(
             child: SingleChildScrollView(
               reverse: true,

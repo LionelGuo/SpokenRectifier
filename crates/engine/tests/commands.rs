@@ -1,11 +1,11 @@
 //! Command validation: illegal commands are rejected without emitting
-//! events or changing state; styles flow into rectify requests.
+//! events or changing state; style directives flow into rectify requests.
 
 mod common;
 
 use common::{await_live, await_state, collect_summary, expect_quiet, harness, ok};
 use spokenrectifier_engine::fakes::{AsrStep, LlmStep};
-use spokenrectifier_engine::{Command, Engine, EngineConfig, EngineError, SessionState, Style};
+use spokenrectifier_engine::{Command, Engine, EngineConfig, EngineError, SessionState};
 
 #[tokio::test]
 async fn illegal_commands_are_rejected_without_events() {
@@ -84,7 +84,7 @@ async fn illegal_commands_are_rejected_without_events() {
 }
 
 #[tokio::test]
-async fn style_changes_apply_to_the_next_rectify_including_reroll() {
+async fn a_style_directive_applies_to_the_next_rectify_including_reroll() {
     let (h, mut rx) = harness(
         EngineConfig::default(),
         vec![vec![AsrStep::Say("一段".into())]],
@@ -94,16 +94,41 @@ async fn style_changes_apply_to_the_next_rectify_including_reroll() {
         ],
     );
 
-    ok(&h.engine, Command::SetStyle(Style::Prompt)).await;
+    // The engine starts on the built-in default register: no directive.
     ok(&h.engine, Command::StartSession).await;
     await_live(&mut rx, "一段").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    assert_eq!(h.llm.requests()[0].style, Style::Prompt);
+    assert_eq!(h.llm.requests()[0].style_directive, None);
 
-    // Switching while in preview affects the reroll.
-    ok(&h.engine, Command::SetStyle(Style::FormalDocument)).await;
+    // A selected scenario's directive text rides the very next attempt —
+    // a reroll included.
+    ok(
+        &h.engine,
+        Command::SetStyleDirective(Some("以 Markdown 分条输出".into())),
+    )
+    .await;
     ok(&h.engine, Command::Reroll).await;
     await_state(&mut rx, SessionState::Preview).await;
-    assert_eq!(h.llm.requests()[1].style, Style::FormalDocument);
+    assert_eq!(
+        h.llm.requests()[1].style_directive.as_deref(),
+        Some("以 Markdown 分条输出")
+    );
+}
+
+#[tokio::test]
+async fn a_blank_directive_reads_as_the_default_register() {
+    let (h, mut rx) = harness(
+        EngineConfig::default(),
+        vec![vec![AsrStep::Say("一段".into())]],
+        vec![vec![LlmStep::Token("修".into())]],
+    );
+
+    // Whitespace-only directive text normalizes to "no directive".
+    ok(&h.engine, Command::SetStyleDirective(Some("   ".into()))).await;
+    ok(&h.engine, Command::StartSession).await;
+    await_live(&mut rx, "一段").await;
+    ok(&h.engine, Command::StopSession).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(h.llm.requests()[0].style_directive, None);
 }
