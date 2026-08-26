@@ -1,0 +1,197 @@
+# 保真评测集 — the fidelity eval suite (工单 10).
+#
+# One file, zero ceremony: append a `[[case]]` to add coverage. The
+# runner (`cargo run -p sr-replay --bin sr-eval`) feeds each transcript
+# through the real engine + LLM and machine-checks the output.
+#
+# Assertion vocabulary — every list optional, checked case-sensitively:
+#   preserve  must appear verbatim            → 保留失败 (terms/URLs/numbers)
+#   convey    any-of keyword groups           → 丢失 (key ideas)
+#   fabricate must NOT appear (noone said it) → 捏造
+#   purge     must NOT appear (said, must go) → 残留 (fillers/lead-ins/
+#             superseded values/un-normalized numerals)
+#   max_once  at most one occurrence          → 残留 (repetition collapse)
+#   order     tokens as an in-order subsequence → 过度改写 (light-touch
+#             no-rewording guard; short cases only)
+#
+# Coverage families (the id prefix): correction-, supplement-, stutter-,
+# mixed-, terms-, numeral-, short-. Length discipline: short- cases stay
+# ≤ 15 chars (light-touch), everything else ≥ 60 (full rectify), so the
+# configurable threshold (default 40) cannot silently flip a case.
+#
+# The terms fixture rides EVERY case's prompt (a fixed dictionary, so a
+# developer's local spokenrectifier-terms.txt cannot leak into a run).
+
+terms = ["SpokenRectifier", "EGFR 抑制剂", "RESTful API", "Kubernetes"]
+
+# -- 口头更正 ------------------------------------------------------------
+
+[[case]]
+id = "correction-date"
+transcript = "嗯我们那个碰头会,时间原来想定在周三上午,哦不对,说错了,是周四上午十点,在302会议室,那个议程嘛,先过一下API的分页设计,然后讨论缓存策略,最后再过一遍上线检查清单,材料我今晚发群里"
+preserve = ["302会议室", "API"]
+convey = [["周四上午十点", "周四上午10点"], ["分页设计", "分页"], ["缓存策略", "缓存"], ["上线检查清单", "上线清单", "检查清单"], ["材料"], ["群里"]]
+purge = ["周三", "不对", "说错了"]
+fabricate = ["周五", "下午"]
+
+[[case]]
+id = "correction-amount"
+transcript = "预算这块,那个我之前说的是五十万,不对,核算了一下,应该是六十万,嗯,六十万人民币,其中硬件大概占一半,剩下一半是人力成本,另外还要预留百分之十的缓冲,应对可能的价格波动"
+convey = [["60万", "六十万"], ["硬件"], ["人力成本", "人力"], ["缓冲"]]
+purge = ["五十万", "不对"]
+fabricate = ["八十万", "一百万"]
+
+[[case]]
+id = "correction-name"
+transcript = "这个项目的负责人,嗯,一开始想找小王,哦不对,是小李,小李负责后端的整体架构,小王只管测试这一块,测试那边还有一个实习生帮忙,主要是跑回归用例,偶尔也做一点文档整理"
+convey = [["小李"], ["后端"], ["小王"], ["测试"], ["实习生"], ["回归用例", "回归"], ["文档"]]
+purge = ["不对"]
+
+[[case]]
+id = "correction-multi"
+transcript = "那个快递信息我再确认一遍,收件地址是北京市海淀区,嗯,不对,是朝阳区望京街道,收件人电话尾号8899,哦说错了,是8866,包裹计划周五发出,发顺丰,到了让驿站代收一下"
+preserve = ["朝阳区", "8866"]
+convey = [["北京市", "北京"], ["望京"], ["周五"], ["顺丰"], ["驿站"]]
+purge = ["海淀区", "8899", "不对", "说错了"]
+
+# -- 补充 ----------------------------------------------------------------
+
+[[case]]
+id = "supplement-timeline"
+transcript = "我们这周把登录模块写完了,嗯,再补充一点,那个注册的重置密码流程也一起做了,对了还有一件事,短信验证码的过期时间从十分钟改成了五分钟,这个是安全那边要求的,说是降低风险"
+convey = [["登录"], ["重置密码", "找回密码"], ["短信验证码", "验证码"], ["安全"], ["5分钟", "五分钟"]]
+purge = ["再补充一点", "对了还有一件事"]
+
+[[case]]
+id = "supplement-attendee"
+transcript = "明天的评审会,产品和研发的同学都会参加,哦对了,再加一个人,设计组的同学也要来,主要看交互稿,提提意见,会议时长控制在一小时以内,超时的话就砍掉自由讨论环节"
+convey = [["产品"], ["研发"], ["设计"], ["交互稿"], ["1小时", "一小时"], ["自由讨论"]]
+purge = ["哦对了", "再加一个人"]
+
+# -- 磕巴冗余 ------------------------------------------------------------
+
+[[case]]
+id = "stutter-filler-heavy"
+transcript = "嗯,那个,我想说的是,就是,这个方案吧,基本上,嗯,是可行的,就是说风险可控,那个,成本也不高,可以进入下一阶段,下周一给个结论,好就这样"
+convey = [["方案"], ["可行"], ["风险可控"], ["成本"], ["下一阶段"], ["下周一"]]
+purge = ["嗯", "那个"]
+
+[[case]]
+id = "stutter-repetition"
+transcript = "这个文档我看了一下,看了一下,整体结构还行,就是第三章,第三章写得有点乱,需要重新组织一下,重新组织一下,别的部分问题不大,小修小改就能定稿,不用大动"
+convey = [["文档"], ["第三章"], ["重新组织", "重组"], ["定稿"]]
+max_once = ["看了一下", "第三章", "重新组织"]
+
+[[case]]
+id = "stutter-long-winded"
+transcript = "反正就是,怎么说呢,这个事情吧,说复杂也复杂,说简单也简单,嗯,核心就一点,核心就是要把用户反馈尽快闭环,尽快收集,尽快分析,尽快处理,别攒着,攒多了就麻烦了,对吧"
+convey = [["用户反馈", "反馈"], ["闭环"], ["收集"], ["分析"], ["处理"]]
+purge = ["怎么说呢", "反正就是"]
+max_once = ["核心"]
+
+# -- 中英夹杂 ------------------------------------------------------------
+
+[[case]]
+id = "mixed-tech-stack"
+transcript = "这次升级我们把gateway换成了envoy,嗯,性能确实好不少,平均延迟从两百毫秒降到了五十毫秒,那个熔断的逻辑也重新写了一遍,用的是rust,内存占用也小了一截,运维那边普遍反映好维护"
+# envoy/rust are not in the terms fixture, so their letter-case is
+# register territory (ADR-0004) — either casing is acceptable.
+convey = [["gateway", "网关"], ["envoy", "Envoy"], ["rust", "Rust"], ["延迟"], ["熔断"], ["内存"], ["运维"]]
+fabricate = ["nginx", "linkerd"]
+
+[[case]]
+id = "mixed-product"
+transcript = "我们组现在用spoken rectifier做语音输入,就是那个,配合术语词表,像egfr抑制剂这种词也能正确出来,错别字比原来少多了,上手也快,新同学培训半天就能用,现在全组都换过去了"
+preserve = ["SpokenRectifier", "EGFR"]
+convey = [["语音输入"], ["术语", "词表"], ["抑制剂"], ["错别字", "错字"], ["培训"]]
+purge = ["spoken rectifier", "egfr"]
+
+[[case]]
+id = "mixed-api-fields"
+transcript = "那个新接口的路径是/api/v2/users,嗯,分页参数用page和size,返回的JSON里面有个字段叫total_pages,注意是下划线不是驼峰,客户端那边要跟着改一下,别漏了,灰度期间两个版本并行"
+preserve = ["/api/v2/users", "total_pages"]
+convey = [["page"], ["size"], ["JSON"], ["下划线"], ["灰度"], ["并行"]]
+
+# -- 术语词表 ------------------------------------------------------------
+
+[[case]]
+id = "terms-medical"
+transcript = "病人的肾功能指标最近不太稳定,嗯,主诊医生建议把那个egfr抑制剂的剂量重新评估一下,同时加查一个电解质,下周再复查一次肾功能,肌酐的数值也要盯着点,有异常随时call我"
+preserve = ["EGFR"]
+convey = [["肾功能"], ["剂量"], ["电解质"], ["复查"], ["肌酐"]]
+purge = ["egfr"]
+
+[[case]]
+id = "terms-infra"
+transcript = "新环境的集群跑在kubernetes上面,嗯,节点的自动扩缩容已经打开了,镜像仓库也迁到了内网,拉取速度快了不少,回滚比以前简单,发布基本不用半夜盯着的,告警接到了值班手机上"
+preserve = ["Kubernetes"]
+convey = [["扩缩容"], ["镜像仓库", "镜像"], ["内网"], ["回滚"], ["告警"], ["值班"]]
+purge = ["kubernetes"]
+
+[[case]]
+id = "terms-restful"
+transcript = "这个服务对外暴露的是restful接口,资源命名统一用复数,版本号放在路径的最前面,网关那一层做了限流,超时的请求直接返回错误码,不重试,幂等性由客户端保证,文档里都有写,先看文档再来问"
+preserve = ["RESTful"]
+convey = [["复数"], ["版本号", "版本"], ["限流"], ["重试"], ["幂等"], ["文档"]]
+purge = ["restful"]
+
+# -- 中文数字 ------------------------------------------------------------
+
+[[case]]
+id = "numeral-percent"
+transcript = "这次活动的数据出来了,嗯,参与率提升了百分之三十,转化率是百分之十二点五,不过流失率也涨了百分之五,主要是新用户那一部分,下个月的重点看留存,拉一拉老用户的回流"
+preserve = ["30%", "12.5%", "5%"]
+convey = [["参与率"], ["转化率"], ["流失率"], ["新用户"], ["留存"], ["回流"]]
+purge = ["百分之三十", "百分之十二点五", "百分之五"]
+fabricate = ["50%", "20%"]
+
+[[case]]
+id = "numeral-large"
+transcript = "那个项目总投资大概是一千二百万元,嗯,其中设备采购占四百五十万,人力成本三百八十万,剩下的钱做储备金,建设周期一共十八个月,分三期投放,第一期明年年初启动"
+preserve = ["450万", "380万"]
+convey = [["1200万", "1200 万", "1,200万", "一千二百万"], ["设备"], ["人力"], ["储备"], ["18个月", "十八个月"], ["三期"], ["明年"]]
+purge = ["四百五十万", "三百八十万"]
+fabricate = ["1500万"]
+
+[[case]]
+id = "numeral-date"
+transcript = "开会时间定在六月二十一号下午两点,嗯,大家记得提前十分钟到,要刷卡进楼,会议室订在五楼最东边那间,那个会开完还要复盘,大概四十分钟,晚上的饭局改到七点半了,注意时间安排"
+preserve = ["6月21日"]
+convey = [["下午2点", "下午两点"], ["提前10分钟", "提前十分钟"], ["刷卡"], ["5楼", "五楼"], ["复盘"], ["40分钟", "四十分钟"], ["7点半", "七点半"]]
+purge = ["六月二十一号", "六月二十一日"]
+
+# -- 短句轻修边界 ---------------------------------------------------------
+
+[[case]]
+id = "short-simple"
+transcript = "嗯那个我先走了啊"
+convey = [["我"]]
+order = ["先走"]
+purge = ["嗯"]
+
+[[case]]
+id = "short-correction"
+transcript = "不对,是明天不是今天"
+convey = [["明天"], ["今天"]]
+order = ["明天", "今天"]
+purge = ["不对"]
+
+[[case]]
+id = "short-number"
+transcript = "嗯一共三份文件"
+preserve = ["3份"]
+order = ["文件"]
+purge = ["三份", "嗯"]
+
+[[case]]
+id = "short-mixed"
+transcript = "帮我看看那个logs"
+convey = [["帮我"], ["logs"]]
+order = ["看看", "logs"]
+purge = ["那个"]
+
+[[case]]
+id = "short-question"
+transcript = "这个是啥意思啊"
+convey = [["意思"]]
+order = ["啥"]

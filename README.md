@@ -16,7 +16,7 @@ crates/audio    麦克风采集 + VAD:cpal 默认输入设备 → 16k mono s16 �
 crates/aliyun   阿里云端 ASR 适配器:qwen3-asr-flash-realtime 实时 WS 协议、上链门控、断线重连
 crates/insertion 真实插入:剪贴板借还 + Ctrl+V 粘贴 / 逐字键入回退,目标窗口记忆与焦点归还(已知边界:管理员/提权目标窗口按 UIPI 规则丢弃模拟按键,两种模式均失效)
 crates/llm      修正管线:强度分档、prompt 组装(保真铁律/五类变换)、OpenAI 兼容流式客户端
-crates/cli      sr-replay:脚本化假会话回放;sr-rectify:canned 口语段 × 真 LLM 演示
+crates/cli      sr-replay:脚本化假会话回放;sr-rectify:canned 口语段 × 真 LLM 演示;sr-eval:保真金样例评测(真 LLM × 机器断言)
 app/            Flutter 壳:托盘常驻、Ctrl+Alt+V 全局热键、悬浮球、预览窗(真麦克风)
 app/rust        flutter_rust_bridge 缝:引擎命令/事件流暴露给 Flutter(Bridge* 线类型)
 ```
@@ -50,6 +50,16 @@ cargo run -p sr-replay --bin sr-rectify -- crates/cli/demo-utterance.txt
 ```
 
 `demo-utterance.txt` 含两场会话:39 字短句(低于阈值 → 轻修)与中长会议口述(全量修正),同一模型、仅 prompt 强度不同,覆盖口头更正、补充、磕巴、中英夹杂与中文数字。修正文本以 token 增量流式打印,随后插入 stdout。
+
+## 保真评测(真 LLM,机器断言)
+
+```
+cargo run -p sr-replay --bin sr-eval                    # 全部用例,报告打印 stdout
+cargo run -p sr-replay --bin sr-eval -- --only short-   # 只跑一个前缀/一条
+cargo run -p sr-replay --bin sr-eval -- --report out.md # 报告另存 markdown
+```
+
+金样例评测集(`crates/cli/eval/cases.toml`,23 条,七类覆盖:口头更正/补充/磕巴冗余/中英夹杂/术语/中文数字/短句轻修边界)骑引擎缝逐条跑真 LLM,输出按失败类别(捏造/丢失/过度改写/保留失败/残留)分计的通过率报告;退出码 0/1/2 = 全过/有失败/环境错。追加用例即编辑该文件,零其他改动。基线通过率与已知缺口记录在 [`crates/cli/eval/BASELINE.md`](crates/cli/eval/BASELINE.md);每夜定时入口 `scripts/nightly-eval.sh`(报告落不入库的 `.scratch/eval/`)。
 
 ## 配置与密钥
 

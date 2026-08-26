@@ -7,8 +7,11 @@ license.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures.workspace = true
+serde = { version = "1", features = ["derive"] }
 spokenrectifier-config = { path = "../config" }
 spokenrectifier-engine = { path = "../engine" }
 spokenrectifier-llm = { path = "../llm" }
 tokio.workspace = true
+toml = "0.8"
