@@ -9,16 +9,21 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `global`, `token_scripts`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `asr_provider`, `global`, `open_fake_feed`, `token_scripts`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
-/// Build the engine behind the bridge with the real default microphone:
-/// capture + VAD as the ASR provider (speech activity, silence semantics,
-/// device-failure feedback), a scripted cycling LLM, and a recording
-/// inserter. Session semantics (passage mode, silence thresholds) load
-/// from the `[engine]` section of the layered config files. Idempotent: a
-/// second call is a no-op.
+/// Build the engine behind the bridge with the real default microphone
+/// and, when the `[asr]` config yields an API key, the Aliyun realtime
+/// adapter streaming real transcripts. Without a key the mic+VAD provider
+/// keeps the session semantics (speech activity, silence, device
+/// failure). The rectify LLM is the real OpenAI-compatible client when
+/// `[llm]` yields a key; the scripted demo LLM otherwise — but that
+/// combination is refused under a real ASR key (see `engine_factory`).
+/// Insertion is the production inserter (clipboard paste with restore, or
+/// typing per the `[insertion]` config). Session semantics load from the
+/// `[engine]` section of the layered config files. Idempotent: a second
+/// call is a no-op.
 Future<void> createEngine({required List<String> llmResponses}) =>
     RustLib.instance.api.crateApiCreateEngine(llmResponses: llmResponses);
 
@@ -38,8 +43,19 @@ Future<void> execute({required BridgeCommand command}) =>
 Future<BridgeSessionState> state() => RustLib.instance.api.crateApiState();
 
 /// Everything the fake inserter received, in order (demo introspection).
+/// The production inserter does not record; insertion outcomes arrive on
+/// the event stream instead (`TextInserted` / `Error`).
 Future<List<String>> insertedTexts() =>
     RustLib.instance.api.crateApiInsertedTexts();
+
+/// The most recent stored sessions, newest first — the history panel's
+/// content. Empty in the keep-nothing mode (and on the fake engine).
+Future<List<BridgeHistoryEntry>> historyList() =>
+    RustLib.instance.api.crateApiHistoryList();
+
+/// Remove every stored session — the tray's one-click clear. A no-op in
+/// the keep-nothing mode.
+Future<void> historyClear() => RustLib.instance.api.crateApiHistoryClear();
 
 /// Subscribe the Dart side to the engine's event stream. Each call spawns
 /// an independent forwarder; dropping the Dart stream stops it.
@@ -73,6 +89,10 @@ sealed class BridgeCommand with _$BridgeCommand {
       BridgeCommand_UpdatePreviewText;
   const factory BridgeCommand.setStyle({required BridgeStyle style}) =
       BridgeCommand_SetStyle;
+
+  /// History retrieval re-running a past utterance (see `RectifyText`).
+  const factory BridgeCommand.rectifyText({required String rawTranscript}) =
+      BridgeCommand_RectifyText;
 }
 
 @freezed
@@ -125,6 +145,40 @@ class BridgeEventEnvelope {
           sessionId == other.sessionId &&
           atMs == other.atMs &&
           event == other.event;
+}
+
+/// Dart-side mirror of the history store's row: one stored session.
+class BridgeHistoryEntry {
+  final PlatformInt64 id;
+
+  /// Unix-epoch milliseconds, for the panel's timestamps.
+  final BigInt createdAtMs;
+  final String rawTranscript;
+  final String rectifiedText;
+
+  const BridgeHistoryEntry({
+    required this.id,
+    required this.createdAtMs,
+    required this.rawTranscript,
+    required this.rectifiedText,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      createdAtMs.hashCode ^
+      rawTranscript.hashCode ^
+      rectifiedText.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeHistoryEntry &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          createdAtMs == other.createdAtMs &&
+          rawTranscript == other.rawTranscript &&
+          rectifiedText == other.rectifiedText;
 }
 
 /// Dart-side mirror of [`SessionState`].

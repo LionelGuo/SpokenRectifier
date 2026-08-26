@@ -8,10 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:spokenrectifier_app/app_root.dart' show SpokenRectifierApp, windowSizeFor;
+import 'package:spokenrectifier_app/app_root.dart'
+    show SpokenRectifierApp, historyWindowSize, windowSizeFor;
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgeSessionState;
+    show BridgeEvent, BridgeHistoryEntry, BridgeSessionState;
 
 import 'fake_gateway.dart';
 
@@ -414,5 +415,140 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.byKey(const Key('raw-transcript')), findsNothing);
     expect(controller.previewText, '整理好的书面文本');
+  });
+
+  testWidgets('a finished session appears in the history panel', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await pumpToRecording(tester, controller);
+    gateway.emit(const BridgeEvent.liveTranscriptUpdated(text: '嗯那个\n原话'));
+    await tester.pump();
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['书面文本']);
+    await tester.pump(const Duration(milliseconds: 350));
+    await controller.confirmWhatYouSee();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.phase, BridgeSessionState.idle);
+
+    // Long-press the idle orb to open the history panel.
+    await tester.longPress(find.byIcon(Icons.mic_none));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.byKey(const Key('history-list')), findsOneWidget);
+    expect(find.text('嗯那个\n原话'), findsOneWidget);
+    // The rectified side of the recorded pair is what was inserted.
+    expect(find.text('插入的文本'), findsOneWidget);
+    expect(controller.historyOpen, isTrue);
+  });
+
+  testWidgets('history copy puts the raw transcript on the clipboard', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()
+      ..historyEntries.add(
+        BridgeHistoryEntry(
+          id: 1,
+          createdAtMs: BigInt.from(1_700_000_000_000),
+          rawTranscript: '要取回的原话',
+          rectifiedText: '要取回的成文',
+        ),
+      );
+    await pumpController(tester, gateway);
+
+    // Intercept the platform clipboard channel: the copy is a one-way
+    // message, so assert on what was sent rather than reading back.
+    final copied = <String?>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add(call.arguments?['text'] as String?);
+        }
+        return null;
+      },
+    );
+
+    await tester.longPress(find.byIcon(Icons.mic_none));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.byKey(const Key('history-copy-1')));
+    await tester.pump();
+
+    expect(copied, ['要取回的原话']);
+  });
+
+  testWidgets('re-rectify from history runs back to the preview card', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()
+      ..historyEntries.add(
+        BridgeHistoryEntry(
+          id: 1,
+          createdAtMs: BigInt.from(1_700_000_000_000),
+          rawTranscript: '再修一遍的原话',
+          rectifiedText: '旧的成文',
+        ),
+      );
+    final controller = await pumpController(tester, gateway);
+
+    await tester.longPress(find.byIcon(Icons.mic_none));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.byKey(const Key('history-rectify-1')));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(gateway.commands, contains('rectifyText:再修一遍的原话'));
+    expect(controller.phase, BridgeSessionState.preview);
+    expect(controller.historyOpen, isFalse);
+    expect(find.byKey(const Key('preview-field')), findsOneWidget);
+    // The re-run utterance is the preview's raw comparison.
+    expect(controller.liveText, '再修一遍的原话');
+  });
+
+  testWidgets('one-click clear empties the history panel', (tester) async {
+    final gateway = FakeGateway()
+      ..historyEntries.addAll([
+        BridgeHistoryEntry(
+          id: 1,
+          createdAtMs: BigInt.from(1),
+          rawTranscript: '第一条',
+          rectifiedText: '成文一',
+        ),
+        BridgeHistoryEntry(
+          id: 2,
+          createdAtMs: BigInt.from(2),
+          rawTranscript: '第二条',
+          rectifiedText: '成文二',
+        ),
+      ]);
+    await pumpController(tester, gateway);
+
+    await tester.longPress(find.byIcon(Icons.mic_none));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byKey(const Key('history-raw-1')), findsOneWidget);
+    expect(find.byKey(const Key('history-raw-2')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('history-clear')));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(gateway.commands, contains('historyClear'));
+    expect(gateway.historyEntries, isEmpty);
+    expect(find.byKey(const Key('history-empty')), findsOneWidget);
+  });
+
+  test('the history panel gets its own window footprint while idle', () {
+    expect(
+      windowSizeFor(BridgeSessionState.idle,
+          panelExpanded: false, historyOpen: true),
+      historyWindowSize,
+    );
+    // Any active phase ignores the flag: sessions take over.
+    expect(
+      windowSizeFor(BridgeSessionState.recording,
+          panelExpanded: false, historyOpen: true),
+      windowSizeFor(BridgeSessionState.recording, panelExpanded: false),
+    );
   });
 }

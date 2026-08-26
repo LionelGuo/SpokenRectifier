@@ -154,6 +154,7 @@ async fn run() -> Result<(), String> {
             asr,
             llm: std::sync::Arc::new(llm),
             inserter: std::sync::Arc::new(StdoutInserter),
+            history: None,
             clock: std::sync::Arc::new(TokioClock::new()),
         },
     );

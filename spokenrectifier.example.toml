@@ -51,6 +51,16 @@ typing_delay_ms = 8           # pause between typed characters
                               # Known limit: elevated (administrator) target
                               # windows drop simulated keystrokes (UIPI).
 
+# Local session history: every inserted session's raw transcript and
+# rectified text, stored in spokenrectifier-history.db (first writable
+# directory of the config search order). Text only — audio never touches
+# disk. Long-press the idle orb for the history panel; the tray's
+# 清空历史 wipes everything in one click.
+[history]
+enabled = true              # false = keep-nothing mode: nothing is stored
+retention_days = 30         # sessions older than this are swept on launch
+                            #  and on every new record
+
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
 # One model per mode: light-touch vs full rectify is decided by length
 # (below light_touch_max_chars takes light-touch) and changes only the

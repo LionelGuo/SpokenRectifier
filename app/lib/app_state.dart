@@ -20,6 +20,9 @@ abstract class SpeechEngineGateway {
   Future<void> confirmInsert();
   Future<void> reroll();
   Future<void> updatePreviewText(String text);
+  Future<void> rectifyText(String rawTranscript);
+  Future<List<BridgeHistoryEntry>> historyList();
+  Future<void> historyClear();
   Future<void> fakeBeginSession();
   Future<void> fakeSay(String text);
   Future<void> fakeSilence(int elapsedMs);
@@ -80,6 +83,13 @@ class SpeechController extends ChangeNotifier {
 
   /// Whether the recording panel is expanded over the orb.
   bool panelExpanded = false;
+
+  /// Stored sessions from the engine's history (newest first), loaded
+  /// whenever the history panel opens.
+  List<BridgeHistoryEntry> history = const [];
+
+  /// Whether the history panel is open over the idle orb.
+  bool historyOpen = false;
 
   /// Flash of the last inserted text, cleared on the next interaction.
   String? lastInserted;
@@ -188,6 +198,33 @@ class SpeechController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Open (or close) the history panel; opening loads the stored
+  /// sessions from the engine's history.
+  Future<void> toggleHistory() async {
+    historyOpen = !historyOpen;
+    if (historyOpen) {
+      history = await gateway.historyList();
+    }
+    notifyListeners();
+  }
+
+  /// One-click clear (tray menu or the panel's button): wipe every
+  /// stored session and refresh the panel.
+  Future<void> clearHistory() async {
+    await gateway.historyClear();
+    history = const [];
+    notifyListeners();
+  }
+
+  /// Retrieve a historical utterance by re-running it through
+  /// rectification: the panel gives way to the normal
+  /// rectifying → preview flow, which inserts as usual on confirm.
+  Future<void> rectifyFromHistory(String rawTranscript) async {
+    historyOpen = false;
+    notifyListeners();
+    await gateway.rectifyText(rawTranscript);
+  }
+
   void _startScriptedSpeech() {
     _stopScriptedSpeech();
     if (scriptedPhrases.isEmpty) {
@@ -230,6 +267,8 @@ class SpeechController extends ChangeNotifier {
           liveText = '';
           paragraphMarks = 0;
           speaking = false;
+          // A new session takes over from the history panel.
+          historyOpen = false;
         } else if (to == BridgeSessionState.idle) {
           _stopScriptedSpeech();
           panelExpanded = false;

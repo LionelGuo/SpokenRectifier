@@ -56,7 +56,7 @@ extension BridgeCommandPatterns on BridgeCommand {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeCommand_StartSession value)?  startSession,TResult Function( BridgeCommand_StopSession value)?  stopSession,TResult Function( BridgeCommand_Cancel value)?  cancel,TResult Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult Function( BridgeCommand_Reroll value)?  reroll,TResult Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult Function( BridgeCommand_SetStyle value)?  setStyle,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeCommand_StartSession value)?  startSession,TResult Function( BridgeCommand_StopSession value)?  stopSession,TResult Function( BridgeCommand_Cancel value)?  cancel,TResult Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult Function( BridgeCommand_Reroll value)?  reroll,TResult Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult Function( BridgeCommand_SetStyle value)?  setStyle,TResult Function( BridgeCommand_RectifyText value)?  rectifyText,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
@@ -66,7 +66,8 @@ return cancel(_that);case BridgeCommand_ConfirmInsert() when confirmInsert != nu
 return confirmInsert(_that);case BridgeCommand_Reroll() when reroll != null:
 return reroll(_that);case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that);case BridgeCommand_SetStyle() when setStyle != null:
-return setStyle(_that);case _:
+return setStyle(_that);case BridgeCommand_RectifyText() when rectifyText != null:
+return rectifyText(_that);case _:
   return orElse();
 
 }
@@ -84,7 +85,7 @@ return setStyle(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeCommand_StartSession value)  startSession,required TResult Function( BridgeCommand_StopSession value)  stopSession,required TResult Function( BridgeCommand_Cancel value)  cancel,required TResult Function( BridgeCommand_ConfirmInsert value)  confirmInsert,required TResult Function( BridgeCommand_Reroll value)  reroll,required TResult Function( BridgeCommand_UpdatePreviewText value)  updatePreviewText,required TResult Function( BridgeCommand_SetStyle value)  setStyle,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeCommand_StartSession value)  startSession,required TResult Function( BridgeCommand_StopSession value)  stopSession,required TResult Function( BridgeCommand_Cancel value)  cancel,required TResult Function( BridgeCommand_ConfirmInsert value)  confirmInsert,required TResult Function( BridgeCommand_Reroll value)  reroll,required TResult Function( BridgeCommand_UpdatePreviewText value)  updatePreviewText,required TResult Function( BridgeCommand_SetStyle value)  setStyle,required TResult Function( BridgeCommand_RectifyText value)  rectifyText,}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
@@ -94,7 +95,8 @@ return cancel(_that);case BridgeCommand_ConfirmInsert():
 return confirmInsert(_that);case BridgeCommand_Reroll():
 return reroll(_that);case BridgeCommand_UpdatePreviewText():
 return updatePreviewText(_that);case BridgeCommand_SetStyle():
-return setStyle(_that);}
+return setStyle(_that);case BridgeCommand_RectifyText():
+return rectifyText(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
 ///
@@ -108,7 +110,7 @@ return setStyle(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeCommand_StartSession value)?  startSession,TResult? Function( BridgeCommand_StopSession value)?  stopSession,TResult? Function( BridgeCommand_Cancel value)?  cancel,TResult? Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult? Function( BridgeCommand_Reroll value)?  reroll,TResult? Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult? Function( BridgeCommand_SetStyle value)?  setStyle,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeCommand_StartSession value)?  startSession,TResult? Function( BridgeCommand_StopSession value)?  stopSession,TResult? Function( BridgeCommand_Cancel value)?  cancel,TResult? Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult? Function( BridgeCommand_Reroll value)?  reroll,TResult? Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult? Function( BridgeCommand_SetStyle value)?  setStyle,TResult? Function( BridgeCommand_RectifyText value)?  rectifyText,}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
@@ -118,7 +120,8 @@ return cancel(_that);case BridgeCommand_ConfirmInsert() when confirmInsert != nu
 return confirmInsert(_that);case BridgeCommand_Reroll() when reroll != null:
 return reroll(_that);case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that);case BridgeCommand_SetStyle() when setStyle != null:
-return setStyle(_that);case _:
+return setStyle(_that);case BridgeCommand_RectifyText() when rectifyText != null:
+return rectifyText(_that);case _:
   return null;
 
 }
@@ -135,7 +138,7 @@ return setStyle(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( BridgeStyle style)?  setStyle,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( BridgeStyle style)?  setStyle,TResult Function( String rawTranscript)?  rectifyText,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -144,7 +147,8 @@ return cancel();case BridgeCommand_ConfirmInsert() when confirmInsert != null:
 return confirmInsert();case BridgeCommand_Reroll() when reroll != null:
 return reroll();case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that.text);case BridgeCommand_SetStyle() when setStyle != null:
-return setStyle(_that.style);case _:
+return setStyle(_that.style);case BridgeCommand_RectifyText() when rectifyText != null:
+return rectifyText(_that.rawTranscript);case _:
   return orElse();
 
 }
@@ -162,7 +166,7 @@ return setStyle(_that.style);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( BridgeStyle style)  setStyle,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( BridgeStyle style)  setStyle,required TResult Function( String rawTranscript)  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
 return startSession();case BridgeCommand_StopSession():
@@ -171,7 +175,8 @@ return cancel();case BridgeCommand_ConfirmInsert():
 return confirmInsert();case BridgeCommand_Reroll():
 return reroll();case BridgeCommand_UpdatePreviewText():
 return updatePreviewText(_that.text);case BridgeCommand_SetStyle():
-return setStyle(_that.style);}
+return setStyle(_that.style);case BridgeCommand_RectifyText():
+return rectifyText(_that.rawTranscript);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -185,7 +190,7 @@ return setStyle(_that.style);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( BridgeStyle style)?  setStyle,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( BridgeStyle style)?  setStyle,TResult? Function( String rawTranscript)?  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -194,7 +199,8 @@ return cancel();case BridgeCommand_ConfirmInsert() when confirmInsert != null:
 return confirmInsert();case BridgeCommand_Reroll() when reroll != null:
 return reroll();case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that.text);case BridgeCommand_SetStyle() when setStyle != null:
-return setStyle(_that.style);case _:
+return setStyle(_that.style);case BridgeCommand_RectifyText() when rectifyText != null:
+return rectifyText(_that.rawTranscript);case _:
   return null;
 
 }
@@ -488,6 +494,72 @@ class _$BridgeCommand_SetStyleCopyWithImpl<$Res>
   return _then(BridgeCommand_SetStyle(
 style: null == style ? _self.style : style // ignore: cast_nullable_to_non_nullable
 as BridgeStyle,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class BridgeCommand_RectifyText extends BridgeCommand {
+  const BridgeCommand_RectifyText({required this.rawTranscript}): super._();
+  
+
+ final  String rawTranscript;
+
+/// Create a copy of BridgeCommand
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BridgeCommand_RectifyTextCopyWith<BridgeCommand_RectifyText> get copyWith => _$BridgeCommand_RectifyTextCopyWithImpl<BridgeCommand_RectifyText>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_RectifyText&&(identical(other.rawTranscript, rawTranscript) || other.rawTranscript == rawTranscript));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,rawTranscript);
+
+@override
+String toString() {
+  return 'BridgeCommand.rectifyText(rawTranscript: $rawTranscript)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $BridgeCommand_RectifyTextCopyWith<$Res> implements $BridgeCommandCopyWith<$Res> {
+  factory $BridgeCommand_RectifyTextCopyWith(BridgeCommand_RectifyText value, $Res Function(BridgeCommand_RectifyText) _then) = _$BridgeCommand_RectifyTextCopyWithImpl;
+@useResult
+$Res call({
+ String rawTranscript
+});
+
+
+
+
+}
+/// @nodoc
+class _$BridgeCommand_RectifyTextCopyWithImpl<$Res>
+    implements $BridgeCommand_RectifyTextCopyWith<$Res> {
+  _$BridgeCommand_RectifyTextCopyWithImpl(this._self, this._then);
+
+  final BridgeCommand_RectifyText _self;
+  final $Res Function(BridgeCommand_RectifyText) _then;
+
+/// Create a copy of BridgeCommand
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? rawTranscript = null,}) {
+  return _then(BridgeCommand_RectifyText(
+rawTranscript: null == rawTranscript ? _self.rawTranscript : rawTranscript // ignore: cast_nullable_to_non_nullable
+as String,
   ));
 }
 

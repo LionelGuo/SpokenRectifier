@@ -14,7 +14,7 @@ use spokenrectifier_engine::fakes::{
     AsrStep, FakeClock, FakeInserter, LlmStep, ScriptedAsr, ScriptedLlm,
 };
 use spokenrectifier_engine::{
-    Command, Engine, EngineConfig, EngineDeps, EventEnvelope, SessionState,
+    Command, Engine, EngineConfig, EngineDeps, EventEnvelope, SessionRecorder, SessionState,
 };
 
 pub struct Harness {
@@ -32,6 +32,16 @@ pub fn harness(
     asr_sessions: Vec<Vec<AsrStep>>,
     llm_scripts: Vec<Vec<LlmStep>>,
 ) -> (Harness, broadcast::Receiver<EventEnvelope>) {
+    harness_with_history(config, asr_sessions, llm_scripts, None)
+}
+
+/// [`harness`] with a session-history recorder injected.
+pub fn harness_with_history(
+    config: EngineConfig,
+    asr_sessions: Vec<Vec<AsrStep>>,
+    llm_scripts: Vec<Vec<LlmStep>>,
+    history: Option<Arc<dyn SessionRecorder>>,
+) -> (Harness, broadcast::Receiver<EventEnvelope>) {
     let asr = ScriptedAsr::new(asr_sessions);
     let llm = ScriptedLlm::new(llm_scripts);
     let inserter = FakeInserter::new();
@@ -42,6 +52,7 @@ pub fn harness(
             asr: asr.clone(),
             llm: llm.clone(),
             inserter: inserter.clone(),
+            history,
             clock: clock.clone(),
         },
     );

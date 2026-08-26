@@ -15,11 +15,26 @@ class FakeGateway implements SpeechEngineGateway {
   /// When set, the next startSession throws this (e.g. no microphone).
   Object? failNextStart;
 
+  /// Stored sessions, mirroring the engine's history recording: each
+  /// confirmInsert appends one entry (raw = the last live transcript, as
+  /// the engine records the session's frozen utterance). Tests seed or
+  /// inspect this list directly.
+  final historyEntries = <BridgeHistoryEntry>[];
+  int _nextHistoryId = 1;
+  String _liveText = '';
+
+  /// What `rectifyText` streams back as the re-rectified text.
+  String rectifyResponse = '重新修正后的文本';
+
   final _events = StreamController<BridgeEventEnvelope>.broadcast();
   int _seq = 0;
   BridgeSessionState _state = BridgeSessionState.idle;
 
   void emit(BridgeEvent event) {
+    // The raw side of every recorded pair is the utterance's transcript.
+    if (event case BridgeEvent_LiveTranscriptUpdated(:final text)) {
+      _liveText = text;
+    }
     _seq += 1;
     _events.add(
       BridgeEventEnvelope(
@@ -74,6 +89,15 @@ class FakeGateway implements SpeechEngineGateway {
   Future<void> confirmInsert() async {
     commands.add('confirmInsert');
     emit(BridgeEvent.textInserted(text: '插入的文本'));
+    // The engine records the finished session into its history store.
+    historyEntries.add(
+      BridgeHistoryEntry(
+        id: _nextHistoryId++,
+        createdAtMs: BigInt.from(_seq * 10),
+        rawTranscript: _liveText,
+        rectifiedText: '插入的文本',
+      ),
+    );
     _transition(BridgeSessionState.inserted);
     _transition(BridgeSessionState.idle);
   }
@@ -88,6 +112,29 @@ class FakeGateway implements SpeechEngineGateway {
   Future<void> updatePreviewText(String text) async {
     commands.add('updatePreviewText:$text');
     emit(BridgeEvent.previewTextUpdated(text: text));
+  }
+
+  @override
+  Future<void> rectifyText(String rawTranscript) async {
+    commands.add('rectifyText:$rawTranscript');
+    // Mirror the engine: straight into rectifying, the utterance's
+    // transcript published for the preview's raw comparison, then the
+    // streamed result ending in preview.
+    _transition(BridgeSessionState.rectifying);
+    emit(BridgeEvent.liveTranscriptUpdated(text: rawTranscript));
+    streamRectify([rectifyResponse]);
+  }
+
+  @override
+  Future<List<BridgeHistoryEntry>> historyList() async {
+    commands.add('historyList');
+    return List.of(historyEntries);
+  }
+
+  @override
+  Future<void> historyClear() async {
+    commands.add('historyClear');
+    historyEntries.clear();
   }
 
   @override

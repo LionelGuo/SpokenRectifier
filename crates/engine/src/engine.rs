@@ -2,7 +2,9 @@
 //!
 //! Commands in ([`Engine::execute`]), events out ([`Engine::subscribe`]).
 //! States: `Idle → Recording → Rectifying → Preview → Inserted|Cancelled →
-//! Idle`, with `Cancel` valid in every active state. `Inserted` and
+//! Idle` (or straight `Idle → Rectifying` via [`Command::RectifyText`],
+//! history retrieval re-running a past utterance), with `Cancel` valid in
+//! every active state. `Inserted` and
 //! `Cancelled` are transient — the engine immediately continues to `Idle`,
 //! so every state has an exit and no session can wedge.
 
@@ -17,6 +19,7 @@ use crate::command::Command;
 use crate::config::EngineConfig;
 use crate::event::{EngineEvent, EventEnvelope, SessionId, SessionState};
 use crate::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
+use crate::provider::history::{RecordedSession, SessionRecorder};
 use crate::provider::inserter::TextInserter;
 use crate::provider::llm::{RectifyLlm, RectifyRequest, RectifyTokenStream};
 use crate::style::Style;
@@ -27,6 +30,8 @@ pub struct EngineDeps {
     pub llm: Arc<dyn RectifyLlm>,
     pub inserter: Arc<dyn TextInserter>,
     pub clock: Arc<dyn Clock>,
+    /// Receiver of finished sessions; `None` keeps no history.
+    pub history: Option<Arc<dyn SessionRecorder>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -36,6 +41,8 @@ pub enum EngineError {
         command: Command,
         state: SessionState,
     },
+    #[error("rectify text rejected: the utterance is empty")]
+    EmptyUtterance,
     #[error(transparent)]
     AsrOpen(#[from] AsrOpenError),
 }
@@ -50,6 +57,7 @@ struct Inner {
     asr: Arc<dyn AsrProvider>,
     llm: Arc<dyn RectifyLlm>,
     inserter: Arc<dyn TextInserter>,
+    history: Option<Arc<dyn SessionRecorder>>,
     clock: Arc<dyn Clock>,
     events: broadcast::Sender<EventEnvelope>,
     /// Serializes command handling; background tasks never take it, so
@@ -107,6 +115,7 @@ impl Engine {
                 asr: deps.asr,
                 llm: deps.llm,
                 inserter: deps.inserter,
+                history: deps.history,
                 clock: deps.clock,
                 events,
                 command_gate: tokio::sync::Mutex::new(()),
@@ -138,6 +147,7 @@ impl Engine {
         let _gate = self.inner.command_gate.lock().await;
         match command.clone() {
             Command::StartSession => self.start_session().await,
+            Command::RectifyText(raw) => self.rectify_text(raw),
             Command::StopSession => {
                 let state = self.inner.state_lock().state;
                 if state != SessionState::Recording {
@@ -188,25 +198,72 @@ impl Engine {
             // The command gate serializes commands, so we are still idle.
             let id = SessionId(st.next_session_id);
             st.next_session_id += 1;
-            let session = Session {
-                id,
-                paragraphs: Vec::new(),
-                current_paragraph: String::new(),
-                partial: String::new(),
-                paragraph_marked_current_silence: false,
-                speech_since_mark: false,
-                any_speech: false,
-                frozen: None,
-                preview_text: String::new(),
-                asr_cancel: CancellationToken::new(),
-                rectify_cancel: None,
-            };
+            let session = Session::new(id);
             let cancel = session.asr_cancel.clone();
             st.session = Some(session);
             self.inner.transition(&mut st, id, SessionState::Recording);
             (id, cancel)
         };
         tokio::spawn(consume_asr(self.inner.clone(), sid, stream, cancel));
+        Ok(())
+    }
+
+    /// History retrieval re-running a past utterance: freeze the given
+    /// transcript as the session's utterance and jump straight into the
+    /// machine (`Idle → Rectifying`), no microphone involved. Reroll,
+    /// preview editing, cancel, and insert all work as after a recording.
+    fn rectify_text(&self, raw_transcript: String) -> Result<(), EngineError> {
+        let (sid, cancel, request) = {
+            let mut st = self.inner.state_lock();
+            if st.state != SessionState::Idle {
+                return Err(EngineError::CommandRejected {
+                    command: Command::RectifyText(raw_transcript),
+                    state: st.state,
+                });
+            }
+            if raw_transcript.trim().is_empty() {
+                return Err(EngineError::EmptyUtterance);
+            }
+            // Newlines carry the paragraph structure the transcript was
+            // frozen with; splitting restores it exactly.
+            let paragraphs: Vec<String> = raw_transcript.split('\n').map(str::to_string).collect();
+            let id = SessionId(st.next_session_id);
+            st.next_session_id += 1;
+            let mut session = Session::new(id);
+            session.frozen = Some(FrozenUtterance {
+                raw_transcript: raw_transcript.clone(),
+                paragraphs: paragraphs.clone(),
+            });
+            let cancel = CancellationToken::new();
+            session.rectify_cancel = Some(cancel.clone());
+            let sid = session.id;
+            st.session = Some(session);
+            self.inner
+                .transition(&mut st, sid, SessionState::Rectifying);
+            // The utterance is text, not speech: publish its transcript so
+            // the preview's raw comparison has something to compare against
+            // (emitted directly, not as a stream event, because the session
+            // is no longer in Recording).
+            self.inner.emit(
+                &mut st,
+                sid,
+                EngineEvent::LiveTranscriptUpdated {
+                    text: raw_transcript.clone(),
+                },
+            );
+            (
+                sid,
+                cancel,
+                RectifyRequest {
+                    raw_transcript,
+                    paragraphs,
+                    style: *self.inner.style.read().unwrap(),
+                    terms: Vec::new(),
+                },
+            )
+        };
+        let llm = self.inner.llm.clone();
+        tokio::spawn(rectify_task(self.inner.clone(), sid, llm, request, cancel));
         Ok(())
     }
 
@@ -233,7 +290,7 @@ impl Engine {
     }
 
     async fn confirm_insert(&self) -> Result<(), EngineError> {
-        let (sid, text) = {
+        let (sid, text, raw_transcript) = {
             let st = self.inner.state_lock();
             if st.state != SessionState::Preview {
                 return Err(EngineError::CommandRejected {
@@ -242,17 +299,36 @@ impl Engine {
                 });
             }
             let session = st.session.as_ref().expect("active session");
-            (session.id, session.preview_text.clone())
+            let raw_transcript = session
+                .frozen
+                .as_ref()
+                .expect("frozen before preview")
+                .raw_transcript
+                .clone();
+            (session.id, session.preview_text.clone(), raw_transcript)
         };
         match self.inner.inserter.insert(&text).await {
             Ok(()) => {
-                let mut st = self.inner.state_lock();
-                // The session cannot have changed: cancel needs the command
-                // gate too, and rectify tasks never touch `Preview`.
-                self.inner
-                    .emit(&mut st, sid, EngineEvent::TextInserted { text });
-                self.inner
-                    .finish_session(&mut st, sid, SessionState::Inserted);
+                {
+                    let mut st = self.inner.state_lock();
+                    // The session cannot have changed: cancel needs the command
+                    // gate too, and rectify tasks never touch `Preview`.
+                    self.inner.emit(
+                        &mut st,
+                        sid,
+                        EngineEvent::TextInserted { text: text.clone() },
+                    );
+                    self.inner
+                        .finish_session(&mut st, sid, SessionState::Inserted);
+                }
+                // History hands over the session pair after the insert
+                // feedback, so recording can never delay or fail it.
+                if let Some(history) = &self.inner.history {
+                    history.record(RecordedSession {
+                        raw_transcript,
+                        rectified_text: text,
+                    });
+                }
                 Ok(())
             }
             Err(err) => {
@@ -436,6 +512,24 @@ fn begin_rectify(inner: &Arc<Inner>) {
 }
 
 impl Session {
+    /// A fresh session: nothing said, nothing frozen. Both session
+    /// openings (recording, history re-rectify) start from this shape.
+    fn new(id: SessionId) -> Self {
+        Self {
+            id,
+            paragraphs: Vec::new(),
+            current_paragraph: String::new(),
+            partial: String::new(),
+            paragraph_marked_current_silence: false,
+            speech_since_mark: false,
+            any_speech: false,
+            frozen: None,
+            preview_text: String::new(),
+            asr_cancel: CancellationToken::new(),
+            rectify_cancel: None,
+        }
+    }
+
     /// Cumulative live transcript: closed paragraphs, then the current
     /// paragraph with any interim partial appended on the same line.
     fn live_text(&self) -> String {

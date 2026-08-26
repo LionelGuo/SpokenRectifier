@@ -33,6 +33,17 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
       rust.execute(command: rust.BridgeCommand.updatePreviewText(text: text));
 
   @override
+  Future<void> rectifyText(String rawTranscript) => rust.execute(
+        command: rust.BridgeCommand.rectifyText(rawTranscript: rawTranscript),
+      );
+
+  @override
+  Future<List<rust.BridgeHistoryEntry>> historyList() => rust.historyList();
+
+  @override
+  Future<void> historyClear() => rust.historyClear();
+
+  @override
   Future<void> fakeBeginSession() => rust.fakeBeginSession();
 
   @override

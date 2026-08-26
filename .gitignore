@@ -1,2 +1,5 @@
 /target
 *.local.toml
+
+# Local session history database (dev runs create it in the working directory)
+spokenrectifier-history.db

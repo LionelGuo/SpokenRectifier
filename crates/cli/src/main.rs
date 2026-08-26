@@ -202,6 +202,7 @@ async fn run() -> Result<(), String> {
             asr,
             llm: llm.clone(),
             inserter: inserter.clone(),
+            history: None,
             clock: clock.clone(),
         },
     );

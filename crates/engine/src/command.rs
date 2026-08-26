@@ -10,6 +10,11 @@ use crate::style::Style;
 pub enum Command {
     /// Begin a recording session (hotkey press). Only valid while idle.
     StartSession,
+    /// Rectify a given raw transcript without recording — history
+    /// retrieval re-running a past utterance. Jumps straight into the
+    /// machine (`Idle → Rectifying`); only valid while idle, and the
+    /// transcript must be non-empty.
+    RectifyText(String),
     /// End the recording session and start rectifying (hotkey press again).
     StopSession,
     /// Abort the session at any point with zero output.

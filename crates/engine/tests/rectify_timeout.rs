@@ -58,6 +58,7 @@ fn engine_with_llm(
             asr: ScriptedAsr::new(vec![vec![AsrStep::Say("嗯那个原话".into())]]),
             llm,
             inserter: spokenrectifier_engine::fakes::FakeInserter::new(),
+            history: None,
             clock: spokenrectifier_engine::fakes::FakeClock::new(1_000),
         },
     );

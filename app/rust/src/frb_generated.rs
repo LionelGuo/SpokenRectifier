@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -453946933;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1687967388;
 
 // Section: executor
 
@@ -256,6 +256,74 @@ fn wire__crate__api__fake_silence_impl(
         },
     )
 }
+fn wire__crate__api__history_clear_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "history_clear",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::history_clear()?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__history_list_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "history_list",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::history_list()?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__inserted_texts_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -426,6 +494,12 @@ impl SseDecode for crate::api::BridgeCommand {
                 let mut var_style = <crate::api::BridgeStyle>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::SetStyle { style: var_style };
             }
+            7 => {
+                let mut var_rawTranscript = <String>::sse_decode(deserializer);
+                return crate::api::BridgeCommand::RectifyText {
+                    raw_transcript: var_rawTranscript,
+                };
+            }
             _ => {
                 unimplemented!("");
             }
@@ -500,6 +574,22 @@ impl SseDecode for crate::api::BridgeEventEnvelope {
     }
 }
 
+impl SseDecode for crate::api::BridgeHistoryEntry {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <i64>::sse_decode(deserializer);
+        let mut var_createdAtMs = <u64>::sse_decode(deserializer);
+        let mut var_rawTranscript = <String>::sse_decode(deserializer);
+        let mut var_rectifiedText = <String>::sse_decode(deserializer);
+        return crate::api::BridgeHistoryEntry {
+            id: var_id,
+            created_at_ms: var_createdAtMs,
+            raw_transcript: var_rawTranscript,
+            rectified_text: var_rectifiedText,
+        };
+    }
+}
+
 impl SseDecode for crate::api::BridgeSessionState {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -536,6 +626,13 @@ impl SseDecode for i32 {
     }
 }
 
+impl SseDecode for i64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_i64::<NativeEndian>().unwrap()
+    }
+}
+
 impl SseDecode for Vec<String> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -543,6 +640,18 @@ impl SseDecode for Vec<String> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<String>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::BridgeHistoryEntry> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::BridgeHistoryEntry>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -594,9 +703,11 @@ fn pde_ffi_dispatcher_primary_impl(
         4 => wire__crate__api__fake_begin_session_impl(port, ptr, rust_vec_len, data_len),
         5 => wire__crate__api__fake_say_impl(port, ptr, rust_vec_len, data_len),
         6 => wire__crate__api__fake_silence_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__inserted_texts_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__state_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__subscribe_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__history_clear_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__history_list_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__inserted_texts_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__state_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__subscribe_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -629,6 +740,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
             }
             crate::api::BridgeCommand::SetStyle { style } => {
                 [6.into_dart(), style.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::BridgeCommand::RectifyText { raw_transcript } => {
+                [7.into_dart(), raw_transcript.into_into_dart().into_dart()].into_dart()
             }
             _ => {
                 unimplemented!("");
@@ -703,6 +817,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeEventEnvelope>
     for crate::api::BridgeEventEnvelope
 {
     fn into_into_dart(self) -> crate::api::BridgeEventEnvelope {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeHistoryEntry {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.created_at_ms.into_into_dart().into_dart(),
+            self.raw_transcript.into_into_dart().into_dart(),
+            self.rectified_text.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeHistoryEntry
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeHistoryEntry>
+    for crate::api::BridgeHistoryEntry
+{
+    fn into_into_dart(self) -> crate::api::BridgeHistoryEntry {
         self
     }
 }
@@ -806,6 +943,10 @@ impl SseEncode for crate::api::BridgeCommand {
                 <i32>::sse_encode(6, serializer);
                 <crate::api::BridgeStyle>::sse_encode(style, serializer);
             }
+            crate::api::BridgeCommand::RectifyText { raw_transcript } => {
+                <i32>::sse_encode(7, serializer);
+                <String>::sse_encode(raw_transcript, serializer);
+            }
             _ => {
                 unimplemented!("");
             }
@@ -866,6 +1007,16 @@ impl SseEncode for crate::api::BridgeEventEnvelope {
     }
 }
 
+impl SseEncode for crate::api::BridgeHistoryEntry {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i64>::sse_encode(self.id, serializer);
+        <u64>::sse_encode(self.created_at_ms, serializer);
+        <String>::sse_encode(self.raw_transcript, serializer);
+        <String>::sse_encode(self.rectified_text, serializer);
+    }
+}
+
 impl SseEncode for crate::api::BridgeSessionState {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -910,12 +1061,29 @@ impl SseEncode for i32 {
     }
 }
 
+impl SseEncode for i64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_i64::<NativeEndian>(self).unwrap();
+    }
+}
+
 impl SseEncode for Vec<String> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <String>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::BridgeHistoryEntry> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::BridgeHistoryEntry>::sse_encode(item, serializer);
         }
     }
 }

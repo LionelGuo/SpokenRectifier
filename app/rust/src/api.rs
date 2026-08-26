@@ -11,10 +11,12 @@
 //! adapter streaming real transcripts (otherwise the mic+VAD provider's
 //! session semantics alone), the real rectify LLM when `[llm]` yields a
 //! key (a scripted cycling demo LLM otherwise, but never under a real
-//! ASR key — see `engine_factory`), and the production inserter
-//! (clipboard paste or typing at the remembered target window), while
+//! ASR key — see `engine_factory`), the production inserter (clipboard
+//! paste or typing at the remembered target window), and the SQLite
+//! session history (per the `[history]` config), while
 //! `create_fake_engine` keeps the all-fake setup (scripted speech via
-//! `fake_say` / `fake_silence`) for tests and headless demos.
+//! `fake_say` / `fake_silence`, history disabled) for tests and headless
+//! demos.
 
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -33,6 +35,7 @@ use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, RectifyLlm,
     SessionState, Style, TokioClock,
 };
+use spokenrectifier_history::HistoryStore;
 
 use crate::engine_factory::{llm_choice, production_inserter, LlmChoice};
 
@@ -46,8 +49,16 @@ pub enum BridgeCommand {
     Cancel,
     ConfirmInsert,
     Reroll,
-    UpdatePreviewText { text: String },
-    SetStyle { style: BridgeStyle },
+    UpdatePreviewText {
+        text: String,
+    },
+    SetStyle {
+        style: BridgeStyle,
+    },
+    /// History retrieval re-running a past utterance (see `RectifyText`).
+    RectifyText {
+        raw_transcript: String,
+    },
 }
 
 /// Dart-side mirror of [`Style`].
@@ -106,6 +117,27 @@ pub struct BridgeEventEnvelope {
     pub event: BridgeEvent,
 }
 
+/// Dart-side mirror of the history store's row: one stored session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeHistoryEntry {
+    pub id: i64,
+    /// Unix-epoch milliseconds, for the panel's timestamps.
+    pub created_at_ms: u64,
+    pub raw_transcript: String,
+    pub rectified_text: String,
+}
+
+impl From<spokenrectifier_history::HistoryEntry> for BridgeHistoryEntry {
+    fn from(value: spokenrectifier_history::HistoryEntry) -> Self {
+        BridgeHistoryEntry {
+            id: value.id,
+            created_at_ms: value.created_at_ms,
+            raw_transcript: value.raw_transcript,
+            rectified_text: value.rectified_text,
+        }
+    }
+}
+
 impl From<BridgeCommand> for Command {
     fn from(value: BridgeCommand) -> Self {
         match value {
@@ -116,6 +148,7 @@ impl From<BridgeCommand> for Command {
             BridgeCommand::Reroll => Command::Reroll,
             BridgeCommand::UpdatePreviewText { text } => Command::UpdatePreviewText(text),
             BridgeCommand::SetStyle { style } => Command::SetStyle(style.into()),
+            BridgeCommand::RectifyText { raw_transcript } => Command::RectifyText(raw_transcript),
         }
     }
 }
@@ -204,6 +237,10 @@ struct Global {
     engine: Engine,
     source: SpeechSource,
     inserter: InserterSlot,
+    /// Session history: what the panel lists, what `RectifyText` re-runs,
+    /// what the tray's clear empties. Disabled on the fake engine (tests
+    /// and headless demos keep no files).
+    history: Arc<HistoryStore>,
 }
 
 /// The real engine's inserter: the production one remembers the target
@@ -265,6 +302,8 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
         LlmChoice::ScriptedDemo => ScriptedLlm::new_cycling(token_scripts(&llm_responses)),
     };
     let inserter = production_inserter(&dirs)?;
+    // The same store the engine records into and the panel reads from.
+    let history = crate::history::open_history(&dirs)?;
     let engine = Engine::new(
         config,
         EngineDeps {
@@ -273,6 +312,7 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
             // The same instance the slot holds, so `note_target` on
             // StartSession arms the very inserter ConfirmInsert runs.
             inserter: inserter.clone(),
+            history: Some(history.clone()),
             clock: Arc::new(TokioClock::new()),
         },
     );
@@ -281,6 +321,7 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
         engine,
         source: SpeechSource::Mic,
         inserter: InserterSlot::Real(inserter),
+        history,
     });
     Ok(())
 }
@@ -317,6 +358,7 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
             asr,
             llm,
             inserter: inserter.clone(),
+            history: None,
             clock: FakeClock::new(0),
         },
     );
@@ -328,6 +370,9 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
             feed: Mutex::new(None),
         },
         inserter: InserterSlot::Fake(inserter),
+        // The all-fake setup runs in tests and headless demos: no history
+        // file appears next to the test binary.
+        history: Arc::new(HistoryStore::default()),
     });
     Ok(())
 }
@@ -369,6 +414,27 @@ pub fn inserted_texts() -> anyhow::Result<Vec<String>> {
             "the production inserter does not record inserted texts"
         )),
     }
+}
+
+/// How many sessions the history panel lists per fetch.
+const HISTORY_PANEL_LIMIT: usize = 200;
+
+/// The most recent stored sessions, newest first — the history panel's
+/// content. Empty in the keep-nothing mode (and on the fake engine).
+pub fn history_list() -> anyhow::Result<Vec<BridgeHistoryEntry>> {
+    Ok(global()?
+        .history
+        .list(HISTORY_PANEL_LIMIT)
+        .into_iter()
+        .map(BridgeHistoryEntry::from)
+        .collect())
+}
+
+/// Remove every stored session — the tray's one-click clear. A no-op in
+/// the keep-nothing mode.
+pub fn history_clear() -> anyhow::Result<()> {
+    global()?.history.clear();
+    Ok(())
 }
 
 /// Subscribe the Dart side to the engine's event stream. Each call spawns
@@ -597,6 +663,39 @@ mod tests {
             inserted_texts().unwrap().last(),
             Some(&"修正后的书面文本".to_string())
         );
+    }
+
+    /// History retrieval re-runs an utterance without a microphone: the
+    /// command goes through the wire, the machine runs to preview, and
+    /// the insert lands like any session's.
+    #[test]
+    fn rectify_text_through_the_bridge() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        let mut rx = global().unwrap().engine.subscribe();
+
+        execute(BridgeCommand::RectifyText {
+            raw_transcript: "历史上的原话".into(),
+        })
+        .unwrap();
+        block_on(wait_state(&mut rx, SessionState::Preview));
+        execute(BridgeCommand::ConfirmInsert).unwrap();
+        block_on(wait_state(&mut rx, SessionState::Idle));
+        assert_eq!(
+            inserted_texts().unwrap().last(),
+            Some(&"修正后的书面文本".to_string())
+        );
+    }
+
+    /// The fake engine keeps no history file: the panel reads an empty
+    /// list and clear is a no-op, never an error.
+    #[test]
+    fn the_fake_engine_keeps_no_history() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        assert!(history_list().unwrap().is_empty());
+        history_clear().unwrap();
+        assert!(history_list().unwrap().is_empty());
     }
 
     #[test]

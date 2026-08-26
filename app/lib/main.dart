@@ -20,6 +20,7 @@ import 'src/rust/api.dart' show BridgeSessionState, createEngine;
 import 'src/rust/frb_generated.dart' show RustLib;
 
 const _toggleOrbKey = 'toggle-orb';
+const _clearHistoryKey = 'clear-history';
 const _exitKey = 'exit';
 
 Future<void> main() async {
@@ -127,6 +128,7 @@ class _ShellState extends State<_Shell> with TrayListener {
     final target = windowSizeFor(
       controller.phase,
       panelExpanded: controller.panelExpanded,
+      historyOpen: controller.historyOpen,
     );
     if (target != _lastSize) {
       _lastSize = target;
@@ -154,6 +156,7 @@ class _ShellState extends State<_Shell> with TrayListener {
             label: '显示悬浮球',
             checked: controller.orbVisible,
           ),
+          MenuItem(key: _clearHistoryKey, label: '清空历史'),
           MenuItem.separator(),
           MenuItem(key: _exitKey, label: '退出'),
         ],
@@ -176,6 +179,8 @@ class _ShellState extends State<_Shell> with TrayListener {
     switch (menuItem.key) {
       case _toggleOrbKey:
         controller.setOrbVisible(!controller.orbVisible);
+      case _clearHistoryKey:
+        await controller.clearHistory();
       case _exitKey:
         await windowManager.destroy();
     }

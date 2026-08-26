@@ -2,5 +2,6 @@
 //! engine only ever sees these interfaces.
 
 pub mod asr;
+pub mod history;
 pub mod inserter;
 pub mod llm;

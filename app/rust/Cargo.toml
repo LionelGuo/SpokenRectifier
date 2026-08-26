@@ -16,6 +16,7 @@ spokenrectifier-aliyun = { path = "../../crates/aliyun" }
 spokenrectifier-audio = { path = "../../crates/audio" }
 spokenrectifier-config = { path = "../../crates/config" }
 spokenrectifier-engine = { path = "../../crates/engine" }
+spokenrectifier-history = { path = "../../crates/history" }
 spokenrectifier-insertion = { path = "../../crates/insertion" }
 spokenrectifier-llm = { path = "../../crates/llm" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time", "rt-multi-thread"] }

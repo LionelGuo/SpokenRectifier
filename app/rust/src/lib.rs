@@ -4,6 +4,7 @@
 mod api;
 mod engine_config;
 mod engine_factory;
+mod history;
 
 pub use api::*;
 

@@ -12,10 +12,11 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show LogicalKeyboardKey, TextInputType;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, LogicalKeyboardKey, TextInputType;
 
 import 'app_state.dart';
-import 'src/rust/api.dart' show BridgeSessionState;
+import 'src/rust/api.dart' show BridgeHistoryEntry, BridgeSessionState;
 
 const hotkeyHint = 'Ctrl+Alt+V 开始 / 结束';
 
@@ -25,14 +26,21 @@ const hotkeyHint = 'Ctrl+Alt+V 开始 / 结束';
 const orbWindowSize = Size(100, 116);
 const recordingPanelWindowSize = Size(480, 340);
 const previewWindowSize = Size(580, 440);
+const historyWindowSize = Size(480, 460);
 
 /// The window size for a phase; `panelExpanded` only matters while
-/// recording (collapsed orb vs expanded transcript panel).
-Size windowSizeFor(BridgeSessionState phase, {required bool panelExpanded}) {
+/// recording (collapsed orb vs expanded transcript panel), and
+/// `historyOpen` only while idle (orb vs history panel).
+Size windowSizeFor(
+  BridgeSessionState phase, {
+  required bool panelExpanded,
+  bool historyOpen = false,
+}) {
   return switch (phase) {
     BridgeSessionState.idle ||
     BridgeSessionState.inserted ||
-    BridgeSessionState.cancelled => orbWindowSize,
+    BridgeSessionState.cancelled =>
+      historyOpen ? historyWindowSize : orbWindowSize,
     BridgeSessionState.recording =>
       panelExpanded ? recordingPanelWindowSize : orbWindowSize,
     BridgeSessionState.rectifying || BridgeSessionState.preview =>
@@ -73,9 +81,13 @@ class _PhaseView extends StatelessWidget {
       case BridgeSessionState.idle:
       case BridgeSessionState.inserted:
       case BridgeSessionState.cancelled:
-        current = !controller.orbVisible
-            ? const SizedBox.shrink()
-            : IdleOrb(controller: controller);
+        if (controller.historyOpen) {
+          current = HistoryPanel(controller: controller);
+        } else {
+          current = !controller.orbVisible
+              ? const SizedBox.shrink()
+              : IdleOrb(controller: controller);
+        }
       case BridgeSessionState.recording:
         current = controller.panelExpanded
             ? RecordingPanel(controller: controller)
@@ -115,28 +127,47 @@ class IdleOrb extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (controller.lastInserted != null)
-              _FlashBanner(
-                key: const Key('inserted-flash'),
-                icon: Icons.check_circle,
-                color: Colors.greenAccent,
-                label: '已插入:${controller.lastInserted}',
-              ),
-            if (controller.lastError != null)
-              _FlashBanner(
-                key: const Key('error-flash'),
-                icon: Icons.error_outline,
-                color: Colors.redAccent,
-                label: controller.lastError!,
-              ),
+            _Banners(controller: controller),
             _OrbShell(
               color: const Color(0xFF2E3A59),
               onTap: controller.startSession,
+              onLongPress: controller.toggleHistory,
               child: const Icon(Icons.mic_none, color: Colors.white, size: 34),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The inserted / error flashes above whatever idle surface is showing
+/// (orb or history panel).
+class _Banners extends StatelessWidget {
+  const _Banners({required this.controller});
+
+  final SpeechController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (controller.lastInserted != null)
+          _FlashBanner(
+            key: const Key('inserted-flash'),
+            icon: Icons.check_circle,
+            color: Colors.greenAccent,
+            label: '已插入:${controller.lastInserted}',
+          ),
+        if (controller.lastError != null)
+          _FlashBanner(
+            key: const Key('error-flash'),
+            icon: Icons.error_outline,
+            color: Colors.redAccent,
+            label: controller.lastError!,
+          ),
+      ],
     );
   }
 }
@@ -197,10 +228,12 @@ class _OrbShell extends StatelessWidget {
     required this.color,
     required this.onTap,
     required this.child,
+    this.onLongPress,
   });
 
   final Color color;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final Widget child;
 
   @override
@@ -209,6 +242,7 @@ class _OrbShell extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         customBorder: const CircleBorder(),
         child: Container(
           width: 84,
@@ -544,6 +578,155 @@ class _PreviewCardState extends State<PreviewCard> {
 }
 
 const hintKeyLabels = 'Enter 确认 · Esc 取消';
+
+/// The history panel: recent sessions with the raw transcript
+/// retrievable — copy it to the clipboard, or re-run it through
+/// rectification. One click clears everything (same as the tray item).
+///
+/// Pure widget over [SpeechController]: it renders `controller.history`
+/// and hands actions back; the fake gateway covers it in widget tests.
+class HistoryPanel extends StatelessWidget {
+  const HistoryPanel({super.key, required this.controller});
+
+  final SpeechController controller;
+
+  static String _timeLabel(BigInt createdAtMs) {
+    final time = DateTime.fromMillisecondsSinceEpoch(createdAtMs.toInt());
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(time.month)}-${two(time.day)} ${two(time.hour)}:${two(time.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomRight,
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _Banners(controller: controller),
+            _Card(
+              width: 460,
+              height: 420,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.history, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('历史记录'),
+                      const Spacer(),
+                      TextButton(
+                        key: const Key('history-clear'),
+                        onPressed: controller.clearHistory,
+                        child: const Text('清空'),
+                      ),
+                      IconButton(
+                        key: const Key('history-close'),
+                        tooltip: '收起',
+                        onPressed: controller.toggleHistory,
+                        icon: const Icon(Icons.close, size: 18),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 12),
+                  Expanded(
+                    child: controller.history.isEmpty
+                        ? const Center(
+                            key: Key('history-empty'),
+                            child: Text(
+                              '暂无历史记录',
+                              style: TextStyle(color: Colors.white54),
+                            ),
+                          )
+                        : ListView.builder(
+                            key: const Key('history-list'),
+                            itemCount: controller.history.length,
+                            itemBuilder: (context, index) => _HistoryEntryTile(
+                              controller: controller,
+                              entry: controller.history[index],
+                              timeLabel: _timeLabel(
+                                controller.history[index].createdAtMs,
+                              ),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One stored session: the raw transcript (retrievable) over its
+/// rectified text (context, muted).
+class _HistoryEntryTile extends StatelessWidget {
+  const _HistoryEntryTile({
+    required this.controller,
+    required this.entry,
+    required this.timeLabel,
+  });
+
+  final SpeechController controller;
+  final BridgeHistoryEntry entry;
+  final String timeLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                timeLabel,
+                style: const TextStyle(fontSize: 11, color: Colors.white54),
+              ),
+              const Spacer(),
+              TextButton(
+                key: Key('history-copy-${entry.id}'),
+                onPressed: () =>
+                    Clipboard.setData(ClipboardData(text: entry.rawTranscript)),
+                child: const Text('复制原文'),
+              ),
+              TextButton(
+                key: Key('history-rectify-${entry.id}'),
+                onPressed: () => controller.rectifyFromHistory(entry.rawTranscript),
+                child: const Text('重新修正'),
+              ),
+            ],
+          ),
+          Text(
+            entry.rawTranscript,
+            key: Key('history-raw-${entry.id}'),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, color: Colors.white),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            entry.rectifiedText,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: Colors.white38),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _Card extends StatelessWidget {
   const _Card({required this.width, required this.height, required this.child});
