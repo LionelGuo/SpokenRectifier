@@ -685,7 +685,14 @@ class _FlashBanner extends StatelessWidget {
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
           Flexible(
-            child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            // Wrapped, not single-line: insert errors name the failing step
+            // ("SendInput delivered N of M events") and the diagnosis is in
+            // the tail a single clipped line would eat.
+            child: Text(
+              label,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
