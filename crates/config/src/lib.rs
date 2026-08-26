@@ -151,18 +151,13 @@ fn span_line_column(text: &str, span: Option<std::ops::Range<usize>>) -> (usize,
     (line, column)
 }
 
-/// Reject a non-empty `api_key` under ANY top-level section of the shared
-/// (committable) file — including sections the caller never asked about.
-/// Failing loudly here beats accepting a key into a file that gets
-/// committed. The local file is exempt: it is the key's legal home.
+/// Reject a non-empty `api_key` anywhere in the shared (committable)
+/// file — at the root, under any section, or nested deeper (inside
+/// `[llm.extra_body]`, say) — including places the caller never asked
+/// about. Failing loudly here beats accepting a key into a file that
+/// gets committed. The local file is exempt: it is the key's legal home.
 fn guard_against_secrets(path: &Path, table: &toml::Table) -> Result<(), ConfigError> {
-    let carries_key = |value: &toml::Value| matches!(value.as_str(), Some(key) if !key.is_empty());
-    let offending = table.contains_key("api_key") && carries_key(&table["api_key"])
-        || table
-            .values()
-            .filter_map(|value| value.as_table())
-            .any(|section| section.get("api_key").is_some_and(carries_key));
-    if offending {
+    if table_carries_key(table) {
         return Err(ConfigError(format!(
             "{}: api_key may not live in the shared committed config; \
              move it to {LOCAL_FILE}",
@@ -170,6 +165,22 @@ fn guard_against_secrets(path: &Path, table: &toml::Table) -> Result<(), ConfigE
         )));
     }
     Ok(())
+}
+
+/// Whether this table (at any depth) holds a non-empty string `api_key`.
+fn table_carries_key(table: &toml::Table) -> bool {
+    let carries_key = |value: &toml::Value| matches!(value.as_str(), Some(key) if !key.is_empty());
+    table.get("api_key").is_some_and(carries_key) || table.values().any(value_carries_key)
+}
+
+/// Tables hide one level deeper inside values: sub-tables, and arrays of
+/// tables (`[[section]]`).
+fn value_carries_key(value: &toml::Value) -> bool {
+    match value {
+        toml::Value::Table(table) => table_carries_key(table),
+        toml::Value::Array(items) => items.iter().any(value_carries_key),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -264,6 +275,25 @@ mod tests {
         assert!(err.contains(SHARED_FILE), "got: {err}");
         assert!(err.contains("local"), "got: {err}");
         assert!(!err.contains("sk-oops"), "leaked the key: {err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn api_key_nested_in_a_sub_table_of_shared_is_rejected() {
+        let dir = scratch("sr-config-guard-nested");
+        // A key hidden one table deeper than a section header.
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[toy]\ncount = 1\n[llm.extra_body]\napi_key = \"sk-deep\"\n",
+        )
+        .unwrap();
+
+        let err = load_section_layers::<ToySection>(std::slice::from_ref(&dir), "toy")
+            .unwrap_err()
+            .0;
+        assert!(err.contains(SHARED_FILE), "got: {err}");
+        assert!(err.contains("local"), "got: {err}");
+        assert!(!err.contains("sk-deep"), "leaked the key: {err}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
