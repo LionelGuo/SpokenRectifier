@@ -411,6 +411,12 @@ pub fn state() -> anyhow::Result<BridgeSessionState> {
     Ok(global()?.engine.state().into())
 }
 
+/// Current output style, for the initial paint of the style switcher —
+/// the `[engine]` config's default until a `SetStyle` command lands.
+pub fn style() -> anyhow::Result<BridgeStyle> {
+    Ok(global()?.engine.style().into())
+}
+
 /// Everything the fake inserter received, in order (demo introspection).
 /// The production inserter does not record; insertion outcomes arrive on
 /// the event stream instead (`TextInserted` / `Error`).
@@ -441,6 +447,32 @@ pub fn history_list() -> anyhow::Result<Vec<BridgeHistoryEntry>> {
 /// the keep-nothing mode.
 pub fn history_clear() -> anyhow::Result<()> {
     global()?.history.clear();
+    Ok(())
+}
+
+/// Open the shared config file in the system text editor — the tray's
+/// settings entry. Creates a commented stub first when no config file
+/// exists yet (see `settings::ensure_shared_config` for where). Returns
+/// the path that was opened.
+pub fn open_config_file() -> anyhow::Result<String> {
+    let dirs = spokenrectifier_config::search_dirs();
+    let path = crate::settings::ensure_shared_config(&dirs)
+        .map_err(|err| anyhow!("cannot create the config file: {err}"))?;
+    launch_editor(&path)?;
+    Ok(path.display().to_string())
+}
+
+/// Hand the file to the platform's editor: Notepad ships with every
+/// Windows, `xdg-open` covers the development desktops.
+fn launch_editor(path: &std::path::Path) -> anyhow::Result<()> {
+    #[cfg(windows)]
+    let mut command = std::process::Command::new("notepad");
+    #[cfg(not(windows))]
+    let mut command = std::process::Command::new("xdg-open");
+    command
+        .arg(path)
+        .spawn()
+        .map_err(|err| anyhow!("cannot open an editor for {}: {err}", path.display()))?;
     Ok(())
 }
 
@@ -596,6 +628,20 @@ mod tests {
         let err = execute(BridgeCommand::StopSession).unwrap_err().to_string();
         assert!(err.contains("rejected"), "got: {err}");
         assert_eq!(state().unwrap(), BridgeSessionState::Idle);
+    }
+
+    /// The style switcher paints from this getter; a SetStyle through the
+    /// wire must be visible on it (valid any time, no state machine role).
+    #[test]
+    fn style_round_trips_through_the_bridge() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        assert_eq!(style().unwrap(), BridgeStyle::GeneralWritten);
+        execute(BridgeCommand::SetStyle {
+            style: BridgeStyle::Prompt,
+        })
+        .unwrap();
+        assert_eq!(style().unwrap(), BridgeStyle::Prompt);
     }
 
     /// The demo host runs indefinitely: sessions keep working no matter how

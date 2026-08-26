@@ -12,7 +12,7 @@ import 'package:spokenrectifier_app/app_root.dart'
     show SpokenRectifierApp, historyWindowSize, windowSizeFor;
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgeHistoryEntry, BridgeSessionState;
+    show BridgeEvent, BridgeHistoryEntry, BridgeSessionState, BridgeStyle;
 
 import 'fake_gateway.dart';
 
@@ -550,5 +550,88 @@ void main() {
           panelExpanded: false, historyOpen: true),
       windowSizeFor(BridgeSessionState.recording, panelExpanded: false),
     );
+  });
+
+  testWidgets('the recording panel switches style and the engine hears it', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway,
+        panelExpanded: true);
+    await pumpToRecording(tester, controller);
+
+    expect(controller.style, BridgeStyle.generalWritten);
+    await tester.tap(find.byKey(const Key('style-segment-prompt')));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(controller.style, BridgeStyle.prompt);
+    expect(gateway.commands, contains('setStyle:prompt'));
+    // The engine-side mirror moved too, like the real any-time switch.
+    expect(gateway.engineStyle, BridgeStyle.prompt);
+  });
+
+  testWidgets('loadStyle paints the configured default, not the assumption', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()..engineStyle = BridgeStyle.formalDocument;
+    final controller = await pumpController(tester, gateway);
+
+    await controller.loadStyle();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(controller.style, BridgeStyle.formalDocument);
+    expect(gateway.commands, contains('style'));
+    // Switching away still works on top of the loaded default.
+    await controller.setStyle(BridgeStyle.generalWritten);
+    expect(gateway.commands, contains('setStyle:generalWritten'));
+  });
+
+  testWidgets('a loadStyle against a dead engine keeps the default', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+    gateway.failNextStyle = StateError('engine not created yet');
+
+    await controller.loadStyle();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // The startup banner owns that failure; the switcher stays paintable.
+    expect(controller.style, BridgeStyle.generalWritten);
+  });
+
+  testWidgets('openConfigFile goes through the gateway', (tester) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    await controller.openConfigFile();
+    expect(gateway.commands, contains('openConfigFile'));
+  });
+
+  testWidgets('a failed style switch surfaces on the error banner', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()..failNextSetStyle = StateError('engine gone');
+    final controller = await pumpController(tester, gateway);
+
+    await controller.setStyle(BridgeStyle.prompt);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // The pick stays (the switcher keeps painting it) but the failure is
+    // said out loud, not swallowed.
+    expect(controller.style, BridgeStyle.prompt);
+    expect(controller.lastError, contains('风格切换失败'));
+  });
+
+  testWidgets('a failed config open surfaces on the error banner', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()
+      ..failNextOpenConfig = StateError('no editor');
+    final controller = await pumpController(tester, gateway);
+
+    await controller.openConfigFile();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.lastError, contains('无法打开配置文件'));
   });
 }

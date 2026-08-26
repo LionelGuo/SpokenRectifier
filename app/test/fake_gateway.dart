@@ -15,6 +15,15 @@ class FakeGateway implements SpeechEngineGateway {
   /// When set, the next startSession throws this (e.g. no microphone).
   Object? failNextStart;
 
+  /// When set, the next `style()` throws this (engine never assembled).
+  Object? failNextStyle;
+
+  /// When set, the next `setStyle` throws this.
+  Object? failNextSetStyle;
+
+  /// When set, the next `openConfigFile` throws this.
+  Object? failNextOpenConfig;
+
   /// Stored sessions, mirroring the engine's history recording: each
   /// confirmInsert appends one entry (raw = the last live transcript, as
   /// the engine records the session's frozen utterance). Tests seed or
@@ -25,6 +34,10 @@ class FakeGateway implements SpeechEngineGateway {
 
   /// What `rectifyText` streams back as the re-rectified text.
   String rectifyResponse = '重新修正后的文本';
+
+  /// The style the engine reports (what `loadStyle` paints from); the
+  /// setter keeps it in step, like the real engine's any-time switch.
+  BridgeStyle engineStyle = BridgeStyle.generalWritten;
 
   final _events = StreamController<BridgeEventEnvelope>.broadcast();
   int _seq = 0;
@@ -123,6 +136,38 @@ class FakeGateway implements SpeechEngineGateway {
     _transition(BridgeSessionState.rectifying);
     emit(BridgeEvent.liveTranscriptUpdated(text: rawTranscript));
     streamRectify([rectifyResponse]);
+  }
+
+  @override
+  Future<BridgeStyle> style() async {
+    commands.add('style');
+    if (failNextStyle != null) {
+      final failure = failNextStyle;
+      failNextStyle = null;
+      throw failure!;
+    }
+    return engineStyle;
+  }
+
+  @override
+  Future<void> setStyle(BridgeStyle value) async {
+    commands.add('setStyle:${value.name}');
+    if (failNextSetStyle != null) {
+      final failure = failNextSetStyle;
+      failNextSetStyle = null;
+      throw failure!;
+    }
+    engineStyle = value;
+  }
+
+  @override
+  Future<void> openConfigFile() async {
+    commands.add('openConfigFile');
+    if (failNextOpenConfig != null) {
+      final failure = failNextOpenConfig;
+      failNextOpenConfig = null;
+      throw failure!;
+    }
   }
 
   @override

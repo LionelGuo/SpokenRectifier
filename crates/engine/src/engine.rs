@@ -149,6 +149,12 @@ impl Engine {
         self.inner.state_lock().state
     }
 
+    /// Current output style: the config default until
+    /// [`Command::SetStyle`](crate::Command::SetStyle) overrides it live.
+    pub fn style(&self) -> Style {
+        *self.inner.style.read().unwrap()
+    }
+
     /// Submit a command. Returns `Err` only for rejected commands (wrong
     /// state, ASR could not be opened); asynchronous outcomes arrive as
     /// events.

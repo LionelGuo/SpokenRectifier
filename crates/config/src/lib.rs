@@ -41,6 +41,16 @@ pub enum LayerSource {
     Local,
 }
 
+impl LayerSource {
+    /// The file this layer lives in, for error messages naming it.
+    pub fn file_name(&self) -> &'static str {
+        match self {
+            LayerSource::Shared => SHARED_FILE,
+            LayerSource::Local => LOCAL_FILE,
+        }
+    }
+}
+
 /// One parsed section overlay from one layer file.
 #[derive(Debug)]
 pub struct Layer<T> {
@@ -114,8 +124,10 @@ pub fn load_section_layers<T: DeserializeOwned>(
 }
 
 /// The first `file` found in `dirs`, if any. A directory that happens to
-/// carry the layer's name does not count.
-fn find_file(dirs: &[PathBuf], file: &str) -> Option<PathBuf> {
+/// carry the layer's name does not count. Public so consumers that need
+/// "where a layer file lives" (the settings entry creating a stub beside
+/// the real files) resolve it with the same precedence as loading does.
+pub fn find_file(dirs: &[PathBuf], file: &str) -> Option<PathBuf> {
     dirs.iter().map(|dir| dir.join(file)).find(|p| p.is_file())
 }
 

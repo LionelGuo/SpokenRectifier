@@ -38,6 +38,16 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
       );
 
   @override
+  Future<rust.BridgeStyle> style() => rust.style();
+
+  @override
+  Future<void> setStyle(rust.BridgeStyle style) =>
+      rust.execute(command: rust.BridgeCommand.setStyle(style: style));
+
+  @override
+  Future<void> openConfigFile() => rust.openConfigFile();
+
+  @override
   Future<List<rust.BridgeHistoryEntry>> historyList() => rust.historyList();
 
   @override

@@ -16,7 +16,8 @@ import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, LogicalKeyboardKey, TextInputType;
 
 import 'app_state.dart';
-import 'src/rust/api.dart' show BridgeHistoryEntry, BridgeSessionState;
+import 'src/rust/api.dart'
+    show BridgeHistoryEntry, BridgeSessionState, BridgeStyle;
 
 const hotkeyHint = 'Ctrl+Alt+V 开始 / 结束';
 
@@ -24,7 +25,7 @@ const hotkeyHint = 'Ctrl+Alt+V 开始 / 结束';
 /// reroll cycles preview <-> rectifying, and shrinking the window under the
 /// still-fading outgoing preview card would clip it mid-transition.
 const orbWindowSize = Size(100, 116);
-const recordingPanelWindowSize = Size(480, 340);
+const recordingPanelWindowSize = Size(480, 384);
 const previewWindowSize = Size(580, 440);
 const historyWindowSize = Size(480, 460);
 
@@ -269,6 +270,47 @@ class _OrbShell extends StatelessWidget {
   }
 }
 
+/// The user-facing label of each output style — shared by the panel's
+/// style row and the tray submenu so the two switchers cannot drift.
+const styleLabels = {
+  BridgeStyle.generalWritten: '通用书面',
+  BridgeStyle.prompt: 'Prompt',
+  BridgeStyle.formalDocument: '正式文档',
+};
+
+/// The style switcher (风格): what the next rectify targets, rerolls
+/// included. The tray submenu mirrors it for idle switching.
+class StyleSwitcher extends StatelessWidget {
+  const StyleSwitcher({super.key, required this.controller});
+
+  final SpeechController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 36,
+      child: SegmentedButton<BridgeStyle>(
+        key: const Key('style-switcher'),
+        // The highlighted segment reads as selected on its own; the extra
+        // check icon would only widen the row.
+        showSelectedIcon: false,
+        segments: [
+          for (final entry in styleLabels.entries)
+            ButtonSegment(
+              value: entry.key,
+              label: Text(
+                entry.value,
+                key: Key('style-segment-${entry.key.name}'),
+              ),
+            ),
+        ],
+        selected: {controller.style},
+        onSelectionChanged: (selection) => controller.setStyle(selection.first),
+      ),
+    );
+  }
+}
+
 class RecordingPanel extends StatelessWidget {
   const RecordingPanel({super.key, required this.controller});
 
@@ -278,7 +320,7 @@ class RecordingPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return _Card(
       width: 460,
-      height: 320,
+      height: 364,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -289,6 +331,10 @@ class RecordingPanel extends StatelessWidget {
               Text(
                 '录音中 · ${controller.speaking ? '说话中' : '静音'} · '
                 '段落 ${controller.paragraphMarks}',
+                // Explicit style: the card is a bare Container with no
+                // Material ancestor, so an unstyled Text falls back to the
+                // debug error style (huge, red, underlined).
+                style: const TextStyle(fontSize: 14, color: Colors.white),
               ),
               const Spacer(),
               IconButton(
@@ -299,6 +345,8 @@ class RecordingPanel extends StatelessWidget {
             ],
           ),
           const Divider(height: 12),
+          StyleSwitcher(controller: controller),
+          const SizedBox(height: 8),
           Expanded(
             child: SingleChildScrollView(
               reverse: true,
@@ -353,7 +401,10 @@ class RectifyingCard extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
               const SizedBox(width: 10),
-              Text('正在修正 ${controller.previewText.length} 字'),
+              Text(
+                '正在修正 ${controller.previewText.length} 字',
+                style: const TextStyle(fontSize: 14, color: Colors.white),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -518,7 +569,10 @@ class _PreviewCardState extends State<PreviewCard> {
                 children: [
                   const Icon(Icons.rate_review_outlined, size: 18),
                   const SizedBox(width: 8),
-                  const Text('预览确认'),
+                  const Text(
+                    '预览确认',
+                    style: TextStyle(fontSize: 14, color: Colors.white),
+                  ),
                   IconButton(
                     key: const Key('preview-raw-toggle'),
                     tooltip: '对照原文',

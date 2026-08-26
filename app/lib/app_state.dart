@@ -21,6 +21,9 @@ abstract class SpeechEngineGateway {
   Future<void> reroll();
   Future<void> updatePreviewText(String text);
   Future<void> rectifyText(String rawTranscript);
+  Future<BridgeStyle> style();
+  Future<void> setStyle(BridgeStyle style);
+  Future<void> openConfigFile();
   Future<List<BridgeHistoryEntry>> historyList();
   Future<void> historyClear();
   Future<void> fakeBeginSession();
@@ -96,6 +99,12 @@ class SpeechController extends ChangeNotifier {
 
   /// Last engine error, shown until the next session.
   String? lastError;
+
+  /// Current output style (风格): what the next rectify targets, rerolls
+  /// included. Painted at startup from the engine's `[engine]` config
+  /// default ([loadStyle]); every switch goes straight to the engine and
+  /// applies to the next rectify — mid-preview switches shape the reroll.
+  BridgeStyle style = BridgeStyle.generalWritten;
 
   bool get isRecording => phase == BridgeSessionState.recording;
 
@@ -187,6 +196,47 @@ class SpeechController extends ChangeNotifier {
   }
 
   Future<void> reroll() => gateway.reroll();
+
+  /// Paint the initial style from the engine (its `[engine]` config
+  /// default), so the switcher reflects a configured default instead of
+  /// assuming general-written. An engine that failed to assemble keeps
+  /// the default: the startup banner already explains that failure.
+  Future<void> loadStyle() async {
+    try {
+      style = await gateway.style();
+    } catch (_) {
+      // Engine not created (startup error already surfaced).
+    }
+    notifyListeners();
+  }
+
+  /// Switch the output style; the engine applies it from the next rectify
+  /// on. Both switchers (panel row, tray submenu) share this entry. The
+  /// UI adopts the pick at once; a failed engine call surfaces on the
+  /// error banner instead of vanishing (e.g. engine never assembled).
+  Future<void> setStyle(BridgeStyle value) async {
+    style = value;
+    notifyListeners();
+    try {
+      await gateway.setStyle(value);
+    } catch (e) {
+      lastError = '风格切换失败:$e';
+      notifyListeners();
+    }
+  }
+
+  /// Open the shared config file in the system editor — the tray's
+  /// settings entry. A first run creates a commented stub to open; a
+  /// failed spawn (nothing to open with, unwritable stub location)
+  /// surfaces on the error banner.
+  Future<void> openConfigFile() async {
+    try {
+      await gateway.openConfigFile();
+    } catch (e) {
+      lastError = '无法打开配置文件:$e';
+      notifyListeners();
+    }
+  }
 
   void setOrbVisible(bool visible) {
     orbVisible = visible;

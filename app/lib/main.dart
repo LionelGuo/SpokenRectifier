@@ -12,14 +12,18 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'app_root.dart' show SpokenRectifierApp, orbWindowSize, windowSizeFor;
+import 'app_root.dart'
+    show SpokenRectifierApp, orbWindowSize, styleLabels, windowSizeFor;
 import 'app_state.dart';
 import 'gateway.dart';
 import 'sample_speech.dart';
-import 'src/rust/api.dart' show BridgeSessionState, createEngine;
+import 'src/rust/api.dart'
+    show BridgeSessionState, BridgeStyle, createEngine;
 import 'src/rust/frb_generated.dart' show RustLib;
 
 const _toggleOrbKey = 'toggle-orb';
+const _styleMenuKey = 'style-menu';
+const _openConfigKey = 'open-config';
 const _clearHistoryKey = 'clear-history';
 const _exitKey = 'exit';
 
@@ -65,6 +69,9 @@ Future<void> main() async {
   if (startupError != null) {
     controller.reportStartupError(startupError);
   }
+  // Paint the style switchers from the engine's `[engine]` config default
+  // (a no-op that keeps the default when assembly failed).
+  await controller.loadStyle();
 
   await _installHotkey(controller);
 
@@ -98,6 +105,7 @@ class _ShellState extends State<_Shell> with TrayListener {
   /// not rebuild the menu.
   BridgeSessionState? _trayPhase;
   bool? _trayOrbVisible;
+  BridgeStyle? _trayStyle;
   Size _lastSize = orbWindowSize;
 
   @override
@@ -119,7 +127,8 @@ class _ShellState extends State<_Shell> with TrayListener {
   void _onControllerChanged() {
     _morphWindow();
     if (_trayPhase != controller.phase ||
-        _trayOrbVisible != controller.orbVisible) {
+        _trayOrbVisible != controller.orbVisible ||
+        _trayStyle != controller.style) {
       _refreshTray();
     }
   }
@@ -139,6 +148,7 @@ class _ShellState extends State<_Shell> with TrayListener {
   Future<void> _refreshTray() async {
     _trayPhase = controller.phase;
     _trayOrbVisible = controller.orbVisible;
+    _trayStyle = controller.style;
     final phase = switch (controller.phase) {
       BridgeSessionState.idle => '空闲',
       BridgeSessionState.recording => '录音中',
@@ -156,6 +166,21 @@ class _ShellState extends State<_Shell> with TrayListener {
             label: '显示悬浮球',
             checked: controller.orbVisible,
           ),
+          MenuItem.submenu(
+            key: _styleMenuKey,
+            label: '风格',
+            submenu: Menu(
+              items: [
+                for (final entry in styleLabels.entries)
+                  MenuItem.checkbox(
+                    key: 'style-${entry.key.name}',
+                    label: entry.value,
+                    checked: controller.style == entry.key,
+                  ),
+              ],
+            ),
+          ),
+          MenuItem(key: _openConfigKey, label: '打开配置文件'),
           MenuItem(key: _clearHistoryKey, label: '清空历史'),
           MenuItem.separator(),
           MenuItem(key: _exitKey, label: '退出'),
@@ -179,6 +204,14 @@ class _ShellState extends State<_Shell> with TrayListener {
     switch (menuItem.key) {
       case _toggleOrbKey:
         controller.setOrbVisible(!controller.orbVisible);
+      // The style items derive their keys from the enum (`style-<name>`),
+      // so the submenu and this handler stay in step with one source.
+      case final String key when key.startsWith('style-'):
+        await controller.setStyle(
+          BridgeStyle.values.byName(key.substring('style-'.length)),
+        );
+      case _openConfigKey:
+        await controller.openConfigFile();
       case _clearHistoryKey:
         await controller.clearHistory();
       case _exitKey:

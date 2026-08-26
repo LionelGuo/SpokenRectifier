@@ -30,4 +30,23 @@ impl Style {
             Self::FormalDocument => "formal-document",
         }
     }
+
+    /// The parseable names, comma-joined — error messages listing the
+    /// valid values quote this so the list cannot drift from [`parse`].
+    pub fn valid_names() -> &'static str {
+        "general-written, prompt, formal-document"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_valid_name_parses_and_names_round_trip() {
+        for name in Style::valid_names().split(", ") {
+            let style = Style::parse(name).unwrap_or_else(|| panic!("{name} did not parse"));
+            assert_eq!(style.name(), name);
+        }
+    }
 }

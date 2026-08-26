@@ -21,6 +21,12 @@ paragraph_silence_ms = 1200
 session_end_silence_ms = 3000
 rectify_timeout_ms = 25000                  # hard cap per rectify attempt
                                             #  (each reroll gets a fresh one)
+style = "general-written"                   # startup default; the panel's
+                                            #  style row and the tray's 风格
+                                            #  submenu switch it live. Valid:
+                                            #  general-written | prompt |
+                                            #  formal-document (an unknown
+                                            #  value is rejected at startup)
 
 # Cloud ASR (Aliyun qwen3-asr-flash-realtime over the DashScope realtime
 # WebSocket, pay-as-you-go). With a key resolved the app streams real
@@ -78,6 +84,9 @@ retention_days = 30         # sessions older than this are swept on launch
 # (below light_touch_max_chars takes light-touch) and changes only the
 # prompt, never the model. Rewrite wants thinking OFF by default (latency
 # and over-rectify risk); flip `thinking` to true if you want it.
+# Configuring a model/base_url/api_key without a resolvable key is an
+# error at startup (never a silent fallback to the demo script); an
+# unknown vendor or an empty model/base_url is rejected too.
 [llm]
 thinking = false
 light_touch_max_chars = 40

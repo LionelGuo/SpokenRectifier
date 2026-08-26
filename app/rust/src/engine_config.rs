@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::anyhow;
 use spokenrectifier_config::load_section_layers;
-use spokenrectifier_engine::EngineConfig;
+use spokenrectifier_engine::{EngineConfig, Style};
 
 /// The `[engine]` overlay: the config crate loads it, this module folds it.
 #[derive(Debug, Default, serde::Deserialize)]
@@ -18,6 +18,9 @@ struct EngineSection {
     paragraph_silence_ms: Option<u64>,
     session_end_silence_ms: Option<u64>,
     rectify_timeout_ms: Option<u64>,
+    /// Default output style (`Style::parse` accepts the canonical English
+    /// names and the Chinese aliases).
+    style: Option<String>,
 }
 
 /// Load the session semantics from the layer files, wherever they live
@@ -40,6 +43,16 @@ pub fn engine_config(dirs: &[PathBuf]) -> anyhow::Result<EngineConfig> {
         }
         if let Some(v) = layer.value.rectify_timeout_ms {
             config.rectify_timeout_ms = v;
+        }
+        if let Some(v) = &layer.value.style {
+            config.style = Style::parse(v).ok_or_else(|| {
+                anyhow!(
+                    "{}: [engine] style = \"{v}\": unknown style; valid values \
+                     are {}",
+                    layer.source.file_name(),
+                    Style::valid_names()
+                )
+            })?;
         }
     }
     Ok(config)
@@ -82,6 +95,50 @@ mod tests {
             EngineConfig::default()
         );
         assert_eq!(engine_config(&[]).unwrap(), EngineConfig::default());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_style_default_loads_from_the_layer_files() {
+        let dir = std::env::temp_dir().join("sr-bridge-engine-config-style");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[engine]\nstyle = \"prompt\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[engine]\nstyle = \"正式文档\"\n",
+        )
+        .unwrap();
+
+        // The Chinese alias parses too, and the local layer wins.
+        let config = engine_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(config.style, Style::FormalDocument);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_unknown_style_is_an_error_listing_the_valid_values() {
+        let dir = std::env::temp_dir().join("sr-bridge-engine-config-style-bad");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[engine]\nstyle = \"casual\"\n",
+        )
+        .unwrap();
+
+        let err = engine_config(std::slice::from_ref(&dir))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("spokenrectifier.toml"), "got: {err}");
+        assert!(err.contains("style"), "got: {err}");
+        assert!(err.contains("casual"), "got: {err}");
+        for valid in ["general-written", "prompt", "formal-document"] {
+            assert!(err.contains(valid), "missing {valid} in: {err}");
+        }
+        assert!(!err.contains('\n'), "multi-line error: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

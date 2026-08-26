@@ -2,7 +2,10 @@
 //! rectify pipeline (OpenAI-compatible LLM, streaming). No microphone — the
 //! utterance file drives the engine; the LLM does the rest.
 //!
-//! Usage: sr-rectify <utterance-file>
+//! Usage: sr-rectify [--style <name>] <utterance-file>
+//!
+//! `--style` picks the output style for every block (general-written,
+//! prompt, or formal-document); the default is general-written.
 //!
 //! The file contains one or more utterance blocks separated by `---` lines.
 //! Each non-empty line inside a block is spoken as one scripted phrase,
@@ -24,7 +27,7 @@ use tokio::sync::broadcast;
 use spokenrectifier_engine::fakes::ChannelAsr;
 use spokenrectifier_engine::provider::inserter::{InsertError, TextInserter};
 use spokenrectifier_engine::{
-    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState,
+    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState, Style,
     TermSource, TokioClock,
 };
 use spokenrectifier_llm::{OpenAiCompatLlm, load_llm_config};
@@ -147,9 +150,25 @@ async fn main() {
 }
 
 async fn run() -> Result<(), String> {
-    let path = env::args()
-        .nth(1)
-        .ok_or_else(|| "usage: sr-rectify <utterance-file>".to_string())?;
+    // Args: an optional --style <name>, then the utterance file.
+    let mut style = Style::default();
+    let mut path = None;
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--style" => {
+                let name = args
+                    .next()
+                    .ok_or_else(|| "--style needs a value".to_string())?;
+                style = Style::parse(&name)
+                    .ok_or_else(|| format!("unknown style {name:?}: {}", Style::valid_names()))?;
+            }
+            _ if path.is_none() => path = Some(arg),
+            _ => return Err(format!("unexpected argument {arg:?}")),
+        }
+    }
+    let path =
+        path.ok_or_else(|| "usage: sr-rectify [--style <name>] <utterance-file>".to_string())?;
     let source = fs::read_to_string(&path).map_err(|err| format!("cannot read {path}: {err}"))?;
     let blocks = parse_blocks(&source);
     if blocks.is_empty() {
@@ -195,6 +214,13 @@ async fn run() -> Result<(), String> {
         }
     });
     let mut rx = engine.subscribe();
+
+    // The picked style applies to every block's rectify, like a user
+    // switching before speaking.
+    engine
+        .execute(Command::SetStyle(style))
+        .await
+        .map_err(|err| format!("command failed: {err}"))?;
 
     for block in &blocks {
         println!(">> StartSession");

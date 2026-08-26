@@ -45,6 +45,13 @@ pub fn llm_choice(dirs: &[PathBuf]) -> anyhow::Result<LlmChoice> {
                  the [asr] key to keep the pure demo mode)"
             ));
         }
+        if config.endpoint_configured {
+            return Err(anyhow!(
+                "the [llm] config names a model but no api key resolved: add \
+                 api_key under [llm] in spokenrectifier.local.toml (or export \
+                 the api_key_env variable)"
+            ));
+        }
         return Ok(LlmChoice::ScriptedDemo);
     }
     let llm = spokenrectifier_llm::OpenAiCompatLlm::new(config)
@@ -142,6 +149,28 @@ mod tests {
         // Still the mixed case: the empty string must not pass as a key.
         assert!(llm_choice(std::slice::from_ref(&empty_key)).is_err());
         std::fs::remove_dir_all(empty_key).unwrap();
+    }
+
+    /// A configured endpoint without a key must not silently fall into the
+    /// demo script: the user asked for a real model and would read the
+    /// scripted output as broken rectification.
+    #[test]
+    fn an_endpoint_without_a_key_is_an_error_not_a_demo() {
+        let no_key = dir("sr-factory-no-key");
+        std::fs::write(
+            no_key.join("spokenrectifier.local.toml"),
+            "[llm]\nmodel = \"deepseek-v4-pro\"\napi_key_env = \"SR_TEST_UNSET_LLM_KEY\"\n",
+        )
+        .unwrap();
+
+        let err = match llm_choice(std::slice::from_ref(&no_key)) {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("a configured endpoint without a key must be an error"),
+        };
+        assert!(err.contains("[llm]"), "got: {err}");
+        assert!(err.contains("api_key"), "got: {err}");
+        assert!(err.contains("spokenrectifier.local.toml"), "got: {err}");
+        std::fs::remove_dir_all(no_key).unwrap();
     }
 
     #[test]

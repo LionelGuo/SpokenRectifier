@@ -25,6 +25,10 @@ pub struct LlmConfig {
     pub light_touch_max_chars: usize,
     /// The one model the mode calls, for every intensity.
     pub model: ModelConfig,
+    /// Whether any layer file shaped the endpoint (model, base_url, or
+    /// api_key): the user configured a real model, so a missing key is an
+    /// error for the caller to surface, not a silent fallback to a demo.
+    pub endpoint_configured: bool,
 }
 
 /// One OpenAI-compatible endpoint.
@@ -51,6 +55,7 @@ impl LlmConfig {
         LlmConfig {
             thinking: false,
             light_touch_max_chars: 40,
+            endpoint_configured: false,
             model: ModelConfig {
                 base_url: "https://api.deepseek.com".into(),
                 model: "deepseek-v4-flash".into(),
@@ -131,7 +136,32 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
     let layers =
         load_section_layers::<LlmSection>(dirs, "llm").map_err(|err| ConfigError(err.0))?;
     for layer in layers {
+        // Endpoint fields carry real-model intent (api_key_env alone does
+        // not: it only names where a key would come from, which the
+        // built-in defaults do too).
+        if layer.value.model.is_some()
+            || layer.value.base_url.is_some()
+            || layer
+                .value
+                .api_key
+                .as_deref()
+                .is_some_and(|k| !k.is_empty())
+        {
+            config.endpoint_configured = true;
+        }
         apply(&mut config, layer.value);
+    }
+    // An explicitly emptied endpoint is a config mistake, not a setting:
+    // the defaults are never empty, so only a layer can do this.
+    if config.model.model.trim().is_empty() {
+        return Err(ConfigError(
+            "[llm] model is empty: remove the field or name a real model".into(),
+        ));
+    }
+    if config.model.base_url.trim().is_empty() {
+        return Err(ConfigError(
+            "[llm] base_url is empty: remove the field or name a real endpoint".into(),
+        ));
     }
     Ok(config)
 }
@@ -189,5 +219,66 @@ mod tests {
         unsafe { std::env::set_var("SR_TEST_DEEPSEEK_KEY", "sk-env") };
         env_model.api_key_env = Some("SR_TEST_DEEPSEEK_KEY".into());
         assert_eq!(env_model.resolve_key().as_deref(), Some("sk-env"));
+    }
+
+    /// Defaults alone are not endpoint intent: with no layer touching the
+    /// endpoint fields, the app stays free to run its pure demo mode.
+    #[test]
+    fn untouched_defaults_are_not_endpoint_intent() {
+        let dir = std::env::temp_dir().join("sr-llm-config-test-no-intent");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[llm]\nthinking = true\nlight_touch_max_chars = 60\n",
+        )
+        .unwrap();
+
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert!(!config.endpoint_configured); // prompt knobs only
+        assert!(config.thinking);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn endpoint_fields_touched_mark_intent() {
+        for section in [
+            "[llm]\nmodel = \"other-model\"\n",
+            "[llm]\nbase_url = \"https://example.com\"\n",
+            "[llm]\napi_key = \"sk-x\"\n",
+        ] {
+            let dir = std::env::temp_dir().join("sr-llm-config-test-intent");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("spokenrectifier.local.toml"), section).unwrap();
+            assert!(
+                load_llm_config(std::slice::from_ref(&dir))
+                    .unwrap()
+                    .endpoint_configured,
+                "not intent: {section}"
+            );
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn an_empty_model_string_is_rejected() {
+        let dir = std::env::temp_dir().join("sr-llm-config-test-empty-model");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("spokenrectifier.toml"), "[llm]\nmodel = \"\"\n").unwrap();
+
+        let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+        assert!(err.contains("model"), "got: {err}");
+        assert!(!err.contains('\n'), "multi-line error: {err}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_empty_base_url_string_is_rejected() {
+        let dir = std::env::temp_dir().join("sr-llm-config-test-empty-url");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("spokenrectifier.toml"), "[llm]\nbase_url = \"\"\n").unwrap();
+
+        let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+        assert!(err.contains("base_url"), "got: {err}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

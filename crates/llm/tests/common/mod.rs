@@ -10,6 +10,7 @@ pub fn config_with_base(base_url: String, thinking: bool) -> LlmConfig {
     LlmConfig {
         thinking,
         light_touch_max_chars: 40,
+        endpoint_configured: true,
         model: ModelConfig {
             base_url,
             model: "test-model".into(),

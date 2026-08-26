@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `asr_provider`, `global`, `open_fake_feed`, `token_scripts`
+// These functions are ignored because they are not marked as `pub`: `asr_provider`, `global`, `launch_editor`, `open_fake_feed`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
@@ -42,6 +42,10 @@ Future<void> execute({required BridgeCommand command}) =>
 /// Current session state, for initial paint before any event arrives.
 Future<BridgeSessionState> state() => RustLib.instance.api.crateApiState();
 
+/// Current output style, for the initial paint of the style switcher —
+/// the `[engine]` config's default until a `SetStyle` command lands.
+Future<BridgeStyle> style() => RustLib.instance.api.crateApiStyle();
+
 /// Everything the fake inserter received, in order (demo introspection).
 /// The production inserter does not record; insertion outcomes arrive on
 /// the event stream instead (`TextInserted` / `Error`).
@@ -56,6 +60,13 @@ Future<List<BridgeHistoryEntry>> historyList() =>
 /// Remove every stored session — the tray's one-click clear. A no-op in
 /// the keep-nothing mode.
 Future<void> historyClear() => RustLib.instance.api.crateApiHistoryClear();
+
+/// Open the shared config file in the system text editor — the tray's
+/// settings entry. Creates a commented stub first when no config file
+/// exists yet (see `settings::ensure_shared_config` for where). Returns
+/// the path that was opened.
+Future<String> openConfigFile() =>
+    RustLib.instance.api.crateApiOpenConfigFile();
 
 /// Subscribe the Dart side to the engine's event stream. Each call spawns
 /// an independent forwarder; dropping the Dart stream stops it.

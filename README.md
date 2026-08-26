@@ -57,6 +57,8 @@ cargo run -p sr-replay --bin sr-rectify -- crates/cli/demo-utterance.txt
 
 术语词表(工单 08)是同目录下的纯文本文件 `spokenrectifier-terms.txt`(git 忽略):一行一词,`#` 注释;每次会话开始时重读,改完即生效于下一会话。支持识别偏置的 Provider(阿里)把词表注入 ASR 识别;所有 Provider 同时把词表作为修正 prompt 的术语参考(逐字保留)兜底纠错。
 
+风格预设(工单 09)三种:通用书面 / Prompt / 正式文档。录音展开面板的风格行与托盘「风格」子菜单可随时切换,立即作用于下一次修正(reroll 同样受影响);启动默认值取 `[engine] style`(可填 `general-written`、`prompt`、`formal-document`,非法值启动即拒)。托盘「打开配置文件」在系统编辑器里打开共享配置(不存在时先落一个带注释的桩文件)。配置校验:未知 vendor、空 model/base_url、配了端点却没有可解析的 key,都在启动横幅给出明确报错,不会静默回退演示模式。
+
 ## 许可
 
 计划采用 Apache-2.0,MVP 后公开源码。
