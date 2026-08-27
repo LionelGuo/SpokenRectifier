@@ -38,6 +38,9 @@ class RecordingStageWindow implements stage.StageWindow {
   Size size = SrGeometry.orbFootprint;
   final bounds = <Rect>[];
 
+  /// How many times the window was asked to take the foreground.
+  int focuses = 0;
+
   @override
   Future<Offset> getPosition() async => position;
 
@@ -50,6 +53,9 @@ class RecordingStageWindow implements stage.StageWindow {
     position = bounds.topLeft;
     size = bounds.size;
   }
+
+  @override
+  Future<void> focus() async => focuses += 1;
 }
 
 Future<SpeechController> pumpController(
@@ -132,6 +138,9 @@ void main() {
     // The session window shows the live phase; the anchor is a stop orb.
     expect(find.text('聆听中'), findsOneWidget);
     expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
+    // Expanding a panel takes the foreground: its Esc affordance is live
+    // even after a hotkey start (whose focus never left the document).
+    expect(window.focuses, greaterThanOrEqualTo(1));
     await windDown(tester, controller);
   });
 
@@ -240,6 +249,8 @@ void main() {
     final field = tester.widget<EditableText>(findSessionField());
     expect(field.controller.text, '修正后的文本');
     expect(field.readOnly, isFalse);
+    // Preview entry re-guarantees the keyboard after the expand focus.
+    expect(window.focuses, greaterThanOrEqualTo(2));
 
     // Enter (the field holds focus in preview; chat-input semantics)
     // confirms what is on screen.
@@ -584,6 +595,8 @@ void main() {
     expect(find.byKey(const Key('quick-placeholder')), findsOneWidget);
     // Same footprint as the session window, corner still pinned.
     expect(window.bounds.last.size, SrGeometry.panelSize);
+    // The quick panel's Esc-to-close affordance needs the keyboard too.
+    expect(window.focuses, greaterThanOrEqualTo(1));
     // The orb is now the close button.
     expect(find.byIcon(Icons.close), findsOneWidget);
 

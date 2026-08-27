@@ -53,6 +53,10 @@ abstract class StageWindow {
   Future<Offset> getPosition();
   Future<Size> getSize();
   Future<void> setBounds(Rect bounds);
+
+  /// Bring the window to the foreground so its keyboard affordances
+  /// (Esc, Enter) are live.
+  Future<void> focus();
 }
 
 /// The production [StageWindow] over window_manager.
@@ -67,6 +71,9 @@ class WindowManagerStageWindow implements StageWindow {
 
   @override
   Future<void> setBounds(Rect bounds) => windowManager.setBounds(bounds);
+
+  @override
+  Future<void> focus() => windowManager.focus();
 }
 
 /// The footprint each stage owns. Session and quick share one shape, one
@@ -116,6 +123,9 @@ class _StageHostState extends State<StageHost> {
   bool _exiting = false;
   int _seq = 0; // guards stale async sequencing
 
+  /// The phase the stage window last took the keyboard for.
+  BridgeSessionState? _focusedPhase;
+
   SpeechController get c => widget.controller;
 
   @override
@@ -131,6 +141,15 @@ class _StageHostState extends State<StageHost> {
   }
 
   void _onChanged() {
+    // Preview entry guarantees the keyboard: the field becomes editable
+    // this instant, wherever the user's focus wandered during recording.
+    if (c.phase == BridgeSessionState.preview &&
+        _focusedPhase != BridgeSessionState.preview &&
+        widget.stageWindow != null) {
+      widget.stageWindow!.focus();
+    }
+    _focusedPhase = c.phase;
+
     final target = c.stage;
     if (target == _settling) return; // already on it (or underway)
 
@@ -150,6 +169,12 @@ class _StageHostState extends State<StageHost> {
     // this is invisible on screen; the body entrance starts right after.
     if (widget.stageWindow != null) {
       await stageBounds(widget.stageWindow!, footprintFor(target));
+      // Panels carry the keyboard affordances (Esc, Enter): take the
+      // foreground when the stage opens. The orb-click entry already
+      // holds it; the hotkey entry does not, and Esc during recording
+      // is dead without it. The insertion target is safe — the engine
+      // noted it while handling StartSession, before this notify.
+      await widget.stageWindow!.focus();
     }
     if (!mounted || seq != _seq) return;
     setState(() {
