@@ -26,7 +26,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static ARMED: AtomicBool = AtomicBool::new(false);
 
 /// The one pure decision of the guard: swallow this key event or let it
-/// pass. Every input is already normalized by the caller.
+/// pass. Every input is already normalized by the caller. Only the
+/// Windows half calls it, but it stays cfg-free so its table tests run
+/// on the dev host.
+#[cfg_attr(not(windows), allow(dead_code))]
 fn classify(
     armed: bool,
     is_esc: bool,
@@ -39,8 +42,42 @@ fn classify(
 
 /// Arm or disarm the guard. Idempotent; called from any thread.
 pub fn set_armed(active: bool) {
-    ARMED.store(active, Ordering::SeqCst);
+    let was = ARMED.swap(active, Ordering::SeqCst);
+    if was != active {
+        probe(&format!("armed={active}"));
+    }
 }
+
+/// TEMPORARY diagnostic probe (e2e focus round): one line per event to
+/// esc-debug.log next to the exe, mirroring the Flutter-side probe.
+/// Delete together with its Flutter twin once the diagnosis lands.
+#[cfg(windows)]
+fn probe(line: &str) {
+    use std::io::Write;
+    let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Into::into))
+    else {
+        return;
+    };
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("esc-debug.log"))
+    else {
+        return;
+    };
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let _ = writeln!(file, "{ms} rust {line}");
+}
+
+/// Off Windows there is no log and no hook; the arm flag still exists so
+/// the bridge code stays cfg-free.
+#[cfg(not(windows))]
+fn probe(_line: &str) {}
 
 /// Install the keyboard hook. `on_cancel` fires (on a hook-thread context)
 /// when a swallow happens; it must be quick and non-blocking — it should
@@ -91,8 +128,12 @@ mod windows_impl {
                 .spawn(|| unsafe {
                     // Low-level hook callbacks are delivered to the
                     // installing thread while it pumps messages.
-                    if SetWindowsHookExW(WH_KEYBOARD_LL, Some(esc_proc), None, 0).is_err() {
-                        return; // degrade: the in-window Esc path remains
+                    match SetWindowsHookExW(WH_KEYBOARD_LL, Some(esc_proc), None, 0) {
+                        Ok(_) => probe("hook installed"),
+                        Err(_) => {
+                            probe("hook install FAILED");
+                            return; // degrade: the in-window Esc path remains
+                        }
                     }
                     let mut msg = MSG::default();
                     loop {
@@ -116,16 +157,28 @@ mod windows_impl {
         let key_down = wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN;
         if key_down {
             let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+            let is_esc = kbd.vkCode == VK_ESCAPE.0 as u32;
             let injected = (kbd.flags & LLKHF_INJECTED) != KBDLLHOOKSTRUCT_FLAGS(0);
+            let modifiers_down = PHYSICAL_MODIFIERS
+                .iter()
+                .any(|vk| (GetAsyncKeyState(vk.0 as i32)) < 0);
+            let own_foreground = foreground_is_own_process();
             let swallow = classify(
                 ARMED.load(Ordering::SeqCst),
-                kbd.vkCode == VK_ESCAPE.0 as u32,
+                is_esc,
                 injected,
-                PHYSICAL_MODIFIERS
-                    .iter()
-                    .any(|vk| (GetAsyncKeyState(vk.0 as i32)) < 0),
-                foreground_is_own_process(),
+                modifiers_down,
+                own_foreground,
             );
+            if is_esc {
+                probe(&format!(
+                    "esc armed={} injected={} mods={} own_fg={} => swallow={swallow}",
+                    ARMED.load(Ordering::SeqCst),
+                    injected,
+                    modifiers_down,
+                    own_foreground,
+                ));
+            }
             if swallow {
                 if let Some(on_cancel) = ON_CANCEL.get() {
                     on_cancel();

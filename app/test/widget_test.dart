@@ -313,6 +313,69 @@ void main() {
     await windDown(tester, controller);
   });
 
+  testWidgets('Esc still cancels recording in a session after a previous one', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+    // A first full session: its preview hands primary focus to the field,
+    // and its exit unfocuses to the enclosing scope. Without a re-claim,
+    // every later recording dispatches keys from the scope and the stage
+    // never sees them (real-machine round 3: Esc worked exactly once).
+    await pumpToPreview(tester, controller, gateway);
+    await controller.cancelSession();
+    await tester.pump(const Duration(milliseconds: 1200));
+
+    await pumpToRecording(tester, controller);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(gateway.commands, contains('cancelSession'));
+    expect(controller.phase, BridgeSessionState.idle);
+    await windDown(tester, controller);
+  });
+
+  testWidgets('the stage owns the keyboard through the session phases', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    // Recording and rectifying: the stage node is the primary focus, so
+    // Esc reaches the stage handler wherever the field left it.
+    await pumpToRecording(tester, controller);
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'stage-keyboard');
+
+    // Preview hands the keyboard to the editable field (its own re-claim
+    // on entry): edits, IME, and Enter live there.
+    await pumpToPreview(tester, controller, gateway);
+    expect(tester.widget<EditableText>(findSessionField()).focusNode.hasFocus, isTrue);
+
+    // Reroll returns to rectifying: the field is read-only again, the
+    // stage node takes the keyboard back.
+    await tester.tap(find.byKey(const Key('session-reroll')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'stage-keyboard');
+    await windDown(tester, controller);
+  });
+
+  testWidgets('the quick panel takes the keyboard when it opens', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    controller.orbSecondary();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'stage-keyboard');
+
+    // Esc closes the quick panel through the same stage handler.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.quickOpen, isFalse);
+    await windDown(tester, controller);
+  });
+
   testWidgets('the footer cancel button cancels during recording too', (
     tester,
   ) async {

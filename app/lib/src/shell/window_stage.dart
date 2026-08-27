@@ -30,6 +30,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../app_state.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeSessionState;
+import 'esc_probe.dart';
 import 'orb_button.dart';
 import 'quick_panel.dart';
 import '../session/session_panel.dart';
@@ -126,6 +127,17 @@ class _StageHostState extends State<StageHost> {
   /// The phase the stage window last took the keyboard for.
   BridgeSessionState? _focusedPhase;
 
+  /// Owns the Flutter keyboard while a panel is open: key events
+  /// dispatch from the primary focus node UP its ancestors, so the
+  /// stage must hold (or re-claim) primary focus for [_onKey] to fire.
+  /// Panels hand the keyboard down to their own fields when they need
+  /// it (the session field at preview, for edits and IME).
+  final FocusNode _keyboardNode = FocusNode(debugLabel: 'stage-keyboard');
+
+  /// The phase the stage node last claimed the keyboard for (guards the
+  /// mic-tick notifies, which fire ~20x/s during recording).
+  BridgeSessionState? _keyboardPhase;
+
   SpeechController get c => widget.controller;
 
   @override
@@ -137,6 +149,7 @@ class _StageHostState extends State<StageHost> {
   @override
   void dispose() {
     c.removeListener(_onChanged);
+    _keyboardNode.dispose();
     super.dispose();
   }
 
@@ -149,6 +162,18 @@ class _StageHostState extends State<StageHost> {
       widget.stageWindow!.focus();
     }
     _focusedPhase = c.phase;
+
+    // Entering recording/rectifying (re-)claims the Flutter keyboard for
+    // the stage node: a previous session's exit parks primary focus on
+    // the enclosing scope, and events dispatched from there never walk
+    // down into this subtree. Preview is exempt — the editable field
+    // takes the keyboard on entry and needs it for edits, IME, Enter.
+    if ((c.phase == BridgeSessionState.recording ||
+            c.phase == BridgeSessionState.rectifying) &&
+        _keyboardPhase != c.phase) {
+      _keyboardNode.requestFocus();
+    }
+    _keyboardPhase = c.phase;
 
     final target = c.stage;
     if (target == _settling) return; // already on it (or underway)
@@ -177,6 +202,10 @@ class _StageHostState extends State<StageHost> {
       await widget.stageWindow!.focus();
     }
     if (!mounted || seq != _seq) return;
+    // Panels carry the keyboard affordances: with the window foreground
+    // and the panel mounting fresh, the stage node takes the Flutter
+    // keyboard (the quick panel has no field of its own to hand it to).
+    _keyboardNode.requestFocus();
     setState(() {
       _displayed = target;
       _exiting = false;
@@ -207,6 +236,10 @@ class _StageHostState extends State<StageHost> {
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (event.logicalKey == LogicalKeyboardKey.escape) {
+      escProbe(
+        'saw esc phase=${c.phase.name} quick=${c.quickOpen} '
+        'primary=${FocusManager.instance.primaryFocus?.debugLabel}',
+      );
       c.escapeAction();
       return KeyEventResult.handled;
     }
@@ -229,6 +262,7 @@ class _StageHostState extends State<StageHost> {
       return const SizedBox.shrink();
     }
     return Focus(
+      focusNode: _keyboardNode,
       autofocus: true,
       onKeyEvent: _onKey,
       child: Stack(
