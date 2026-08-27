@@ -49,6 +49,7 @@ pub enum EngineError {
     AsrOpen(#[from] AsrOpenError),
 }
 
+#[derive(Clone)]
 pub struct Engine {
     inner: Arc<Inner>,
 }

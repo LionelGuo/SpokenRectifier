@@ -319,6 +319,18 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
         inserter: InserterSlot::Real(inserter),
         history,
     });
+    // The real engine owns the keyboard-wide Esc semantics: while a
+    // session is active, a bare Esc cancels it even when the session
+    // window lost (or never won) the foreground. The hook hands the
+    // cancel to the runtime and returns; it never blocks the hook thread.
+    crate::esc_guard::install(std::sync::Arc::new(|| {
+        if let Some(g) = GLOBAL.get() {
+            let engine = g.engine.clone();
+            g.rt.spawn(async move {
+                let _ = engine.execute(Command::Cancel).await;
+            });
+        }
+    }));
     Ok(())
 }
 
@@ -387,6 +399,9 @@ pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
         if let InserterSlot::Real(inserter) = &g.inserter {
             inserter.note_target();
         }
+        // Arm eagerly: the global Esc guard must be live before the state
+        // change event round-trips (the forwarder below corrects drift).
+        crate::esc_guard::set_armed(true);
     }
     // Ending a session also ends its fake speech feed.
     if let SpeechSource::Fake { feed, .. } = &g.source {
@@ -394,7 +409,14 @@ pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
             *feed.lock().unwrap() = None;
         }
     }
-    g.rt.block_on(g.engine.execute(command.into()))?;
+    let outcome = g.rt.block_on(g.engine.execute(command.clone().into()));
+    if matches!(command, BridgeCommand::StartSession) && outcome.is_err() {
+        // The session never opened (e.g. the microphone is busy): no state
+        // change will fire, so the eager arm above must be taken back —
+        // an armed guard at idle would eat a stranger's Esc.
+        crate::esc_guard::set_armed(false);
+    }
+    outcome?;
     Ok(())
 }
 
@@ -485,6 +507,18 @@ pub fn subscribe(sink: StreamSink<BridgeEventEnvelope>) -> anyhow::Result<()> {
         loop {
             match rx.recv().await {
                 Ok(envelope) => {
+                    // Authoritative arming for the global Esc guard: the
+                    // active phases keep it live, everything else disarms
+                    // (an idle Esc belongs to whatever app holds the
+                    // keyboard, e.g. closing the quick panel is ours).
+                    if let EngineEvent::SessionStateChanged { to, .. } = &envelope.event {
+                        crate::esc_guard::set_armed(matches!(
+                            to,
+                            SessionState::Recording
+                                | SessionState::Rectifying
+                                | SessionState::Preview
+                        ));
+                    }
                     if sink.add(envelope.into()).is_err() {
                         break; // Dart side gone
                     }
