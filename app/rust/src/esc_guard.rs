@@ -46,9 +46,11 @@ pub fn set_armed(active: bool) {
 /// when a swallow happens; it must be quick and non-blocking — it should
 /// hand the cancel off to a runtime, not await it. No-op off Windows and
 /// on a failed install (the in-window Esc path remains as the fallback).
-pub fn install(_on_cancel: std::sync::Arc<dyn Fn() + Send + Sync>) {
+pub fn install(on_cancel: std::sync::Arc<dyn Fn() + Send + Sync>) {
     #[cfg(windows)]
     install_windows(on_cancel);
+    #[cfg(not(windows))]
+    let _ = on_cancel;
 }
 
 // -- the Windows half ------------------------------------------------------
@@ -58,15 +60,13 @@ mod windows_impl {
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Once};
 
-    use windows::core::LRESULT;
-    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, KBDLLHOOKSTRUCT, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN,
-        VK_SHIFT,
+        GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW,
-        GetWindowThreadProcessId, SetWindowsHookExW, TranslateMessage, HHOOK,
+        GetWindowThreadProcessId, SetWindowsHookExW, TranslateMessage, HHOOK, KBDLLHOOKSTRUCT,
         KBDLLHOOKSTRUCT_FLAGS, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
     };
 
@@ -91,8 +91,7 @@ mod windows_impl {
                 .spawn(|| unsafe {
                     // Low-level hook callbacks are delivered to the
                     // installing thread while it pumps messages.
-                    let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(esc_proc), None, 0);
-                    if hook.is_invalid() {
+                    if SetWindowsHookExW(WH_KEYBOARD_LL, Some(esc_proc), None, 0).is_err() {
                         return; // degrade: the in-window Esc path remains
                     }
                     let mut msg = MSG::default();
@@ -114,7 +113,7 @@ mod windows_impl {
             // Contract: negative codes go straight down the chain.
             return CallNextHookEx(None, code, wparam, lparam);
         }
-        let key_down = wparam.0 as u32 == WM_KEYDOWN.0 || wparam.0 as u32 == WM_SYSKEYDOWN.0;
+        let key_down = wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN;
         if key_down {
             let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
             let injected = (kbd.flags & LLKHF_INJECTED) != KBDLLHOOKSTRUCT_FLAGS(0);
