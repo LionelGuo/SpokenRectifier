@@ -107,7 +107,7 @@ mod windows_impl {
         KBDLLHOOKSTRUCT_FLAGS, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
     };
 
-    use super::{classify, ARMED};
+    use super::{classify, probe, ARMED};
 
     /// What to do when the guard swallows an Esc (issues the engine
     /// Cancel). Process-wide: one hook serves the one engine the process
