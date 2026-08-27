@@ -6,14 +6,17 @@
 //! it lives in the crate's OS-agnostic orchestration and is covered by the
 //! fake-driven tests.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
-use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
+use windows::Win32::Foundation::{HANDLE, HGLOBAL, HMODULE, HWND};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
     GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
+};
+use windows::Win32::UI::Accessibility::{
+    EVENT_SYSTEM_FOREGROUND, HWINEVENTHOOK, OBJID_WINDOW, SetWinEventHook, WINEVENT_OUTOFCONTEXT,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
@@ -21,7 +24,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+    DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, IsWindow, MSG,
+    SetForegroundWindow, TranslateMessage,
 };
 
 use crate::os::{InjectedKey, InputOs, SavedClipboard, paced_paste_script};
@@ -45,6 +49,7 @@ pub struct Win32Os {
 
 impl Win32Os {
     pub fn new() -> Self {
+        track_last_foreign_foreground();
         Self {
             target: Mutex::new(None),
         }
@@ -141,13 +146,25 @@ impl InputOs for Win32Os {
 
     fn note_target(&self) {
         let hwnd = unsafe { GetForegroundWindow() };
-        if hwnd.is_invalid() || window_belongs_to_us(hwnd) {
-            // Our own window is foreground (the session started from a
-            // click on the orb, not the hotkey): remembering it would make
-            // us our own insertion target.
+        if !(hwnd.is_invalid() || window_belongs_to_us(hwnd)) {
+            *self.target.lock().unwrap() = Some(hwnd.0 as usize);
             return;
         }
-        *self.target.lock().unwrap() = Some(hwnd.0 as usize);
+        // Our own window is foreground — the session started from a click
+        // on the orb, which took the foreground away from the very app
+        // the user was typing in. Fall back to the last foreign window
+        // the tracker saw (the pre-click foreground) while it still
+        // exists; remembering our own window would make us our own
+        // insertion target.
+        let Some(last) = LAST_FOREIGN_FOREGROUND
+            .get()
+            .and_then(|cell| *cell.lock().unwrap())
+        else {
+            return;
+        };
+        if unsafe { IsWindow(HWND(last as *mut core::ffi::c_void)) }.as_bool() {
+            *self.target.lock().unwrap() = Some(last);
+        }
     }
 
     fn activate_target(&self) -> bool {
@@ -220,6 +237,71 @@ fn window_belongs_to_us(hwnd: HWND) -> bool {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     pid == std::process::id()
+}
+
+/// The last foreground window that was NOT ours. Process-wide because the
+/// Win32 event callback carries no context pointer, and one tracker
+/// serves the one inserter the process owns.
+static LAST_FOREIGN_FOREGROUND: OnceLock<Mutex<Option<usize>>> = OnceLock::new();
+
+/// Watch foreground changes for the process lifetime so
+/// [`Win32Os::note_target`] can fall back to the pre-click foreground
+/// when an orb-click start took the foreground to us first. The hook
+/// thread and handle are deliberately leaked: they are meant to live
+/// exactly as long as the process, which is the inserter's lifetime.
+fn track_last_foreign_foreground() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::thread::Builder::new()
+            .name("foreground-tracker".into())
+            .spawn(|| unsafe {
+                let hook = SetWinEventHook(
+                    EVENT_SYSTEM_FOREGROUND,
+                    EVENT_SYSTEM_FOREGROUND,
+                    HMODULE::default(),
+                    Some(foreground_changed),
+                    0,
+                    0,
+                    WINEVENT_OUTOFCONTEXT,
+                );
+                if hook.is_invalid() {
+                    return; // degrade: no fallback, hotkey starts still work
+                }
+                let mut msg = MSG::default();
+                // Out-of-context events are delivered while the thread
+                // pumps messages; the loop runs for the process lifetime.
+                loop {
+                    let fetched = GetMessageW(&mut msg, None, 0, 0);
+                    if fetched.0 == 0 || fetched.0 == -1 {
+                        break; // WM_QUIT, or an error worth bailing on
+                    }
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            })
+            .expect("spawn foreground tracker");
+    });
+}
+
+/// Records every foreign window that gains the foreground; our own
+/// activations are skipped so the pre-click window survives them.
+unsafe extern "system" fn foreground_changed(
+    _hook: HWINEVENTHOOK,
+    _event: u32,
+    hwnd: HWND,
+    id_object: i32,
+    _id_child: i32,
+    _event_thread: u32,
+    _event_time: u32,
+) {
+    if id_object != OBJID_WINDOW || hwnd.is_invalid() || !IsWindow(hwnd).as_bool() {
+        return;
+    }
+    if window_belongs_to_us(hwnd) {
+        return;
+    }
+    let cell = LAST_FOREIGN_FOREGROUND.get_or_init(|| Mutex::new(None));
+    *cell.lock().unwrap() = Some(hwnd.0 as usize);
 }
 
 // -- modifier gate ---------------------------------------------------------------
