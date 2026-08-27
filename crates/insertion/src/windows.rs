@@ -293,7 +293,7 @@ unsafe extern "system" fn foreground_changed(
     _event_thread: u32,
     _event_time: u32,
 ) {
-    if id_object != OBJID_WINDOW || hwnd.is_invalid() || !IsWindow(Some(hwnd)).as_bool() {
+    if id_object != OBJID_WINDOW.0 || hwnd.is_invalid() || !IsWindow(Some(hwnd)).as_bool() {
         return;
     }
     if window_belongs_to_us(hwnd) {
