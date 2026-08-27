@@ -30,7 +30,6 @@ import 'package:window_manager/window_manager.dart';
 import '../../app_state.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeSessionState;
-import 'esc_probe.dart';
 import 'orb_button.dart';
 import 'quick_panel.dart';
 import '../session/session_panel.dart';
@@ -236,10 +235,6 @@ class _StageHostState extends State<StageHost> {
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (event.logicalKey == LogicalKeyboardKey.escape) {
-      escProbe(
-        'saw esc phase=${c.phase.name} quick=${c.quickOpen} '
-        'primary=${FocusManager.instance.primaryFocus?.debugLabel}',
-      );
       c.escapeAction();
       return KeyEventResult.handled;
     }

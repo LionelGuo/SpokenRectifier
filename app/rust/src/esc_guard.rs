@@ -42,42 +42,8 @@ fn classify(
 
 /// Arm or disarm the guard. Idempotent; called from any thread.
 pub fn set_armed(active: bool) {
-    let was = ARMED.swap(active, Ordering::SeqCst);
-    if was != active {
-        probe(&format!("armed={active}"));
-    }
+    ARMED.store(active, Ordering::SeqCst);
 }
-
-/// TEMPORARY diagnostic probe (e2e focus round): one line per event to
-/// esc-debug.log next to the exe, mirroring the Flutter-side probe.
-/// Delete together with its Flutter twin once the diagnosis lands.
-#[cfg(windows)]
-fn probe(line: &str) {
-    use std::io::Write;
-    let Some(dir) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
-    else {
-        return;
-    };
-    let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("esc-debug.log"))
-    else {
-        return;
-    };
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let _ = writeln!(file, "{ms} rust {line}");
-}
-
-/// Off Windows there is no log and no hook; the arm flag still exists so
-/// the bridge code stays cfg-free.
-#[cfg(not(windows))]
-fn probe(_line: &str) {}
 
 /// Install the keyboard hook. `on_cancel` fires (on a hook-thread context)
 /// when a swallow happens; it must be quick and non-blocking — it should
@@ -107,7 +73,7 @@ mod windows_impl {
         KBDLLHOOKSTRUCT_FLAGS, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
     };
 
-    use super::{classify, probe, ARMED};
+    use super::{classify, ARMED};
 
     /// What to do when the guard swallows an Esc (issues the engine
     /// Cancel). Process-wide: one hook serves the one engine the process
@@ -128,12 +94,8 @@ mod windows_impl {
                 .spawn(|| unsafe {
                     // Low-level hook callbacks are delivered to the
                     // installing thread while it pumps messages.
-                    match SetWindowsHookExW(WH_KEYBOARD_LL, Some(esc_proc), None, 0) {
-                        Ok(_) => probe("hook installed"),
-                        Err(_) => {
-                            probe("hook install FAILED");
-                            return; // degrade: the in-window Esc path remains
-                        }
+                    if SetWindowsHookExW(WH_KEYBOARD_LL, Some(esc_proc), None, 0).is_err() {
+                        return; // degrade: the in-window Esc path remains
                     }
                     let mut msg = MSG::default();
                     loop {
@@ -170,15 +132,6 @@ mod windows_impl {
                 modifiers_down,
                 own_foreground,
             );
-            if is_esc {
-                probe(&format!(
-                    "esc armed={} injected={} mods={} own_fg={} => swallow={swallow}",
-                    ARMED.load(Ordering::SeqCst),
-                    injected,
-                    modifiers_down,
-                    own_foreground,
-                ));
-            }
             if swallow {
                 if let Some(on_cancel) = ON_CANCEL.get() {
                     on_cancel();
