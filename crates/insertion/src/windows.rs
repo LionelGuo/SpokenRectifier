@@ -8,24 +8,23 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use windows::Win32::Foundation::{HANDLE, HGLOBAL, HMODULE, HWND};
+use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
     GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
 };
-use windows::Win32::UI::Accessibility::{
-    EVENT_SYSTEM_FOREGROUND, HWINEVENTHOOK, OBJID_WINDOW, SetWinEventHook, WINEVENT_OUTOFCONTEXT,
-};
+use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU,
     VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, IsWindow, MSG,
-    SetForegroundWindow, TranslateMessage,
+    DispatchMessageW, EVENT_SYSTEM_FOREGROUND, GetForegroundWindow, GetMessageW,
+    GetWindowThreadProcessId, IsWindow, MSG, OBJID_WINDOW, SetForegroundWindow, TranslateMessage,
+    WINEVENT_OUTOFCONTEXT,
 };
 
 use crate::os::{InjectedKey, InputOs, SavedClipboard, paced_paste_script};
@@ -162,7 +161,7 @@ impl InputOs for Win32Os {
         else {
             return;
         };
-        if unsafe { IsWindow(HWND(last as *mut core::ffi::c_void)) }.as_bool() {
+        if unsafe { IsWindow(Some(HWND(last as *mut core::ffi::c_void))) }.as_bool() {
             *self.target.lock().unwrap() = Some(last);
         }
     }
@@ -258,7 +257,7 @@ fn track_last_foreign_foreground() {
                 let hook = SetWinEventHook(
                     EVENT_SYSTEM_FOREGROUND,
                     EVENT_SYSTEM_FOREGROUND,
-                    HMODULE::default(),
+                    None,
                     Some(foreground_changed),
                     0,
                     0,
@@ -294,7 +293,7 @@ unsafe extern "system" fn foreground_changed(
     _event_thread: u32,
     _event_time: u32,
 ) {
-    if id_object != OBJID_WINDOW || hwnd.is_invalid() || !IsWindow(hwnd).as_bool() {
+    if id_object != OBJID_WINDOW || hwnd.is_invalid() || !IsWindow(Some(hwnd)).as_bool() {
         return;
     }
     if window_belongs_to_us(hwnd) {
