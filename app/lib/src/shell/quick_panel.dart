@@ -119,13 +119,13 @@ class _QuickPanelState extends State<QuickPanel> {
                 Row(
                   children: [
                     Expanded(
-                      child: _TermField(pal: pal, controller: _termInput),
+                      child: _TermField(
+                        controller: _termInput,
+                        onAdd: _addTerm,
+                      ),
                     ),
                     const SizedBox(width: 8),
-                    _AddButton(
-                      pal: pal,
-                      onTap: () => _addTerm(),
-                    ),
+                    _AddButton(onTap: () => _addTerm(_termInput.text)),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -135,11 +135,7 @@ class _QuickPanelState extends State<QuickPanel> {
                     runSpacing: 8,
                     children: [
                       for (final term in c.terms)
-                        _TermChip(
-                          pal: pal,
-                          label: term,
-                          onRemoved: () => c.removeQuickTerm(term),
-                        ),
+                        _TermChip(label: term, onRemoved: () => c.removeQuickTerm(term)),
                     ],
                   ),
                 const SizedBox(height: 20),
@@ -155,11 +151,13 @@ class _QuickPanelState extends State<QuickPanel> {
                   )
                 else
                   for (final entry in c.recentHistory)
-                    _HistoryRow(pal: pal, entry: entry),
+                    _HistoryRow(
+                      entry: entry,
+                      onRerectify: c.rerectifyHistory,
+                    ),
                 const SizedBox(height: 20),
                 _sectionLabel(pal, '输入'),
                 _SwitchRow(
-                  pal: pal,
                   icon: Icons.notes_rounded,
                   label: '篇章模式',
                   caption: '停顿仅分段,不结束会话',
@@ -168,7 +166,7 @@ class _QuickPanelState extends State<QuickPanel> {
                 ),
                 const SizedBox(height: 20),
                 _sectionLabel(pal, '外观'),
-                _ThemeRow(controller: c, pal: pal),
+                _ThemeRow(controller: c),
                 // Anchor zone clearance.
                 const SizedBox(height: SrGeometry.anchorInset * 2),
               ],
@@ -179,10 +177,9 @@ class _QuickPanelState extends State<QuickPanel> {
     );
   }
 
-  /// Add the field's text as a term and keep the field ready for the
+  /// Add the given text as a term and keep the field ready for the
   /// next one (rapid entry stays in the field).
-  void _addTerm() {
-    final text = _termInput.text;
+  void _addTerm(String text) {
     if (text.trim().isEmpty) return;
     _termInput.clear();
     c.addQuickTerm(text);
@@ -211,7 +208,55 @@ String formatHistoryStamp({required DateTime at, required DateTime now}) {
 // Rows & controls
 // ---------------------------------------------------------------------------
 
-class _SelectableChip extends StatefulWidget {
+/// The shared hover machinery (MouseRegion + flag) every control below
+/// was copying; the builder gets the flag and paints its own hover
+/// states off the token palette.
+class _Hover extends StatefulWidget {
+  const _Hover({required this.builder});
+
+  final Widget Function(bool hover) builder;
+
+  @override
+  State<_Hover> createState() => _HoverState();
+}
+
+class _HoverState extends State<_Hover> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: widget.builder(_hover),
+    );
+  }
+}
+
+/// The shared chip cascade: the scenario quick-picks and the theme
+/// segments paint identically, differing only in layout density. Chips
+/// keep the plain control radius: the capsule is a corner-band
+/// privilege (spec §3).
+BoxDecoration _chipBox(
+  SrPalette pal, {
+  required bool selected,
+  required bool hover,
+}) => BoxDecoration(
+  color: selected ? pal.accentSoft : (hover ? pal.surfaceOverlay : pal.surfaceRaised),
+  borderRadius: BorderRadius.circular(SrRadius.control),
+  border: Border.all(
+    color: selected ? pal.accent.withValues(alpha: 0.55) : pal.hairline,
+  ),
+);
+
+TextStyle _chipText(SrPalette pal, {required bool selected}) =>
+    SrType.caption.copyWith(
+      color: selected ? pal.accentText : pal.textSecondary,
+      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    );
+
+/// A scenario quick-pick chip (dense, text only).
+class _SelectableChip extends StatelessWidget {
   const _SelectableChip({
     super.key,
     required this.label,
@@ -224,44 +269,60 @@ class _SelectableChip extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_SelectableChip> createState() => _SelectableChipState();
+  Widget build(BuildContext context) {
+    final pal = srPalette(context);
+    return _Hover(
+      builder: (hover) => GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: SrMotion.fast,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: _chipBox(pal, selected: selected, hover: hover),
+          child: Text(label, style: _chipText(pal, selected: selected)),
+        ),
+      ),
+    );
+  }
 }
 
-class _SelectableChipState extends State<_SelectableChip> {
-  bool _hover = false;
+/// One theme tri-state segment (fixed height, icon + label, centered —
+/// the row of three shares the width).
+class _ThemeSeg extends StatelessWidget {
+  const _ThemeSeg({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
+    return _Hover(
+      builder: (hover) => GestureDetector(
+        onTap: onTap,
         child: AnimatedContainer(
           duration: SrMotion.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? pal.accentSoft
-                : (_hover ? pal.surfaceOverlay : pal.surfaceRaised),
-            // Chips keep the plain control radius — the capsule is a
-            // corner-band privilege (spec §3).
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(
-              color: widget.selected
-                  ? pal.accent.withValues(alpha: 0.55)
-                  : pal.hairline,
-            ),
-          ),
-          child: Text(
-            widget.label,
-            style: SrType.caption.copyWith(
-              color: widget.selected ? pal.accentText : pal.textSecondary,
-              fontWeight: widget.selected
-                  ? FontWeight.w600
-                  : FontWeight.w400,
-            ),
+          height: 34,
+          alignment: Alignment.center,
+          decoration: _chipBox(pal, selected: selected, hover: hover),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 14,
+                color: selected ? pal.accentText : pal.textSecondary,
+              ),
+              const SizedBox(width: 5),
+              Text(label, style: _chipText(pal, selected: selected)),
+            ],
           ),
         ),
       ),
@@ -270,13 +331,14 @@ class _SelectableChipState extends State<_SelectableChip> {
 }
 
 class _TermField extends StatelessWidget {
-  const _TermField({required this.pal, required this.controller});
+  const _TermField({required this.controller, required this.onAdd});
 
-  final SrPalette pal;
   final TextEditingController controller;
+  final ValueChanged<String> onAdd;
 
   @override
   Widget build(BuildContext context) {
+    final pal = srPalette(context);
     return SizedBox(
       height: 32,
       child: TextField(
@@ -300,55 +362,39 @@ class _TermField extends StatelessWidget {
             borderSide: BorderSide(color: pal.accent.withValues(alpha: 0.6)),
           ),
         ),
-        // Enter commits the term (IME composition commits instead, the
-        // field's default); the add button shares _addTerm through the
-        // owning state.
-        onSubmitted: (_) => _submit(context),
+        // Enter commits the term (an IME composition commits instead,
+        // the field's default semantics); the add button walks the same
+        // callback.
+        onSubmitted: onAdd,
       ),
     );
   }
-
-  void _submit(BuildContext context) {
-    // Same path as the add button: keep the widget tree's one writer.
-    final state = context.findAncestorStateOfType<_QuickPanelState>();
-    state?._addTerm();
-  }
 }
 
-class _AddButton extends StatefulWidget {
-  const _AddButton({required this.pal, required this.onTap});
+class _AddButton extends StatelessWidget {
+  const _AddButton({required this.onTap});
 
-  final SrPalette pal;
   final VoidCallback onTap;
 
   @override
-  State<_AddButton> createState() => _AddButtonState();
-}
-
-class _AddButtonState extends State<_AddButton> {
-  bool _hover = false;
-
-  @override
   Widget build(BuildContext context) {
-    final pal = widget.pal;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
+    final pal = srPalette(context);
+    return _Hover(
+      builder: (hover) => GestureDetector(
+        onTap: onTap,
         child: AnimatedContainer(
           duration: SrMotion.fast,
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color: _hover ? pal.accent : pal.accentSoft,
+            color: hover ? pal.accent : pal.accentSoft,
             borderRadius: BorderRadius.circular(SrRadius.control),
           ),
           child: Icon(
             key: const Key('quick-term-add'),
             Icons.add_rounded,
             size: 18,
-            color: _hover ? pal.onAccent : pal.accentText,
+            color: hover ? pal.onAccent : pal.accentText,
           ),
         ),
       ),
@@ -356,31 +402,17 @@ class _AddButtonState extends State<_AddButton> {
   }
 }
 
-class _TermChip extends StatefulWidget {
-  const _TermChip({
-    required this.pal,
-    required this.label,
-    required this.onRemoved,
-  });
+class _TermChip extends StatelessWidget {
+  const _TermChip({required this.label, required this.onRemoved});
 
-  final SrPalette pal;
   final String label;
   final VoidCallback onRemoved;
 
   @override
-  State<_TermChip> createState() => _TermChipState();
-}
-
-class _TermChipState extends State<_TermChip> {
-  bool _hover = false;
-
-  @override
   Widget build(BuildContext context) {
-    final pal = widget.pal;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
+    final pal = srPalette(context);
+    return _Hover(
+      builder: (hover) => AnimatedContainer(
         duration: SrMotion.fast,
         padding: const EdgeInsets.fromLTRB(10, 5, 6, 5),
         decoration: BoxDecoration(
@@ -392,17 +424,17 @@ class _TermChipState extends State<_TermChip> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              widget.label,
+              label,
               style: SrType.caption.copyWith(color: pal.textSecondary),
             ),
             const SizedBox(width: 4),
             GestureDetector(
-              key: Key('quick-term-remove:${widget.label}'),
-              onTap: widget.onRemoved,
+              key: Key('quick-term-remove:$label'),
+              onTap: onRemoved,
               child: Icon(
                 Icons.close,
                 size: 12,
-                color: _hover ? pal.live : pal.textTertiary,
+                color: hover ? pal.live : pal.textTertiary,
               ),
             ),
           ],
@@ -412,40 +444,28 @@ class _TermChipState extends State<_TermChip> {
   }
 }
 
-class _HistoryRow extends StatefulWidget {
-  const _HistoryRow({required this.pal, required this.entry});
+class _HistoryRow extends StatelessWidget {
+  const _HistoryRow({required this.entry, required this.onRerectify});
 
-  final SrPalette pal;
   final BridgeHistoryEntry entry;
-
-  @override
-  State<_HistoryRow> createState() => _HistoryRowState();
-}
-
-class _HistoryRowState extends State<_HistoryRow> {
-  bool _hover = false;
-
-  SpeechController get _controller => context.findAncestorStateOfType<_QuickPanelState>()!.widget.controller;
+  final ValueChanged<String> onRerectify;
 
   @override
   Widget build(BuildContext context) {
-    final pal = widget.pal;
-    final entry = widget.entry;
+    final pal = srPalette(context);
     final stamp = formatHistoryStamp(
       at: DateTime.fromMillisecondsSinceEpoch(entry.createdAtMs.toInt()),
       now: DateTime.now(),
     );
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
+    return _Hover(
+      builder: (hover) => AnimatedContainer(
         duration: SrMotion.fast,
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: _hover ? pal.surfaceRaised : Colors.transparent,
+          color: hover ? pal.surfaceRaised : Colors.transparent,
           borderRadius: BorderRadius.circular(SrRadius.control),
-          border: Border.all(color: _hover ? pal.hairline : Colors.transparent),
+          border: Border.all(color: hover ? pal.hairline : Colors.transparent),
         ),
         child: Row(
           children: [
@@ -469,10 +489,9 @@ class _HistoryRowState extends State<_HistoryRow> {
             ),
             // 悬停显复制/重修 (spec §4.3): the actions exist only under
             // the pointer, so the resting rows stay quiet.
-            if (_hover) ...[
+            if (hover) ...[
               _HistoryAction(
                 key: Key('quick-history-copy:${entry.id}'),
-                pal: pal,
                 icon: Icons.copy_rounded,
                 tooltip: '复制原文',
                 onTap: () => Clipboard.setData(
@@ -482,10 +501,9 @@ class _HistoryRowState extends State<_HistoryRow> {
               const SizedBox(width: 10),
               _HistoryAction(
                 key: Key('quick-history-rerectify:${entry.id}'),
-                pal: pal,
                 icon: Icons.refresh_rounded,
                 tooltip: '重新修正',
-                onTap: () => _controller.rerectifyHistory(entry.rawTranscript),
+                onTap: () => onRerectify(entry.rawTranscript),
               ),
             ],
           ],
@@ -495,42 +513,31 @@ class _HistoryRowState extends State<_HistoryRow> {
   }
 }
 
-class _HistoryAction extends StatefulWidget {
+class _HistoryAction extends StatelessWidget {
   const _HistoryAction({
     super.key,
-    required this.pal,
     required this.icon,
     required this.tooltip,
     required this.onTap,
   });
 
-  final SrPalette pal;
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
 
   @override
-  State<_HistoryAction> createState() => _HistoryActionState();
-}
-
-class _HistoryActionState extends State<_HistoryAction> {
-  bool _hover = false;
-
-  @override
   Widget build(BuildContext context) {
-    final pal = widget.pal;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: Tooltip(
-        message: widget.tooltip,
+    final pal = srPalette(context);
+    return _Hover(
+      builder: (hover) => Tooltip(
+        message: tooltip,
         waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
-          onTap: widget.onTap,
+          onTap: onTap,
           child: Icon(
-            widget.icon,
+            icon,
             size: 15,
-            color: _hover ? pal.accentText : pal.textTertiary,
+            color: hover ? pal.accentText : pal.textTertiary,
           ),
         ),
       ),
@@ -540,7 +547,6 @@ class _HistoryActionState extends State<_HistoryAction> {
 
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
-    required this.pal,
     required this.icon,
     required this.label,
     required this.caption,
@@ -548,7 +554,6 @@ class _SwitchRow extends StatelessWidget {
     required this.onChanged,
   });
 
-  final SrPalette pal;
   final IconData icon;
   final String label;
   final String caption;
@@ -557,6 +562,7 @@ class _SwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final pal = srPalette(context);
     return Row(
       children: [
         Icon(icon, size: 16, color: pal.textSecondary),
@@ -579,10 +585,9 @@ class _SwitchRow extends StatelessWidget {
 }
 
 class _ThemeRow extends StatelessWidget {
-  const _ThemeRow({required this.controller, required this.pal});
+  const _ThemeRow({required this.controller});
 
   final SpeechController controller;
-  final SrPalette pal;
 
   static const _options = [
     (ThemeMode.light, '浅色', Icons.light_mode_outlined, 'quick-theme-light'),
@@ -600,7 +605,6 @@ class _ThemeRow extends StatelessWidget {
               padding: const EdgeInsets.only(right: 6),
               child: _ThemeSeg(
                 key: Key(key),
-                pal: pal,
                 icon: icon,
                 label: label,
                 selected: controller.themeMode == mode,
@@ -609,77 +613,6 @@ class _ThemeRow extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _ThemeSeg extends StatefulWidget {
-  const _ThemeSeg({
-    super.key,
-    required this.pal,
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final SrPalette pal;
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  State<_ThemeSeg> createState() => _ThemeSegState();
-}
-
-class _ThemeSegState extends State<_ThemeSeg> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = widget.pal;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: SrMotion.fast,
-          height: 34,
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? pal.accentSoft
-                : (_hover ? pal.surfaceOverlay : pal.surfaceRaised),
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(
-              color: widget.selected
-                  ? pal.accent.withValues(alpha: 0.55)
-                  : pal.hairline,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                widget.icon,
-                size: 14,
-                color: widget.selected ? pal.accentText : pal.textSecondary,
-              ),
-              const SizedBox(width: 5),
-              Text(
-                widget.label,
-                style: SrType.caption.copyWith(
-                  color: widget.selected ? pal.accentText : pal.textSecondary,
-                  fontWeight: widget.selected
-                      ? FontWeight.w600
-                      : FontWeight.w400,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

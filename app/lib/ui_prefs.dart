@@ -47,6 +47,18 @@ ThemeMode loadUiThemeMode(List<String> dirs) {
   return ThemeMode.system;
 }
 
+/// Whether a comment-stripped, trimmed line is the `theme` KEY — `theme`
+/// followed by `=` (whitespace between). The strict tail keeps future
+/// keys sharing the prefix (`theme_extra`) out of both halves below.
+final _themeKeyStart = RegExp(r'^theme\s*=');
+
+/// One line reduced to what the key rules see: comment stripped, trimmed.
+String _stripLine(String line) {
+  final comment = line.indexOf('#');
+  if (comment >= 0) line = line.substring(0, comment);
+  return line.trim();
+}
+
 /// Extract `theme = "light|dark|system"`, tolerating comments and
 /// spacing. Only the app's own writer and a human hand edit this file,
 /// so a one-key line parser is the whole grammar. The value must be a
@@ -55,10 +67,8 @@ ThemeMode loadUiThemeMode(List<String> dirs) {
 /// caller defaults to system), like the engine's own tolerant loaders.
 ThemeMode? _parseTheme(String text) {
   for (var line in text.split('\n')) {
-    final comment = line.indexOf('#');
-    if (comment >= 0) line = line.substring(0, comment);
-    line = line.trim();
-    if (!line.startsWith('theme')) continue;
+    line = _stripLine(line);
+    if (!_themeKeyStart.hasMatch(line)) continue;
     final match = RegExp('^theme\\s*=\\s*"(.*)"\\s*\$').firstMatch(line);
     if (match == null) return null; // theme key, broken syntax
     switch (match.group(1)) {
@@ -111,17 +121,14 @@ String _themeValue(ThemeMode mode) => switch (mode) {
 };
 
 /// Swap the `theme` key into `text`, preserving every other line. The
-/// key is located by the reader's own rule (first `theme`-prefixed,
-/// comment-stripped line); appending repairs a missing trailing newline
+/// key is located by the reader's own rule ([_themeKeyStart] over
+/// comment-stripped lines); appending repairs a missing trailing newline
 /// so the key never glues onto the current last line, and a replaced
 /// file always ends with exactly one (later keys append cleanly).
 String _withThemeLine(String text, String line) {
   final lines = text.split('\n');
   for (var i = 0; i < lines.length; i++) {
-    var probe = lines[i];
-    final comment = probe.indexOf('#');
-    if (comment >= 0) probe = probe.substring(0, comment);
-    if (probe.trim().startsWith('theme')) {
+    if (_themeKeyStart.hasMatch(_stripLine(lines[i]))) {
       lines[i] = line;
       return _withTrailingNewline(lines.join('\n'));
     }

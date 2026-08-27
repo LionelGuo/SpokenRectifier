@@ -24,6 +24,9 @@ class FakeGateway implements SpeechEngineGateway {
   /// When set, the next `openConfigFile` throws this.
   Object? failNextOpenConfig;
 
+  /// When set, the next `setPassageMode` throws this.
+  Object? failNextSetPassageMode;
+
   /// When set, the next `rectifyText` throws this.
   Object? failNextRectifyText;
 
@@ -186,6 +189,11 @@ class FakeGateway implements SpeechEngineGateway {
   @override
   Future<void> setPassageMode(bool on) async {
     commands.add('setPassageMode:$on');
+    if (failNextSetPassageMode != null) {
+      final failure = failNextSetPassageMode;
+      failNextSetPassageMode = null;
+      throw failure!;
+    }
     passage = on;
   }
 

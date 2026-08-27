@@ -900,6 +900,28 @@ void main() {
     expect(controller.passageMode, isTrue);
   });
 
+  testWidgets('a failed passage switch rolls the toggle back to the engine truth', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()..failNextSetPassageMode = StateError('engine gone');
+    final controller = await pumpController(tester, gateway);
+    await pumpQuickOpen(tester, controller);
+
+    await tester.tap(find.byKey(const Key('quick-passage')));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // The toggle mirrors engine state the next session runs with: a
+    // rejected switch must not paint a mode the engine never adopted.
+    expect(controller.passageMode, isTrue);
+    expect(gateway.passage, isTrue);
+    expect(controller.lastError, contains('篇章模式切换失败'));
+    // The switch still paints the truth.
+    expect(
+      (tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value,
+      isTrue,
+    );
+  });
+
   testWidgets('the theme tri-state repaints at once and persists for restarts', (
     tester,
   ) async {

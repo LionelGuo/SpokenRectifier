@@ -1,6 +1,8 @@
-/// The ui prefs file's write half (ticket 16): placement, in-place key
-/// replacement, preservation of lines the theme does not own, and the
-/// read/write round trip every mode has to survive.
+/// The app-owned UI preferences file: startup reads, tolerant parsing,
+/// the search order mirroring the engine's config search dirs — and the
+/// write half (ticket 16): placement, in-place key replacement,
+/// preservation of lines the theme does not own, and the read/write
+/// round trip every mode has to survive.
 
 library;
 
@@ -8,85 +10,159 @@ import 'dart:io';
 
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:spokenrectifier_app/ui_prefs.dart';
 
-Future<Directory> scratch(String name) async {
-  final dir = await Directory.systemTemp.createTemp(name);
-  addTearDown(() => dir.delete(recursive: true));
-  return dir;
-}
-
-Future<String> saved(Directory dir, ThemeMode mode) async {
-  saveUiThemeMode([dir.path], mode);
-  return File('${dir.path}/$uiPrefsFile').readAsString();
-}
-
 void main() {
-  test('a fresh write creates the file in the first directory', () async {
-    final one = await scratch('sr-ui-prefs-one-');
-    final two = await scratch('sr-ui-prefs-two-');
+  late Directory tmp;
 
-    expect(await saved(one, ThemeMode.dark), 'theme = "dark"\n');
-    expect(await File('${two.path}/$uiPrefsFile').exists(), isFalse);
+  setUp(() {
+    tmp = Directory.systemTemp.createTempSync('sr-ui-prefs');
   });
 
-  test('an existing file keeps ownership — never a shadowing copy', () async {
-    final one = await scratch('sr-ui-prefs-shadow-one-');
-    final two = await scratch('sr-ui-prefs-shadow-two-');
-    final existing = File('${two.path}/$uiPrefsFile');
-    await existing.writeAsString('theme = "light"\n');
+  tearDown(() {
+    tmp.deleteSync(recursive: true);
+  });
+
+  Directory dir(String name) {
+    final d = Directory('${tmp.path}/$name')..createSync();
+    return d;
+  }
+
+  test('a missing file reads as follow-the-system', () {
+    expect(loadUiThemeMode([dir('empty').path]), ThemeMode.system);
+  });
+
+  test('each legal value round-trips', () {
+    for (final (text, mode) in [
+      ('theme = "light"\n', ThemeMode.light),
+      ('theme = "dark"\n', ThemeMode.dark),
+      ('theme = "system"\n', ThemeMode.system),
+    ]) {
+      final d = dir('legal');
+      File('${d.path}/$uiPrefsFile').writeAsStringSync(text);
+      expect(loadUiThemeMode([d.path]), mode, reason: text);
+    }
+  });
+
+  test('comments, blank lines and spacing are tolerated', () {
+    final d = dir('noise');
+    File('${d.path}/$uiPrefsFile').writeAsStringSync(
+      '# SpokenRectifier UI preferences (written by the app)\n\n'
+      'theme = "dark"  # trailing note\n',
+    );
+    expect(loadUiThemeMode([d.path]), ThemeMode.dark);
+  });
+
+  test('unknown or malformed content degrades to system, never throws', () {
+    for (final text in ['theme = "sepia"\n', 'theme = dark\n', '[broken\n']) {
+      final d = dir('broken');
+      File('${d.path}/$uiPrefsFile').writeAsStringSync(text);
+      expect(loadUiThemeMode([d.path]), ThemeMode.system, reason: text);
+    }
+  });
+
+  test('the first directory holding the file wins', () {
+    final one = dir('one');
+    final two = dir('two');
+    File('${one.path}/$uiPrefsFile').writeAsStringSync('theme = "light"\n');
+    File('${two.path}/$uiPrefsFile').writeAsStringSync('theme = "dark"\n');
+    expect(loadUiThemeMode([one.path, two.path]), ThemeMode.light);
+    expect(loadUiThemeMode([two.path, one.path]), ThemeMode.dark);
+  });
+
+  test('an unreadable file is as good as absent', () {
+    final d = dir('locked');
+    final f = File('${d.path}/$uiPrefsFile')..writeAsStringSync('theme = "dark"\n');
+    // No portable "chmod 000" on Windows; delete instead and keep the
+    // read guarded by the same catch.
+    f.deleteSync();
+    expect(loadUiThemeMode([d.path]), ThemeMode.system);
+  });
+
+  test('a file with no theme key leaves the default untouched', () {
+    final d = dir('other-keys');
+    File('${d.path}/$uiPrefsFile').writeAsStringSync('future_key = 1\n');
+    expect(loadUiThemeMode([d.path]), ThemeMode.system);
+  });
+
+  // -- the write half (ticket 16) -------------------------------------------
+
+  test('a fresh write creates the file in the first directory', () {
+    final one = dir('fresh-one');
+    final two = dir('fresh-two');
+
+    saveUiThemeMode([one.path, two.path], ThemeMode.dark);
+
+    expect(
+      File('${one.path}/$uiPrefsFile').readAsStringSync(),
+      'theme = "dark"\n',
+    );
+    expect(File('${two.path}/$uiPrefsFile').existsSync(), isFalse);
+  });
+
+  test('an existing file keeps ownership — never a shadowing copy', () {
+    final one = dir('shadow-one');
+    final two = dir('shadow-two');
+    final existing = File('${two.path}/$uiPrefsFile')
+      ..writeAsStringSync('theme = "light"\n');
 
     saveUiThemeMode([one.path, two.path], ThemeMode.dark);
 
     // Written into the resolved file, nothing forked into the earlier
     // directory: a second copy would win the next startup read.
-    expect(await existing.readAsString(), 'theme = "dark"\n');
-    expect(await File('${one.path}/$uiPrefsFile').exists(), isFalse);
+    expect(existing.readAsStringSync(), 'theme = "dark"\n');
+    expect(File('${one.path}/$uiPrefsFile').existsSync(), isFalse);
     expect(loadUiThemeMode([one.path, two.path]), ThemeMode.dark);
   });
 
-  test('the write replaces the theme key in place and preserves the rest', () async {
-    final dir = await scratch('sr-ui-prefs-preserve-');
-    final file = File('${dir.path}/$uiPrefsFile');
+  test('the write replaces the theme key in place and preserves the rest', () {
+    final d = dir('preserve');
+    final file = File('${d.path}/$uiPrefsFile');
     // Later tickets own geometry keys here (orb position, panel size);
-    // a human hand may comment. All of it survives a theme flip.
-    await file.writeAsString(
-      '# app-owned\ntheme = "dark"\npanel_size = [420, 560]\n',
+    // a human hand may comment, and key names may share the theme
+    // prefix. All of it survives a theme flip untouched.
+    file.writeAsStringSync(
+      '# app-owned\ntheme = "dark"\npanel_size = [420, 560]\n'
+      'theme_extra = "kept"\n',
     );
 
-    expect(await saved(dir, ThemeMode.system),
-        '# app-owned\ntheme = "system"\npanel_size = [420, 560]\n');
+    saveUiThemeMode([d.path], ThemeMode.system);
+    expect(
+      file.readAsStringSync(),
+      '# app-owned\ntheme = "system"\npanel_size = [420, 560]\n'
+      'theme_extra = "kept"\n',
+    );
 
     // A commented-out theme line is not the key: the real one appends.
-    await file.writeAsString('# theme = "dark"\n');
-    expect(await saved(dir, ThemeMode.light), '# theme = "dark"\ntheme = "light"\n');
+    file.writeAsStringSync('# theme = "dark"\n');
+    saveUiThemeMode([d.path], ThemeMode.light);
+    expect(
+      file.readAsStringSync(),
+      '# theme = "dark"\ntheme = "light"\n',
+    );
 
     // A missing trailing newline is repaired, not glued onto.
-    await file.writeAsString('theme = "dark"');
-    expect(await saved(dir, ThemeMode.light), 'theme = "light"\n');
+    file.writeAsStringSync('theme = "dark"');
+    saveUiThemeMode([d.path], ThemeMode.light);
+    expect(file.readAsStringSync(), 'theme = "light"\n');
   });
 
-  test('every mode round trips through the reader', () async {
-    final dir = await scratch('sr-ui-prefs-round-trip-');
-    for (final mode in [
-      ThemeMode.light,
-      ThemeMode.dark,
-      ThemeMode.system,
-    ]) {
-      await saved(dir, mode);
-      expect(loadUiThemeMode([dir.path]), mode, reason: '$mode survived');
+  test('every mode round trips through the reader', () {
+    final d = dir('round-trip');
+    for (final mode in [ThemeMode.light, ThemeMode.dark, ThemeMode.system]) {
+      saveUiThemeMode([d.path], mode);
+      expect(loadUiThemeMode([d.path]), mode, reason: '$mode survived');
     }
   });
 
-  test('nowhere writable fails loudly instead of silently', () async {
+  test('nowhere writable fails loudly instead of silently', () {
     // A directory squatting on the file's path makes the existing-file
     // read itself blow up: the write must throw, never pass quietly.
-    final one = await scratch('sr-ui-prefs-locked-');
-    await Directory('${one.path}/$uiPrefsFile').create();
+    final d = dir('locked-write');
+    Directory('${d.path}/$uiPrefsFile').createSync();
 
     expect(
-      () => saveUiThemeMode([one.path], ThemeMode.light),
+      () => saveUiThemeMode([d.path], ThemeMode.light),
       throwsA(isA<FileSystemException>()),
     );
   });

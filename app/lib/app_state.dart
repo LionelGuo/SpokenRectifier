@@ -361,13 +361,18 @@ class SpeechController extends ChangeNotifier {
   }
 
   /// Toggle passage mode: the panel repaints at once, the engine adopts
-  /// it for the next session. Not persisted across launches.
+  /// it for the next session. A failed engine call rolls the paint back
+  /// — unlike the theme (app-local state), the toggle mirrors engine
+  /// state the next session will actually run with. Not persisted
+  /// across launches.
   Future<void> setPassageMode(bool on) async {
+    final was = passageMode;
     passageMode = on;
     notifyListeners();
     try {
       await gateway.setPassageMode(on);
     } catch (e) {
+      passageMode = was; // the engine never adopted it: paint the truth
       lastError = '篇章模式切换失败:$e';
       notifyListeners();
     }
@@ -570,13 +575,10 @@ class SpeechController extends ChangeNotifier {
         // (hotkey/orb) and rectifying alike: the history re-rectify path
         // enters through rectifying directly, and a panel left flagged
         // open would resurrect when that session ends.
-        if (switch (to) {
-          BridgeSessionState.recording ||
-          BridgeSessionState.rectifying ||
-          BridgeSessionState.preview =>
-            true,
-          _ => false,
-        }) {
+        final sessionActive = to == BridgeSessionState.recording ||
+            to == BridgeSessionState.rectifying ||
+            to == BridgeSessionState.preview;
+        if (sessionActive) {
           quickOpen = false;
         }
         if (to == BridgeSessionState.inserted) _flash(OrbFlash.inserted);
