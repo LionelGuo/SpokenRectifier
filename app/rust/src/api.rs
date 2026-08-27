@@ -415,6 +415,11 @@ pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
         // change will fire, so the eager arm above must be taken back —
         // an armed guard at idle would eat a stranger's Esc.
         crate::esc_guard::set_armed(false);
+        // The orb click that tried to start it still took the foreground;
+        // hand it straight back so the user keeps typing where they were.
+        if let InserterSlot::Real(inserter) = &g.inserter {
+            inserter.restore_focus();
+        }
     }
     outcome?;
     Ok(())

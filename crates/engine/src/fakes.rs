@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -259,10 +259,12 @@ impl RectifyLlm for ScriptedLlm {
 // ---------------------------------------------------------------------------
 
 /// Fake inserter: records every text handed to it; can be armed to fail
-/// once to exercise the insertion-failure path.
+/// once to exercise the insertion-failure path. Also counts
+/// [`TextInserter::restore_focus`] calls for the cancel-path assertions.
 pub struct FakeInserter {
     calls: Mutex<Vec<String>>,
     fail_next: AtomicBool,
+    focus_restores: AtomicUsize,
 }
 
 impl FakeInserter {
@@ -270,11 +272,17 @@ impl FakeInserter {
         Arc::new(Self {
             calls: Mutex::new(Vec::new()),
             fail_next: AtomicBool::new(false),
+            focus_restores: AtomicUsize::new(0),
         })
     }
 
     pub fn inserted_texts(&self) -> Vec<String> {
         self.calls.lock().unwrap().clone()
+    }
+
+    /// How many times a session end asked for the keyboard back.
+    pub fn focus_restore_count(&self) -> usize {
+        self.focus_restores.load(Ordering::SeqCst)
     }
 
     /// Make the next `insert` call fail once.
@@ -291,6 +299,10 @@ impl TextInserter for FakeInserter {
         }
         self.calls.lock().unwrap().push(text.to_string());
         Ok(())
+    }
+
+    fn restore_focus(&self) {
+        self.focus_restores.fetch_add(1, Ordering::SeqCst);
     }
 }
 

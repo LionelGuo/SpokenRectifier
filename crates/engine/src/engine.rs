@@ -425,11 +425,17 @@ impl Inner {
 
     /// Run a session through a transient terminal state (`Inserted` /
     /// `Cancelled`) and straight back to idle, releasing it. Terminal
-    /// states never persist, so no session can wedge.
+    /// states never persist, so no session can wedge. A cancelled end
+    /// also returns the keyboard: the panel borrowed the foreground, and
+    /// the user expects to keep typing where they were (the insert path
+    /// hands focus back itself while pasting).
     fn finish_session(&self, st: &mut SharedState, sid: SessionId, terminal: SessionState) {
         self.transition(st, sid, terminal);
         self.transition(st, sid, SessionState::Idle);
         st.session = None;
+        if terminal == SessionState::Cancelled {
+            self.inserter.restore_focus();
+        }
     }
 
     /// Emit a session-stream event only while it is still meaningful.

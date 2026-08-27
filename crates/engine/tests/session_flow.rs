@@ -68,6 +68,29 @@ async fn full_happy_path_event_sequence() {
     assert_eq!(h.inserter.inserted_texts(), vec!["修好"]);
     assert_eq!(h.engine.state(), SessionState::Idle);
     assert_eq!(h.asr.remaining_sessions(), 0);
+
+    // The insert path hands focus back itself while pasting; a confirmed
+    // session does not ALSO run the cancel-path restore.
+    assert_eq!(h.inserter.focus_restore_count(), 0);
+}
+
+#[tokio::test]
+async fn cancelled_sessions_return_the_keyboard() {
+    // The panel borrows the foreground for its affordances; ending
+    // without inserting must give it back (real-machine round 4: after
+    // Esc the target document sat unfocused and typing went nowhere).
+    let (h, mut rx) = harness(
+        EngineConfig::default(),
+        vec![vec![AsrStep::Say("一段".into())]],
+        vec![vec![LlmStep::Token("修好".into())]],
+    );
+
+    ok(&h.engine, Command::StartSession).await;
+    await_live(&mut rx, "一段").await;
+    ok(&h.engine, Command::Cancel).await;
+    await_state(&mut rx, SessionState::Idle).await;
+
+    assert_eq!(h.inserter.focus_restore_count(), 1);
 }
 
 #[tokio::test]

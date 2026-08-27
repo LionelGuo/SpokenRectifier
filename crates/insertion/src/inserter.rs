@@ -46,6 +46,17 @@ impl TargetInserter {
         self.os.note_target();
     }
 
+    /// Give the keyboard back on a cancelled session — but only what we
+    /// are holding: when our own window is the foreground, hand it to
+    /// the remembered target; when someone else has it (the target
+    /// itself on a hotkey session, or a window the user moved to
+    /// mid-session), leave it exactly where it is.
+    pub fn restore_focus(&self) {
+        if self.os.foreground_is_own_process() {
+            self.os.activate_target();
+        }
+    }
+
     fn insert_by_paste(&self, text: &str) -> Result<(), InsertError> {
         let saved = self
             .os
@@ -130,6 +141,10 @@ impl TextInserter for TargetInserter {
             InsertionMode::Paste => self.insert_by_paste(text),
             InsertionMode::Typing => self.insert_by_typing(text),
         }
+    }
+
+    fn restore_focus(&self) {
+        TargetInserter::restore_focus(self);
     }
 }
 
@@ -478,6 +493,26 @@ mod tests {
         let fake = Arc::new(FakeOs::new());
         let err = insert(&fake, InsertionMode::Paste, "").await.unwrap_err();
         assert!(err.0.contains("nothing to insert"), "got: {}", err.0);
+        assert!(fake.calls().is_empty());
+    }
+
+    // -- focus restore ---------------------------------------------------
+
+    #[test]
+    fn restore_focus_hands_the_keyboard_back_when_we_hold_it() {
+        let fake = Arc::new(FakeOs::new());
+        fake.own_foreground.store(true, Ordering::SeqCst);
+        inserter(&fake, InsertionMode::Paste).restore_focus();
+        assert_eq!(fake.calls(), vec![OsCall::Activate(true)]);
+    }
+
+    #[test]
+    fn restore_focus_leaves_a_foreign_foreground_alone() {
+        let fake = Arc::new(FakeOs::new());
+        fake.own_foreground.store(false, Ordering::SeqCst);
+        inserter(&fake, InsertionMode::Paste).restore_focus();
+        // The user (or the target itself) holds the keyboard: nothing to
+        // return, nothing touched.
         assert!(fake.calls().is_empty());
     }
 }
