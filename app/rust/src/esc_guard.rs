@@ -56,7 +56,7 @@ fn probe(line: &str) {
     use std::io::Write;
     let Some(dir) = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(Into::into))
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
     else {
         return;
     };
