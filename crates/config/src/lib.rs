@@ -134,6 +134,18 @@ pub fn find_file(dirs: &[PathBuf], file: &str) -> Option<PathBuf> {
     dirs.iter().map(|dir| dir.join(file)).find(|p| p.is_file())
 }
 
+/// Where the app's own created files land when nothing exists yet:
+/// beside the local layer file if one exists (the user's config home),
+/// else the last search directory (the executable's directory — a
+/// portable app's stable home; a double-clicked app's working directory
+/// is arbitrary). One rule for every app-owned file's first write.
+pub fn settings_home(dirs: &[PathBuf]) -> PathBuf {
+    find_file(dirs, LOCAL_FILE)
+        .and_then(|local| local.parent().map(|dir| dir.to_path_buf()))
+        .or_else(|| dirs.last().cloned())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// Read and parse one layer file. `Ok(None)` for a file that cannot be
 /// read: layers are optional, and an unreadable one is as good as absent.
 /// Parse failures name the file with a line and column — never the TOML

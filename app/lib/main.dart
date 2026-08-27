@@ -78,7 +78,7 @@ Future<void> main() async {
   await TrayManager.instance.setIcon('assets/tray_icon.ico');
 
   // The theme rides the app-owned prefs file (missing file = follow the
-  // system); the switcher and its write-back arrive with ticket 16.
+  // system); the quick panel's tri-state switcher writes it back.
   final controller = SpeechController(
     gateway: RustSpeechEngineGateway(),
     themeMode: loadUiThemeMode(uiPrefsSearchDirs()),
@@ -89,6 +89,9 @@ Future<void> main() async {
   // Paint the scenario pickers from the library file (empty library =
   // pickers hidden; selection always starts on the default register).
   await controller.loadScenarios();
+  // The quick panel's passage-mode toggle paints the engine's current
+  // value (config-seeded; never persisted).
+  await controller.loadPassageMode();
 
   await _installHotkey(controller);
 

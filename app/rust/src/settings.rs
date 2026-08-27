@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use spokenrectifier_config::{LOCAL_FILE, SHARED_FILE};
+use spokenrectifier_config::{find_file, settings_home, SHARED_FILE};
 
 /// What a freshly created config stub says. Minimal on purpose: the full
 /// schema lives in `spokenrectifier.example.toml` next to the source.
@@ -27,19 +27,14 @@ const STUB: &str = "\
 
 /// The shared config file the settings entry opens: the first one the
 /// layer search would load, or — when no shared file exists anywhere — a
-/// commented stub, created where settings already live (beside the local
-/// layer file if one exists, else beside the executable, whose directory
-/// is a portable app's stable home; a double-clicked app's working
-/// directory is arbitrary).
+/// commented stub, created where the app's owned files live
+/// ([`settings_home`]: beside the local layer file if one exists, else
+/// beside the executable).
 pub fn ensure_shared_config(dirs: &[PathBuf]) -> std::io::Result<PathBuf> {
-    if let Some(found) = spokenrectifier_config::find_file(dirs, SHARED_FILE) {
+    if let Some(found) = find_file(dirs, SHARED_FILE) {
         return Ok(found);
     }
-    let home = spokenrectifier_config::find_file(dirs, LOCAL_FILE)
-        .and_then(|local| local.parent().map(|dir| dir.to_path_buf()))
-        .or_else(|| dirs.last().cloned())
-        .unwrap_or_else(|| PathBuf::from("."));
-    let path = home.join(SHARED_FILE);
+    let path = settings_home(dirs).join(SHARED_FILE);
     if !path.exists() {
         std::fs::write(&path, STUB)?;
     }
@@ -49,6 +44,7 @@ pub fn ensure_shared_config(dirs: &[PathBuf]) -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spokenrectifier_config::LOCAL_FILE;
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(name);

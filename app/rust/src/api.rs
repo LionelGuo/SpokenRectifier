@@ -58,6 +58,11 @@ pub enum BridgeCommand {
     SetStyleDirective {
         directive: Option<String>,
     },
+    /// Passage mode (篇章模式) as it stands now — the value the next
+    /// session opens with (the engine snapshots it per session).
+    SetPassageMode {
+        on: bool,
+    },
     /// History retrieval re-running a past utterance (see `RectifyText`).
     RectifyText {
         raw_transcript: String,
@@ -160,6 +165,7 @@ impl From<BridgeCommand> for Command {
             BridgeCommand::Reroll => Command::Reroll,
             BridgeCommand::UpdatePreviewText { text } => Command::UpdatePreviewText(text),
             BridgeCommand::SetStyleDirective { directive } => Command::SetStyleDirective(directive),
+            BridgeCommand::SetPassageMode { on } => Command::SetPassageMode(on),
             BridgeCommand::RectifyText { raw_transcript } => Command::RectifyText(raw_transcript),
         }
     }
@@ -430,6 +436,48 @@ pub fn state() -> anyhow::Result<BridgeSessionState> {
     Ok(global()?.engine.state().into())
 }
 
+/// Passage mode as it stands now (config-seeded, runtime-switched) —
+/// what the quick panel's toggle paints and what the next session opens
+/// with.
+pub fn passage_mode() -> anyhow::Result<bool> {
+    Ok(global()?.engine.passage_mode())
+}
+
+/// Hand the keyboard back to the remembered target window — the quick
+/// panel's own close path. Self-guarded on the inserter side: a foreign
+/// foreground (or no remembered target) is left alone, exactly like the
+/// cancel-path restore. No-op on the fake engine.
+pub fn restore_focus() -> anyhow::Result<()> {
+    if let InserterSlot::Real(inserter) = &global()?.inserter {
+        inserter.restore_focus();
+    }
+    Ok(())
+}
+
+/// The hotword dictionary as it stands now, in file order — the quick
+/// panel's term chips. File-level, engine-independent (the engine
+/// re-reads the file when the next session opens, which is what makes a
+/// quick-added term live for that session).
+pub fn terms_list() -> anyhow::Result<Vec<String>> {
+    Ok(spokenrectifier_config::terms::load_terms(
+        &spokenrectifier_config::search_dirs(),
+    ))
+}
+
+/// Quick-add one term to the dictionary (idempotent; blank rejected).
+/// See [`spokenrectifier_config::terms::append_term`] for the placement
+/// and repair rules.
+pub fn append_term(term: String) -> anyhow::Result<()> {
+    spokenrectifier_config::terms::append_term(&spokenrectifier_config::search_dirs(), &term)
+        .map_err(|err| anyhow!("cannot add the term: {err}"))
+}
+
+/// Remove a term from the dictionary (a no-op when absent).
+pub fn remove_term(term: String) -> anyhow::Result<()> {
+    spokenrectifier_config::terms::remove_term(&spokenrectifier_config::search_dirs(), &term)
+        .map_err(|err| anyhow!("cannot remove the term: {err}"))
+}
+
 /// The scenario library (场景库): user-named style directives from the
 /// app-owned `spokenrectifier-scenarios.toml`. A missing or corrupt file
 /// reads as an empty library — this never errors and never writes. The
@@ -680,6 +728,28 @@ mod tests {
         })
         .unwrap();
         execute(BridgeCommand::SetStyleDirective { directive: None }).unwrap();
+    }
+
+    /// The passage-mode switch rides the wire any time and reads back
+    /// through the panel's getter (config default: on).
+    #[test]
+    fn passage_mode_round_trips_the_wire() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        assert!(passage_mode().unwrap());
+        execute(BridgeCommand::SetPassageMode { on: false }).unwrap();
+        assert!(!passage_mode().unwrap());
+        execute(BridgeCommand::SetPassageMode { on: true }).unwrap();
+        assert!(passage_mode().unwrap());
+    }
+
+    /// The quick panel's close-restore is a quiet no-op on the fake
+    /// engine (tests and demos hold no target window).
+    #[test]
+    fn restore_focus_is_a_noop_on_the_fake_engine() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        restore_focus().unwrap();
     }
 
     /// The demo host runs indefinitely: sessions keep working no matter how

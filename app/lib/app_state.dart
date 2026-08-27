@@ -20,6 +20,7 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'src/design/tokens.dart' show SrMotion;
 import 'src/rust/api.dart';
 import 'src/shell/session_flow.dart';
+import 'ui_prefs.dart';
 
 /// Everything the controller needs from the engine bridge.
 abstract class SpeechEngineGateway {
@@ -32,6 +33,12 @@ abstract class SpeechEngineGateway {
   Future<void> rectifyText(String rawTranscript);
   Future<List<BridgeScenario>> scenarios();
   Future<void> setStyleDirective(String? directive);
+  Future<bool> passageMode();
+  Future<void> setPassageMode(bool on);
+  Future<List<String>> termsList();
+  Future<void> appendTerm(String term);
+  Future<void> removeTerm(String term);
+  Future<void> restoreFocus();
   Future<void> openConfigFile();
   Future<List<BridgeHistoryEntry>> historyList();
   Future<void> historyClear();
@@ -54,7 +61,8 @@ class SpeechController extends ChangeNotifier {
     this.scriptedPhrases = const [],
     this.speechInterval = const Duration(milliseconds: 900),
     this.themeMode = ThemeMode.system,
-  }) {
+    List<String>? uiPrefsDirs,
+  }) : uiPrefsDirs = uiPrefsDirs ?? uiPrefsSearchDirs() {
     // onError: a subscribe against a not-yet-created engine emits a stream
     // error; the command paths surface the same failure with better
     // wording, so swallow it here instead of leaving it unhandled.
@@ -103,9 +111,13 @@ class SpeechController extends ChangeNotifier {
   OrbFlash orbFlash = OrbFlash.none;
 
   /// UI theme, seeded at startup from `spokenrectifier-ui.toml` (missing
-  /// file = follow the system). The switcher and the write-back land with
-  /// ticket 16's quick panel.
+  /// file = follow the system). The quick panel's tri-state switcher
+  /// repaints it at once and writes it back — the read/write loop.
   ThemeMode themeMode;
+
+  /// Where the theme write-back lands (the app-owned prefs file's search
+  /// directories); injectable so tests point it at a scratch directory.
+  final List<String> uiPrefsDirs;
 
   /// Whether the quick panel (同形同位互斥) is open over the idle orb.
   /// Only ever true while idle: a session start force-closes it.
@@ -166,11 +178,15 @@ class SpeechController extends ChangeNotifier {
   /// panel-close role (a session start force-closes the quick panel).
   Future<void> hotkeyToggle() => dispatchInput(SessionInput.primary);
 
-  /// Right click — quick panel, idle only (会话期无右键).
+  /// Right click — quick panel, idle only (会话期无右键). The lists the
+  /// panel paints refresh as it opens; the shell shows what it has and
+  /// the fresh data lands a moment later.
   void orbSecondary() {
     if (phase != BridgeSessionState.idle) return;
     quickOpen = true;
     notifyListeners();
+    unawaited(loadTerms());
+    unawaited(loadRecentHistory());
   }
 
   /// Esc is context-sensitive at stage level: close the quick panel
@@ -193,6 +209,11 @@ class SpeechController extends ChangeNotifier {
     if (!quickOpen) return;
     quickOpen = false;
     notifyListeners();
+    // The panel borrowed the foreground while it was open; hand it back
+    // the way a cancelled session does. Self-guarded on the inserter
+    // side (a foreign foreground is left alone); a failed restore is
+    // not actionable — the user simply clicks where they meant to go.
+    unawaited(gateway.restoreFocus().catchError((Object _) {}));
   }
 
   Future<void> startSession() async {
@@ -320,6 +341,124 @@ class SpeechController extends ChangeNotifier {
     return null;
   }
 
+  // ---- the quick panel's own state ---------------------------------------
+
+  /// Passage mode (篇章模式) as the engine holds it: silence only marks
+  /// paragraphs vs. a long silence auto-ends. Seeded from the engine at
+  /// startup; a switch applies from the next session on and never
+  /// persists (a session-lifetime setting, like the scenario selection).
+  bool passageMode = true;
+
+  /// Load the engine's current passage mode for the panel's first paint.
+  /// A failed read keeps the built-in default (on).
+  Future<void> loadPassageMode() async {
+    try {
+      passageMode = await gateway.passageMode();
+    } catch (_) {
+      passageMode = true;
+    }
+    notifyListeners();
+  }
+
+  /// Toggle passage mode: the panel repaints at once, the engine adopts
+  /// it for the next session. Not persisted across launches.
+  Future<void> setPassageMode(bool on) async {
+    passageMode = on;
+    notifyListeners();
+    try {
+      await gateway.setPassageMode(on);
+    } catch (e) {
+      lastError = '篇章模式切换失败:$e';
+      notifyListeners();
+    }
+  }
+
+  /// The hotword dictionary as it stands (file order) — the quick
+  /// panel's term chips. The file is the single source: after every
+  /// quick-add or removal the list re-reads it, so the chips and the
+  /// next session's recognition bias can never disagree.
+  List<String> terms = const [];
+
+  Future<void> loadTerms() async {
+    try {
+      terms = await gateway.termsList();
+    } catch (_) {
+      terms = const []; // decorative: never block the panel on it
+    }
+    notifyListeners();
+  }
+
+  /// Quick-add one term (trimmed; blank is a no-op — the panel's add
+  /// affordance is disabled for blank input anyway).
+  Future<void> addQuickTerm(String term) async {
+    final trimmed = term.trim();
+    if (trimmed.isEmpty) return;
+    try {
+      await gateway.appendTerm(trimmed);
+      await loadTerms();
+    } catch (e) {
+      lastError = '术语添加失败:$e';
+      notifyListeners();
+    }
+  }
+
+  /// Remove a term's line from the dictionary file.
+  Future<void> removeQuickTerm(String term) async {
+    try {
+      await gateway.removeTerm(term);
+      await loadTerms();
+    } catch (e) {
+      lastError = '术语删除失败:$e';
+      notifyListeners();
+    }
+  }
+
+  /// The most recent stored sessions, newest first — the quick panel's
+  /// history rows. Full browsing and management live in the settings
+  /// window (ticket 18); the tray keeps its one-click clear.
+  List<BridgeHistoryEntry> recentHistory = const [];
+
+  /// How many history rows the quick panel lists.
+  static const recentHistoryCount = 3;
+
+  Future<void> loadRecentHistory() async {
+    try {
+      final all = await gateway.historyList();
+      recentHistory = all.take(recentHistoryCount).toList();
+    } catch (_) {
+      recentHistory = const [];
+    }
+    notifyListeners();
+  }
+
+  /// History retrieval: re-run a past utterance through rectification
+  /// (the panel's 重新修正). The session window takes over from the
+  /// panel; reroll, edit, and insert all work as after a recording.
+  Future<void> rerectifyHistory(String rawTranscript) async {
+    try {
+      await gateway.rectifyText(rawTranscript);
+    } catch (e) {
+      lastError = '重新修正失败:$e';
+      notifyListeners();
+    }
+  }
+
+  /// Pick a theme segment (浅色/深色/跟随系统): the surfaces repaint at
+  /// once — the app root listens to this controller — and the selection
+  /// persists to the app-owned `spokenrectifier-ui.toml`, closing the
+  /// read/write loop. A failed write surfaces on the error banner but
+  /// keeps the on-screen mode: the user sees what they got.
+  Future<void> setThemeMode(ThemeMode mode) async {
+    themeMode = mode;
+    notifyListeners();
+    try {
+      saveUiThemeMode(uiPrefsDirs, mode);
+    } catch (e) {
+      lastError = '主题保存失败:$e';
+      notifyListeners();
+    }
+  }
+
   /// Open the shared config file in the system editor — the tray's
   /// settings entry. A first run creates a commented stub to open; a
   /// failed spawn (nothing to open with, unwritable stub location)
@@ -339,10 +478,11 @@ class SpeechController extends ChangeNotifier {
   }
 
   /// One-click clear (tray menu): wipe every stored session. The
-  /// browsing surface for history moves to the quick panel (ticket 16)
-  /// and the settings window (ticket 18); the tray keeps only this.
+  /// browsing surface for history lives in the quick panel and the
+  /// settings window (ticket 18); the tray keeps only this.
   Future<void> clearHistory() async {
     await gateway.historyClear();
+    recentHistory = const [];
     notifyListeners();
   }
 
@@ -421,12 +561,23 @@ class SpeechController extends ChangeNotifier {
           paragraphMarks = 0;
           speaking = false;
           recordStartedAt = DateTime.now();
-          // A new session takes over from the quick panel.
-          quickOpen = false;
           _startMicBreath();
         } else {
           recordStartedAt = null;
           _stopMicBreath();
+        }
+        // An active session takes over from the quick panel — recording
+        // (hotkey/orb) and rectifying alike: the history re-rectify path
+        // enters through rectifying directly, and a panel left flagged
+        // open would resurrect when that session ends.
+        if (switch (to) {
+          BridgeSessionState.recording ||
+          BridgeSessionState.rectifying ||
+          BridgeSessionState.preview =>
+            true,
+          _ => false,
+        }) {
+          quickOpen = false;
         }
         if (to == BridgeSessionState.inserted) _flash(OrbFlash.inserted);
         if (to == BridgeSessionState.cancelled) _flash(OrbFlash.cancelled);

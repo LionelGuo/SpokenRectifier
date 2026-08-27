@@ -24,6 +24,9 @@ class FakeGateway implements SpeechEngineGateway {
   /// When set, the next `openConfigFile` throws this.
   Object? failNextOpenConfig;
 
+  /// When set, the next `rectifyText` throws this.
+  Object? failNextRectifyText;
+
   /// Stored sessions, mirroring the engine's history recording: each
   /// confirmInsert appends one entry (raw = the last live transcript, as
   /// the engine records the session's frozen utterance). Tests seed or
@@ -37,6 +40,17 @@ class FakeGateway implements SpeechEngineGateway {
 
   /// The scenario library `scenarios()` hands back.
   final scenarioLibrary = <BridgeScenario>[];
+
+  /// Passage mode as the engine holds it; `passageMode()` reads it and
+  /// `setPassageMode` writes it.
+  bool passage = true;
+
+  /// The dictionary `termsList()` hands back; quick-add/remove mutate it
+  /// with the same trim/dedup/blank-reject rules as the file-backed one.
+  final dictionary = <String>[];
+
+  /// When set, the next `appendTerm` throws this.
+  Object? failNextAppendTerm;
 
   final _events = StreamController<BridgeEventEnvelope>.broadcast();
   int _seq = 0;
@@ -129,6 +143,11 @@ class FakeGateway implements SpeechEngineGateway {
   @override
   Future<void> rectifyText(String rawTranscript) async {
     commands.add('rectifyText:$rawTranscript');
+    if (failNextRectifyText != null) {
+      final failure = failNextRectifyText;
+      failNextRectifyText = null;
+      throw failure!;
+    }
     // Mirror the engine: straight into rectifying, the utterance's
     // transcript published for the preview's raw comparison, then the
     // streamed result ending in preview.
@@ -156,6 +175,50 @@ class FakeGateway implements SpeechEngineGateway {
       failNextSetStyleDirective = null;
       throw failure!;
     }
+  }
+
+  @override
+  Future<bool> passageMode() async {
+    commands.add('passageMode');
+    return passage;
+  }
+
+  @override
+  Future<void> setPassageMode(bool on) async {
+    commands.add('setPassageMode:$on');
+    passage = on;
+  }
+
+  @override
+  Future<List<String>> termsList() async {
+    commands.add('termsList');
+    return List.of(dictionary);
+  }
+
+  @override
+  Future<void> appendTerm(String term) async {
+    commands.add('appendTerm:$term');
+    if (failNextAppendTerm != null) {
+      final failure = failNextAppendTerm;
+      failNextAppendTerm = null;
+      throw failure!;
+    }
+    final trimmed = term.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('a term may not be blank');
+    }
+    if (!dictionary.contains(trimmed)) dictionary.add(trimmed);
+  }
+
+  @override
+  Future<void> removeTerm(String term) async {
+    commands.add('removeTerm:$term');
+    dictionary.removeWhere((t) => t == term.trim());
+  }
+
+  @override
+  Future<void> restoreFocus() async {
+    commands.add('restoreFocus');
   }
 
   @override

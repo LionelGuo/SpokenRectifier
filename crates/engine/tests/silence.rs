@@ -166,6 +166,47 @@ async fn passage_mode_paragraph_threshold_is_configurable() {
 }
 
 #[tokio::test]
+async fn set_passage_mode_applies_from_the_next_session_on() {
+    let (h, mut rx) = harness(
+        EngineConfig::default(), // passage mode on at construction
+        vec![
+            vec![
+                AsrStep::Say("第一场".into()),
+                // Past the auto-end threshold, but this session opened in
+                // passage mode: a paragraph, not an end.
+                AsrStep::Silence(3000),
+            ],
+            vec![
+                AsrStep::Say("第二场".into()),
+                // The same silence in the next session (opened after the
+                // switch): auto-end.
+                AsrStep::Silence(3000),
+            ],
+        ],
+        vec![vec![LlmStep::Token("修好".into())]],
+    );
+
+    ok(&h.engine, Command::StartSession).await;
+    assert!(h.engine.passage_mode());
+
+    // Switch mid-session: the running session keeps the semantics it
+    // opened with — the switch applies from the next session on.
+    ok(&h.engine, Command::SetPassageMode(false)).await;
+    assert!(!h.engine.passage_mode());
+    next_matching(&mut rx, |env| env.event == EngineEvent::ParagraphMarked).await;
+    expect_quiet(&mut rx, 50).await;
+    assert_eq!(h.engine.state(), SessionState::Recording);
+    ok(&h.engine, Command::Cancel).await;
+    await_state(&mut rx, SessionState::Idle).await;
+
+    // The next session opened with the switch in effect: the same 3 s
+    // silence now ends it.
+    ok(&h.engine, Command::StartSession).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(h.llm.call_count(), 1);
+}
+
+#[tokio::test]
 async fn silence_before_any_speech_marks_nothing() {
     let (h, mut rx) = harness(
         EngineConfig::default(),

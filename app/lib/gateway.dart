@@ -46,6 +46,25 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
       );
 
   @override
+  Future<bool> passageMode() => rust.passageMode();
+
+  @override
+  Future<void> setPassageMode(bool on) =>
+      rust.execute(command: rust.BridgeCommand.setPassageMode(on_: on));
+
+  @override
+  Future<List<String>> termsList() => rust.termsList();
+
+  @override
+  Future<void> appendTerm(String term) => rust.appendTerm(term: term);
+
+  @override
+  Future<void> removeTerm(String term) => rust.removeTerm(term: term);
+
+  @override
+  Future<void> restoreFocus() => rust.restoreFocus();
+
+  @override
   Future<void> openConfigFile() => rust.openConfigFile();
 
   @override

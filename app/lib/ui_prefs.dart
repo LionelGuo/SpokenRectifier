@@ -4,7 +4,9 @@
 /// directory, not in the user-authored config layers (ADR-0004).
 ///
 /// Ticket 15 reads at startup (missing file = follow the system);
-/// ticket 16's quick-panel switcher does the writing.
+/// ticket 16's quick-panel switcher does the writing. Later tickets add
+/// geometry keys (orb position, panel size) to the same file — the
+/// writer preserves every line it does not own.
 
 library;
 
@@ -71,3 +73,62 @@ ThemeMode? _parseTheme(String text) {
   }
   return null;
 }
+
+/// Persist the theme selection (the quick panel's tri-state). The write
+/// goes to the file the reader resolves — never a second copy, which
+/// would shadow the first on the next startup read — and only when no
+/// file exists anywhere does it land in the first directory that
+/// accepts a write. Every other line (comments, the geometry keys later
+/// tickets own) survives verbatim; a `theme` key the reader would
+/// recognize is replaced in place. Throws when nothing is writable.
+void saveUiThemeMode(List<String> dirs, ThemeMode mode) {
+  final line = 'theme = "${_themeValue(mode)}"';
+  for (final dir in dirs) {
+    final file = File('$dir/$uiPrefsFile');
+    if (!file.existsSync()) continue;
+    // An existing file owns the key wherever it lives: a failed write
+    // here is a real failure, not a reason to fork a shadowing copy.
+    file.writeAsStringSync(_withThemeLine(file.readAsStringSync(), line));
+    return;
+  }
+  for (final dir in dirs) {
+    try {
+      File('$dir/$uiPrefsFile').writeAsStringSync('$line\n');
+      return;
+    } on FileSystemException {
+      continue; // not writable: the next directory gets its chance
+    }
+  }
+  throw const FileSystemException(
+    'no writable directory for the ui prefs file',
+  );
+}
+
+String _themeValue(ThemeMode mode) => switch (mode) {
+  ThemeMode.light => 'light',
+  ThemeMode.dark => 'dark',
+  ThemeMode.system => 'system',
+};
+
+/// Swap the `theme` key into `text`, preserving every other line. The
+/// key is located by the reader's own rule (first `theme`-prefixed,
+/// comment-stripped line); appending repairs a missing trailing newline
+/// so the key never glues onto the current last line, and a replaced
+/// file always ends with exactly one (later keys append cleanly).
+String _withThemeLine(String text, String line) {
+  final lines = text.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var probe = lines[i];
+    final comment = probe.indexOf('#');
+    if (comment >= 0) probe = probe.substring(0, comment);
+    if (probe.trim().startsWith('theme')) {
+      lines[i] = line;
+      return _withTrailingNewline(lines.join('\n'));
+    }
+  }
+  final prefix = text.isEmpty || text.endsWith('\n') ? '' : '\n';
+  return '$text$prefix$line\n';
+}
+
+String _withTrailingNewline(String text) =>
+    text.isEmpty || text.endsWith('\n') ? text : '$text\n';

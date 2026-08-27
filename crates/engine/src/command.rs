@@ -30,4 +30,9 @@ pub enum Command {
     /// scenario names). `None` returns to the built-in default register.
     /// Valid any time.
     SetStyleDirective(Option<String>),
+    /// Toggle passage mode (篇章模式) at runtime: silence only marks
+    /// paragraphs vs. a long silence auto-ends the session. Snapshotted
+    /// when a session opens, so a switch applies from the next session
+    /// on. Valid any time.
+    SetPassageMode(bool),
 }

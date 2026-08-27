@@ -5,7 +5,9 @@
 
 library;
 
-import 'package:flutter/gestures.dart' show kSecondaryButton;
+import 'dart:io';
+
+import 'package:flutter/gestures.dart' show kSecondaryButton, PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,11 +16,14 @@ import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgeScenario, BridgeSessionState;
+    show BridgeEvent, BridgeHistoryEntry, BridgeScenario, BridgeSessionState;
+import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
+    show formatHistoryStamp;
 import 'package:spokenrectifier_app/src/shell/session_flow.dart'
     show StageKind;
 import 'package:spokenrectifier_app/src/shell/window_stage.dart' as stage
     show GrowthDirection, StageWindow, stageBounds;
+import 'package:spokenrectifier_app/ui_prefs.dart';
 
 import 'fake_gateway.dart';
 
@@ -635,7 +640,7 @@ void main() {
     expect(find.byIcon(Icons.mic_none_rounded), findsNothing);
   });
 
-  testWidgets('the quick panel placeholder opens from an idle right-click', (
+  testWidgets('the quick panel opens from an idle right-click with its sections', (
     tester,
   ) async {
     final gateway = FakeGateway();
@@ -655,7 +660,16 @@ void main() {
 
     expect(controller.stage, StageKind.quick);
     expect(find.text('快捷设置'), findsOneWidget);
-    expect(find.byKey(const Key('quick-placeholder')), findsOneWidget);
+    // The sections paint: terms, passage, theme. The scenario section
+    // hides with an empty library; history shows its empty hint.
+    expect(find.text('术语速加'), findsOneWidget);
+    expect(find.text('历史'), findsOneWidget);
+    expect(find.byKey(const Key('quick-history-empty')), findsOneWidget);
+    expect(find.text('输入'), findsOneWidget);
+    expect(find.text('外观'), findsOneWidget);
+    expect(find.text('场景'), findsNothing);
+    // Opening refreshed the panel's lists.
+    expect(gateway.commands, containsAll(['termsList', 'historyList']));
     // Same footprint as the session window, corner still pinned.
     expect(window.bounds.last.size, SrGeometry.panelSize);
     // The quick panel's Esc-to-close affordance needs the keyboard too.
@@ -663,11 +677,13 @@ void main() {
     // The orb is now the close button.
     expect(find.byIcon(Icons.close), findsOneWidget);
 
-    // The orb-as-close collapses back to the orb footprint.
+    // The orb-as-close collapses back to the orb footprint — and hands
+    // the keyboard back to the remembered target (挂账 from ticket 15).
     await tester.tap(find.byIcon(Icons.close));
     await tester.pump(const Duration(milliseconds: 350));
     expect(controller.stage, StageKind.orb);
     expect(window.bounds.last.size, SrGeometry.orbFootprint);
+    expect(gateway.commands, contains('restoreFocus'));
   });
 
   testWidgets('Esc closes the quick panel without touching the session', (
@@ -699,6 +715,253 @@ void main() {
     expect(controller.stage, StageKind.session);
     expect(find.text('聆听中'), findsOneWidget);
     await windDown(tester, controller);
+  });
+
+  // -- the quick panel's sections (ticket 16) -------------------------------
+
+  /// Opens the quick panel and lets the refreshed lists land.
+  Future<void> pumpQuickOpen(WidgetTester tester, SpeechController c) async {
+    c.orbSecondary();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
+  }
+
+  /// Hovers the mouse over `finder` (hover-revealed affordances).
+  Future<void> hoverOver(WidgetTester tester, Finder finder) async {
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: tester.getCenter(finder));
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+  }
+
+  testWidgets('quick scenario chips are the third selector of the same pick', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()
+      ..scenarioLibrary.add(const BridgeScenario(
+        name: 'Prompt 工程',
+        directive: '输出将直接用作 AI 提示词',
+      ));
+    final controller = await pumpController(tester, gateway);
+    await controller.loadScenarios();
+    await pumpQuickOpen(tester, controller);
+
+    // The section paints with the library: 默认 plus every entry.
+    expect(find.text('场景'), findsOneWidget);
+    expect(find.byKey(const Key('quick-scenario-default')), findsOneWidget);
+    expect(find.byKey(const Key('quick-scenario:Prompt 工程')), findsOneWidget);
+
+    // Picking here is the same shared entry the chip and the tray use:
+    // the directive goes to the engine, the session chip would follow.
+    await tester.tap(find.byKey(const Key('quick-scenario:Prompt 工程')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.selectedScenario, 'Prompt 工程');
+    expect(gateway.commands, contains('setStyleDirective:输出将直接用作 AI 提示词'));
+
+    await tester.tap(find.byKey(const Key('quick-scenario-default')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.selectedScenario, isNull);
+    expect(gateway.commands, contains('setStyleDirective:null'));
+  });
+
+  testWidgets('quick terms add via Enter and the button, remove via the chip', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+    await pumpQuickOpen(tester, controller);
+
+    // Enter commits the field's text as a term (IME composition commits
+    // instead — the field's default semantics).
+    await tester.enterText(find.byKey(const Key('quick-term-field')), '新术语');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands, contains('appendTerm:新术语'));
+    expect(find.text('新术语'), findsOneWidget); // the chip landed
+
+    // The add button walks the same path.
+    await tester.enterText(find.byKey(const Key('quick-term-field')), '术语乙');
+    await tester.tap(find.byKey(const Key('quick-term-add')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands, contains('appendTerm:术语乙'));
+
+    // Blank input adds nothing.
+    await tester.enterText(find.byKey(const Key('quick-term-field')), '   ');
+    await tester.tap(find.byKey(const Key('quick-term-add')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(
+      gateway.commands.where((c) => c.startsWith('appendTerm:')),
+      hasLength(2),
+    );
+
+    // The chip's ✕ removes the line from the dictionary.
+    await tester.tap(find.byKey(const Key('quick-term-remove:新术语')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands, contains('removeTerm:新术语'));
+    expect(find.text('新术语'), findsNothing);
+  });
+
+  testWidgets('history rows copy the raw and re-rectify takes the session window', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    for (var i = 1; i <= 4; i++) {
+      gateway.historyEntries.add(BridgeHistoryEntry(
+        id: i,
+        createdAtMs: BigInt.from(i),
+        rawTranscript: '第$i句原话',
+        rectifiedText: '第$i句修正',
+      ));
+    }
+    final controller = await pumpController(tester, gateway);
+    await pumpQuickOpen(tester, controller);
+
+    // Three rows — the fourth stays in the store, not the panel.
+    expect(find.textContaining('句原话'), findsNWidgets(3));
+
+    // The actions reveal under the pointer (悬停显复制/重修).
+    final row = find.text('第1句原话');
+    expect(find.byKey(const Key('quick-history-copy:1')), findsNothing);
+    await hoverOver(tester, row);
+    expect(find.byKey(const Key('quick-history-copy:1')), findsOneWidget);
+    expect(find.byKey(const Key('quick-history-rerectify:1')), findsOneWidget);
+
+    // Copy puts the raw transcript on the clipboard.
+    String? copied;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = call.arguments['text'] as String?;
+          }
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+    await tester.tap(find.byKey(const Key('quick-history-copy:1')));
+    await tester.pump();
+    expect(copied, '第1句原话');
+
+    // Re-rectify: the session window takes over from the panel, the
+    // utterance re-runs through rectification (the fake streams it to
+    // preview in one step; the engine's path is the same takeover).
+    await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands, contains('rectifyText:第1句原话'));
+    expect(controller.phase, BridgeSessionState.preview);
+    expect(controller.stage, StageKind.session);
+    expect(controller.quickOpen, isFalse);
+
+    // And when that session ends, the orb rests — the panel does not
+    // resurrect from the stale flag.
+    await controller.cancelSession();
+    await tester.pump(const Duration(milliseconds: 1200));
+    expect(controller.stage, StageKind.orb);
+  });
+
+  testWidgets('a failed re-rectify surfaces on the panel instead of vanishing', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()
+      ..historyEntries.add(BridgeHistoryEntry(
+        id: 1,
+        createdAtMs: BigInt.one,
+        rawTranscript: '原话',
+        rectifiedText: '修正',
+      ))
+      ..failNextRectifyText = StateError('engine gone');
+    final controller = await pumpController(tester, gateway);
+    await pumpQuickOpen(tester, controller);
+
+    await hoverOver(tester, find.text('原话'));
+    await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(controller.lastError, contains('重新修正失败'));
+    expect(controller.stage, StageKind.quick); // the panel is still up
+  });
+
+  testWidgets('the passage switch toggles the engine flag', (tester) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+    await controller.loadPassageMode(); // engine says on
+    await pumpQuickOpen(tester, controller);
+
+    expect((tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value, isTrue);
+    await tester.tap(find.byKey(const Key('quick-passage')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands, contains('setPassageMode:false'));
+    expect(controller.passageMode, isFalse);
+
+    await tester.tap(find.byKey(const Key('quick-passage')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands, contains('setPassageMode:true'));
+    expect(controller.passageMode, isTrue);
+  });
+
+  testWidgets('the theme tri-state repaints at once and persists for restarts', (
+    tester,
+  ) async {
+    // Sync IO: async dart:io futures never complete inside the widget-test
+    // zone on this host (WSL quirk, probed and confirmed).
+    final dir = Directory.systemTemp.createTempSync('sr-ui-prefs-widget-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final gateway = FakeGateway();
+    final controller = SpeechController(
+      gateway: gateway,
+      scriptedPhrases: const [],
+      uiPrefsDirs: [dir.path],
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      SpokenRectifierApp(controller: controller, stageWindow: null),
+    );
+    await pumpQuickOpen(tester, controller);
+
+    // The 外观 section sits below the fold of the scrollable list:
+    // bring it into view before tapping its segments.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('quick-theme-dark')),
+      find.byType(Scrollable),
+      const Offset(0, -40),
+    );
+    await tester.pumpAndSettle();
+
+    // Dark: the surfaces repaint immediately and the file says so.
+    // (A plain frame first — the theme-mode swap lands on the frame
+    // after the rebuild in the test scheduler; sync IO throughout, see
+    // the temp-dir note above.)
+    await tester.tap(find.byKey(const Key('quick-theme-dark')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.themeMode, ThemeMode.dark);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Container &&
+            w.decoration is BoxDecoration &&
+            (w.decoration as BoxDecoration).color == SrPalette.dark.surface,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+      'theme = "dark"\n',
+    );
+
+    // Light: the write replaces the key in place, not a second file.
+    await tester.tap(find.byKey(const Key('quick-theme-light')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.themeMode, ThemeMode.light);
+    expect(
+      File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+      'theme = "light"\n',
+    );
+
+    // A fresh controller reads the same file back (restart persistence).
+    expect(loadUiThemeMode([dir.path]), ThemeMode.light);
   });
 
   testWidgets('rectifying keeps the panel footprint — reroll never resizes', (
@@ -830,6 +1093,38 @@ void main() {
       expect(
         (await grown(stage.GrowthDirection.downRight)).bounds.last,
         const Rect.fromLTRB(100, 200, 520, 760),
+      );
+    });
+  });
+
+  group('history row stamps', () {
+    final now = DateTime(2026, 8, 28, 15, 0);
+
+    test('today shows the clock', () {
+      expect(
+        formatHistoryStamp(at: DateTime(2026, 8, 28, 9, 5), now: now),
+        '09:05',
+      );
+    });
+
+    test('yesterday says so', () {
+      expect(
+        formatHistoryStamp(at: DateTime(2026, 8, 27, 21, 4), now: now),
+        '昨天 21:04',
+      );
+    });
+
+    test('same year carries the date without the year', () {
+      expect(
+        formatHistoryStamp(at: DateTime(2026, 3, 2, 8, 30), now: now),
+        '3月2日 08:30',
+      );
+    });
+
+    test('another year carries the year too', () {
+      expect(
+        formatHistoryStamp(at: DateTime(2025, 12, 31, 23, 59), now: now),
+        '2025年12月31日 23:59',
       );
     });
   });

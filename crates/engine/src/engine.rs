@@ -60,6 +60,11 @@ struct Inner {
     /// built-in default register). Read fresh when each rectify request
     /// is built, so a switch any time shapes the next attempt.
     style_directive: RwLock<Option<String>>,
+    /// Passage mode as it stands now, seeded from the config at
+    /// construction and switched at runtime (quick panel). Snapshotted
+    /// when each session opens, so a switch applies from the next
+    /// session on.
+    passage_mode: RwLock<bool>,
     asr: Arc<dyn AsrProvider>,
     llm: Arc<dyn RectifyLlm>,
     inserter: Arc<dyn TextInserter>,
@@ -86,6 +91,9 @@ struct Session {
     /// session's recognition bias and rectify term reference both read it,
     /// so mid-session dictionary edits wait for the next session.
     terms: Vec<String>,
+    /// Passage mode snapshotted when the session opened, so a runtime
+    /// switch applies from the next session on.
+    passage_mode: bool,
     /// Paragraphs closed by a paragraph mark.
     paragraphs: Vec<String>,
     /// Finalized speech since the last paragraph mark.
@@ -122,6 +130,7 @@ impl Engine {
         Self {
             inner: Arc::new(Inner {
                 style_directive: RwLock::new(None),
+                passage_mode: RwLock::new(config.passage_mode),
                 config,
                 asr: deps.asr,
                 llm: deps.llm,
@@ -150,6 +159,12 @@ impl Engine {
     /// Current session state, for introspection and CLI display.
     pub fn state(&self) -> SessionState {
         self.inner.state_lock().state
+    }
+
+    /// Passage mode as it stands now (config-seeded, runtime-switched) —
+    /// the value the NEXT session opens with. For the panel's toggle.
+    pub fn passage_mode(&self) -> bool {
+        *self.inner.passage_mode.read().unwrap()
     }
 
     /// Submit a command. Returns `Err` only for rejected commands (wrong
@@ -194,6 +209,10 @@ impl Engine {
                     directive.filter(|text| !text.trim().is_empty());
                 Ok(())
             }
+            Command::SetPassageMode(on) => {
+                *self.inner.passage_mode.write().unwrap() = on;
+                Ok(())
+            }
         }
     }
 
@@ -218,7 +237,7 @@ impl Engine {
             // The command gate serializes commands, so we are still idle.
             let id = SessionId(st.next_session_id);
             st.next_session_id += 1;
-            let session = Session::new(id, terms);
+            let session = Session::new(id, terms, self.inner.current_passage_mode());
             let cancel = session.asr_cancel.clone();
             st.session = Some(session);
             self.inner.transition(&mut st, id, SessionState::Recording);
@@ -249,7 +268,11 @@ impl Engine {
             let paragraphs: Vec<String> = raw_transcript.split('\n').map(str::to_string).collect();
             let id = SessionId(st.next_session_id);
             st.next_session_id += 1;
-            let mut session = Session::new(id, self.inner.current_terms());
+            let mut session = Session::new(
+                id,
+                self.inner.current_terms(),
+                self.inner.current_passage_mode(),
+            );
             session.frozen = Some(FrozenUtterance {
                 raw_transcript: raw_transcript.clone(),
                 paragraphs: paragraphs.clone(),
@@ -401,6 +424,13 @@ impl Inner {
     /// attempt (first stop, reroll, and history re-rectify alike).
     fn current_style_directive(&self) -> Option<String> {
         self.style_directive.read().unwrap().clone()
+    }
+
+    /// Passage mode for a session about to open — the runtime-switchable
+    /// value, snapshotted into the session so later switches cannot
+    /// change a running session's semantics.
+    fn current_passage_mode(&self) -> bool {
+        *self.passage_mode.read().unwrap()
     }
 
     /// Emit an event; the guard must be held so `seq` order can never
@@ -557,11 +587,12 @@ fn begin_rectify(inner: &Arc<Inner>) {
 impl Session {
     /// A fresh session: nothing said, nothing frozen. Both session
     /// openings (recording, history re-rectify) start from this shape,
-    /// each snapshotting the dictionary as it opens.
-    fn new(id: SessionId, terms: Vec<String>) -> Self {
+    /// each snapshotting the dictionary and passage mode as it opens.
+    fn new(id: SessionId, terms: Vec<String>, passage_mode: bool) -> Self {
         Self {
             id,
             terms,
+            passage_mode,
             paragraphs: Vec::new(),
             current_paragraph: String::new(),
             partial: String::new(),
@@ -635,7 +666,7 @@ async fn consume_asr(
                         inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
                     }
                     AsrEvent::Silence { elapsed_ms } => {
-                        if inner.config.passage_mode {
+                        if session.passage_mode {
                             // Only mark a paragraph when speech happened
                             // since the last mark: silence before talking
                             // marks nothing. Transcript text is not required

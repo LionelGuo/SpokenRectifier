@@ -42,6 +42,33 @@ Future<void> execute({required BridgeCommand command}) =>
 /// Current session state, for initial paint before any event arrives.
 Future<BridgeSessionState> state() => RustLib.instance.api.crateApiState();
 
+/// Passage mode as it stands now (config-seeded, runtime-switched) —
+/// what the quick panel's toggle paints and what the next session opens
+/// with.
+Future<bool> passageMode() => RustLib.instance.api.crateApiPassageMode();
+
+/// Hand the keyboard back to the remembered target window — the quick
+/// panel's own close path. Self-guarded on the inserter side: a foreign
+/// foreground (or no remembered target) is left alone, exactly like the
+/// cancel-path restore. No-op on the fake engine.
+Future<void> restoreFocus() => RustLib.instance.api.crateApiRestoreFocus();
+
+/// The hotword dictionary as it stands now, in file order — the quick
+/// panel's term chips. File-level, engine-independent (the engine
+/// re-reads the file when the next session opens, which is what makes a
+/// quick-added term live for that session).
+Future<List<String>> termsList() => RustLib.instance.api.crateApiTermsList();
+
+/// Quick-add one term to the dictionary (idempotent; blank rejected).
+/// See [`spokenrectifier_config::terms::append_term`] for the placement
+/// and repair rules.
+Future<void> appendTerm({required String term}) =>
+    RustLib.instance.api.crateApiAppendTerm(term: term);
+
+/// Remove a term from the dictionary (a no-op when absent).
+Future<void> removeTerm({required String term}) =>
+    RustLib.instance.api.crateApiRemoveTerm(term: term);
+
 /// The scenario library (场景库): user-named style directives from the
 /// app-owned `spokenrectifier-scenarios.toml`. A missing or corrupt file
 /// reads as an empty library — this never errors and never writes. The
@@ -109,6 +136,11 @@ sealed class BridgeCommand with _$BridgeCommand {
   /// scenario names.
   const factory BridgeCommand.setStyleDirective({String? directive}) =
       BridgeCommand_SetStyleDirective;
+
+  /// Passage mode (篇章模式) as it stands now — the value the next
+  /// session opens with (the engine snapshots it per session).
+  const factory BridgeCommand.setPassageMode({required bool on_}) =
+      BridgeCommand_SetPassageMode;
 
   /// History retrieval re-running a past utterance (see `RectifyText`).
   const factory BridgeCommand.rectifyText({required String rawTranscript}) =

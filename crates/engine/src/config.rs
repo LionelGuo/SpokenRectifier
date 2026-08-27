@@ -5,7 +5,9 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineConfig {
     /// Passage mode (篇章模式): silence only marks paragraphs; the session
-    /// ends only on explicit stop. Default on.
+    /// ends only on explicit stop. Default on. This field is the
+    /// construction-time value; the runtime switch is
+    /// [`Command::SetPassageMode`](crate::Command::SetPassageMode).
     pub passage_mode: bool,
     /// Silence duration that marks a paragraph in passage mode.
     pub paragraph_silence_ms: u64,
