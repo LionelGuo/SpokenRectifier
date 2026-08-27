@@ -257,7 +257,7 @@ fn track_last_foreign_foreground() {
         std::thread::Builder::new()
             .name("foreground-tracker".into())
             .spawn(|| unsafe {
-                let hook = SetWinEventHook(
+                let _hook = SetWinEventHook(
                     EVENT_SYSTEM_FOREGROUND,
                     EVENT_SYSTEM_FOREGROUND,
                     None,
