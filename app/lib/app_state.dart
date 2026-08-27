@@ -1,16 +1,25 @@
 /// App state: the speech controller mirrors engine events into UI state
 /// and drives the fake speech while recording.
 ///
+/// User inputs (orb clicks, hotkey, Enter/Esc) all route through the
+/// pure [flowAction] table in session_flow.dart — the single source the
+/// orb position and the hotkey main flow share (ticket 15). The engine
+/// stays authoritative for the phase; this controller only translates.
+///
 /// The engine access is behind [SpeechEngineGateway] so widget tests run
 /// with a pure-Dart fake — no Rust dylib needed.
 
 library;
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 
+import 'src/design/tokens.dart' show SrMotion;
 import 'src/rust/api.dart';
+import 'src/shell/session_flow.dart';
 
 /// Everything the controller needs from the engine bridge.
 abstract class SpeechEngineGateway {
@@ -32,6 +41,11 @@ abstract class SpeechEngineGateway {
   Stream<BridgeEventEnvelope> events();
 }
 
+/// The 900 ms receipt flash the ball shows after a session ends:
+/// green check (inserted) or grey cross (cancelled) before it rests
+/// back to idle.
+enum OrbFlash { none, inserted, cancelled }
+
 /// Mirrors the engine's event stream into UI state and drives the scripted
 /// speech while recording. The Rust-backed gateway lives in `gateway.dart`.
 class SpeechController extends ChangeNotifier {
@@ -39,6 +53,7 @@ class SpeechController extends ChangeNotifier {
     required this.gateway,
     this.scriptedPhrases = const [],
     this.speechInterval = const Duration(milliseconds: 900),
+    this.themeMode = ThemeMode.system,
   }) {
     // onError: a subscribe against a not-yet-created engine emits a stream
     // error; the command paths surface the same failure with better
@@ -52,6 +67,8 @@ class SpeechController extends ChangeNotifier {
 
   StreamSubscription<BridgeEventEnvelope>? _subscription;
   Timer? _speechTimer;
+  Timer? _micBreathTimer;
+  Timer? _flashTimer;
   int _nextPhrase = 0;
   int _tick = 0;
 
@@ -68,40 +85,41 @@ class SpeechController extends ChangeNotifier {
   /// Mirrors speech-activity events from the microphone pipeline.
   bool speaking = false;
 
-  /// The rectified text as the user sees it — the single source the
-  /// preview card renders and every confirm path inserts. While rectifying
-  /// it accumulates the streamed chunks; while previewing it holds the
-  /// user's edits (adopted the instant they happen); everywhere else it is
-  /// empty. Confirm what you see.
-  String previewText = '';
+  /// Synthesized mic loudness, 0..1, while recording — drives the orb's
+  /// level ring and glow (non-size recording dynamics). The engine only
+  /// reports a speaking boolean, so liveliness is synthesized from it.
+  double micLevel = 0;
 
-  /// Debounce for pushing preview edits to the engine: edits are adopted
-  /// into [previewText] at once, only the engine push waits.
-  Timer? _previewPushDebounce;
+  /// When the current recording started (header timer); null outside one.
+  DateTime? recordStartedAt;
 
-  static const _previewPushDelay = Duration(milliseconds: 350);
+  /// Elapsed recording time for the session header.
+  Duration get recordElapsed =>
+      recordStartedAt == null ? Duration.zero : DateTime.now().difference(
+        recordStartedAt!,
+      );
+
+  /// The receipt flash currently overriding the orb's idle look.
+  OrbFlash orbFlash = OrbFlash.none;
+
+  /// UI theme, seeded at startup from `spokenrectifier-ui.toml` (missing
+  /// file = follow the system). The switcher and the write-back land with
+  /// ticket 16's quick panel.
+  ThemeMode themeMode;
+
+  /// Whether the quick panel (同形同位互斥) is open over the idle orb.
+  /// Only ever true while idle: a session start force-closes it.
+  bool quickOpen = false;
 
   /// Whether the floating orb is visible at all.
   bool orbVisible = true;
 
-  /// Whether the recording panel is expanded over the orb.
-  bool panelExpanded = false;
-
-  /// Stored sessions from the engine's history (newest first), loaded
-  /// whenever the history panel opens.
-  List<BridgeHistoryEntry> history = const [];
-
-  /// Whether the history panel is open over the idle orb.
-  bool historyOpen = false;
-
-  /// Flash of the last inserted text, cleared on the next interaction.
-  String? lastInserted;
-
-  /// Last engine error, shown until the next session.
+  /// Last engine error, shown in the session panel (and on the orb's
+  /// tooltip while idle).
   String? lastError;
 
   /// The scenario library (场景库), loaded once at startup. Empty when the
-  /// library file is missing or blank — both pickers hide entirely then.
+  /// library file is missing or blank — every picker hides entirely then.
   List<BridgeScenario> scenarios = const [];
 
   /// The selected scenario's name; null = the built-in default register.
@@ -110,27 +128,75 @@ class SpeechController extends ChangeNotifier {
 
   bool get isRecording => phase == BridgeSessionState.recording;
 
-  /// Hotkey behavior: idle starts recording; recording stops into preview;
-  /// preview confirms what is on screen; the transient terminal states are
-  /// ignored.
-  Future<void> toggleSession() async {
-    switch (phase) {
-      case BridgeSessionState.idle:
+  /// The surface the morphing window should settle on. The stage host
+  /// lags this during collapse (exit animation first, then the shrink).
+  StageKind get stage => stageFor(phase, quickOpen);
+
+  // ---- input: one pure table behind the orb, the hotkey and the keys ---
+
+  /// Executes an input through the [flowAction] table — the one entry
+  /// the orb click, the hotkey, Enter and Esc all share.
+  Future<void> dispatchInput(SessionInput input) async {
+    switch (flowAction(phase, input)) {
+      case SessionCommand.start:
         await startSession();
-      case BridgeSessionState.recording:
+      case SessionCommand.stop:
         await stopSession();
-      case BridgeSessionState.preview:
+      case SessionCommand.confirm:
         await confirmWhatYouSee();
-      case BridgeSessionState.rectifying ||
-          BridgeSessionState.inserted ||
-          BridgeSessionState.cancelled:
-        break;
+      case SessionCommand.cancel:
+        await cancelSession();
+      case null:
+        break; // ignored by the table (e.g. the orb is disabled)
     }
+  }
+
+  /// Left click on the orb / anchor. Stage-aware: the ball is the close
+  /// button while the quick panel is open; otherwise it steps the main
+  /// flow (the table ignores it while rectifying).
+  Future<void> orbPrimary() async {
+    if (quickOpen) {
+      await closeQuick();
+      return;
+    }
+    await dispatchInput(SessionInput.primary);
+  }
+
+  /// The hotkey press — same step as the orb's left click, minus the
+  /// panel-close role (a session start force-closes the quick panel).
+  Future<void> hotkeyToggle() => dispatchInput(SessionInput.primary);
+
+  /// Right click — quick panel, idle only (会话期无右键).
+  void orbSecondary() {
+    if (phase != BridgeSessionState.idle) return;
+    quickOpen = true;
+    notifyListeners();
+  }
+
+  /// Esc is context-sensitive at stage level: close the quick panel
+  /// first, otherwise it flows into the session table (which cancels
+  /// from every active phase, recording included).
+  Future<void> escapeAction() async {
+    if (quickOpen) {
+      await closeQuick();
+      return;
+    }
+    await dispatchInput(SessionInput.escape);
+  }
+
+  /// Enter confirms what is on screen (the table only honors it in
+  /// preview; the session field's own Enter handling is the chat-input
+  /// style path in the panel widget).
+  Future<void> enterAction() => dispatchInput(SessionInput.enter);
+
+  Future<void> closeQuick() async {
+    if (!quickOpen) return;
+    quickOpen = false;
+    notifyListeners();
   }
 
   Future<void> startSession() async {
     lastError = null;
-    lastInserted = null;
     try {
       // Fake speech needs its session armed first; a microphone-mode engine
       // has no fake feed (scriptedPhrases is empty there).
@@ -169,6 +235,19 @@ class SpeechController extends ChangeNotifier {
     _previewPushDebounce = Timer(_previewPushDelay, _pushPreviewEdit);
   }
 
+  /// The rectified text as the user sees it — the single source the
+  /// session panel renders and every confirm path inserts. While
+  /// rectifying it accumulates the streamed chunks; while previewing it
+  /// holds the user's edits (adopted the instant they happen); everywhere
+  /// else it is empty. Confirm what you see.
+  String previewText = '';
+
+  /// Debounce for pushing preview edits to the engine: edits are adopted
+  /// into [previewText] at once, only the engine push waits.
+  Timer? _previewPushDebounce;
+
+  static const _previewPushDelay = Duration(milliseconds: 350);
+
   Future<void> _pushPreviewEdit() async {
     _previewPushDebounce = null;
     if (phase != BridgeSessionState.preview) return;
@@ -199,10 +278,10 @@ class SpeechController extends ChangeNotifier {
 
   Future<void> reroll() => gateway.reroll();
 
-  /// Load the scenario library at startup, painting both pickers. A
+  /// Load the scenario library at startup, painting the pickers. A
   /// failed read keeps the empty library — exactly like an absent file:
-  /// the panel hides its row, the tray keeps just 默认. Selection always
-  /// starts on the default register (never persisted).
+  /// the pickers hide their rows, the tray keeps just 默认. Selection
+  /// always starts on the default register (never persisted).
   Future<void> loadScenarios() async {
     try {
       scenarios = await gateway.scenarios();
@@ -216,9 +295,10 @@ class SpeechController extends ChangeNotifier {
 
   /// Select a scenario — its directive text goes straight to the engine
   /// and applies from the next rectify on, rerolls included; null returns
-  /// to the default register. Both pickers (panel row, tray submenu)
-  /// share this entry. The UI adopts the pick at once; a failed engine
-  /// call surfaces on the error banner instead of vanishing.
+  /// to the default register. Every picker (session chip, tray submenu,
+  /// later the quick panel) shares this entry. The UI adopts the pick at
+  /// once; a failed engine call surfaces on the error banner instead of
+  /// vanishing.
   Future<void> selectScenario(String? name) async {
     selectedScenario = name;
     notifyListeners();
@@ -258,36 +338,12 @@ class SpeechController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void togglePanel() {
-    panelExpanded = !panelExpanded;
-    notifyListeners();
-  }
-
-  /// Open (or close) the history panel; opening loads the stored
-  /// sessions from the engine's history.
-  Future<void> toggleHistory() async {
-    historyOpen = !historyOpen;
-    if (historyOpen) {
-      history = await gateway.historyList();
-    }
-    notifyListeners();
-  }
-
-  /// One-click clear (tray menu or the panel's button): wipe every
-  /// stored session and refresh the panel.
+  /// One-click clear (tray menu): wipe every stored session. The
+  /// browsing surface for history moves to the quick panel (ticket 16)
+  /// and the settings window (ticket 18); the tray keeps only this.
   Future<void> clearHistory() async {
     await gateway.historyClear();
-    history = const [];
     notifyListeners();
-  }
-
-  /// Retrieve a historical utterance by re-running it through
-  /// rectification: the panel gives way to the normal
-  /// rectifying → preview flow, which inserts as usual on confirm.
-  Future<void> rectifyFromHistory(String rawTranscript) async {
-    historyOpen = false;
-    notifyListeners();
-    await gateway.rectifyText(rawTranscript);
   }
 
   void _startScriptedSpeech() {
@@ -324,6 +380,38 @@ class SpeechController extends ChangeNotifier {
     }
   }
 
+  /// Non-size recording dynamics: a fast tick breathing the level ring
+  /// and glow (voice steps set `speaking` on bursts). The engine reports
+  /// only a speaking boolean, so the loudness curve is synthesized.
+  void _startMicBreath() {
+    _stopMicBreath();
+    micLevel = 0.08;
+    _micBreathTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      final target = speaking ? 0.35 + _rand.nextDouble() * 0.6 : 0.06;
+      micLevel += (target - micLevel) * 0.35;
+      notifyListeners();
+    });
+  }
+
+  void _stopMicBreath() {
+    _micBreathTimer?.cancel();
+    _micBreathTimer = null;
+    micLevel = 0;
+  }
+
+  /// Show the receipt flash on the ball for the token feedback span,
+  /// even though the engine has already continued to idle.
+  void _flash(OrbFlash kind) {
+    orbFlash = kind;
+    _flashTimer?.cancel();
+    _flashTimer = Timer(SrMotion.feedback, () {
+      orbFlash = OrbFlash.none;
+      notifyListeners();
+    });
+  }
+
+  static final _rand = Random(7);
+
   void _onEnvelope(BridgeEventEnvelope envelope) {
     switch (envelope.event) {
       case BridgeEvent_SessionStateChanged(:final to):
@@ -332,12 +420,16 @@ class SpeechController extends ChangeNotifier {
           liveText = '';
           paragraphMarks = 0;
           speaking = false;
-          // A new session takes over from the history panel.
-          historyOpen = false;
-        } else if (to == BridgeSessionState.idle) {
-          _stopScriptedSpeech();
-          panelExpanded = false;
+          recordStartedAt = DateTime.now();
+          // A new session takes over from the quick panel.
+          quickOpen = false;
+          _startMicBreath();
+        } else {
+          recordStartedAt = null;
+          _stopMicBreath();
         }
+        if (to == BridgeSessionState.inserted) _flash(OrbFlash.inserted);
+        if (to == BridgeSessionState.cancelled) _flash(OrbFlash.cancelled);
         if (to != BridgeSessionState.preview) {
           // [previewText] lives only mid-flight: entering rectifying starts
           // a fresh attempt (chunks accumulate from scratch), and the other
@@ -359,8 +451,8 @@ class SpeechController extends ChangeNotifier {
         // Echo of the controller's own push: previewText already holds the
         // value, so this drives nothing (idempotent no-op).
         break;
-      case BridgeEvent_TextInserted(:final text):
-        lastInserted = text;
+      case BridgeEvent_TextInserted():
+        break; // the inserted state change carries the receipt flash
       case BridgeEvent_Error(:final message):
         lastError = message;
     }
@@ -370,6 +462,8 @@ class SpeechController extends ChangeNotifier {
   @override
   void dispose() {
     _stopScriptedSpeech();
+    _stopMicBreath();
+    _flashTimer?.cancel();
     _previewPushDebounce?.cancel();
     _subscription?.cancel();
     super.dispose();

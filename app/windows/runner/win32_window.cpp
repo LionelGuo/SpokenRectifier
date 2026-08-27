@@ -134,8 +134,12 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  // WS_POPUP instead of WS_OVERLAPPEDWINDOW: this is a floating orb
+  // window. WS_CAPTION carries a hidden minimum width (~135 logical px at
+  // 175% DPI on Win11) that silently widens sub-minimum windows, so exact
+  // geometry and a clean hit-test area require a borderless popup.
   HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
+      window_class, title.c_str(), WS_POPUP,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
