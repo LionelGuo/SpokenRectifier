@@ -50,7 +50,7 @@ class _OrbButtonState extends State<OrbButton> {
       // there is no panel surface to carry it, and hiding it silently
       // is worse.
       message: look.tooltipFor(c),
-      waitDuration: const Duration(milliseconds: 500),
+      waitDuration: SrMotion.tooltipWait,
       child: MouseRegion(
         cursor: look.clickable
             ? SystemMouseCursors.click
@@ -75,7 +75,7 @@ class _OrbButtonState extends State<OrbButton> {
                   ? 0.96
                   : (_hover && look.clickable ? 1.04 : 1.0),
               duration: SrMotion.fast,
-              curve: Curves.easeOut,
+              curve: SrMotion.curveMicro,
               child: AnimatedBuilder(
                 animation: c,
                 builder: (context, _) => Stack(
@@ -386,7 +386,7 @@ class _SpinnerState extends State<_Spinner>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1100),
+    duration: SrMotion.spin,
   )..repeat();
 
   @override

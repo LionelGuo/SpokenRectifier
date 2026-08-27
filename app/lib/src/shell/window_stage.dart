@@ -163,7 +163,7 @@ class _StageHostState extends State<StageHost> {
     _settling = StageKind.orb;
     // 1. Body exit animation on the still-open panel.
     setState(() => _exiting = true);
-    await Future<void>.delayed(SrMotion.exit + const Duration(milliseconds: 30));
+    await Future<void>.delayed(SrMotion.exit + _collapseSlack);
     if (!mounted || seq != _seq) return;
     // 2. Shrink the (now visually empty) window back to the orb footprint.
     if (widget.stageWindow != null) {
@@ -231,6 +231,14 @@ class _StageHostState extends State<StageHost> {
   }
 }
 
+/// Panel-body entrance numbers (component constants, not tokens): the
+/// rise distance and starting scale of the entrance transform, plus the
+/// scheduling slack that lets the exit animation finish landing before
+/// the window shrinks under it.
+const _entranceRise = 18.0;
+const _entranceScaleFrom = 0.94;
+const _collapseSlack = Duration(milliseconds: 30);
+
 /// A panel body: the floating card that fades/rises in from the anchor on
 /// entrance and sinks/fades on exit. The card reserves the anchor zone
 /// (bottom-right) so the orb button overlaps it cleanly.
@@ -293,13 +301,13 @@ class _PanelBodyState extends State<PanelBody>
         opacity: curved.value,
         child: Transform.translate(
           // Rises out of the anchor corner; sinks back on exit.
-          offset: Offset(0, (1 - curved.value) * 18),
+          offset: Offset(0, (1 - curved.value) * _entranceRise),
           child: Transform.scale(
             // Grows from the anchor corner (where the orb sits).
             alignment: Alignment.bottomRight,
-            scale: 0.94 + 0.06 * curved.value,
+            scale: _entranceScaleFrom + (1 - _entranceScaleFrom) * curved.value,
             child: Container(
-              margin: const EdgeInsets.all(8),
+              margin: const EdgeInsets.all(SrGeometry.cardMargin),
               decoration: BoxDecoration(
                 // Solid surfaces by design (materials spike: no acrylic
                 // bet — spec §6).

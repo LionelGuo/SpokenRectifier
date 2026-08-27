@@ -44,7 +44,7 @@ class QuickPanel extends StatelessWidget {
                   '快捷设置',
                   style: SrType.title.copyWith(color: pal.textPrimary),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: SrSpace.sm),
                 Text(
                   'Esc 关闭',
                   style: SrType.micro.copyWith(color: pal.textTertiary),

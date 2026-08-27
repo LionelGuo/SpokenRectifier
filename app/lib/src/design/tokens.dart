@@ -219,9 +219,19 @@ abstract final class SrMotion {
   /// One breathing period for the recording glow (non-size dynamics).
   static const breathe = Duration(milliseconds: 2200);
 
+  /// Indeterminate spinner period (the rectifying anchor glyph).
+  static const spin = Duration(milliseconds: 1100);
+
+  /// Hover-tooltip reveal delay — an interaction affordance, listed here
+  /// so no duration lives outside the table.
+  static const tooltipWait = Duration(milliseconds: 500);
+
   static const curveEnter = Curves.easeOutCubic;
   static const curveExit = Curves.easeInCubic;
   static const curveEmphasized = Curves.easeInOutCubicEmphasized;
+
+  /// Micro-feedback (hover/press scale snaps).
+  static const curveMicro = Curves.easeOut;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +262,11 @@ abstract final class SrGeometry {
 
   /// Session panel and quick panel share one footprint (同形同位互斥).
   static const panelSize = Size(420.0, 560.0);
+
+  /// Margin between the window edge and the panel card — the third
+  /// concentric ring value: the panel corner radius is
+  /// anchorInset - cardMargin (= 48 - 8 = 40).
+  static const cardMargin = 8.0;
 
   /// Distance from the window's bottom-right corner to the anchor center
   /// (orb footprint half). Panel anchor buttons sit at this offset.

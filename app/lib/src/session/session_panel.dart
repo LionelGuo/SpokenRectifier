@@ -151,7 +151,7 @@ class _SessionPanelState extends State<SessionPanel> {
       BridgeSessionState.rectifying => ('修正中', pal.accent, false),
       _ => ('预览', pal.success, false),
     };
-    final elapsed = _fmt(c.recordElapsed);
+    final elapsed = _formatElapsed(c.recordElapsed);
     return Padding(
       // Corner-band row: aligns to the concentric content capsule
       // (SrSpace.cornerInset). Vertical 20 puts the 16px title's visual
@@ -360,7 +360,7 @@ class _SessionPanelState extends State<SessionPanel> {
   }
 }
 
-String _fmt(Duration d) {
+String _formatElapsed(Duration d) {
   final m = d.inMinutes;
   final s = d.inSeconds % 60;
   return '$m:${s.toString().padLeft(2, '0')}';

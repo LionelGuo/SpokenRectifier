@@ -158,7 +158,7 @@ class _ShellState extends State<_Shell> with TrayListener {
       BridgeSessionState.idle => '空闲',
       BridgeSessionState.recording => '聆听中',
       BridgeSessionState.rectifying => '修正中',
-      BridgeSessionState.preview => '预览待确认',
+      BridgeSessionState.preview => '预览',
       BridgeSessionState.inserted => '已插入',
       BridgeSessionState.cancelled => '已取消',
     };
