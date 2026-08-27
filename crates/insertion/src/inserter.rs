@@ -108,9 +108,9 @@ impl TargetInserter {
         }
         if self.os.foreground_is_own_process() {
             return Err(InsertError(
-                "no target window to insert into: start sessions with the \
-                 hotkey from the app you type in, or focus the target before \
-                 confirming"
+                "no target window to insert into: focus the window you \
+                 type in before starting the session, then start it from \
+                 the orb or the hotkey"
                     .into(),
             ));
         }

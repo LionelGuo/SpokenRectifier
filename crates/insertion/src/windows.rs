@@ -23,8 +23,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, EVENT_SYSTEM_FOREGROUND, GetForegroundWindow, GetMessageW,
-    GetWindowThreadProcessId, IsWindow, MSG, OBJID_WINDOW, SetForegroundWindow, TranslateMessage,
-    WINEVENT_OUTOFCONTEXT,
+    GetWindowThreadProcessId, IsWindow, MSG, OBJID_WINDOW, SetForegroundWindow, SetTimer,
+    TranslateMessage, WINEVENT_OUTOFCONTEXT, WM_TIMER,
 };
 
 use crate::os::{InjectedKey, InputOs, SavedClipboard, paced_paste_script};
@@ -243,11 +243,14 @@ fn window_belongs_to_us(hwnd: HWND) -> bool {
 /// serves the one inserter the process owns.
 static LAST_FOREIGN_FOREGROUND: OnceLock<Mutex<Option<usize>>> = OnceLock::new();
 
-/// Watch foreground changes for the process lifetime so
+/// Watch the foreground for the process lifetime so
 /// [`Win32Os::note_target`] can fall back to the pre-click foreground
-/// when an orb-click start took the foreground to us first. The hook
-/// thread and handle are deliberately leaked: they are meant to live
-/// exactly as long as the process, which is the inserter's lifetime.
+/// when an orb-click start took the foreground to us first. Two feeds,
+/// one cell: a `SetWinEventHook` for instant updates, and a 200 ms poll
+/// as the safety net (the event hook alone proved not to be relied on —
+/// a missed delivery leaves orb-click starts with no target). The thread
+/// and handles are deliberately leaked: they are meant to live exactly
+/// as long as the process, which is the inserter's lifetime.
 fn track_last_foreign_foreground() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
@@ -263,9 +266,9 @@ fn track_last_foreign_foreground() {
                     0,
                     WINEVENT_OUTOFCONTEXT,
                 );
-                if hook.is_invalid() {
-                    return; // degrade: no fallback, hotkey starts still work
-                }
+                // Hook or no hook, the poll below keeps the tracker alive
+                // (a failed install degrades to poll-only, not to nothing).
+                let _ = SetTimer(None, TRACKER_TIMER_ID, FOREGROUND_POLL_MS, None);
                 let mut msg = MSG::default();
                 // Out-of-context events are delivered while the thread
                 // pumps messages; the loop runs for the process lifetime.
@@ -274,6 +277,9 @@ fn track_last_foreign_foreground() {
                     if fetched.0 == 0 || fetched.0 == -1 {
                         break; // WM_QUIT, or an error worth bailing on
                     }
+                    if msg.message == WM_TIMER && msg.wParam.0 as usize == TRACKER_TIMER_ID {
+                        record_if_foreign(GetForegroundWindow());
+                    }
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
@@ -281,6 +287,15 @@ fn track_last_foreign_foreground() {
             .expect("spawn foreground tracker");
     });
 }
+
+/// How often the poll arm of the tracker re-reads the foreground. The
+/// pre-click target is typically held for seconds before an orb click,
+/// so a coarse cadence still never misses it.
+const FOREGROUND_POLL_MS: u32 = 200;
+
+/// Timer id of the tracker poll (thread timers address their thread, so
+/// any small constant is unique enough here).
+const TRACKER_TIMER_ID: usize = 1;
 
 /// Records every foreign window that gains the foreground; our own
 /// activations are skipped so the pre-click window survives them.
@@ -293,7 +308,16 @@ unsafe extern "system" fn foreground_changed(
     _event_thread: u32,
     _event_time: u32,
 ) {
-    if id_object != OBJID_WINDOW.0 || hwnd.is_invalid() || !IsWindow(Some(hwnd)).as_bool() {
+    if id_object != OBJID_WINDOW.0 {
+        return;
+    }
+    record_if_foreign(hwnd);
+}
+
+/// The shared body of both tracker arms: remember `hwnd` as the last
+/// foreign foreground while it is a live window of another process.
+fn record_if_foreign(hwnd: HWND) {
+    if hwnd.is_invalid() || !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
         return;
     }
     if window_belongs_to_us(hwnd) {
