@@ -4,12 +4,13 @@
 /// the layer files (still the truth across launches) and hands the new
 /// values to the live collaborators at once:
 ///
-/// - Engine timings (paragraph_silence_ms / session_end_silence_ms /
-///   rectify_timeout_ms) go through a runtime command, and each session
-///   snapshots what it opens with — a save applies from the NEXT
-///   session on (the SetPassageMode precedent), so a threshold never
-///   shifts under a running session. The passage-mode switch stays in
-///   the quick panel; the form shows it read-only.
+/// - The engine card carries the passage-mode switch and the three
+///   timings, all through runtime commands (SetPassageMode /
+///   SetEngineTimings); each session snapshots what it opens with — a
+///   save applies from the NEXT session on, so a threshold never shifts
+///   under a running session. This switch is the persistent one (the
+///   save writes `[engine]`); the quick panel keeps its instant,
+///   runtime-only toggle.
 /// - Insertion timings (mode + the three settles/delays) swap into the
 ///   live inserter — true real-time: the very next confirm runs with
 ///   them.
@@ -39,6 +40,7 @@ class SettingsAdvancedPane extends StatefulWidget {
 
 class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
   EngineTiming? _engine;
+  bool _passageMode = true;
   String _insertionMode = 'paste';
   String? _error;
   String? _savedNote;
@@ -90,9 +92,8 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
     }
   }
 
-  /// Adopt the file's truth into the form (the passage mode paints
-  /// read-only — its switch lives in the quick panel). Each save adopts
-  /// only its own half, so the other card's in-progress edits survive.
+  /// Adopt the file's truth into the form. Each save adopts only its
+  /// own half, so the other card's in-progress edits survive.
   void _adopt(EngineTiming engine, InsertionTiming insertion) {
     _adoptEngine(engine);
     _adoptInsertion(insertion);
@@ -100,6 +101,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
 
   void _adoptEngine(EngineTiming engine) {
     _engine = engine;
+    _passageMode = engine.passageMode;
     _paragraphSilence.text = '${engine.paragraphSilenceMs}';
     _sessionEndSilence.text = '${engine.sessionEndSilenceMs}';
     _rectifyTimeout.text = '${engine.rectifyTimeoutMs}';
@@ -127,7 +129,8 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
       final paragraph = _milliseconds(_paragraphSilence, '分段静音');
       final sessionEnd = _milliseconds(_sessionEndSilence, '自动结束静音');
       final timeout = _milliseconds(_rectifyTimeout, '修正超时');
-      final saved = await widget.store.saveEngineTiming(
+      final saved = await widget.store.saveEngineSettings(
+        passageMode: _passageMode,
         paragraphSilenceMs: paragraph,
         sessionEndSilenceMs: sessionEnd,
         rectifyTimeoutMs: timeout,
@@ -239,19 +242,21 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                   children: [
                     Expanded(
                       child: Text(
-                        '篇章模式(开关住在快捷面板)',
+                        '篇章模式',
                         style: SrType.caption.copyWith(color: pal.textSecondary),
                       ),
                     ),
-                    Text(
-                      engine.passageMode ? '开启' : '关闭',
+                    Switch(
                       key: const Key('settings-advanced-passage'),
-                      style: SrType.caption.copyWith(
-                        color: pal.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      value: _passageMode,
+                      onChanged: (on) => setState(() => _passageMode = on),
                     ),
                   ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '停顿仅分段,不结束会话;此处保存为持久设置,快捷面板开关仅当次运行',
+                  style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
                 const SizedBox(height: 12),
                 Row(

@@ -176,18 +176,21 @@ Future<void> updateTerm({required String old, required String new_}) =>
 Future<BridgeAdvancedConfig> advancedConfig() =>
     RustLib.instance.api.crateApiAdvancedConfig();
 
-/// Write the form's `[engine]` timings into the layer files and hand
-/// them to the live engine at once (ADR-0007, 2026-08-28 revision): the
-/// engine adopts them through the runtime command, and each session
-/// snapshots what it opens with — so the save applies from the NEXT
-/// session on, while the file stays the truth across launches. The
-/// passage-mode field is not written (its switch lives in the quick
-/// panel). Returns the re-read view.
-Future<BridgeEngineTiming> setEngineTiming({
+/// Write the form's `[engine]` model (passage mode + the three timings)
+/// into the layer files and hand it to the live engine at once
+/// (ADR-0007, revised): both runtime commands adopt the saved values
+/// immediately, and each session snapshots what it opens with — so the
+/// save applies from the NEXT session on, while the file stays the
+/// truth across launches. The quick panel's passage toggle stays the
+/// runtime-only quick switch; this one persists. Returns the re-read
+/// view.
+Future<BridgeEngineTiming> setEngineSettings({
+  required bool passageMode,
   required BigInt paragraphSilenceMs,
   required BigInt sessionEndSilenceMs,
   required BigInt rectifyTimeoutMs,
-}) => RustLib.instance.api.crateApiSetEngineTiming(
+}) => RustLib.instance.api.crateApiSetEngineSettings(
+  passageMode: passageMode,
   paragraphSilenceMs: paragraphSilenceMs,
   sessionEndSilenceMs: sessionEndSilenceMs,
   rectifyTimeoutMs: rectifyTimeoutMs,

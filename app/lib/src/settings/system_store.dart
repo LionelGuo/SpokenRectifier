@@ -9,7 +9,7 @@
 library;
 
 import '../rust/api.dart' as rust
-    show about, advancedConfig, openConfigFile, setEngineTiming, setInsertionTiming;
+    show about, advancedConfig, openConfigFile, setEngineSettings, setInsertionTiming;
 
 /// The effective `[engine]` timings (plain Dart ints; the wire's u64
 /// arrives as BigInt, the seam converts).
@@ -85,10 +85,12 @@ abstract class SystemStore {
   /// The effective engine and insertion timings, right now.
   Future<({EngineTiming engine, InsertionTiming insertion})> loadAdvanced();
 
-  /// Write the form's `[engine]` timings and hand them to the live
-  /// engine (each session snapshots what it opens with, so the save
-  /// applies from the NEXT session on). Returns the re-read view.
-  Future<EngineTiming> saveEngineTiming({
+  /// Write the form's `[engine]` model (passage mode + the three
+  /// timings) and hand it to the live engine (each session snapshots
+  /// what it opens with, so the save applies from the NEXT session on).
+  /// Returns the re-read view.
+  Future<EngineTiming> saveEngineSettings({
+    required bool passageMode,
     required int paragraphSilenceMs,
     required int sessionEndSilenceMs,
     required int rectifyTimeoutMs,
@@ -138,12 +140,14 @@ class RustSystemStore implements SystemStore {
   }
 
   @override
-  Future<EngineTiming> saveEngineTiming({
+  Future<EngineTiming> saveEngineSettings({
+    required bool passageMode,
     required int paragraphSilenceMs,
     required int sessionEndSilenceMs,
     required int rectifyTimeoutMs,
   }) async {
-    final saved = await rust.setEngineTiming(
+    final saved = await rust.setEngineSettings(
+      passageMode: passageMode,
       paragraphSilenceMs: BigInt.from(paragraphSilenceMs),
       sessionEndSilenceMs: BigInt.from(sessionEndSilenceMs),
       rectifyTimeoutMs: BigInt.from(rectifyTimeoutMs),

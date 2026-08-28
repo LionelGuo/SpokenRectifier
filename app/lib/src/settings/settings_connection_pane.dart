@@ -355,7 +355,8 @@ class _KeyBlockState extends State<_KeyBlock> {
               child: SrField(
                 key: Key('settings-conn-${widget.id}-key'),
                 controller: widget.field,
-                label: '',
+                // No label: an empty one still reserves its line and
+                // sinks the field below the eye icon's row center.
                 hint: fromEnv ? '留空沿用环境变量' : '清空并保存即删除本机密钥',
                 obscure: _obscured,
                 monospace: true,

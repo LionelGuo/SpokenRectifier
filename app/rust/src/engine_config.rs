@@ -46,19 +46,21 @@ pub fn engine_config(dirs: &[PathBuf]) -> anyhow::Result<EngineConfig> {
     Ok(config)
 }
 
-/// Write the advanced form's timing fields back into the layer files
+/// Write the advanced form's `[engine]` model back into the layer files
 /// (section-preserving into the layer that owns `[engine]`; no secrets
-/// here). The passage-mode field is NOT written: its switch lives in the
-/// quick panel, and the file keeps whatever it says. Returns the
-/// timings as written, for the runtime command to adopt at once.
-pub fn save_engine_timing(
+/// here): the passage-mode switch (persistent — the quick panel's toggle
+/// is runtime-only) and the three timings. Returns the config as
+/// written, for the runtime commands to adopt at once.
+pub fn save_engine_settings(
     dirs: &[PathBuf],
+    passage_mode: bool,
     timings: EngineTimings,
-) -> anyhow::Result<EngineTimings> {
+) -> anyhow::Result<EngineConfig> {
     let int = |name: &str, value: u64| -> anyhow::Result<SectionField> {
         SectionField::int_u64("engine", name, value).map_err(|err| anyhow!("{}", err.0))
     };
     let fields = vec![
+        SectionField::bool("passage_mode", passage_mode),
         int("paragraph_silence_ms", timings.paragraph_silence_ms)?,
         int("session_end_silence_ms", timings.session_end_silence_ms)?,
         int("rectify_timeout_ms", timings.rectify_timeout_ms)?,
@@ -71,8 +73,7 @@ pub fn save_engine_timing(
     )
     .map_err(|err| anyhow!("{}", err.0))?;
     // The file is the truth: report what a reload would run, not the ask.
-    let config = engine_config(dirs)?;
-    Ok(config.timings())
+    engine_config(dirs)
 }
 
 #[cfg(test)]
@@ -116,19 +117,20 @@ mod tests {
     }
 
     #[test]
-    fn a_timing_save_round_trips_and_leaves_passage_mode_alone() {
-        let dir = std::env::temp_dir().join("sr-bridge-engine-timing-save");
+    fn a_settings_save_round_trips_the_whole_engine_card() {
+        let dir = std::env::temp_dir().join("sr-bridge-engine-settings-save");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        // Shared owns [engine] with passage mode on and a comment to keep.
+        // Shared owns [engine] with passage mode off and a comment to keep.
         std::fs::write(
             dir.join("spokenrectifier.toml"),
             "# 手写注释\n[engine]\npassage_mode = false\n",
         )
         .unwrap();
 
-        let written = save_engine_timing(
+        let written = save_engine_settings(
             std::slice::from_ref(&dir),
+            true,
             EngineTimings {
                 paragraph_silence_ms: 1500,
                 session_end_silence_ms: 2500,
@@ -137,18 +139,14 @@ mod tests {
         )
         .unwrap();
 
+        assert!(written.passage_mode);
         assert_eq!(written.paragraph_silence_ms, 1500);
         let file = std::fs::read_to_string(dir.join("spokenrectifier.toml")).unwrap();
         assert!(file.contains("# 手写注释"), "comment lost: {file}");
-        assert!(
-            file.contains("passage_mode = false"),
-            "passage mode touched: {file}"
-        );
+        assert!(file.contains("passage_mode = true"));
         assert!(file.contains("session_end_silence_ms = 2500"));
         // The reload returns exactly what was saved.
-        let config = engine_config(std::slice::from_ref(&dir)).unwrap();
-        assert!(!config.passage_mode); // untouched by the timing save
-        assert_eq!(config.timings(), written);
+        assert_eq!(engine_config(std::slice::from_ref(&dir)).unwrap(), written);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

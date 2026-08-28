@@ -853,33 +853,38 @@ pub fn advanced_config() -> anyhow::Result<BridgeAdvancedConfig> {
     })
 }
 
-/// Write the form's `[engine]` timings into the layer files and hand
-/// them to the live engine at once (ADR-0007, 2026-08-28 revision): the
-/// engine adopts them through the runtime command, and each session
-/// snapshots what it opens with — so the save applies from the NEXT
-/// session on, while the file stays the truth across launches. The
-/// passage-mode field is not written (its switch lives in the quick
-/// panel). Returns the re-read view.
-pub fn set_engine_timing(
+/// Write the form's `[engine]` model (passage mode + the three timings)
+/// into the layer files and hand it to the live engine at once
+/// (ADR-0007, revised): both runtime commands adopt the saved values
+/// immediately, and each session snapshots what it opens with — so the
+/// save applies from the NEXT session on, while the file stays the
+/// truth across launches. The quick panel's passage toggle stays the
+/// runtime-only quick switch; this one persists. Returns the re-read
+/// view.
+pub fn set_engine_settings(
+    passage_mode: bool,
     paragraph_silence_ms: u64,
     session_end_silence_ms: u64,
     rectify_timeout_ms: u64,
 ) -> anyhow::Result<BridgeEngineTiming> {
     let dirs = spokenrectifier_config::search_dirs();
-    let timings = crate::engine_config::save_engine_timing(
+    let engine = crate::engine_config::save_engine_settings(
         &dirs,
+        passage_mode,
         spokenrectifier_engine::EngineTimings {
             paragraph_silence_ms,
             session_end_silence_ms,
             rectify_timeout_ms,
         },
     )?;
-    execute(BridgeCommand::SetEngineTimings {
-        paragraph_silence_ms: timings.paragraph_silence_ms,
-        session_end_silence_ms: timings.session_end_silence_ms,
-        rectify_timeout_ms: timings.rectify_timeout_ms,
+    execute(BridgeCommand::SetPassageMode {
+        on: engine.passage_mode,
     })?;
-    let engine = engine_config(&dirs)?;
+    execute(BridgeCommand::SetEngineTimings {
+        paragraph_silence_ms: engine.paragraph_silence_ms,
+        session_end_silence_ms: engine.session_end_silence_ms,
+        rectify_timeout_ms: engine.rectify_timeout_ms,
+    })?;
     Ok(BridgeEngineTiming {
         passage_mode: engine.passage_mode,
         paragraph_silence_ms: engine.paragraph_silence_ms,

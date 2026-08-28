@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -948259410;
+  int get rustContentHash => -166061975;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -128,7 +128,8 @@ abstract class RustLibApi extends BaseApi {
     required BridgeKeyEdit apiKey,
   });
 
-  Future<BridgeEngineTiming> crateApiSetEngineTiming({
+  Future<BridgeEngineTiming> crateApiSetEngineSettings({
+    required bool passageMode,
     required BigInt paragraphSilenceMs,
     required BigInt sessionEndSilenceMs,
     required BigInt rectifyTimeoutMs,
@@ -776,7 +777,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
-  Future<BridgeEngineTiming> crateApiSetEngineTiming({
+  Future<BridgeEngineTiming> crateApiSetEngineSettings({
+    required bool passageMode,
     required BigInt paragraphSilenceMs,
     required BigInt sessionEndSilenceMs,
     required BigInt rectifyTimeoutMs,
@@ -785,6 +787,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_bool(passageMode, serializer);
           sse_encode_u_64(paragraphSilenceMs, serializer);
           sse_encode_u_64(sessionEndSilenceMs, serializer);
           sse_encode_u_64(rectifyTimeoutMs, serializer);
@@ -799,16 +802,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_engine_timing,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSetEngineTimingConstMeta,
-        argValues: [paragraphSilenceMs, sessionEndSilenceMs, rectifyTimeoutMs],
+        constMeta: kCrateApiSetEngineSettingsConstMeta,
+        argValues: [
+          passageMode,
+          paragraphSilenceMs,
+          sessionEndSilenceMs,
+          rectifyTimeoutMs,
+        ],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSetEngineTimingConstMeta => const TaskConstMeta(
-    debugName: "set_engine_timing",
-    argNames: ["paragraphSilenceMs", "sessionEndSilenceMs", "rectifyTimeoutMs"],
+  TaskConstMeta get kCrateApiSetEngineSettingsConstMeta => const TaskConstMeta(
+    debugName: "set_engine_settings",
+    argNames: [
+      "passageMode",
+      "paragraphSilenceMs",
+      "sessionEndSilenceMs",
+      "rectifyTimeoutMs",
+    ],
   );
 
   @override

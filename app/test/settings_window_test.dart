@@ -312,7 +312,8 @@ class FakeSystemStore implements SystemStore {
   InsertionTiming insertion;
   AboutInfo about;
   int openConfigCalls = 0;
-  final engineSaves = <({int paragraph, int sessionEnd, int timeout})>[];
+  final engineSaves =
+      <({bool passage, int paragraph, int sessionEnd, int timeout})>[];
   final insertionSaves =
       <({String mode, int focus, int paste, int typing})>[];
 
@@ -324,7 +325,8 @@ class FakeSystemStore implements SystemStore {
   loadAdvanced() async => (engine: engine, insertion: insertion);
 
   @override
-  Future<EngineTiming> saveEngineTiming({
+  Future<EngineTiming> saveEngineSettings({
+    required bool passageMode,
     required int paragraphSilenceMs,
     required int sessionEndSilenceMs,
     required int rectifyTimeoutMs,
@@ -335,12 +337,13 @@ class FakeSystemStore implements SystemStore {
       throw failure!;
     }
     engineSaves.add((
+      passage: passageMode,
       paragraph: paragraphSilenceMs,
       sessionEnd: sessionEndSilenceMs,
       timeout: rectifyTimeoutMs,
     ));
     engine = EngineTiming(
-      passageMode: engine.passageMode, // the quick panel owns this one
+      passageMode: passageMode,
       paragraphSilenceMs: paragraphSilenceMs,
       sessionEndSilenceMs: sessionEndSilenceMs,
       rectifyTimeoutMs: rectifyTimeoutMs,
@@ -1298,7 +1301,7 @@ void main() {
   // The advanced domain (高级) — editable form, ADR-0007 revised
   // -----------------------------------------------------------------------
 
-  testWidgets('the timings paint as an editable form; passage stays put', (
+  testWidgets('the timings paint as an editable form; a passage switch', (
     tester,
   ) async {
     final store = FakeSystemStore();
@@ -1308,8 +1311,11 @@ void main() {
       domain: SettingsDomain.advanced,
     );
 
-    expect(find.byKey(const Key('settings-advanced-passage')), findsOneWidget);
-    // The loaded values seed the fields.
+    // The switch seeds from the file's truth (true by the fake's
+    // default), alongside the loaded field values.
+    Switch passageSwitch() =>
+        tester.widget(find.byKey(const Key('settings-advanced-passage')));
+    expect(passageSwitch().value, isTrue);
     expect(
       fieldText(tester, const Key('settings-advanced-paragraph-silence')),
       '1200',
@@ -1318,12 +1324,15 @@ void main() {
       fieldText(tester, const Key('settings-advanced-typing-delay')),
       '8',
     );
-    // The passage switch lives in the quick panel: read-only here. The
-    // insertion mode is a chip pair, not free text.
+    // The insertion mode is a chip pair, not free text.
     expect(
       find.byKey(const Key('settings-advanced-insertion-mode:paste')),
       findsOneWidget,
     );
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-advanced-open-config')),
+    );
+    await tester.pump();
     await tester.tap(find.byKey(const Key('settings-advanced-open-config')));
     await tester.pump();
     expect(store.openConfigCalls, 1);
@@ -1339,6 +1348,8 @@ void main() {
       domain: SettingsDomain.advanced,
     );
 
+    await tester.tap(find.byKey(const Key('settings-advanced-passage')));
+    await tester.pump();
     await tester.enterText(
       find.byKey(const Key('settings-advanced-paragraph-silence')),
       '1500',
@@ -1351,6 +1362,7 @@ void main() {
     await tester.pump();
 
     final save = store.engineSaves.single;
+    expect(save.passage, isFalse); // the flipped switch rides the save
     expect(save.paragraph, 1500);
     expect(save.sessionEnd, 2500);
     expect(save.timeout, 25000); // untouched field rides
