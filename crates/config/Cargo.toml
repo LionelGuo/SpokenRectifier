@@ -8,3 +8,4 @@ license.workspace = true
 serde = { version = "1", features = ["derive"] }
 thiserror = { workspace = true }
 toml = "0.8"
+toml_edit = "0.22"

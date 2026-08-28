@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 use spokenrectifier_config::load_section_layers;
+use spokenrectifier_config::section_write::{SectionField, WriteLayer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HistoryConfig {
@@ -63,13 +64,12 @@ pub fn load_history_config(dirs: &[PathBuf]) -> Result<HistoryConfig, HistoryCon
 }
 
 /// Write both settings back into the layer files (the settings window's
-/// 保留期 / 不留存 controls, ticket 18). The target is the layer file
-/// that OWNS the effective values — the last one saying anything about
-/// `[history]`, since writing anywhere else would be masked by it — or
-/// the shared file when no layer overrides (created in the config home
-/// when missing). The edit is section-preserving: every other value,
-/// comment, and blank line in the file survives byte for byte, and a
-/// malformed file is refused, never clobbered.
+/// 保留期 / 不留存 controls, ticket 18). The placement and preservation
+/// rules live in the config crate's section writer: the owning layer
+/// (the last one saying anything about `[history]`, or the shared file
+/// when none does) gets a section-preserving edit — every other value,
+/// comment, and blank line survives byte for byte, and a malformed file
+/// is refused, never clobbered.
 ///
 /// Saving does not touch a running store: the caller applies the new
 /// config through [`crate::HistoryStore::apply_config`] and re-reads.
@@ -82,56 +82,16 @@ pub fn save_history_config(
             "retention_days must be at least 1: zero would sweep every row on sight".into(),
         ));
     }
-    // Who owns the effective values now? Writing both keys there means
-    // the next load returns exactly what was saved.
-    let layers = load_section_layers::<HistorySection>(dirs, "history")
-        .map_err(|err| HistoryConfigError(err.0))?;
-    let file = layers
-        .last()
-        .map(|layer| layer.source.file_name())
-        .unwrap_or(spokenrectifier_config::SHARED_FILE);
-    let path = spokenrectifier_config::find_file(dirs, file)
-        .unwrap_or_else(|| spokenrectifier_config::settings_home(dirs).join(file));
-
-    // A missing file starts a fresh document; an unreadable one (a
-    // directory in its place, say) is an error like any other.
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(err) => return Err(HistoryConfigError(format!("{}: {err}", path.display()))),
-    };
-    let mut document = text
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|err| HistoryConfigError(format!("{}: {err}", path.display())))?;
-
-    if document.get_mut("history").is_none() {
-        // A fresh section (index-reading a missing key would panic).
-        document["history"] = toml_edit::Item::Table(toml_edit::Table::new());
-    }
-    let Some(history) = document
-        .get_mut("history")
-        .and_then(|item| item.as_table_mut())
-    else {
-        return Err(HistoryConfigError(format!(
-            "{}: [history] exists but is not a table",
-            path.display()
-        )));
-    };
-    // insert (not index-assign) keeps an existing key's position and
-    // formatting, and creates a plain one when absent.
-    history.insert("enabled", toml_edit::value(config.enabled));
-    history.insert(
-        "retention_days",
-        toml_edit::value(config.retention_days as i64),
-    );
-
-    let mut rendered = document.to_string();
-    if !rendered.ends_with('\n') {
-        rendered.push('\n');
-    }
-    std::fs::write(&path, rendered)
-        .map_err(|err| HistoryConfigError(format!("{}: {err}", path.display())))?;
-    Ok(())
+    spokenrectifier_config::section_write::write_section_fields(
+        dirs,
+        "history",
+        &[
+            SectionField::bool("enabled", config.enabled),
+            SectionField::int("retention_days", config.retention_days as i64),
+        ],
+        WriteLayer::Owning,
+    )
+    .map_err(|err| HistoryConfigError(err.0))
 }
 
 #[cfg(test)]

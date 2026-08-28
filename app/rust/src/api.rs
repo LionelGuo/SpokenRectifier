@@ -598,6 +598,264 @@ pub fn set_history_config(
     history_config()
 }
 
+// -- the connection domain (模型与连接, ticket 19) -----------------------------
+
+/// Dart-side mirror of a secret's placement — never the secret itself
+/// (the GUI paints this status; the stored key never leaves the file).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BridgeKeyStatus {
+    Unset,
+    InLocalFile,
+    FromEnv(String),
+}
+
+impl From<spokenrectifier_config::section_write::KeyStatus> for BridgeKeyStatus {
+    fn from(value: spokenrectifier_config::section_write::KeyStatus) -> Self {
+        use spokenrectifier_config::section_write::KeyStatus;
+        match value {
+            KeyStatus::Unset => BridgeKeyStatus::Unset,
+            KeyStatus::InLocalFile => BridgeKeyStatus::InLocalFile,
+            KeyStatus::FromEnv(name) => BridgeKeyStatus::FromEnv(name),
+        }
+    }
+}
+
+/// Dart-side mirror of what a connection save does to the api_key: the
+/// stored key is never echoed back, so "keep" is a first-class action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BridgeKeyEdit {
+    Keep,
+    Clear,
+    Set(String),
+}
+
+impl From<BridgeKeyEdit> for spokenrectifier_config::section_write::KeyEdit {
+    fn from(value: BridgeKeyEdit) -> Self {
+        use spokenrectifier_config::section_write::KeyEdit;
+        match value {
+            BridgeKeyEdit::Keep => KeyEdit::Keep,
+            BridgeKeyEdit::Clear => KeyEdit::Clear,
+            BridgeKeyEdit::Set(key) => KeyEdit::Set(key),
+        }
+    }
+}
+
+/// The effective `[asr]` connection as the settings pane paints it: the
+/// folded fields, the resolved endpoint (a read-only preview), and the
+/// key's placement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BridgeAsrConnection {
+    pub model: String,
+    pub language: String,
+    pub workspace_id: Option<String>,
+    pub region: String,
+    pub base_url: Option<String>,
+    /// The WebSocket URL the current fields resolve to.
+    pub endpoint: String,
+    pub key: BridgeKeyStatus,
+}
+
+/// The effective `[llm]` connection as the settings pane paints it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BridgeLlmConnection {
+    pub vendor: String,
+    pub base_url: String,
+    pub model: String,
+    pub key: BridgeKeyStatus,
+}
+
+fn asr_view(config: spokenrectifier_aliyun::AsrConfig) -> BridgeAsrConnection {
+    BridgeAsrConnection {
+        endpoint: config.endpoint(),
+        key: config.key_status().into(),
+        model: config.model,
+        language: config.language,
+        workspace_id: config.workspace_id,
+        region: config.region,
+        base_url: config.base_url,
+    }
+}
+
+fn llm_view(config: spokenrectifier_llm::LlmConfig) -> BridgeLlmConnection {
+    let key = config.model.key_status().into();
+    BridgeLlmConnection {
+        vendor: config.model.vendor.as_str().to_string(),
+        base_url: config.model.base_url,
+        model: config.model.model,
+        key,
+    }
+}
+
+/// The effective `[asr]` and `[llm]` connections from the layer files —
+/// the connection domain's initial paint. File-level, engine-
+/// independent: the engine adopts the config at its creation, so a
+/// change written here applies from the next launch on (the pane says
+/// so; the fidelity-eval run is the one place that adopts it at once,
+/// building its own engine per run).
+pub fn connection_config() -> anyhow::Result<BridgeConnection> {
+    let dirs = spokenrectifier_config::search_dirs();
+    let asr = load_asr_config(&dirs).map_err(|err| anyhow!("ASR {}", err.0))?;
+    let llm =
+        spokenrectifier_llm::load_llm_config(&dirs).map_err(|err| anyhow!("LLM {}", err.0))?;
+    Ok(BridgeConnection {
+        asr: asr_view(asr),
+        llm: llm_view(llm),
+    })
+}
+
+/// Both connections in one read.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BridgeConnection {
+    pub asr: BridgeAsrConnection,
+    pub llm: BridgeLlmConnection,
+}
+
+/// Write the editor's `[asr]` model back into the layer files (see
+/// `save_asr_connection` for the placement and preservation rules) and
+/// return the re-read view — the file's truth, not the ask.
+pub fn set_asr_connection(
+    model: String,
+    language: String,
+    workspace_id: Option<String>,
+    region: String,
+    base_url: Option<String>,
+    api_key: BridgeKeyEdit,
+) -> anyhow::Result<BridgeAsrConnection> {
+    let dirs = spokenrectifier_config::search_dirs();
+    spokenrectifier_aliyun::save_asr_connection(
+        &dirs,
+        &spokenrectifier_aliyun::AsrConnectionEdit {
+            model,
+            language,
+            workspace_id,
+            region,
+            base_url,
+            api_key: api_key.into(),
+        },
+    )
+    .map_err(|err| anyhow!("ASR {}", err.0))?;
+    let config = load_asr_config(&dirs).map_err(|err| anyhow!("ASR {}", err.0))?;
+    Ok(asr_view(config))
+}
+
+/// Write the editor's `[llm]` model back into the layer files (see
+/// `save_llm_connection`) and return the re-read view.
+pub fn set_llm_connection(
+    vendor: String,
+    base_url: String,
+    model: String,
+    api_key: BridgeKeyEdit,
+) -> anyhow::Result<BridgeLlmConnection> {
+    let dirs = spokenrectifier_config::search_dirs();
+    let vendor = spokenrectifier_llm::Vendor::from_str_name(&vendor).ok_or_else(|| {
+        anyhow!("[llm] vendor \"{vendor}\" is unknown: pick one of the known endpoints")
+    })?;
+    spokenrectifier_llm::save_llm_connection(
+        &dirs,
+        &spokenrectifier_llm::LlmConnectionEdit {
+            vendor,
+            base_url,
+            model,
+            api_key: api_key.into(),
+        },
+    )
+    .map_err(|err| anyhow!("LLM {}", err.0))?;
+    let config =
+        spokenrectifier_llm::load_llm_config(&dirs).map_err(|err| anyhow!("LLM {}", err.0))?;
+    Ok(llm_view(config))
+}
+
+// -- the terms domain (术语, ticket 19) ----------------------------------------
+
+/// Rename a term in the dictionary, in place (the settings editor's 改;
+/// the quick panel's quick-add and quick-remove stay the same calls).
+/// See [`spokenrectifier_config::terms::update_term`] for the placement
+/// and collision rules.
+pub fn update_term(old: String, new: String) -> anyhow::Result<()> {
+    spokenrectifier_config::terms::update_term(&spokenrectifier_config::search_dirs(), &old, &new)
+        .map_err(|err| anyhow!("cannot rename the term: {err}"))
+}
+
+// -- the advanced domain (高级, ticket 19) -------------------------------------
+
+/// The effective `[engine]` timings as the advanced pane paints them
+/// (read-only; see ADR-0007 for why they stay file-only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BridgeEngineTiming {
+    pub passage_mode: bool,
+    pub paragraph_silence_ms: u64,
+    pub session_end_silence_ms: u64,
+    pub rectify_timeout_ms: u64,
+}
+
+/// The effective `[insertion]` timings as the advanced pane paints them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeInsertionTiming {
+    /// `paste` or `typing`.
+    pub mode: String,
+    pub focus_settle_ms: u64,
+    pub paste_settle_ms: u64,
+    pub typing_delay_ms: u64,
+}
+
+/// The advanced domain's one read: the session and insertion latency
+/// parameters, effective right now. Read-only by decision (ADR-0007):
+/// they are engine-construction-time values, so a GUI form over them
+/// would promise the hot-reload nothing delivers — the config file is
+/// the escape hatch, and the pane links to it.
+pub fn advanced_config() -> anyhow::Result<BridgeAdvancedConfig> {
+    let dirs = spokenrectifier_config::search_dirs();
+    let engine = engine_config(&dirs)?;
+    let insertion = spokenrectifier_insertion::load_insertion_config(&dirs)
+        .map_err(|err| anyhow!("insertion {}", err.0))?;
+    Ok(BridgeAdvancedConfig {
+        engine: BridgeEngineTiming {
+            passage_mode: engine.passage_mode,
+            paragraph_silence_ms: engine.paragraph_silence_ms,
+            session_end_silence_ms: engine.session_end_silence_ms,
+            rectify_timeout_ms: engine.rectify_timeout_ms,
+        },
+        insertion: BridgeInsertionTiming {
+            mode: match insertion.mode {
+                spokenrectifier_insertion::InsertionMode::Paste => "paste".to_string(),
+                spokenrectifier_insertion::InsertionMode::Typing => "typing".to_string(),
+            },
+            focus_settle_ms: insertion.focus_settle_ms,
+            paste_settle_ms: insertion.paste_settle_ms,
+            typing_delay_ms: insertion.typing_delay_ms,
+        },
+    })
+}
+
+/// Both timing cards in one read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAdvancedConfig {
+    pub engine: BridgeEngineTiming,
+    pub insertion: BridgeInsertionTiming,
+}
+
+// -- the about domain (关于, ticket 19) ----------------------------------------
+
+/// What the about pane paints. The version is the app crate's manifest
+/// (kept in step with the Flutter `pubspec.yaml` — bump both together).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAbout {
+    pub version: String,
+    pub license: String,
+    /// The public repository; absent until the open-source packaging
+    /// (ticket 11) names one.
+    pub repo_url: Option<String>,
+}
+
+/// The about pane's one read (version, license, repository).
+pub fn about() -> BridgeAbout {
+    BridgeAbout {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        license: "Apache-2.0".to_string(),
+        repo_url: None,
+    }
+}
+
 // -- the fidelity eval (保真评测, ticket 18) -----------------------------------
 
 /// Live progress from one fidelity-eval run: per-case start/finish, and

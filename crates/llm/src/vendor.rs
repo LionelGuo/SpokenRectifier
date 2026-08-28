@@ -2,11 +2,11 @@
 //! toggles thinking mode. Rewriting tasks want thinking off (latency and
 //! over-rectify risk), so off is the default everywhere.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// The dialect quirks of a compatible endpoint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Vendor {
     /// api.deepseek.com: `thinking: {"type": ...}`; enabling also requires
@@ -22,6 +22,29 @@ pub enum Vendor {
 }
 
 impl Vendor {
+    /// The file/wire name — serde's lowercase form, spelled out for the
+    /// settings editor's section writes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Vendor::DeepSeek => "deepseek",
+            Vendor::Volcengine => "volcengine",
+            Vendor::Qwen => "qwen",
+            Vendor::OpenAi => "openai",
+        }
+    }
+
+    /// Parse the file/wire name (the settings editor's dropdown sends
+    /// one of these); unknown names are `None` for the caller to refuse.
+    pub fn from_str_name(name: &str) -> Option<Self> {
+        match name.trim() {
+            "deepseek" => Some(Vendor::DeepSeek),
+            "volcengine" => Some(Vendor::Volcengine),
+            "qwen" => Some(Vendor::Qwen),
+            "openai" => Some(Vendor::OpenAi),
+            _ => None,
+        }
+    }
+
     /// The fields to merge into the request body for the wanted thinking
     /// mode. Empty means: send nothing.
     pub fn thinking_fields(self, thinking: bool) -> Vec<(&'static str, Value)> {
@@ -44,6 +67,25 @@ impl Vendor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_spelled_names_match_serde_lowercase() {
+        for (vendor, name) in [
+            (Vendor::DeepSeek, "deepseek"),
+            (Vendor::Volcengine, "volcengine"),
+            (Vendor::Qwen, "qwen"),
+            (Vendor::OpenAi, "openai"),
+        ] {
+            assert_eq!(vendor.as_str(), name);
+            // What a save writes must be what a load reads back.
+            assert_eq!(
+                serde_json::from_str::<Vendor>(format!("\"{name}\"").as_str()).unwrap(),
+                vendor
+            );
+            assert_eq!(Vendor::from_str_name(name), Some(vendor));
+        }
+        assert_eq!(Vendor::from_str_name("nonsense"), None);
+    }
 
     #[test]
     fn deepseek_disabled_by_default_shape() {

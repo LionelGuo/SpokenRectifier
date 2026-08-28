@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::Value;
 use spokenrectifier_config::load_section_layers;
+use spokenrectifier_config::section_write::{KeyEdit, KeyStatus, SectionField, WriteLayer};
 
 use crate::vendor::Vendor;
 
@@ -77,6 +78,25 @@ impl ModelConfig {
         }
         let env_name = self.api_key_env.as_deref()?;
         std::env::var(env_name).ok().filter(|k| !k.is_empty())
+    }
+
+    /// The key's placement for display: the local file first, then the
+    /// configured environment variable, else nothing.
+    pub fn key_status(&self) -> KeyStatus {
+        if self.api_key.is_some() {
+            return KeyStatus::InLocalFile;
+        }
+        match &self.api_key_env {
+            Some(name) => {
+                let from_env = std::env::var(name).is_ok_and(|key| !key.is_empty());
+                if from_env {
+                    KeyStatus::FromEnv(name.clone())
+                } else {
+                    KeyStatus::Unset
+                }
+            }
+            None => KeyStatus::Unset,
+        }
     }
 }
 
@@ -164,6 +184,56 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
         ));
     }
     Ok(config)
+}
+
+// -- the settings editor's write path (ticket 19) ----------------------------
+
+/// What the connection editor writes back: the GUI-managed subset of
+/// `[llm]`. Values are the editor's whole model — saving writes exactly
+/// these, so the next load returns what the user saw.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LlmConnectionEdit {
+    pub vendor: Vendor,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: KeyEdit,
+}
+
+/// Write the connection editor's model back into the layer files. The
+/// endpoint fields land in the layer that owns `[llm]` (section-
+/// preserving); the api_key lands in the local file only — never the
+/// committable shared file, whose loader rejects a key outright (the
+/// layering ironclad, ADR-0008).
+pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result<(), ConfigError> {
+    let base_url = edit.base_url.trim();
+    let model = edit.model.trim();
+    if model.is_empty() {
+        return Err(ConfigError(
+            "[llm] model is empty: name a real model".into(),
+        ));
+    }
+    if base_url.is_empty() {
+        return Err(ConfigError(
+            "[llm] base_url is empty: name a real endpoint".into(),
+        ));
+    }
+    let fields = vec![
+        SectionField::str("vendor", edit.vendor.as_str()),
+        SectionField::str("base_url", base_url),
+        SectionField::str("model", model),
+    ];
+    spokenrectifier_config::section_write::write_section_fields(
+        dirs,
+        "llm",
+        &fields,
+        WriteLayer::Owning,
+    )
+    .map_err(|err| ConfigError(err.0))?;
+    edit.api_key
+        .clone()
+        .write_to_local(dirs, "llm")
+        .map_err(|err| ConfigError(err.0))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -280,5 +350,152 @@ mod tests {
         let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
         assert!(err.contains("base_url"), "got: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+    // -- the settings editor's write path (ticket 19) -----------------------
+
+    use spokenrectifier_config::section_write::KeyEdit;
+    use spokenrectifier_config::{LOCAL_FILE, SHARED_FILE};
+
+    fn edit(api_key: KeyEdit) -> LlmConnectionEdit {
+        LlmConnectionEdit {
+            vendor: Vendor::Volcengine,
+            base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
+            model: "doubao-seed-2.0-lite".into(),
+            api_key,
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_save_without_any_layer_creates_both_files_and_round_trips() {
+        let dir = scratch("sr-llm-save-fresh");
+        let dirs = std::slice::from_ref(&dir);
+
+        save_llm_connection(dirs, &edit(KeyEdit::Set("sk-new".into()))).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(shared.contains("vendor = \"volcengine\""), "got: {shared}");
+        assert!(shared.contains("doubao-seed-2.0-lite"));
+        assert!(
+            !shared.contains("api_key"),
+            "key leaked into shared: {shared}"
+        );
+        let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
+        assert!(local.contains("api_key = \"sk-new\""), "got: {local}");
+        // The load returns exactly the editor's model (endpoint intent
+        // included), and passes the shared-file guard.
+        let config = load_llm_config(dirs).unwrap();
+        assert_eq!(config.model.model, "doubao-seed-2.0-lite");
+        assert_eq!(config.model.vendor, Vendor::Volcengine);
+        assert_eq!(
+            config.model.base_url,
+            "https://ark.cn-beijing.volces.com/api/v3"
+        );
+        assert!(config.endpoint_configured);
+        assert_eq!(config.model.resolve_key().as_deref(), Some("sk-new"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The ironclad: a GUI save never puts a key in the committable
+    /// shared file — whatever layer owns the section.
+    #[test]
+    fn a_saved_key_never_lands_in_the_shared_file() {
+        let dir = scratch("sr-llm-save-ironclad");
+        let dirs = std::slice::from_ref(&dir);
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "# committable\n[llm]\nmodel = \"deepseek-v4-flash\"\nthinking = false\n",
+        )
+        .unwrap();
+
+        save_llm_connection(dirs, &edit(KeyEdit::Set("sk-secret".into()))).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(shared.contains("# committable"), "comment lost: {shared}");
+        assert!(
+            shared.contains("thinking = false"),
+            "sibling field lost: {shared}"
+        );
+        assert!(
+            !shared.contains("api_key"),
+            "key leaked into shared: {shared}"
+        );
+        let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
+        assert!(local.contains("api_key = \"sk-secret\""), "got: {local}");
+        assert!(load_llm_config(dirs).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_endpoint_edit_lands_in_the_owning_local_layer() {
+        let dir = scratch("sr-llm-save-owning");
+        let dirs = std::slice::from_ref(&dir);
+        // Local owns [llm] (it holds the key); an endpoint edit must land
+        // beside it, or the shared file's values would keep winning.
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nmodel = \"deepseek-v4-flash\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join(LOCAL_FILE), "[llm]\napi_key = \"sk-old\"\n").unwrap();
+
+        save_llm_connection(dirs, &edit(KeyEdit::Keep)).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(
+            shared.contains("deepseek-v4-flash"),
+            "shared file was touched: {shared}"
+        );
+        let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
+        assert!(
+            local.contains("doubao-seed-2.0-lite"),
+            "local not updated: {local}"
+        );
+        assert!(
+            local.contains("api_key = \"sk-old\""),
+            "keep touched the key: {local}"
+        );
+        assert_eq!(
+            load_llm_config(dirs).unwrap().model.model,
+            "doubao-seed-2.0-lite"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_key_clear_removes_it_from_local_only() {
+        let dir = scratch("sr-llm-save-clear");
+        let dirs = std::slice::from_ref(&dir);
+        std::fs::write(dir.join(LOCAL_FILE), "[llm]\napi_key = \"sk-old\"\n").unwrap();
+
+        save_llm_connection(dirs, &edit(KeyEdit::Clear)).unwrap();
+
+        let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
+        assert!(!local.contains("api_key"), "not cleared: {local}");
+        assert!(
+            local.contains("model = \"doubao-seed-2.0-lite\""),
+            "endpoint fields lost: {local}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_empty_endpoint_field_is_refused_and_writes_nothing() {
+        let dir = scratch("sr-llm-save-empty");
+        let dirs = std::slice::from_ref(&dir);
+        let mut model = edit(KeyEdit::Set("sk".into()));
+        model.base_url = "   ".into();
+
+        let err = save_llm_connection(dirs, &model).unwrap_err().0;
+        assert!(err.contains("base_url"), "got: {err}");
+        assert!(!dir.join(SHARED_FILE).exists(), "wrote on a refused save");
+        assert!(!dir.join(LOCAL_FILE).exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

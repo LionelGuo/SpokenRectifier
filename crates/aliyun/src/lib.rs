@@ -34,7 +34,9 @@ mod gate;
 mod provider;
 mod transport;
 
-pub use config::{AsrConfig, AsrConfigError, load_asr_config};
+pub use config::{
+    AsrConfig, AsrConfigError, AsrConnectionEdit, load_asr_config, save_asr_connection,
+};
 pub use provider::AliyunAsr;
 pub use transport::{ConnectError, RealtimeChannel, RealtimeConnect, TungsteniteConnect};
 

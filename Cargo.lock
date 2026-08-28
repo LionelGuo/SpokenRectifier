@@ -2236,7 +2236,7 @@ dependencies = [
 
 [[package]]
 name = "rust_lib_spokenrectifier_app"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "flutter_rust_bridge",
@@ -2528,6 +2528,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.20",
  "toml",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]
@@ -2561,7 +2562,6 @@ dependencies = [
  "spokenrectifier-config",
  "spokenrectifier-engine",
  "thiserror 2.0.20",
- "toml_edit 0.22.27",
 ]
 
 [[package]]

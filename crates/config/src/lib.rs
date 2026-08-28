@@ -7,6 +7,8 @@
 //! where the files live, reading them, error formatting, the secrets
 //! guard, and section extraction. The interface is one generic load per
 //! section; folding the returned overlays in order means local wins.
+//! The write side lives in [`section_write`]: one section-preserving
+//! writer every settings surface saves through.
 //!
 //! Error formatting never quotes the TOML source: the offending line may
 //! carry a secret from an unrelated section, so errors carry the file,
@@ -18,6 +20,7 @@
 //! app-owned file of named style directives.
 
 pub mod scenarios;
+pub mod section_write;
 pub mod terms;
 
 use std::path::{Path, PathBuf};

@@ -87,6 +87,55 @@ pub fn remove_term(dirs: &[PathBuf], term: &str) -> std::io::Result<()> {
     std::fs::write(&path, text)
 }
 
+/// Rename a term in place — the settings editor's 改. The line carrying
+/// `old` (trimmed-compared, like the loader reads; every copy of a
+/// duplicated term) becomes `new` where it sits: order, comments, and
+/// blank lines survive, unlike an append-after-remove which would drag
+/// the term to the end of the file. Renaming onto a term the dictionary
+/// already holds elsewhere is refused — the editor wants one entry per
+/// term, not silently-merging duplicates. A missing `old` is an error
+/// too: the caller's model is stale (the editor re-reads after every
+/// change, so this means the file moved underneath it).
+pub fn update_term(dirs: &[PathBuf], old: &str, new: &str) -> std::io::Result<()> {
+    let old = reject_blank(old)?;
+    let new = reject_blank(new)?;
+    let Some(path) = find_file(dirs, TERMS_FILE) else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "the term is not in the dictionary (no dictionary file exists)",
+        ));
+    };
+    let existing = std::fs::read_to_string(&path)?;
+    let lines: Vec<&str> = existing.lines().collect();
+    if lines.iter().any(|line| line.trim() == new) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("the dictionary already holds \"{new}\""),
+        ));
+    }
+    let renamed: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            if line.trim() == old {
+                line.replace(line.trim(), new) // keeps leading indentation
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    if renamed == lines {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("the term \"{old}\" is not in the dictionary"),
+        ));
+    }
+    let mut text = renamed.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    std::fs::write(&path, text)
+}
+
 /// The shared writer guard: a dictionary entry is its trimmed self, and
 /// an empty entry is no entry at all.
 fn reject_blank(term: &str) -> Result<&str, std::io::Error> {
@@ -308,6 +357,100 @@ mod tests {
         let dir = scratch("sr-terms-remove-absent");
         remove_term(std::slice::from_ref(&dir), "不存在").unwrap();
         assert!(!dir.join(TERMS_FILE).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // -- the settings editor's rename path (ticket 19) ----------------------
+
+    #[test]
+    fn update_renames_the_line_in_place_keeping_comments_and_order() {
+        let dir = scratch("sr-terms-update");
+        std::fs::write(
+            dir.join(TERMS_FILE),
+            "# 注释\n第一术语\r\n要改的术语\n最后一术语\n",
+        )
+        .unwrap();
+
+        update_term(std::slice::from_ref(&dir), "要改的术语", "新术语").unwrap();
+
+        // The renamed term keeps its position; comments, order, and the
+        // untouched terms survive (CRLF normalized away by the rewrite).
+        assert_eq!(
+            load_terms(std::slice::from_ref(&dir)),
+            vec![
+                "第一术语".to_string(),
+                "新术语".to_string(),
+                "最后一术语".to_string()
+            ]
+        );
+        assert!(
+            std::fs::read_to_string(dir.join(TERMS_FILE))
+                .unwrap()
+                .contains("# 注释")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn update_renames_every_copy_of_a_duplicated_term() {
+        let dir = scratch("sr-terms-update-duplicate");
+        std::fs::write(dir.join(TERMS_FILE), "重复\n别的\n重复\n").unwrap();
+
+        update_term(std::slice::from_ref(&dir), "重复", "不重复").unwrap();
+
+        assert_eq!(
+            load_terms(std::slice::from_ref(&dir)),
+            vec![
+                "不重复".to_string(),
+                "别的".to_string(),
+                "不重复".to_string()
+            ]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn update_onto_an_existing_term_is_refused() {
+        let dir = scratch("sr-terms-update-collision");
+        std::fs::write(dir.join(TERMS_FILE), "甲\n乙\n").unwrap();
+
+        let err = update_term(std::slice::from_ref(&dir), "甲", "乙").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        // Nothing changed.
+        assert_eq!(
+            std::fs::read_to_string(dir.join(TERMS_FILE)).unwrap(),
+            "甲\n乙\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn update_of_an_absent_term_is_an_error_not_a_silent_noop() {
+        let dir = scratch("sr-terms-update-absent");
+        std::fs::write(dir.join(TERMS_FILE), "甲\n").unwrap();
+
+        let err = update_term(std::slice::from_ref(&dir), "不存在", "乙").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn update_without_a_dictionary_is_an_error() {
+        let dir = scratch("sr-terms-update-no-file");
+        assert!(update_term(std::slice::from_ref(&dir), "甲", "乙").is_err());
+        assert!(!dir.join(TERMS_FILE).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_blank_new_term_is_rejected_by_the_rename() {
+        let dir = scratch("sr-terms-update-blank");
+        std::fs::write(dir.join(TERMS_FILE), "甲\n").unwrap();
+        assert!(update_term(std::slice::from_ref(&dir), "甲", "  ").is_err());
+        assert_eq!(
+            std::fs::read_to_string(dir.join(TERMS_FILE)).unwrap(),
+            "甲\n"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

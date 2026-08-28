@@ -16,7 +16,9 @@ mod prompt;
 mod vendor;
 
 pub use client::OpenAiCompatLlm;
-pub use config::{ConfigError, LlmConfig, ModelConfig, load_llm_config};
+pub use config::{
+    ConfigError, LlmConfig, LlmConnectionEdit, ModelConfig, load_llm_config, save_llm_connection,
+};
 pub use intensity::{Intensity, select_intensity};
 pub use prompt::{ChatPrompt, compose_prompt};
 pub use vendor::Vendor;
