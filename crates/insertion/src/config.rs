@@ -120,9 +120,7 @@ pub fn save_insertion_timing(
     config: &InsertionConfig,
 ) -> Result<(), InsertionConfigError> {
     let int = |name: &str, value: u64| -> Result<SectionField, InsertionConfigError> {
-        i64::try_from(value)
-            .map(|value| SectionField::int(name, value))
-            .map_err(|_| InsertionConfigError(format!("[insertion] {name} is out of range")))
+        SectionField::int_u64("insertion", name, value).map_err(|err| InsertionConfigError(err.0))
     };
     let fields = vec![
         SectionField::str("mode", config.mode.as_str()),

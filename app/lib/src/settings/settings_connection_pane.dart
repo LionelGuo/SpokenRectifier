@@ -332,13 +332,19 @@ class _KeyBlockState extends State<_KeyBlock> {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     final fromEnv = widget.keyInfo.status == KeyPlacement.fromEnv;
+    // An env key has no stored local value, so the 「只存于本机」 tail
+    // would mislead; its status line says what typing does instead
+    // (ADR-0008's exact wording).
+    final status = fromEnv
+        ? '${widget.keyInfo.label},输入即另存本机'
+        : '${widget.keyInfo.label};密钥只存于本机 local 文件';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('API 密钥', style: SrType.micro.copyWith(color: pal.textTertiary)),
         const SizedBox(height: 4),
         Text(
-          '${widget.keyInfo.label};密钥只存于本机 local 文件',
+          status,
           key: Key('settings-conn-key-status:${widget.id}'),
           style: SrType.micro.copyWith(color: pal.textSecondary),
         ),
@@ -350,7 +356,7 @@ class _KeyBlockState extends State<_KeyBlock> {
                 key: Key('settings-conn-${widget.id}-key'),
                 controller: widget.field,
                 label: '',
-                hint: fromEnv ? '留空沿用环境变量;输入即另存本机' : '清空并保存即删除本机密钥',
+                hint: fromEnv ? '留空沿用环境变量' : '清空并保存即删除本机密钥',
                 obscure: _obscured,
                 monospace: true,
               ),

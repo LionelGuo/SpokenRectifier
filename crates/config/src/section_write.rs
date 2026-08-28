@@ -67,6 +67,19 @@ impl SectionField {
         }
     }
 
+    /// An integer field from an unsigned value — the u64 timings every
+    /// settings form writes. Refused (not wrapped) when the value cannot
+    /// ride TOML's i64; `section` prefixes the error so it names the
+    /// file section the form was saving.
+    pub fn int_u64(section: &str, name: &str, value: u64) -> Result<Self, ConfigError> {
+        i64::try_from(value)
+            .map(|value| SectionField::Int {
+                name: name.to_string(),
+                value,
+            })
+            .map_err(|_| ConfigError(format!("[{section}] {name} is out of range")))
+    }
+
     /// A boolean field.
     pub fn bool(name: &str, value: bool) -> Self {
         SectionField::Bool {
@@ -607,5 +620,18 @@ mod tests {
             KeyEdit::Set("  ".into()).as_field(),
             Some(SectionField::reset("api_key"))
         );
+    }
+
+    #[test]
+    fn an_unsigned_int_field_refuses_what_i64_cannot_hold() {
+        assert_eq!(
+            SectionField::int_u64("engine", "paragraph_silence_ms", 1200).unwrap(),
+            SectionField::int("paragraph_silence_ms", 1200)
+        );
+        let err = SectionField::int_u64("engine", "paragraph_silence_ms", i64::MAX as u64 + 1)
+            .unwrap_err()
+            .0;
+        assert!(err.contains("[engine]"), "got: {err}");
+        assert!(err.contains("paragraph_silence_ms"), "got: {err}");
     }
 }

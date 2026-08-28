@@ -56,9 +56,7 @@ pub fn save_engine_timing(
     timings: EngineTimings,
 ) -> anyhow::Result<EngineTimings> {
     let int = |name: &str, value: u64| -> anyhow::Result<SectionField> {
-        i64::try_from(value)
-            .map(|value| SectionField::int(name, value))
-            .map_err(|_| anyhow!("[engine] {name} is out of range"))
+        SectionField::int_u64("engine", name, value).map_err(|err| anyhow!("{}", err.0))
     };
     let fields = vec![
         int("paragraph_silence_ms", timings.paragraph_silence_ms)?,

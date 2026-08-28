@@ -1117,6 +1117,8 @@ void main() {
 
     expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
     expect(find.textContaining('取自环境变量 DEEPSEEK_API_KEY'), findsOneWidget);
+    // The status line itself carries the ADR's 「输入即另存本机」 wording.
+    expect(find.textContaining('输入即另存本机'), findsOneWidget);
   });
 
   testWidgets('a chip click prefills the vendor endpoint and model', (
