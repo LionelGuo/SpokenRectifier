@@ -13,7 +13,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../design/controls.dart' show SrButton, SrCard;
+import '../design/controls.dart' show SrButton, SrCard, SrField;
 import '../design/hover.dart';
 import '../design/tokens.dart';
 import 'connection_store.dart';
@@ -197,10 +197,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
       children: [
         Row(
           children: [
-            Text(
-              '模型与连接',
-              style: SrType.title.copyWith(color: pal.textPrimary),
-            ),
+            Text('模型与连接', style: SrType.title.copyWith(color: pal.textPrimary)),
             const SizedBox(width: 10),
             Text(
               '保存后写入配置文件,下次启动生效',
@@ -262,67 +259,6 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
 // Field recipes
 // ---------------------------------------------------------------------------
 
-/// A labeled single-line field — the quick panel's term-row recipe: the
-/// box is drawn by the container, the TextField inside is undecorated.
-class _Field extends StatelessWidget {
-  const _Field({
-    required this.fieldKey,
-    required this.controller,
-    required this.label,
-    this.hint,
-    this.obscure = false,
-    this.monospace = false,
-  });
-
-  final Key fieldKey;
-  final TextEditingController controller;
-  final String label;
-  final String? hint;
-  final bool obscure;
-  final bool monospace;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: SrType.micro.copyWith(color: pal.textTertiary)),
-        const SizedBox(height: 4),
-        Container(
-          height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: pal.surfaceOverlay,
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(color: pal.hairline),
-          ),
-          alignment: Alignment.centerLeft,
-          child: TextField(
-            key: fieldKey,
-            controller: controller,
-            obscureText: obscure,
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontFamily: monospace ? 'monospace' : null,
-            ),
-            cursorColor: pal.accent,
-            decoration: InputDecoration(
-              isCollapsed: true,
-              border: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              hintText: hint,
-              hintStyle: SrType.body.copyWith(color: pal.textTertiary),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 /// The key block: the placement caption (never the key), a write-only
 /// field, and the destructive clear. [id] names the section ('llm' /
 /// 'asr') for the block's test keys.
@@ -356,8 +292,8 @@ class _KeyBlock extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: _Field(
-                fieldKey: Key('settings-conn-$id-key'),
+              child: SrField(
+                key: Key('settings-conn-$id-key'),
                 controller: field,
                 label: '',
                 hint: '留空保持不变;输入即替换',
@@ -380,10 +316,7 @@ class _KeyBlock extends StatelessWidget {
 
 /// The vendor chip set (the history pane's retention-chip recipe).
 class _VendorChips extends StatelessWidget {
-  const _VendorChips({
-    required this.selected,
-    required this.onSelect,
-  });
+  const _VendorChips({required this.selected, required this.onSelect});
 
   final String selected;
   final ValueChanged<String> onSelect;
@@ -405,7 +338,10 @@ class _VendorChips extends StatelessWidget {
                 key: Key('settings-conn-llm-vendor:$vendor'),
                 duration: SrMotion.fade,
                 curve: SrMotion.curveFade,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: vendor == selected
                       ? pal.accentSoft
@@ -420,8 +356,12 @@ class _VendorChips extends StatelessWidget {
                 child: Text(
                   vendor,
                   style: SrType.caption.copyWith(
-                    color: vendor == selected ? pal.accentText : pal.textSecondary,
-                    fontWeight: vendor == selected ? FontWeight.w600 : FontWeight.w400,
+                    color: vendor == selected
+                        ? pal.accentText
+                        : pal.textSecondary,
+                    fontWeight: vendor == selected
+                        ? FontWeight.w600
+                        : FontWeight.w400,
                   ),
                 ),
               ),
@@ -481,15 +421,15 @@ class _LlmCard extends StatelessWidget {
           const SizedBox(height: 6),
           _VendorChips(selected: vendor, onSelect: onVendor),
           const SizedBox(height: 12),
-          _Field(
-            fieldKey: const Key('settings-conn-llm-baseurl'),
+          SrField(
+            key: const Key('settings-conn-llm-baseurl'),
             controller: baseUrl,
             label: '端点 base_url',
             monospace: true,
           ),
           const SizedBox(height: 12),
-          _Field(
-            fieldKey: const Key('settings-conn-llm-model'),
+          SrField(
+            key: const Key('settings-conn-llm-model'),
             controller: model,
             label: '模型',
             monospace: true,
@@ -559,8 +499,8 @@ class _AsrCard extends StatelessWidget {
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
-          _Field(
-            fieldKey: const Key('settings-conn-asr-model'),
+          SrField(
+            key: const Key('settings-conn-asr-model'),
             controller: model,
             label: '模型',
             monospace: true,
@@ -570,16 +510,16 @@ class _AsrCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                child: _Field(
-                  fieldKey: const Key('settings-conn-asr-language'),
+                child: SrField(
+                  key: const Key('settings-conn-asr-language'),
                   controller: language,
                   label: '识别语言',
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _Field(
-                  fieldKey: const Key('settings-conn-asr-region'),
+                child: SrField(
+                  key: const Key('settings-conn-asr-region'),
                   controller: region,
                   label: '区域',
                 ),
@@ -591,8 +531,8 @@ class _AsrCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                child: _Field(
-                  fieldKey: const Key('settings-conn-asr-workspace'),
+                child: SrField(
+                  key: const Key('settings-conn-asr-workspace'),
                   controller: workspace,
                   label: 'workspace_id(可选)',
                   monospace: true,
@@ -600,8 +540,8 @@ class _AsrCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _Field(
-                  fieldKey: const Key('settings-conn-asr-baseurl'),
+                child: SrField(
+                  key: const Key('settings-conn-asr-baseurl'),
                   controller: baseUrl,
                   label: 'base_url 全量覆盖(可选)',
                   monospace: true,

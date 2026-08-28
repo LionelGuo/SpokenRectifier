@@ -157,9 +157,8 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
           _ConfigCard(
             config: config,
             onToggleKeepNothing: _toggleKeepNothing,
-            onRetention: (days) => _saveConfig(
-              config.copyWith(retentionDays: days),
-            ),
+            onRetention: (days) =>
+                _saveConfig(config.copyWith(retentionDays: days)),
             onClear: _entries.isEmpty || !config.enabled ? null : _clear,
           ),
           const SizedBox(height: 20),
@@ -177,10 +176,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
             )
           else
             for (final entry in _entries)
-              _HistoryEntryRow(
-                entry: entry,
-                onRerectify: widget.onRerectify,
-              ),
+              _HistoryEntryRow(entry: entry, onRerectify: widget.onRerectify),
         ],
       ],
     );
@@ -332,10 +328,14 @@ class _RetentionChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected
                 ? pal.accentSoft
-                : pal.surfaceOverlay.withValues(alpha: hover && enabled ? 1 : 0),
+                : pal.surfaceOverlay.withValues(
+                    alpha: hover && enabled ? 1 : 0,
+                  ),
             borderRadius: BorderRadius.circular(SrRadius.control),
             border: Border.all(
-              color: selected ? pal.accent.withValues(alpha: 0.6) : pal.hairline,
+              color: selected
+                  ? pal.accent.withValues(alpha: 0.6)
+                  : pal.hairline,
             ),
           ),
           child: Text(
@@ -495,10 +495,7 @@ class _EmptyNote extends StatelessWidget {
           children: [
             Icon(icon, size: 32, color: pal.textTertiary),
             const SizedBox(height: 12),
-            Text(
-              text,
-              style: SrType.body.copyWith(color: pal.textSecondary),
-            ),
+            Text(text, style: SrType.body.copyWith(color: pal.textSecondary)),
           ],
         ),
       ),
@@ -534,12 +531,12 @@ class _ConfirmDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                title,
-                style: SrType.title.copyWith(color: pal.textPrimary),
-              ),
+              Text(title, style: SrType.title.copyWith(color: pal.textPrimary)),
               const SizedBox(height: 12),
-              Text(body, style: SrType.caption.copyWith(color: pal.textSecondary)),
+              Text(
+                body,
+                style: SrType.caption.copyWith(color: pal.textSecondary),
+              ),
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -565,4 +562,3 @@ class _ConfirmDialog extends StatelessWidget {
     );
   }
 }
-

@@ -10,7 +10,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../design/controls.dart' show SrButton;
+import '../design/controls.dart' show SrButton, SrField;
 import '../design/hover.dart';
 import '../design/tokens.dart';
 import 'terms_store.dart';
@@ -94,10 +94,8 @@ class _SettingsTermsPaneState extends State<SettingsTermsPane> {
   Future<void> _rename(String oldTerm) async {
     final edited = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => _TermEditorDialog(
-        initialTerm: oldTerm,
-        existingTerms: _terms,
-      ),
+      builder: (dialogContext) =>
+          _TermEditorDialog(initialTerm: oldTerm, existingTerms: _terms),
     );
     if (edited == null || edited == oldTerm) return;
     await _mutate(() => widget.store.update(oldTerm, edited));
@@ -159,34 +157,14 @@ class _AddRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pal = srPalette(context);
     return Row(
       children: [
         Expanded(
-          child: Container(
-            height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: pal.surfaceOverlay,
-              borderRadius: BorderRadius.circular(SrRadius.control),
-              border: Border.all(color: pal.hairline),
-            ),
-            alignment: Alignment.centerLeft,
-            child: TextField(
-              key: const Key('settings-terms-field'),
-              controller: controller,
-              style: SrType.body.copyWith(color: pal.textPrimary),
-              cursorColor: pal.accent,
-              onSubmitted: (_) => onAdd(),
-              decoration: const InputDecoration(
-                isCollapsed: true,
-                border: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                hintText: '添加术语,回车确认',
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
+          child: SrField(
+            key: const Key('settings-terms-field'),
+            controller: controller,
+            hint: '添加术语,回车确认',
+            onSubmitted: (_) => onAdd(),
           ),
         ),
         const SizedBox(width: 8),

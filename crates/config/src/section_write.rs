@@ -144,10 +144,38 @@ pub enum KeyStatus {
     FromEnv(String),
 }
 
+/// The placement for a section's key pair (its `[asr]`/`[llm]` shape:
+/// `api_key` + `api_key_env`): the stored key first, then the configured
+/// environment variable, else nothing. One implementation for every
+/// section that carries a key — the loader's shared-file guard means a
+/// stored `api_key` can only have come from the local layer, so
+/// `Some` reads as [`KeyStatus::InLocalFile`] without looking at files.
+pub fn key_status(api_key: Option<&str>, api_key_env: Option<&str>) -> KeyStatus {
+    if api_key.is_some() {
+        return KeyStatus::InLocalFile;
+    }
+    match api_key_env {
+        Some(name) => {
+            let from_env = std::env::var(name).is_ok_and(|key| !key.is_empty());
+            if from_env {
+                KeyStatus::FromEnv(name.to_string())
+            } else {
+                KeyStatus::Unset
+            }
+        }
+        None => KeyStatus::Unset,
+    }
+}
+
 /// Write fields into one section of the layer files (see the module docs
 /// for the placement rule). The edit is section-preserving: every other
 /// value, comment, and blank line in each touched file survives byte for
 /// byte, and a malformed file is refused, never clobbered.
+///
+/// A save touching two files (a `Reset` stripping a key from every
+/// layer) is not atomic: an IO failure after the first write leaves the
+/// layers inconsistent until the save is retried. The error surfaces to
+/// the caller either way — nothing fails silently.
 pub fn write_section_fields(
     dirs: &[PathBuf],
     section: &str,

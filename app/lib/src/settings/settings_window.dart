@@ -282,7 +282,9 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       SettingsDomain.connection => SettingsConnectionPane(
         store: widget.connectionStore,
       ),
-      SettingsDomain.advanced => SettingsAdvancedPane(store: widget.systemStore),
+      SettingsDomain.advanced => SettingsAdvancedPane(
+        store: widget.systemStore,
+      ),
       SettingsDomain.about => SettingsAboutPane(store: widget.systemStore),
     };
   }

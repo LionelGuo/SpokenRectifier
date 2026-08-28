@@ -34,13 +34,12 @@ class EngineTiming {
       other.rectifyTimeoutMs == rectifyTimeoutMs;
 
   @override
-  int get hashCode =>
-      Object.hash(
-        passageMode,
-        paragraphSilenceMs,
-        sessionEndSilenceMs,
-        rectifyTimeoutMs,
-      );
+  int get hashCode => Object.hash(
+    passageMode,
+    paragraphSilenceMs,
+    sessionEndSilenceMs,
+    rectifyTimeoutMs,
+  );
 }
 
 /// The effective `[insertion]` timings.
@@ -67,7 +66,8 @@ class InsertionTiming {
       other.typingDelayMs == typingDelayMs;
 
   @override
-  int get hashCode => Object.hash(mode, focusSettleMs, pasteSettleMs, typingDelayMs);
+  int get hashCode =>
+      Object.hash(mode, focusSettleMs, pasteSettleMs, typingDelayMs);
 }
 
 /// Version and open-source info the about pane paints.
@@ -98,7 +98,8 @@ class RustSystemStore implements SystemStore {
   const RustSystemStore();
 
   @override
-  Future<({EngineTiming engine, InsertionTiming insertion})> loadAdvanced() async {
+  Future<({EngineTiming engine, InsertionTiming insertion})>
+  loadAdvanced() async {
     final config = await rust.advancedConfig();
     return (
       engine: EngineTiming(

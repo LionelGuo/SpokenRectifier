@@ -13,7 +13,8 @@
 
 library;
 
-import '../rust/api.dart' as rust
+import '../rust/api.dart'
+    as rust
     show BridgeKeyEdit, connectionConfig, setAsrConnection, setLlmConnection;
 import '../rust/api.dart'
     show
@@ -177,17 +178,16 @@ class RustConnectionStore implements ConnectionStore {
     required String region,
     required String? baseUrl,
     required ApiKeyEdit apiKey,
-  }) =>
-      rust
-          .setAsrConnection(
-            model: model,
-            language: language,
-            workspaceId: workspaceId,
-            region: region,
-            baseUrl: baseUrl,
-            apiKey: _keyToWire(apiKey),
-          )
-          .then(_asrFromWire);
+  }) => rust
+      .setAsrConnection(
+        model: model,
+        language: language,
+        workspaceId: workspaceId,
+        region: region,
+        baseUrl: baseUrl,
+        apiKey: _keyToWire(apiKey),
+      )
+      .then(_asrFromWire);
 
   @override
   Future<LlmConnection> saveLlm({
@@ -195,15 +195,14 @@ class RustConnectionStore implements ConnectionStore {
     required String baseUrl,
     required String model,
     required ApiKeyEdit apiKey,
-  }) =>
-      rust
-          .setLlmConnection(
-            vendor: vendor,
-            baseUrl: baseUrl,
-            model: model,
-            apiKey: _keyToWire(apiKey),
-          )
-          .then(_llmFromWire);
+  }) => rust
+      .setLlmConnection(
+        vendor: vendor,
+        baseUrl: baseUrl,
+        model: model,
+        apiKey: _keyToWire(apiKey),
+      )
+      .then(_llmFromWire);
 
   static rust.BridgeKeyEdit _keyToWire(ApiKeyEdit edit) => switch (edit) {
     ApiKeyKeep() => const rust.BridgeKeyEdit.keep(),

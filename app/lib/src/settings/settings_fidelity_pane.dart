@@ -29,7 +29,10 @@ class SettingsFidelityPane extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('保真评测', style: SrType.title.copyWith(color: pal.textPrimary)),
+              Text(
+                '保真评测',
+                style: SrType.title.copyWith(color: pal.textPrimary),
+              ),
               const SizedBox(width: 10),
               Text(
                 '金样例回归:机器断言口头更正、术语逐字保留、零捏造',
@@ -249,7 +252,11 @@ class _SummaryCard extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
-                  SrButton(primary: true, label: '重新评测', onTap: controller.start),
+                  SrButton(
+                    primary: true,
+                    label: '重新评测',
+                    onTap: controller.start,
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -278,10 +285,7 @@ class _SummaryCard extends StatelessWidget {
         ),
         if (summary.failedCases.isNotEmpty) ...[
           const SizedBox(height: 12),
-          Text(
-            '失败明细',
-            style: SrType.caption.copyWith(color: pal.textTertiary),
-          ),
+          Text('失败明细', style: SrType.caption.copyWith(color: pal.textTertiary)),
           const SizedBox(height: 8),
           for (final failed in summary.failedCases)
             _FailedCaseCard(failed: failed),
@@ -363,4 +367,3 @@ class _FailedCaseCard extends StatelessWidget {
     );
   }
 }
-

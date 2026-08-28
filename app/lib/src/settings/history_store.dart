@@ -6,8 +6,14 @@
 
 library;
 
-import '../rust/api.dart' as rust
-    show BridgeHistoryConfig, historyClear, historyConfig, historyList, setHistoryConfig;
+import '../rust/api.dart'
+    as rust
+    show
+        BridgeHistoryConfig,
+        historyClear,
+        historyConfig,
+        historyList,
+        setHistoryConfig;
 import '../rust/api.dart' show BridgeHistoryEntry;
 
 /// The `[history]` settings as the pane paints them — plain Dart ints
@@ -18,10 +24,11 @@ class HistorySettings {
   final bool enabled;
   final int retentionDays;
 
-  HistorySettings copyWith({bool? enabled, int? retentionDays}) => HistorySettings(
-    enabled: enabled ?? this.enabled,
-    retentionDays: retentionDays ?? this.retentionDays,
-  );
+  HistorySettings copyWith({bool? enabled, int? retentionDays}) =>
+      HistorySettings(
+        enabled: enabled ?? this.enabled,
+        retentionDays: retentionDays ?? this.retentionDays,
+      );
 
   @override
   bool operator ==(Object other) =>

@@ -22,7 +22,12 @@ import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette;
 import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvalCategory, BridgeEvalEvent, BridgeEvalSummary, BridgeHistoryEntry, BridgeScenario;
+    show
+        BridgeEvalCategory,
+        BridgeEvalEvent,
+        BridgeEvalSummary,
+        BridgeHistoryEntry,
+        BridgeScenario;
 import 'package:spokenrectifier_app/src/settings/connection_store.dart';
 import 'package:spokenrectifier_app/src/settings/fidelity_eval.dart';
 import 'package:spokenrectifier_app/src/settings/history_store.dart';
@@ -166,42 +171,43 @@ class FakeTermsStore implements TermsStore {
 /// The connection domain's fake: the two views in memory; a save
 /// records the ask and returns it as the re-read truth.
 class FakeConnectionStore implements ConnectionStore {
-  FakeConnectionStore({
-    AsrConnection? asr,
-    LlmConnection? llm,
-  }) : asr =
-           asr ??
-           const AsrConnection(
-             model: 'qwen3-asr-flash-realtime',
-             language: 'zh',
-             workspaceId: null,
-             region: 'cn-beijing',
-             baseUrl: null,
-             endpoint:
-                 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
-             key: KeyInfo(status: KeyPlacement.unset),
-           ),
-       llm =
-           llm ??
-           const LlmConnection(
-             vendor: 'deepseek',
-             baseUrl: 'https://api.deepseek.com',
-             model: 'deepseek-v4-flash',
-             key: KeyInfo(status: KeyPlacement.unset),
-           );
+  FakeConnectionStore({AsrConnection? asr, LlmConnection? llm})
+    : asr =
+          asr ??
+          const AsrConnection(
+            model: 'qwen3-asr-flash-realtime',
+            language: 'zh',
+            workspaceId: null,
+            region: 'cn-beijing',
+            baseUrl: null,
+            endpoint: 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
+            key: KeyInfo(status: KeyPlacement.unset),
+          ),
+      llm =
+          llm ??
+          const LlmConnection(
+            vendor: 'deepseek',
+            baseUrl: 'https://api.deepseek.com',
+            model: 'deepseek-v4-flash',
+            key: KeyInfo(status: KeyPlacement.unset),
+          );
 
   AsrConnection asr;
   LlmConnection llm;
 
-  final llmSaves = <({String vendor, String baseUrl, String model, ApiKeyEdit key})>[];
-  final asrSaves = <({
-    String model,
-    String language,
-    String? workspaceId,
-    String region,
-    String? baseUrl,
-    ApiKeyEdit key,
-  })>[];
+  final llmSaves =
+      <({String vendor, String baseUrl, String model, ApiKeyEdit key})>[];
+  final asrSaves =
+      <
+        ({
+          String model,
+          String language,
+          String? workspaceId,
+          String region,
+          String? baseUrl,
+          ApiKeyEdit key,
+        })
+      >[];
 
   /// When set, the next save throws (an unwritable layer file).
   Object? failNextSave;
@@ -286,21 +292,21 @@ class FakeSystemStore implements SystemStore {
   int openConfigCalls = 0;
 
   @override
-  Future<({EngineTiming engine, InsertionTiming insertion})> loadAdvanced()
-      async => (
-          engine: const EngineTiming(
-            passageMode: true,
-            paragraphSilenceMs: 1200,
-            sessionEndSilenceMs: 3000,
-            rectifyTimeoutMs: 25000,
-          ),
-          insertion: const InsertionTiming(
-            mode: 'paste',
-            focusSettleMs: 50,
-            pasteSettleMs: 250,
-            typingDelayMs: 8,
-          ),
-        );
+  Future<({EngineTiming engine, InsertionTiming insertion})>
+  loadAdvanced() async => (
+    engine: const EngineTiming(
+      passageMode: true,
+      paragraphSilenceMs: 1200,
+      sessionEndSilenceMs: 3000,
+      rectifyTimeoutMs: 25000,
+    ),
+    insertion: const InsertionTiming(
+      mode: 'paste',
+      focusSettleMs: 50,
+      pasteSettleMs: 250,
+      typingDelayMs: 8,
+    ),
+  );
 
   @override
   Future<AboutInfo> loadAbout() async => about;
@@ -458,9 +464,14 @@ Future<void> hoverRowAction(WidgetTester tester, Key row, IconData icon) async {
   await tester.pump();
 }
 
-/// A text field's current text, by its key.
-String fieldText(WidgetTester tester, Key key) =>
-    tester.widget<TextField>(find.byKey(key)).controller!.text;
+/// A text field's current text, by its key (SrField carries the key;
+/// the TextField hides one level inside).
+String fieldText(WidgetTester tester, Key key) => tester
+    .widget<TextField>(
+      find.descendant(of: find.byKey(key), matching: find.byType(TextField)),
+    )
+    .controller!
+    .text;
 
 // ---------------------------------------------------------------------------
 // The shell
@@ -510,7 +521,10 @@ void main() {
     await tester.tap(find.text('高级'));
     await tester.pump();
     await tester.pump(); // the timings load lands
-    expect(find.byKey(const Key('settings-advanced-open-config')), findsOneWidget);
+    expect(
+      find.byKey(const Key('settings-advanced-open-config')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('关于'));
     await tester.pump();
@@ -558,10 +572,18 @@ void main() {
     expect(find.text('0 / 23'), findsOneWidget);
 
     runner.emit(
-      const BridgeEvalEvent.caseStarted(index: 1, total: 23, id: 'correction-01'),
+      const BridgeEvalEvent.caseStarted(
+        index: 1,
+        total: 23,
+        id: 'correction-01',
+      ),
     );
     runner.emit(
-      const BridgeEvalEvent.caseFinished(index: 1, id: 'correction-01', passed: true),
+      const BridgeEvalEvent.caseFinished(
+        index: 1,
+        id: 'correction-01',
+        passed: true,
+      ),
     );
     await tester.pump();
     expect(find.text('1 / 23'), findsOneWidget);
@@ -572,11 +594,11 @@ void main() {
     expect(find.byKey(const Key('settings-eval-rate')), findsOneWidget);
     expect(find.text('87.0%'), findsOneWidget);
     expect(find.text('与基线持平'), findsOneWidget);
+    expect(find.byKey(const Key('settings-eval-category:捏造')), findsOneWidget);
     expect(
-      find.byKey(const Key('settings-eval-category:捏造')),
+      find.text('通过 20 / 23 · 执行失败 1 · 基线 87.0% · deepseek-v4-flash'),
       findsOneWidget,
     );
-    expect(find.text('通过 20 / 23 · 执行失败 1 · 基线 87.0% · deepseek-v4-flash'), findsOneWidget);
   });
 
   testWidgets('a failed run paints its message and offers a retry', (
@@ -591,9 +613,7 @@ void main() {
 
     await tester.tap(find.text('开始评测'));
     await tester.pump();
-    runner.emit(
-      const BridgeEvalEvent.failed(message: '评测需要真实 LLM 连接'),
-    );
+    runner.emit(const BridgeEvalEvent.failed(message: '评测需要真实 LLM 连接'));
     await tester.pump();
     expect(find.text('评测未能完成'), findsOneWidget);
     expect(find.text('评测需要真实 LLM 连接'), findsOneWidget);
@@ -604,7 +624,9 @@ void main() {
     expect(runner.startCount, 2);
   });
 
-  testWidgets('cancel stops the run; switching domains does not', (tester) async {
+  testWidgets('cancel stops the run; switching domains does not', (
+    tester,
+  ) async {
     final runner = FakeFidelityEvalRunner();
     await pumpSettings(
       tester,
@@ -659,7 +681,10 @@ void main() {
 
     // Both texts per row (the quick panel shows raw only).
     expect(find.text('第二句的原话'), findsOneWidget);
-    expect(find.byKey(const Key('settings-history-rectified:2')), findsOneWidget);
+    expect(
+      find.byKey(const Key('settings-history-rectified:2')),
+      findsOneWidget,
+    );
 
     // 复制原文 lands on the clipboard, like the quick panel's rows
     // (same mock recipe: record the Clipboard.setData call).
@@ -706,7 +731,10 @@ void main() {
 
     // Every preset paints — the current value (30 天, a preset) must not
     // vanish from its own chip set.
-    expect(find.byKey(const Key('settings-history-retention:30')), findsOneWidget);
+    expect(
+      find.byKey(const Key('settings-history-retention:30')),
+      findsOneWidget,
+    );
     expect(find.text('30 天'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('settings-history-retention:7')));
@@ -823,7 +851,11 @@ void main() {
   ) async {
     final store = FakeHistorySettingsStore(entries: _historyEntries)
       ..failNextSave = StateError('locked');
-    await pumpSettings(tester, historyStore: store, domain: SettingsDomain.history);
+    await pumpSettings(
+      tester,
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
 
     await tester.tap(find.byKey(const Key('settings-history-retention:7')));
     await tester.pump();
@@ -974,7 +1006,10 @@ void main() {
 
     // The forms adopt the file's truth; the key field stays EMPTY (the
     // stored key never echoes back — only its placement paints).
-    expect(fieldText(tester, const Key('settings-conn-llm-model')), 'deepseek-v4-flash');
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-model')),
+      'deepseek-v4-flash',
+    );
     expect(find.textContaining('取自环境变量 DEEPSEEK_API_KEY'), findsOneWidget);
     expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
     // The ASR card sits below the fold in the test viewport; the
@@ -993,7 +1028,9 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    await tester.tap(find.byKey(const Key('settings-conn-llm-vendor:volcengine')));
+    await tester.tap(
+      find.byKey(const Key('settings-conn-llm-vendor:volcengine')),
+    );
     await tester.pump();
     await tester.enterText(
       find.byKey(const Key('settings-conn-llm-model')),
@@ -1109,7 +1146,10 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('settings-conn-error')), findsOneWidget);
     // The form keeps what the user typed; nothing was adopted.
-    expect(fieldText(tester, const Key('settings-conn-llm-model')), 'deepseek-v4-flash');
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-model')),
+      'deepseek-v4-flash',
+    );
   });
 
   // -----------------------------------------------------------------------
@@ -1142,26 +1182,27 @@ void main() {
   // The about domain (关于)
   // -----------------------------------------------------------------------
 
-  testWidgets('about paints version and license; open-config rides the same seam', (
-    tester,
-  ) async {
-    final store = FakeSystemStore();
-    await pumpSettings(
-      tester,
-      systemStore: store,
-      domain: SettingsDomain.about,
-    );
+  testWidgets(
+    'about paints version and license; open-config rides the same seam',
+    (tester) async {
+      final store = FakeSystemStore();
+      await pumpSettings(
+        tester,
+        systemStore: store,
+        domain: SettingsDomain.about,
+      );
 
-    expect(find.byKey(const Key('settings-about-version')), findsOneWidget);
-    expect(find.text('v1.0.0'), findsOneWidget);
-    expect(find.text('Apache-2.0'), findsOneWidget);
-    expect(find.text('随开源发布公布'), findsOneWidget);
+      expect(find.byKey(const Key('settings-about-version')), findsOneWidget);
+      expect(find.text('v1.0.0'), findsOneWidget);
+      expect(find.text('Apache-2.0'), findsOneWidget);
+      expect(find.text('随开源发布公布'), findsOneWidget);
 
-    // The tray entry's own bridge call, same source.
-    await tester.tap(find.byKey(const Key('settings-about-open-config')));
-    await tester.pump();
-    expect(store.openConfigCalls, 1);
-  });
+      // The tray entry's own bridge call, same source.
+      await tester.tap(find.byKey(const Key('settings-about-open-config')));
+      await tester.pump();
+      expect(store.openConfigCalls, 1);
+    },
+  );
 
   // -----------------------------------------------------------------------
   // The editor

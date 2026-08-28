@@ -80,23 +80,12 @@ impl ModelConfig {
         std::env::var(env_name).ok().filter(|k| !k.is_empty())
     }
 
-    /// The key's placement for display: the local file first, then the
-    /// configured environment variable, else nothing.
+    /// The key's placement for display (see [`key_status`]).
     pub fn key_status(&self) -> KeyStatus {
-        if self.api_key.is_some() {
-            return KeyStatus::InLocalFile;
-        }
-        match &self.api_key_env {
-            Some(name) => {
-                let from_env = std::env::var(name).is_ok_and(|key| !key.is_empty());
-                if from_env {
-                    KeyStatus::FromEnv(name.clone())
-                } else {
-                    KeyStatus::Unset
-                }
-            }
-            None => KeyStatus::Unset,
-        }
+        spokenrectifier_config::section_write::key_status(
+            self.api_key.as_deref(),
+            self.api_key_env.as_deref(),
+        )
     }
 }
 

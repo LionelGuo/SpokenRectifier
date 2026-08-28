@@ -110,10 +110,7 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
                 ),
                 const SizedBox(height: 8),
                 _AboutRow(label: '许可证', value: about.license),
-                _AboutRow(
-                  label: '仓库',
-                  value: about.repoUrl ?? '随开源发布公布',
-                ),
+                _AboutRow(label: '仓库', value: about.repoUrl ?? '随开源发布公布'),
               ],
             ),
           ),
