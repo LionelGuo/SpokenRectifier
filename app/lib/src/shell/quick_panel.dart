@@ -422,66 +422,93 @@ class _ThemeSeg extends StatelessWidget {
   }
 }
 
-/// The term row's shared height: the field's decorator and the add
-/// button paint one aligned 34px row. A tight SizedBox alone lets the
-/// decorator center at its intrinsic height (a few px short of the
-/// button), so the input constraints pin the decorator itself.
+/// The term row's shared height: the container-drawn field box and the
+/// add button paint one aligned 34px row through the same BoxDecoration
+/// painter.
 const _termRowHeight = 34.0;
 
-class _TermField extends StatelessWidget {
+/// The term input's box is drawn by its container, not by the
+/// InputDecorator: OutlineInputBorder sizes its PAINTED box to the
+/// content metrics under real font metrics (pixel-scanned ≈25 logical
+/// px inside a 34 logical slot on the machine — layout box and painted
+/// box are different things), so every height constraint we pinned
+/// never reached the painted border. The container approach shares
+/// one painter (and thus one rasterization) with the add button and
+/// the chips; the TextField inside stays chrome-less.
+class _TermField extends StatefulWidget {
   const _TermField({required this.controller, required this.onAdd});
 
   final TextEditingController controller;
   final ValueChanged<String> onAdd;
 
   @override
+  State<_TermField> createState() => _TermFieldState();
+}
+
+class _TermFieldState extends State<_TermField> {
+  final _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_onFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    _focus.removeListener(_onFocusChanged);
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChanged() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return SizedBox(
-      height: _termRowHeight,
-      child: TextField(
-        key: const Key('quick-term-field'),
-        controller: controller,
-        style: SrType.caption.copyWith(color: pal.textPrimary),
-        cursorColor: pal.accent,
-        decoration: InputDecoration(
-          isDense: true,
-          constraints: const BoxConstraints(
-            minHeight: _termRowHeight,
-            maxHeight: _termRowHeight,
-          ),
-          hintText: '添加术语,回车确认',
-          hintStyle: SrType.caption.copyWith(color: pal.textTertiary),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 8,
-          ),
-          filled: true,
-          fillColor: pal.surfaceOverlay,
-          // Centered strokes: OutlineInputBorder defaults to an INSIDE
-          // stroke, which paints the box a logical pixel shorter than
-          // the button's center-aligned Border.all beside it (pixel
-          // scan, round-3 follow-up). Every other stroked control here
-          // centers, so the field joins them.
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            borderSide: BorderSide(
-              color: pal.hairline,
-              strokeAlign: BorderSide.strokeAlignCenter,
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            borderSide: BorderSide(
-              color: pal.accent.withValues(alpha: 0.6),
-              strokeAlign: BorderSide.strokeAlignCenter,
-            ),
+    return GestureDetector(
+      // The chrome-less field only covers its text line; a tap
+      // anywhere in the 34px box focuses it.
+      onTap: _focus.requestFocus,
+      behavior: HitTestBehavior.translucent,
+      child: AnimatedContainer(
+        duration: SrMotion.fast,
+        curve: SrMotion.curveMicro,
+        height: _termRowHeight,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: pal.surfaceOverlay,
+          borderRadius: BorderRadius.circular(SrRadius.control),
+          border: Border.all(
+            color: _focus.hasFocus
+                ? pal.accent.withValues(alpha: 0.6)
+                : pal.hairline,
           ),
         ),
-        // Enter commits the term (an IME composition commits instead,
-        // the field's default semantics); the add button walks the same
-        // callback.
-        onSubmitted: onAdd,
+        child: SizedBox(
+          width: double.infinity,
+          child: TextField(
+            key: const Key('quick-term-field'),
+            controller: widget.controller,
+            focusNode: _focus,
+            style: SrType.caption.copyWith(color: pal.textPrimary),
+            cursorColor: pal.accent,
+            decoration: InputDecoration(
+              isCollapsed: true,
+              border: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              filled: false,
+              hintText: '添加术语,回车确认',
+              hintStyle: SrType.caption.copyWith(color: pal.textTertiary),
+            ),
+            // Enter commits the term (an IME composition commits
+            // instead, the field's default semantics); the add button
+            // walks the same callback.
+            onSubmitted: widget.onAdd,
+          ),
+        ),
       ),
     );
   }
