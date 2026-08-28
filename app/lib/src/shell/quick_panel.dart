@@ -731,7 +731,7 @@ class _HistoryRow extends StatelessWidget {
                       _HistoryAction(
                         key: Key('quick-history-copy:${entry.id}'),
                         icon: Icons.copy_rounded,
-                        tooltip: '复制原文',
+                        tooltip: '复制原始转写',
                         onTap: () => Clipboard.setData(
                           ClipboardData(text: entry.rawTranscript),
                         ),

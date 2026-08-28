@@ -561,13 +561,18 @@ impl From<spokenrectifier_history::HistoryConfig> for BridgeHistoryConfig {
     }
 }
 
+/// The `[history]` config errors share one shape across the pair.
+fn history_config_err(err: spokenrectifier_history::HistoryConfigError) -> anyhow::Error {
+    anyhow!("history {}", err.0)
+}
+
 /// The effective `[history]` settings from the layer files — the
 /// settings window's history pane initial paint.
 pub fn history_config() -> anyhow::Result<BridgeHistoryConfig> {
     let dirs = spokenrectifier_config::search_dirs();
     spokenrectifier_history::load_history_config(&dirs)
         .map(BridgeHistoryConfig::from)
-        .map_err(|err| anyhow!("history {}", err.0))
+        .map_err(history_config_err)
 }
 
 /// Write new `[history]` settings and apply them to the live store at
@@ -585,8 +590,7 @@ pub fn set_history_config(
         enabled,
         retention_days,
     };
-    spokenrectifier_history::save_history_config(&dirs, &config)
-        .map_err(|err| anyhow!("history {}", err.0))?;
+    spokenrectifier_history::save_history_config(&dirs, &config).map_err(history_config_err)?;
     global()?
         .history
         .apply_config(config)

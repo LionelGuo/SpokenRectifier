@@ -9,7 +9,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../design/hover.dart';
+import '../design/controls.dart' show SrButton, SrCard;
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeEvalCaseDetail, BridgeEvalSummary;
 import 'fidelity_eval.dart';
@@ -58,7 +58,7 @@ class _IdleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return _Card(
+    return SrCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -74,7 +74,7 @@ class _IdleCard extends StatelessWidget {
           const SizedBox(height: 20),
           Row(
             children: [
-              _EvalButton(label: '开始评测', onTap: controller.start),
+              SrButton(primary: true, label: '开始评测', onTap: controller.start),
             ],
           ),
         ],
@@ -94,7 +94,7 @@ class _RunningCard extends StatelessWidget {
     final total = controller.total;
     final done = controller.done;
     final fraction = total == 0 ? 0.0 : done / total;
-    return _Card(
+    return SrCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -122,7 +122,7 @@ class _RunningCard extends StatelessWidget {
                   style: SrType.caption.copyWith(color: pal.textTertiary),
                 ),
               const Spacer(),
-              _EvalButton(label: '取消', onTap: controller.cancel),
+              SrButton(label: '取消', onTap: controller.cancel),
             ],
           ),
           const SizedBox(height: 14),
@@ -161,7 +161,7 @@ class _FailedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return _Card(
+    return SrCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -185,7 +185,7 @@ class _FailedCard extends StatelessWidget {
             style: SrType.caption.copyWith(color: pal.textSecondary),
           ),
           const SizedBox(height: 20),
-          _EvalButton(label: '重试', onTap: controller.start),
+          SrButton(primary: true, label: '重试', onTap: controller.start),
         ],
       ),
     );
@@ -221,7 +221,7 @@ class _SummaryCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _Card(
+        SrCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -249,7 +249,7 @@ class _SummaryCard extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
-                  _EvalButton(label: '重新评测', onTap: controller.start),
+                  SrButton(primary: true, label: '重新评测', onTap: controller.start),
                 ],
               ),
               const SizedBox(height: 6),
@@ -333,7 +333,7 @@ class _FailedCaseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return _Card(
+    return SrCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -364,58 +364,3 @@ class _FailedCaseCard extends StatelessWidget {
   }
 }
 
-/// The pane's card surface — one raised, hairlined block.
-class _Card extends StatelessWidget {
-  const _Card({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: pal.surfaceRaised,
-        borderRadius: BorderRadius.circular(SrRadius.control + 4),
-        border: Border.all(color: pal.hairline),
-      ),
-      child: child,
-    );
-  }
-}
-
-/// The pane's button — the scenario domain's primary button recipe.
-class _EvalButton extends StatelessWidget {
-  const _EvalButton({required this.label, this.onTap});
-
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            color: hover ? pal.accent.withValues(alpha: 0.88) : pal.accent,
-            borderRadius: BorderRadius.circular(SrRadius.control),
-          ),
-          child: Text(
-            label,
-            style: SrType.caption.copyWith(
-              color: pal.onAccent,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

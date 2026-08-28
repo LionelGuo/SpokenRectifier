@@ -15,6 +15,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../design/controls.dart' show SrButton;
 import '../design/hover.dart';
 import '../design/theme.dart' show srTheme;
 import '../design/tokens.dart';
@@ -382,7 +383,9 @@ class _ScenarioPane extends StatelessWidget {
               style: SrType.caption.copyWith(color: pal.textTertiary),
             ),
             const Spacer(),
-            _PrimaryButton(
+            SrButton(
+              key: const Key('settings-scenario-new'),
+              primary: true,
               label: '新建场景',
               onTap: () => _editScenario(context, null),
             ),
@@ -603,41 +606,6 @@ class _CardAction extends StatelessWidget {
   }
 }
 
-class _PrimaryButton extends StatelessWidget {
-  const _PrimaryButton({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            color: hover ? pal.accent.withValues(alpha: 0.88) : pal.accent,
-            borderRadius: BorderRadius.circular(SrRadius.control),
-          ),
-          child: Text(
-            label,
-            key: const Key('settings-scenario-new'),
-            style: SrType.caption.copyWith(
-              color: pal.onAccent,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ---------------------------------------------------------------------------
 // The add/edit dialog
 // ---------------------------------------------------------------------------
@@ -741,16 +709,16 @@ class _ScenarioEditorDialogState extends State<_ScenarioEditorDialog> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  _DialogButton(
+                  SrButton(
                     key: const Key('settings-scenario-cancel'),
                     label: '取消',
                     onTap: () => Navigator.of(context).pop(),
                   ),
                   const SizedBox(width: 8),
-                  _DialogButton(
+                  SrButton(
                     key: const Key('settings-scenario-save'),
-                    label: '保存',
                     primary: true,
+                    label: '保存',
                     onTap: _save,
                   ),
                 ],
@@ -814,48 +782,6 @@ class _DialogField extends StatelessWidget {
   }
 }
 
-class _DialogButton extends StatelessWidget {
-  const _DialogButton({
-    super.key,
-    required this.label,
-    required this.onTap,
-    this.primary = false,
-  });
-
-  final String label;
-  final VoidCallback onTap;
-  final bool primary;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            color: primary
-                ? (hover ? pal.accent.withValues(alpha: 0.88) : pal.accent)
-                : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: primary ? null : Border.all(color: pal.hairline),
-          ),
-          child: Text(
-            label,
-            style: SrType.caption.copyWith(
-              color: primary ? pal.onAccent : pal.textSecondary,
-              fontWeight: primary ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Placeholder domains (tickets 18/19)

@@ -27,6 +27,11 @@ use spokenrectifier_engine::provider::history::{RecordedSession, SessionRecorder
 
 use crate::config::HistoryConfig;
 
+/// Retention as a millisecond budget (the sweep's cutoff arithmetic).
+fn retention_ms(retention_days: u64) -> u64 {
+    retention_days.saturating_mul(24 * 60 * 60 * 1000)
+}
+
 /// Injected wall clock: Unix-epoch milliseconds. Real impl
 /// [`wall_clock`]; tests hand in a settable one.
 pub type NowMs = Arc<dyn Fn() -> u64 + Send + Sync>;
@@ -173,7 +178,7 @@ impl HistoryStore {
         let mut state = self.state.lock().unwrap();
         match (&mut *state, config.enabled) {
             (State::On(sqlite), true) => {
-                sqlite.retention_ms = config.retention_days.saturating_mul(24 * 60 * 60 * 1000);
+                sqlite.retention_ms = retention_ms(config.retention_days);
                 let _ = sqlite.sweep();
                 Ok(())
             }
@@ -259,7 +264,7 @@ impl SqliteHistory {
             .map_err(|err| HistoryError(format!("{}: {err}", path.display())))?;
         let store = SqliteHistory {
             conn: Mutex::new(conn),
-            retention_ms: retention_days.saturating_mul(24 * 60 * 60 * 1000),
+            retention_ms: retention_ms(retention_days),
             now_ms,
             path: path.to_path_buf(),
         };

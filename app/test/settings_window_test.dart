@@ -486,6 +486,11 @@ void main() {
       domain: SettingsDomain.history,
     );
 
+    // Every preset paints — the current value (30 天, a preset) must not
+    // vanish from its own chip set.
+    expect(find.byKey(const Key('settings-history-retention:30')), findsOneWidget);
+    expect(find.text('30 天'), findsOneWidget);
+
     await tester.tap(find.byKey(const Key('settings-history-retention:7')));
     await tester.pump();
 
@@ -494,6 +499,8 @@ void main() {
       const HistorySettings(enabled: true, retentionDays: 7),
     );
     expect(channel.historyChanged, 1);
+    // The set still offers 30 天 after the switch.
+    expect(find.text('30 天'), findsOneWidget);
   });
 
   testWidgets('a hand-edited retention value paints as its own chip', (

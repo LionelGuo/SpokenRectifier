@@ -1,5 +1,5 @@
 /// The 历史 domain: full-session browsing (raw + rectified, newest
-/// first), retrieval (复制原文 straight to the clipboard; 重新修正
+/// first), retrieval (复制原始转写 straight to the clipboard; 重新修正
 /// routed to the main window through the cross-window channel — the
 /// same controller path the quick panel's rows take), the `[history]`
 /// settings (保留期 chips, the 不留存 switch whose enable clears what
@@ -11,6 +11,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
+import '../design/controls.dart' show SrButton, SrCard;
 import '../design/hover.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeHistoryEntry;
@@ -206,20 +207,14 @@ class _ConfigCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    // The chip set: presets plus the current value when it sits outside
-    // them (a hand-edited config stays representable and re-selectable).
+    // The chip set: every preset, plus the current value as its own chip
+    // when a hand-edited config sits between them.
     final days = [
-      ..._retentionPresets.where((preset) => preset != config.retentionDays),
+      ..._retentionPresets,
       if (!_retentionPresets.contains(config.retentionDays))
         config.retentionDays,
     ]..sort();
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: pal.surfaceRaised,
-        borderRadius: BorderRadius.circular(SrRadius.control + 4),
-        border: Border.all(color: pal.hairline),
-      ),
+    return SrCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -279,7 +274,22 @@ class _ConfigCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _ClearButton(onTap: onClear, disabledNote: !config.enabled ? '不留存模式下无历史' : null),
+          Row(
+            children: [
+              SrButton(
+                key: const Key('settings-history-clear'),
+                label: '一键清空',
+                onTap: onClear,
+              ),
+              if (!config.enabled) ...[
+                const SizedBox(width: 10),
+                Text(
+                  '不留存模式下无历史',
+                  style: SrType.micro.copyWith(color: pal.textTertiary),
+                ),
+              ],
+            ],
+          ),
         ],
       ),
     );
@@ -343,55 +353,6 @@ class _RetentionChip extends StatelessWidget {
   }
 }
 
-class _ClearButton extends StatelessWidget {
-  const _ClearButton({required this.onTap, this.disabledNote});
-
-  final VoidCallback? onTap;
-  final String? disabledNote;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    final enabled = onTap != null;
-    return Row(
-      children: [
-        SrHover(
-          builder: (hover) => GestureDetector(
-            onTap: onTap,
-            behavior: HitTestBehavior.opaque,
-            child: AnimatedContainer(
-              key: const Key('settings-history-clear'),
-              duration: SrMotion.fade,
-              curve: SrMotion.curveFade,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: BoxDecoration(
-                color: pal.surfaceOverlay.withValues(
-                  alpha: enabled && hover ? 1 : 0,
-                ),
-                borderRadius: BorderRadius.circular(SrRadius.control),
-                border: Border.all(color: pal.hairline),
-              ),
-              child: Text(
-                '一键清空',
-                style: SrType.caption.copyWith(
-                  color: enabled ? pal.textSecondary : pal.textTertiary,
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (disabledNote case final note?) ...[
-          const SizedBox(width: 10),
-          Text(
-            note,
-            style: SrType.micro.copyWith(color: pal.textTertiary),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Entries
 // ---------------------------------------------------------------------------
@@ -418,11 +379,9 @@ class _HistoryEntryRow extends StatelessWidget {
           curve: SrMotion.curveFade,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+            color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
             borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(
-              color: hover ? pal.accent.withValues(alpha: 0.45) : pal.hairline,
-            ),
+            border: Border.all(color: pal.hairline),
           ),
           child: Row(
             children: [
@@ -464,7 +423,7 @@ class _HistoryEntryRow extends StatelessWidget {
                       _EntryAction(
                         key: Key('settings-history-copy:${entry.id}'),
                         icon: Icons.copy_rounded,
-                        tooltip: '复制原文',
+                        tooltip: '复制原始转写',
                         onTap: () => Clipboard.setData(
                           ClipboardData(text: entry.rawTranscript),
                         ),
@@ -585,14 +544,14 @@ class _ConfirmDialog extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  _DialogGhostButton(
+                  SrButton(
                     key: const Key('settings-history-confirm-cancel'),
                     label: '取消',
                     onTap: () => Navigator.of(context).pop(false),
                   ),
                   const SizedBox(width: 8),
-                  _DialogGhostButton(
-                    key: Key('settings-history-confirm-ok'),
+                  SrButton(
+                    key: const Key('settings-history-confirm-ok'),
                     label: confirmLabel,
                     primary: true,
                     onTap: () => Navigator.of(context).pop(true),
@@ -607,45 +566,3 @@ class _ConfirmDialog extends StatelessWidget {
   }
 }
 
-class _DialogGhostButton extends StatelessWidget {
-  const _DialogGhostButton({
-    super.key,
-    required this.label,
-    required this.onTap,
-    this.primary = false,
-  });
-
-  final String label;
-  final VoidCallback onTap;
-  final bool primary;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            color: primary
-                ? (hover ? pal.accent.withValues(alpha: 0.88) : pal.accent)
-                : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: primary ? null : Border.all(color: pal.hairline),
-          ),
-          child: Text(
-            label,
-            style: SrType.caption.copyWith(
-              color: primary ? pal.onAccent : pal.textSecondary,
-              fontWeight: primary ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

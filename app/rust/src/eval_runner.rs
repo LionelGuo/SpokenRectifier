@@ -31,7 +31,9 @@ pub fn start(sink: StreamSink<BridgeEvalEvent>) -> anyhow::Result<()> {
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        return Err(anyhow::anyhow!("a fidelity eval is already running"));
+        return Err(anyhow::anyhow!(
+            "上一轮评测仍在收尾(在途用例最长 120 秒),请稍候再试"
+        ));
     }
     std::thread::Builder::new()
         .name("fidelity-eval".into())
