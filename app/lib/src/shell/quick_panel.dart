@@ -458,13 +458,24 @@ class _TermField extends StatelessWidget {
           ),
           filled: true,
           fillColor: pal.surfaceOverlay,
+          // Centered strokes: OutlineInputBorder defaults to an INSIDE
+          // stroke, which paints the box a logical pixel shorter than
+          // the button's center-aligned Border.all beside it (pixel
+          // scan, round-3 follow-up). Every other stroked control here
+          // centers, so the field joins them.
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(SrRadius.control),
-            borderSide: BorderSide(color: pal.hairline),
+            borderSide: BorderSide(
+              color: pal.hairline,
+              strokeAlign: BorderSide.strokeAlignCenter,
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(SrRadius.control),
-            borderSide: BorderSide(color: pal.accent.withValues(alpha: 0.6)),
+            borderSide: BorderSide(
+              color: pal.accent.withValues(alpha: 0.6),
+              strokeAlign: BorderSide.strokeAlignCenter,
+            ),
           ),
         ),
         // Enter commits the term (an IME composition commits instead,
@@ -487,13 +498,20 @@ class _AddButton extends StatelessWidget {
     return _Hover(
       builder: (hover) => GestureDetector(
         onTap: onTap,
+        // Rest = outlined, the input's own visual family: a solid
+        // accent-tinted block next the low-contrast input reads taller
+        // than it is (round-3 feedback) — equal geometry, unequal
+        // optical weight. Hover brings the solid accent, cross-faded by
+        // the accent's own alpha (no transparent-lerp dark dip).
         child: AnimatedContainer(
-          duration: SrMotion.fast,
+          duration: SrMotion.fade,
+          curve: SrMotion.curveFade,
           width: _termRowHeight,
           height: _termRowHeight,
           decoration: BoxDecoration(
-            color: hover ? pal.accent : pal.accentSoft,
+            color: pal.accent.withValues(alpha: hover ? 1 : 0),
             borderRadius: BorderRadius.circular(SrRadius.control),
+            border: Border.all(color: hover ? pal.accent : pal.hairline),
           ),
           child: _HoverTintIcon(
             key: const Key('quick-term-add'),
@@ -572,15 +590,16 @@ class _HistoryRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 6),
       child: _Hover(
         builder: (hover) => AnimatedContainer(
-          duration: SrMotion.fast,
-          curve: SrMotion.curveMicro,
+          duration: SrMotion.fade,
+          curve: SrMotion.curveFade,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           // One hover treatment: the raised fill's OWN alpha eases in
           // and out (a clean cross-dissolve over the card). Lerping
           // toward Colors.transparent instead would pass through
           // black-tinted midpoints — Color.lerp drags RGB down along
           // with alpha — a dark flash mid-transition that reads as two
-          // rectangles fighting.
+          // rectangles fighting. The surface-fade curve (not the micro
+          // one) makes both directions read as a gradient.
           decoration: BoxDecoration(
             color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
             borderRadius: BorderRadius.circular(SrRadius.control),
@@ -613,8 +632,8 @@ class _HistoryRow extends StatelessWidget {
                 ignoring: !hover,
                 child: AnimatedOpacity(
                   key: Key('quick-history-actions:${entry.id}'),
-                  duration: SrMotion.fast,
-                  curve: SrMotion.curveMicro,
+                  duration: SrMotion.fade,
+                  curve: SrMotion.curveFade,
                   opacity: hover ? 1 : 0,
                   child: Row(
                     children: [
