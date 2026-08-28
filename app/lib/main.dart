@@ -15,6 +15,7 @@
 library;
 
 import 'dart:async' show unawaited;
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PhysicalKeyboardKey;
@@ -31,6 +32,7 @@ import 'sample_speech.dart';
 import 'src/design/tokens.dart' show SrGeometry;
 import 'src/rust/api.dart' show BridgeSessionState, createEngine;
 import 'src/rust/frb_generated.dart' show RustLib;
+import 'src/settings/caption_theme.dart';
 import 'src/settings/settings_channel.dart';
 import 'src/settings/settings_domain.dart';
 import 'src/settings/settings_glue.dart';
@@ -163,11 +165,20 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
   const options = WindowOptions(
     size: Size(920, 640),
     minimumSize: Size(760, 520),
-    title: 'SpokenRectifier 设置',
+    title: settingsWindowTitle,
     titleBarStyle: TitleBarStyle.normal,
     center: true,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
+    // Paint the caption before the first show (no flash of the
+    // system-seeded color): dmw seeds it from the SYSTEM apps theme, the
+    // launch arguments already carry the app's.
+    applyWindowsCaptionTheme(
+      effectiveBrightness(
+        launch.theme,
+        PlatformDispatcher.instance.platformBrightness,
+      ),
+    );
     await windowManager.show();
     await windowManager.focus();
   });

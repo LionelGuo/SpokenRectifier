@@ -19,6 +19,7 @@ import '../design/hover.dart';
 import '../design/theme.dart' show srTheme;
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeScenario;
+import 'caption_theme.dart';
 import 'settings_channel.dart';
 import 'settings_domain.dart';
 import 'settings_store.dart';
@@ -31,6 +32,7 @@ class SettingsWindowApp extends StatefulWidget {
     required this.initialDomain,
     this.initialTheme = ThemeMode.system,
     this.initialSelection,
+    this.captionTheme = applyWindowsCaptionTheme,
   });
 
   final ScenarioStore store;
@@ -43,11 +45,16 @@ class SettingsWindowApp extends StatefulWidget {
   final ThemeMode initialTheme;
   final String? initialSelection;
 
+  /// Paints the OS caption (title bar) with the effective brightness;
+  /// injectable so widget tests can record the applications.
+  final void Function(Brightness brightness) captionTheme;
+
   @override
   State<SettingsWindowApp> createState() => _SettingsWindowAppState();
 }
 
-class _SettingsWindowAppState extends State<SettingsWindowApp> {
+class _SettingsWindowAppState extends State<SettingsWindowApp>
+    with WidgetsBindingObserver {
   ThemeMode _mode = ThemeMode.system;
   SettingsDomain _domain = SettingsDomain.scenarios;
   List<BridgeScenario> _scenarios = const [];
@@ -61,10 +68,38 @@ class _SettingsWindowAppState extends State<SettingsWindowApp> {
     _domain = widget.initialDomain;
     _selected = widget.initialSelection;
     _load();
-    widget.channel.onTheme = (mode) => setState(() => _mode = mode);
+    widget.channel.onTheme = _setMode;
     widget.channel.onSelection = (name) => setState(() => _selected = name);
     widget.channel.onNavigate = (domain) => setState(() => _domain = domain);
     widget.channel.attach();
+    // The caption follows system-brightness flips too (dmw re-seeds it
+    // from the system theme on every settings change, and our value must
+    // land after that).
+    WidgetsBinding.instance.addObserver(this);
+    _applyCaptionTheme();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _setMode(ThemeMode mode) {
+    setState(() => _mode = mode);
+    _applyCaptionTheme();
+  }
+
+  @override
+  void didChangePlatformBrightness() => _applyCaptionTheme();
+
+  void _applyCaptionTheme() {
+    widget.captionTheme(
+      effectiveBrightness(
+        _mode,
+        WidgetsBinding.instance.platformDispatcher.platformBrightness,
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -153,22 +188,28 @@ class _SettingsWindowAppState extends State<SettingsWindowApp> {
       themeMode: _mode,
       theme: srTheme(Brightness.light),
       darkTheme: srTheme(Brightness.dark),
-      home: Scaffold(
-        backgroundColor: srPalette(context).surface,
-        body: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _Sidebar(
-              selected: _domain,
-              onSelect: (domain) => setState(() => _domain = domain),
-            ),
-            VerticalDivider(
-              width: 1,
-              thickness: 1,
-              color: srPalette(context).hairline,
-            ),
-            Expanded(child: _domainPane(context)),
-          ],
+      home: Builder(
+        // Palette lookups must resolve BELOW MaterialApp: on the state's
+        // own context (above it) Theme.of silently falls back to the
+        // light fallback theme, which once left the scaffold and divider
+        // light while dark mode darkened everything else.
+        builder: (context) => Scaffold(
+          backgroundColor: srPalette(context).surface,
+          body: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _Sidebar(
+                selected: _domain,
+                onSelect: (domain) => setState(() => _domain = domain),
+              ),
+              VerticalDivider(
+                width: 1,
+                thickness: 1,
+                color: srPalette(context).hairline,
+              ),
+              Expanded(child: _domainPane(context)),
+            ],
+          ),
         ),
       ),
     );

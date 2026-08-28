@@ -11,9 +11,12 @@
 
 library;
 
+import 'dart:async' show unawaited;
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart' show MethodCall;
+import 'package:window_manager/window_manager.dart' show windowManager;
 
 import 'settings_domain.dart';
 
@@ -112,6 +115,10 @@ class DesktopSettingsChannel implements SettingsChannel {
         _onSelection?.call(call.arguments as String?);
       case 'navigate':
         _onNavigate?.call(settingsDomainFromName(call.arguments as String?));
+        // The main side's show() is a bare SW_SHOW (desktop_multi_window),
+        // which does not raise a background window; focus() restores a
+        // minimized one, raises it, and brings it to the foreground.
+        unawaited(windowManager.focus());
     }
   }
 }

@@ -11,7 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_state.dart';
-import 'package:spokenrectifier_app/src/design/tokens.dart' show SrMotion;
+import 'package:spokenrectifier_app/src/design/tokens.dart'
+    show SrMotion, SrPalette;
 import 'package:spokenrectifier_app/src/rust/api.dart' show BridgeScenario;
 import 'package:spokenrectifier_app/src/settings/settings_channel.dart';
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
@@ -96,14 +97,18 @@ Future<void> pumpSettings(
   FakeScenarioStore? store,
   FakeSettingsChannel? channel,
   SettingsDomain domain = SettingsDomain.scenarios,
+  ThemeMode initialTheme = ThemeMode.system,
   String? selected,
+  void Function(Brightness brightness)? captionTheme,
 }) async {
   await tester.pumpWidget(
     SettingsWindowApp(
       store: store ?? FakeScenarioStore(_seeded),
       channel: channel ?? FakeSettingsChannel(),
       initialDomain: domain,
+      initialTheme: initialTheme,
       initialSelection: selected,
+      captionTheme: captionTheme ?? (_) {},
     ),
   );
   await tester.pump(); // the library load lands
@@ -365,6 +370,61 @@ void main() {
       (tester.widget(find.byType(MaterialApp)) as MaterialApp).themeMode,
       ThemeMode.dark,
     );
+  });
+
+  // D16 regression: the scaffold background and the divider resolved
+  // their palette with the state's own context (above MaterialApp, where
+  // Theme.of silently falls back to the light fallback theme), so dark
+  // mode left the window chrome light while the cards went dark.
+  testWidgets(
+    'a theme switch repaints the scaffold chrome, not just the cards',
+    (tester) async {
+      final channel = FakeSettingsChannel();
+      await pumpSettings(tester, channel: channel);
+
+      Scaffold scaffold() => tester.widget(find.byType(Scaffold));
+      VerticalDivider divider() => tester.widget(find.byType(VerticalDivider));
+
+      // Light start (the test platform brightness is light).
+      expect(scaffold().backgroundColor, SrPalette.light.surface);
+      expect(divider().color, SrPalette.light.hairline);
+
+      channel.themeHandler?.call(ThemeMode.dark);
+      // MaterialApp morphs between themes (AnimatedTheme): the chrome only
+      // lands on the dark palette once the transition has run.
+      await tester.pumpAndSettle();
+      expect(scaffold().backgroundColor, SrPalette.dark.surface);
+      expect(divider().color, SrPalette.dark.hairline);
+    },
+  );
+
+  // The OS caption (title bar) follows the same theme tri-state: seeded
+  // at startup, re-applied on every push, and re-applied when the system
+  // brightness flips under 跟随 mode.
+  testWidgets('the caption theme follows the effective brightness', (
+    tester,
+  ) async {
+    final applied = <Brightness>[];
+    final channel = FakeSettingsChannel();
+    await pumpSettings(
+      tester,
+      channel: channel,
+      initialTheme: ThemeMode.dark,
+      captionTheme: applied.add,
+    );
+    expect(applied, [Brightness.dark]);
+
+    channel.themeHandler?.call(ThemeMode.light);
+    await tester.pump();
+    expect(applied.last, Brightness.light);
+
+    // System mode hands the decision to the platform brightness.
+    channel.themeHandler?.call(ThemeMode.system);
+    await tester.pump();
+    expect(applied.last, Brightness.light); // test platform starts light
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.pump();
+    expect(applied.last, Brightness.dark);
   });
 
   testWidgets('an edit keeps a selection it renames', (tester) async {
