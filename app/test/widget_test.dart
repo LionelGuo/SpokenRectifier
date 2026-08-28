@@ -668,6 +668,8 @@ void main() {
     expect(find.text('输入'), findsOneWidget);
     expect(find.text('外观'), findsOneWidget);
     expect(find.text('场景'), findsNothing);
+    // The anchor-zone bottom fade is part of the panel's shape.
+    expect(find.byKey(const Key('quick-bottom-fade')), findsOneWidget);
     // Opening refreshed the panel's lists.
     expect(gateway.commands, containsAll(['termsList', 'historyList']));
     // Same footprint as the session window, corner still pinned.
@@ -726,12 +728,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
   }
 
-  /// Hovers the mouse over `finder` (hover-revealed affordances).
+  /// Hovers the mouse over `finder` and lets the hover fades land (the
+  /// reveals are animated, so affordances need the frames before taps).
   Future<void> hoverOver(WidgetTester tester, Finder finder) async {
     final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await gesture.addPointer(location: tester.getCenter(finder));
     addTearDown(gesture.removePointer);
     await tester.pump();
+    await tester.pump(SrMotion.fast);
   }
 
   testWidgets('quick scenario chips are the third selector of the same pick', (
@@ -819,10 +823,15 @@ void main() {
     // Three rows — the fourth stays in the store, not the panel.
     expect(find.textContaining('句原话'), findsNWidgets(3));
 
-    // The actions reveal under the pointer (悬停显复制/重修).
+    // The actions ride every row but stay faded out until hover
+    // (悬停显复制/重修) — one animated reveal, no layout pop.
     final row = find.text('第1句原话');
-    expect(find.byKey(const Key('quick-history-copy:1')), findsNothing);
+    double actionsFade() =>
+        (tester.widget(find.byKey(const Key('quick-history-actions:1')))
+            as AnimatedOpacity).opacity;
+    expect(actionsFade(), 0);
     await hoverOver(tester, row);
+    expect(actionsFade(), 1);
     expect(find.byKey(const Key('quick-history-copy:1')), findsOneWidget);
     expect(find.byKey(const Key('quick-history-rerectify:1')), findsOneWidget);
 

@@ -13,6 +13,11 @@
 /// it), passage mode (engine-seamed, applies from the next session on),
 /// and the theme tri-state (writes the app-owned ui.toml — the
 /// read/write loop). The orb-visibility switch lives in the tray only.
+///
+/// The body's trailing edge dissolves into the card surface toward the
+/// anchor (✕): a bottom scrim fades scrolling content out before it can
+/// crowd the button zone, while the orb itself paints above it (stage
+/// stack) and stays crisp.
 
 library;
 
@@ -25,7 +30,11 @@ import '../rust/api.dart' show BridgeHistoryEntry;
 import 'window_stage.dart';
 
 class QuickPanel extends StatefulWidget {
-  const QuickPanel({super.key, required this.controller, required this.exiting});
+  const QuickPanel({
+    super.key,
+    required this.controller,
+    required this.exiting,
+  });
 
   final SpeechController controller;
   final bool exiting;
@@ -79,97 +88,148 @@ class _QuickPanelState extends State<QuickPanel> {
           ),
           Divider(height: 1, thickness: 1, color: pal.hairline),
           Expanded(
-            child: ListView(
-              // Straight-edge body content: contentInset. The trailing
-              // anchor clearance (96) already exceeds the corner band's
-              // depth (40), so the last row owes no extra corner duty.
-              padding: const EdgeInsets.fromLTRB(
-                SrSpace.contentInset,
-                12,
-                SrSpace.contentInset,
-                0,
+            // Bottom corners clip to the card arc: scrolling content can
+            // never bleed past the rounded card (the window-bleed-zero
+            // principle, applied to the card's own edges).
+            child: ClipRRect(
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(SrRadius.panel),
               ),
-              children: [
-                // An empty library hides the section entirely: a lone
-                // 默认 chip has nothing to pick between.
-                if (c.scenarios.isNotEmpty) ...[
-                  _sectionLabel(pal, '场景'),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _SelectableChip(
-                        key: const Key('quick-scenario-default'),
-                        label: '默认',
-                        selected: c.selectedScenario == null,
-                        onTap: () => c.selectScenario(null),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: ListView(
+                      // Straight-edge body content: contentInset. The
+                      // trailing anchor clearance (96) pairs with the
+                      // bottom scrim's height below — at end-of-scroll the
+                      // last row rests exactly at the scrim's top edge,
+                      // never inside the fade.
+                      padding: const EdgeInsets.fromLTRB(
+                        SrSpace.contentInset,
+                        12,
+                        SrSpace.contentInset,
+                        0,
                       ),
-                      for (final scenario in c.scenarios)
-                        _SelectableChip(
-                          key: Key('quick-scenario:${scenario.name}'),
-                          label: scenario.name,
-                          selected: c.selectedScenario == scenario.name,
-                          onTap: () => c.selectScenario(scenario.name),
+                      children: [
+                        // An empty library hides the section entirely: a lone
+                        // 默认 chip has nothing to pick between.
+                        if (c.scenarios.isNotEmpty) ...[
+                          _sectionLabel(pal, '场景'),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _SelectableChip(
+                                key: const Key('quick-scenario-default'),
+                                label: '默认',
+                                selected: c.selectedScenario == null,
+                                onTap: () => c.selectScenario(null),
+                              ),
+                              for (final scenario in c.scenarios)
+                                _SelectableChip(
+                                  key: Key('quick-scenario:${scenario.name}'),
+                                  label: scenario.name,
+                                  selected: c.selectedScenario == scenario.name,
+                                  onTap: () => c.selectScenario(scenario.name),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                        _sectionLabel(pal, '术语速加'),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _TermField(
+                                controller: _termInput,
+                                onAdd: _addTerm,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _AddButton(onTap: () => _addTerm(_termInput.text)),
+                          ],
                         ),
-                    ],
+                        const SizedBox(height: 8),
+                        if (c.terms.isNotEmpty)
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final term in c.terms)
+                                _TermChip(
+                                  label: term,
+                                  onRemoved: () => c.removeQuickTerm(term),
+                                ),
+                            ],
+                          ),
+                        const SizedBox(height: 20),
+                        _sectionLabel(pal, '历史'),
+                        if (c.recentHistory.isEmpty)
+                          Padding(
+                            key: const Key('quick-history-empty'),
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              '暂无历史记录',
+                              style: SrType.micro.copyWith(
+                                color: pal.textTertiary,
+                              ),
+                            ),
+                          )
+                        else
+                          for (final entry in c.recentHistory)
+                            _HistoryRow(
+                              entry: entry,
+                              onRerectify: c.rerectifyHistory,
+                            ),
+                        const SizedBox(height: 20),
+                        _sectionLabel(pal, '输入'),
+                        _SwitchRow(
+                          icon: Icons.notes_rounded,
+                          label: '篇章模式',
+                          caption: '停顿仅分段,不结束会话',
+                          value: c.passageMode,
+                          onChanged: c.setPassageMode,
+                        ),
+                        const SizedBox(height: 20),
+                        _sectionLabel(pal, '外观'),
+                        _ThemeRow(controller: c),
+                        // Anchor zone clearance.
+                        const SizedBox(height: SrGeometry.anchorInset * 2),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                ],
-                _sectionLabel(pal, '术语速加'),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _TermField(
-                        controller: _termInput,
-                        onAdd: _addTerm,
+                  // The anchor-zone fade: surface-colored, fully opaque
+                  // at the card's bottom edge and transparent by the top
+                  // of the anchor clearance (96). Content scrolling toward
+                  // the ✕ dissolves into the card instead of crowding the
+                  // button; over the empty surface below short content it
+                  // paints surface-on-surface and is invisible. The orb
+                  // sits above (stage stack), so the ✕ stays crisp.
+                  Positioned(
+                    key: const Key('quick-bottom-fade'),
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: SrGeometry.anchorInset * 2,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              pal.surface,
+                              pal.surface,
+                              pal.surface.withValues(alpha: 0),
+                            ],
+                            stops: const [0.0, 0.25, 1.0],
+                          ),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _AddButton(onTap: () => _addTerm(_termInput.text)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (c.terms.isNotEmpty)
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final term in c.terms)
-                        _TermChip(label: term, onRemoved: () => c.removeQuickTerm(term)),
-                    ],
                   ),
-                const SizedBox(height: 20),
-                _sectionLabel(pal, '历史'),
-                if (c.recentHistory.isEmpty)
-                  Padding(
-                    key: const Key('quick-history-empty'),
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      '暂无历史记录',
-                      style: SrType.micro.copyWith(color: pal.textTertiary),
-                    ),
-                  )
-                else
-                  for (final entry in c.recentHistory)
-                    _HistoryRow(
-                      entry: entry,
-                      onRerectify: c.rerectifyHistory,
-                    ),
-                const SizedBox(height: 20),
-                _sectionLabel(pal, '输入'),
-                _SwitchRow(
-                  icon: Icons.notes_rounded,
-                  label: '篇章模式',
-                  caption: '停顿仅分段,不结束会话',
-                  value: c.passageMode,
-                  onChanged: c.setPassageMode,
-                ),
-                const SizedBox(height: 20),
-                _sectionLabel(pal, '外观'),
-                _ThemeRow(controller: c),
-                // Anchor zone clearance.
-                const SizedBox(height: SrGeometry.anchorInset * 2),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -242,7 +302,9 @@ BoxDecoration _chipBox(
   required bool selected,
   required bool hover,
 }) => BoxDecoration(
-  color: selected ? pal.accentSoft : (hover ? pal.surfaceOverlay : pal.surfaceRaised),
+  color: selected
+      ? pal.accentSoft
+      : (hover ? pal.surfaceOverlay : pal.surfaceRaised),
   borderRadius: BorderRadius.circular(SrRadius.control),
   border: Border.all(
     color: selected ? pal.accent.withValues(alpha: 0.55) : pal.hairline,
@@ -330,6 +392,12 @@ class _ThemeSeg extends StatelessWidget {
   }
 }
 
+/// The term row's shared height: the field's decorator and the add
+/// button paint one aligned 34px row. A tight SizedBox alone lets the
+/// decorator center at its intrinsic height (a few px short of the
+/// button), so the input constraints pin the decorator itself.
+const _termRowHeight = 34.0;
+
 class _TermField extends StatelessWidget {
   const _TermField({required this.controller, required this.onAdd});
 
@@ -340,7 +408,7 @@ class _TermField extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SizedBox(
-      height: 32,
+      height: _termRowHeight,
       child: TextField(
         key: const Key('quick-term-field'),
         controller: controller,
@@ -348,9 +416,16 @@ class _TermField extends StatelessWidget {
         cursorColor: pal.accent,
         decoration: InputDecoration(
           isDense: true,
+          constraints: const BoxConstraints(
+            minHeight: _termRowHeight,
+            maxHeight: _termRowHeight,
+          ),
           hintText: '添加术语,回车确认',
           hintStyle: SrType.caption.copyWith(color: pal.textTertiary),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 8,
+          ),
           filled: true,
           fillColor: pal.surfaceOverlay,
           enabledBorder: OutlineInputBorder(
@@ -384,8 +459,8 @@ class _AddButton extends StatelessWidget {
         onTap: onTap,
         child: AnimatedContainer(
           duration: SrMotion.fast,
-          width: 32,
-          height: 32,
+          width: _termRowHeight,
+          height: _termRowHeight,
           decoration: BoxDecoration(
             color: hover ? pal.accent : pal.accentSoft,
             borderRadius: BorderRadius.circular(SrRadius.control),
@@ -460,12 +535,15 @@ class _HistoryRow extends StatelessWidget {
     return _Hover(
       builder: (hover) => AnimatedContainer(
         duration: SrMotion.fast,
+        curve: SrMotion.curveMicro,
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        // One hover treatment: a single raised fill. A fill PLUS a
+        // hairline stroke reads as two stacked rectangles fighting
+        // (round-3 feedback), so the stroke stays out entirely.
         decoration: BoxDecoration(
           color: hover ? pal.surfaceRaised : Colors.transparent,
           borderRadius: BorderRadius.circular(SrRadius.control),
-          border: Border.all(color: hover ? pal.hairline : Colors.transparent),
         ),
         child: Row(
           children: [
@@ -487,25 +565,38 @@ class _HistoryRow extends StatelessWidget {
                 ],
               ),
             ),
-            // 悬停显复制/重修 (spec §4.3): the actions exist only under
-            // the pointer, so the resting rows stay quiet.
-            if (hover) ...[
-              _HistoryAction(
-                key: Key('quick-history-copy:${entry.id}'),
-                icon: Icons.copy_rounded,
-                tooltip: '复制原文',
-                onTap: () => Clipboard.setData(
-                  ClipboardData(text: entry.rawTranscript),
+            // 悬停显复制/重修 (spec §4.3): the actions ride every row but
+            // fade in/out under the pointer — no layout pop, and the
+            // transcript keeps a constant ellipsis width. Pointer events
+            // stay off while faded.
+            IgnorePointer(
+              ignoring: !hover,
+              child: AnimatedOpacity(
+                key: Key('quick-history-actions:${entry.id}'),
+                duration: SrMotion.fast,
+                curve: SrMotion.curveMicro,
+                opacity: hover ? 1 : 0,
+                child: Row(
+                  children: [
+                    _HistoryAction(
+                      key: Key('quick-history-copy:${entry.id}'),
+                      icon: Icons.copy_rounded,
+                      tooltip: '复制原文',
+                      onTap: () => Clipboard.setData(
+                        ClipboardData(text: entry.rawTranscript),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _HistoryAction(
+                      key: Key('quick-history-rerectify:${entry.id}'),
+                      icon: Icons.refresh_rounded,
+                      tooltip: '重新修正',
+                      onTap: () => onRerectify(entry.rawTranscript),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 10),
-              _HistoryAction(
-                key: Key('quick-history-rerectify:${entry.id}'),
-                icon: Icons.refresh_rounded,
-                tooltip: '重新修正',
-                onTap: () => onRerectify(entry.rawTranscript),
-              ),
-            ],
+            ),
           ],
         ),
       ),
@@ -578,7 +669,11 @@ class _SwitchRow extends StatelessWidget {
           ],
         ),
         const Spacer(),
-        Switch(key: const Key('quick-passage'), value: value, onChanged: onChanged),
+        Switch(
+          key: const Key('quick-passage'),
+          value: value,
+          onChanged: onChanged,
+        ),
       ],
     );
   }
