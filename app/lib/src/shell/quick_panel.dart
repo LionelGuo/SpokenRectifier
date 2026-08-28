@@ -293,6 +293,36 @@ class _HoverState extends State<_Hover> {
   }
 }
 
+/// An icon whose color eases between its resting and hover tones over
+/// the shared micro-feedback window, so no color snaps beside the box
+/// fades happening around it.
+class _HoverTintIcon extends StatelessWidget {
+  const _HoverTintIcon({
+    super.key,
+    required this.icon,
+    required this.size,
+    required this.hover,
+    required this.resting,
+    required this.hovered,
+  });
+
+  final IconData icon;
+  final double size;
+  final bool hover;
+  final Color resting;
+  final Color hovered;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(begin: resting, end: hover ? hovered : resting),
+      duration: SrMotion.fast,
+      curve: SrMotion.curveMicro,
+      builder: (context, color, _) => Icon(icon, size: size, color: color),
+    );
+  }
+}
+
 /// The shared chip cascade: the scenario quick-picks and the theme
 /// segments paint identically, differing only in layout density. Chips
 /// keep the plain control radius: the capsule is a corner-band
@@ -428,24 +458,13 @@ class _TermField extends StatelessWidget {
           ),
           filled: true,
           fillColor: pal.surfaceOverlay,
-          // Centered strokes: OutlineInputBorder defaults to an INSIDE
-          // stroke, which paints the box a logical pixel shorter than
-          // the button's center-aligned Border.all beside it (pixel
-          // scan, round-3 follow-up). Every other stroked control here
-          // centers, so the field joins them.
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(SrRadius.control),
-            borderSide: BorderSide(
-              color: pal.hairline,
-              strokeAlign: BorderSide.strokeAlignCenter,
-            ),
+            borderSide: BorderSide(color: pal.hairline),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(SrRadius.control),
-            borderSide: BorderSide(
-              color: pal.accent.withValues(alpha: 0.6),
-              strokeAlign: BorderSide.strokeAlignCenter,
-            ),
+            borderSide: BorderSide(color: pal.accent.withValues(alpha: 0.6)),
           ),
         ),
         // Enter commits the term (an IME composition commits instead,
@@ -468,24 +487,21 @@ class _AddButton extends StatelessWidget {
     return _Hover(
       builder: (hover) => GestureDetector(
         onTap: onTap,
-        // Rest = outlined, the input's own visual family: a solid
-        // accent-tinted block next to the low-contrast input reads as
-        // taller than it is (round-3 feedback) — equal geometry, unequal
-        // optical weight. Hover brings the solid accent.
         child: AnimatedContainer(
           duration: SrMotion.fast,
           width: _termRowHeight,
           height: _termRowHeight,
           decoration: BoxDecoration(
-            color: hover ? pal.accent : Colors.transparent,
+            color: hover ? pal.accent : pal.accentSoft,
             borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(color: hover ? pal.accent : pal.hairline),
           ),
-          child: Icon(
+          child: _HoverTintIcon(
             key: const Key('quick-term-add'),
-            Icons.add_rounded,
+            icon: Icons.add_rounded,
             size: 18,
-            color: hover ? pal.onAccent : pal.accentText,
+            hover: hover,
+            resting: pal.accentText,
+            hovered: pal.onAccent,
           ),
         ),
       ),
@@ -522,10 +538,12 @@ class _TermChip extends StatelessWidget {
             GestureDetector(
               key: Key('quick-term-remove:$label'),
               onTap: onRemoved,
-              child: Icon(
-                Icons.close,
+              child: _HoverTintIcon(
+                icon: Icons.close,
                 size: 12,
-                color: hover ? pal.live : pal.textTertiary,
+                hover: hover,
+                resting: pal.textTertiary,
+                hovered: pal.live,
               ),
             ),
           ],
@@ -548,74 +566,79 @@ class _HistoryRow extends StatelessWidget {
       at: DateTime.fromMillisecondsSinceEpoch(entry.createdAtMs.toInt()),
       now: DateTime.now(),
     );
-    return _Hover(
-      builder: (hover) => AnimatedContainer(
-        duration: SrMotion.fade,
-        curve: SrMotion.curveFade,
-        margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        // One hover treatment: a single raised fill. A fill PLUS a
-        // hairline stroke reads as two stacked rectangles fighting
-        // (round-3 feedback), so the stroke stays out entirely. The
-        // surface-fade curve (not the micro one) makes both directions
-        // read as a gradient.
-        decoration: BoxDecoration(
-          color: hover ? pal.surfaceRaised : Colors.transparent,
-          borderRadius: BorderRadius.circular(SrRadius.control),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    stamp,
-                    style: SrType.micro.copyWith(color: pal.textTertiary),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    entry.rawTranscript.replaceAll('\n', ' '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: SrType.caption.copyWith(color: pal.textSecondary),
-                  ),
-                ],
-              ),
-            ),
-            // 悬停显复制/重修 (spec §4.3): the actions ride every row but
-            // fade in/out under the pointer — no layout pop, and the
-            // transcript keeps a constant ellipsis width. Pointer events
-            // stay off while faded.
-            IgnorePointer(
-              ignoring: !hover,
-              child: AnimatedOpacity(
-                key: Key('quick-history-actions:${entry.id}'),
-                duration: SrMotion.fade,
-                curve: SrMotion.curveFade,
-                opacity: hover ? 1 : 0,
-                child: Row(
+    return Padding(
+      // The inter-row gap sits OUTSIDE the hover region: hover switches
+      // exactly at the painted edge, not 6px past it.
+      padding: const EdgeInsets.only(bottom: 6),
+      child: _Hover(
+        builder: (hover) => AnimatedContainer(
+          duration: SrMotion.fast,
+          curve: SrMotion.curveMicro,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          // One hover treatment: the raised fill's OWN alpha eases in
+          // and out (a clean cross-dissolve over the card). Lerping
+          // toward Colors.transparent instead would pass through
+          // black-tinted midpoints — Color.lerp drags RGB down along
+          // with alpha — a dark flash mid-transition that reads as two
+          // rectangles fighting.
+          decoration: BoxDecoration(
+            color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
+            borderRadius: BorderRadius.circular(SrRadius.control),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _HistoryAction(
-                      key: Key('quick-history-copy:${entry.id}'),
-                      icon: Icons.copy_rounded,
-                      tooltip: '复制原文',
-                      onTap: () => Clipboard.setData(
-                        ClipboardData(text: entry.rawTranscript),
-                      ),
+                    Text(
+                      stamp,
+                      style: SrType.micro.copyWith(color: pal.textTertiary),
                     ),
-                    const SizedBox(width: 10),
-                    _HistoryAction(
-                      key: Key('quick-history-rerectify:${entry.id}'),
-                      icon: Icons.refresh_rounded,
-                      tooltip: '重新修正',
-                      onTap: () => onRerectify(entry.rawTranscript),
+                    const SizedBox(height: 2),
+                    Text(
+                      entry.rawTranscript.replaceAll('\n', ' '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: SrType.caption.copyWith(color: pal.textSecondary),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+              // 悬停显复制/重修 (spec §4.3): the actions ride every row but
+              // fade in/out under the pointer — no layout pop, and the
+              // transcript keeps a constant ellipsis width. Pointer events
+              // stay off while faded.
+              IgnorePointer(
+                ignoring: !hover,
+                child: AnimatedOpacity(
+                  key: Key('quick-history-actions:${entry.id}'),
+                  duration: SrMotion.fast,
+                  curve: SrMotion.curveMicro,
+                  opacity: hover ? 1 : 0,
+                  child: Row(
+                    children: [
+                      _HistoryAction(
+                        key: Key('quick-history-copy:${entry.id}'),
+                        icon: Icons.copy_rounded,
+                        tooltip: '复制原文',
+                        onTap: () => Clipboard.setData(
+                          ClipboardData(text: entry.rawTranscript),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      _HistoryAction(
+                        key: Key('quick-history-rerectify:${entry.id}'),
+                        icon: Icons.refresh_rounded,
+                        tooltip: '重新修正',
+                        onTap: () => onRerectify(entry.rawTranscript),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -643,13 +666,12 @@ class _HistoryAction extends StatelessWidget {
         waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: onTap,
-          // The tint walks the micro curve — a hard color swap under
-          // the pointer reads as a pop inside an otherwise fading row.
-          child: TweenAnimationBuilder<Color?>(
-            tween: ColorTween(end: hover ? pal.accentText : pal.textTertiary),
-            duration: SrMotion.fast,
-            curve: SrMotion.curveMicro,
-            builder: (context, color, _) => Icon(icon, size: 15, color: color),
+          child: _HoverTintIcon(
+            icon: icon,
+            size: 15,
+            hover: hover,
+            resting: pal.textTertiary,
+            hovered: pal.accentText,
           ),
         ),
       ),
