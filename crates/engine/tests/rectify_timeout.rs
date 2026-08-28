@@ -17,7 +17,8 @@ use spokenrectifier_engine::provider::llm::{
     RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
 };
 use spokenrectifier_engine::{
-    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState,
+    Command, Engine, EngineConfig, EngineDeps, EngineEvent, EngineTimings, EventEnvelope,
+    SessionState,
 };
 
 /// A rectify LLM whose stream never yields: the server that hangs.
@@ -128,6 +129,44 @@ impl RectifyLlm for SlowLlm {
             })
             .boxed())
     }
+}
+
+#[tokio::test]
+async fn a_mid_attempt_timings_switch_does_not_extend_the_running_budget() {
+    // The engine opens with an 80 ms cap; a runtime switch to 10 s mid-
+    // attempt must not reach back into the running attempt — the session
+    // snapshotted the cap when it opened (ADR-0007), so the stall still
+    // times out on schedule.
+    let (engine, mut rx) = engine_with_llm(
+        EngineConfig {
+            rectify_timeout_ms: 80,
+            ..EngineConfig::default()
+        },
+        Arc::new(HangingLlm),
+    );
+
+    reach_rectifying(&engine, &mut rx).await;
+    ok(
+        &engine,
+        Command::SetEngineTimings(EngineTimings {
+            paragraph_silence_ms: 1200,
+            session_end_silence_ms: 3000,
+            rectify_timeout_ms: 10_000,
+        }),
+    )
+    .await;
+    assert_eq!(engine.engine_timings().rectify_timeout_ms, 10_000);
+
+    // Still the 80 ms budget: the error arrives well inside the new one.
+    let envelope = next_matching(&mut rx, |env| {
+        matches!(env.event, EngineEvent::Error { .. })
+    })
+    .await;
+    let EngineEvent::Error { message } = envelope.event else {
+        unreachable!()
+    };
+    assert!(message.contains("80"), "got: {message}");
+    await_state(&mut rx, SessionState::Idle).await;
 }
 
 #[tokio::test]

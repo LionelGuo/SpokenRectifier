@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -601004644;
+  int get rustContentHash => -948259410;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -128,9 +128,22 @@ abstract class RustLibApi extends BaseApi {
     required BridgeKeyEdit apiKey,
   });
 
+  Future<BridgeEngineTiming> crateApiSetEngineTiming({
+    required BigInt paragraphSilenceMs,
+    required BigInt sessionEndSilenceMs,
+    required BigInt rectifyTimeoutMs,
+  });
+
   Future<BridgeHistoryConfig> crateApiSetHistoryConfig({
     required bool enabled,
     required BigInt retentionDays,
+  });
+
+  Future<BridgeInsertionTiming> crateApiSetInsertionTiming({
+    required String mode,
+    required BigInt focusSettleMs,
+    required BigInt pasteSettleMs,
+    required BigInt typingDelayMs,
   });
 
   Future<BridgeLlmConnection> crateApiSetLlmConnection({
@@ -763,6 +776,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<BridgeEngineTiming> crateApiSetEngineTiming({
+    required BigInt paragraphSilenceMs,
+    required BigInt sessionEndSilenceMs,
+    required BigInt rectifyTimeoutMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_64(paragraphSilenceMs, serializer);
+          sse_encode_u_64(sessionEndSilenceMs, serializer);
+          sse_encode_u_64(rectifyTimeoutMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 22,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bridge_engine_timing,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSetEngineTimingConstMeta,
+        argValues: [paragraphSilenceMs, sessionEndSilenceMs, rectifyTimeoutMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSetEngineTimingConstMeta => const TaskConstMeta(
+    debugName: "set_engine_timing",
+    argNames: ["paragraphSilenceMs", "sessionEndSilenceMs", "rectifyTimeoutMs"],
+  );
+
+  @override
   Future<BridgeHistoryConfig> crateApiSetHistoryConfig({
     required bool enabled,
     required BigInt retentionDays,
@@ -776,7 +825,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 23,
             port: port_,
           );
         },
@@ -797,6 +846,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<BridgeInsertionTiming> crateApiSetInsertionTiming({
+    required String mode,
+    required BigInt focusSettleMs,
+    required BigInt pasteSettleMs,
+    required BigInt typingDelayMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(mode, serializer);
+          sse_encode_u_64(focusSettleMs, serializer);
+          sse_encode_u_64(pasteSettleMs, serializer);
+          sse_encode_u_64(typingDelayMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 24,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bridge_insertion_timing,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSetInsertionTimingConstMeta,
+        argValues: [mode, focusSettleMs, pasteSettleMs, typingDelayMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSetInsertionTimingConstMeta => const TaskConstMeta(
+    debugName: "set_insertion_timing",
+    argNames: ["mode", "focusSettleMs", "pasteSettleMs", "typingDelayMs"],
+  );
+
+  @override
   Future<BridgeLlmConnection> crateApiSetLlmConnection({
     required String vendor,
     required String baseUrl,
@@ -814,7 +901,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 25,
             port: port_,
           );
         },
@@ -846,7 +933,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 24,
+              funcId: 26,
               port: port_,
             );
           },
@@ -875,7 +962,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 27,
             port: port_,
           );
         },
@@ -905,7 +992,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 26,
+              funcId: 28,
               port: port_,
             );
           },
@@ -934,7 +1021,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 29,
             port: port_,
           );
         },
@@ -963,7 +1050,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1097,6 +1184,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 7:
         return BridgeCommand_SetPassageMode(on_: dco_decode_bool(raw[1]));
       case 8:
+        return BridgeCommand_SetEngineTimings(
+          paragraphSilenceMs: dco_decode_u_64(raw[1]),
+          sessionEndSilenceMs: dco_decode_u_64(raw[2]),
+          rectifyTimeoutMs: dco_decode_u_64(raw[3]),
+        );
+      case 9:
         return BridgeCommand_RectifyText(
           rawTranscript: dco_decode_String(raw[1]),
         );
@@ -1312,7 +1405,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 0:
         return BridgeKeyStatus_Unset();
       case 1:
-        return BridgeKeyStatus_InLocalFile();
+        return BridgeKeyStatus_InLocalFile(dco_decode_String(raw[1]));
       case 2:
         return BridgeKeyStatus_FromEnv(dco_decode_String(raw[1]));
       default:
@@ -1573,6 +1666,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_on_ = sse_decode_bool(deserializer);
         return BridgeCommand_SetPassageMode(on_: var_on_);
       case 8:
+        var var_paragraphSilenceMs = sse_decode_u_64(deserializer);
+        var var_sessionEndSilenceMs = sse_decode_u_64(deserializer);
+        var var_rectifyTimeoutMs = sse_decode_u_64(deserializer);
+        return BridgeCommand_SetEngineTimings(
+          paragraphSilenceMs: var_paragraphSilenceMs,
+          sessionEndSilenceMs: var_sessionEndSilenceMs,
+          rectifyTimeoutMs: var_rectifyTimeoutMs,
+        );
+      case 9:
         var var_rawTranscript = sse_decode_String(deserializer);
         return BridgeCommand_RectifyText(rawTranscript: var_rawTranscript);
       default:
@@ -1823,7 +1925,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 0:
         return BridgeKeyStatus_Unset();
       case 1:
-        return BridgeKeyStatus_InLocalFile();
+        var var_field0 = sse_decode_String(deserializer);
+        return BridgeKeyStatus_InLocalFile(var_field0);
       case 2:
         var var_field0 = sse_decode_String(deserializer);
         return BridgeKeyStatus_FromEnv(var_field0);
@@ -2131,8 +2234,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case BridgeCommand_SetPassageMode(on_: final on_):
         sse_encode_i_32(7, serializer);
         sse_encode_bool(on_, serializer);
-      case BridgeCommand_RectifyText(rawTranscript: final rawTranscript):
+      case BridgeCommand_SetEngineTimings(
+        paragraphSilenceMs: final paragraphSilenceMs,
+        sessionEndSilenceMs: final sessionEndSilenceMs,
+        rectifyTimeoutMs: final rectifyTimeoutMs,
+      ):
         sse_encode_i_32(8, serializer);
+        sse_encode_u_64(paragraphSilenceMs, serializer);
+        sse_encode_u_64(sessionEndSilenceMs, serializer);
+        sse_encode_u_64(rectifyTimeoutMs, serializer);
+      case BridgeCommand_RectifyText(rawTranscript: final rawTranscript):
+        sse_encode_i_32(9, serializer);
         sse_encode_String(rawTranscript, serializer);
     }
   }
@@ -2337,8 +2449,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     switch (self) {
       case BridgeKeyStatus_Unset():
         sse_encode_i_32(0, serializer);
-      case BridgeKeyStatus_InLocalFile():
+      case BridgeKeyStatus_InLocalFile(field0: final field0):
         sse_encode_i_32(1, serializer);
+        sse_encode_String(field0, serializer);
       case BridgeKeyStatus_FromEnv(field0: final field0):
         sse_encode_i_32(2, serializer);
         sse_encode_String(field0, serializer);

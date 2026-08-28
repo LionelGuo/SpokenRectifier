@@ -17,7 +17,7 @@ pub mod provider;
 
 pub use clock::{Clock, TokioClock};
 pub use command::Command;
-pub use config::EngineConfig;
+pub use config::{EngineConfig, EngineTimings};
 pub use engine::{Engine, EngineDeps, EngineError};
 pub use event::{EngineEvent, EventEnvelope, SessionId, SessionState};
 pub use provider::asr::{AsrEvent, AsrOpenError, AsrProvider};

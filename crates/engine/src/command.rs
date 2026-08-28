@@ -1,5 +1,7 @@
 //! Commands accepted by the engine (glossary: 会话, 修正, 预览窗).
 
+use crate::config::EngineTimings;
+
 /// A command into the engine. Commands are validated against the session
 /// state machine; illegal commands return
 /// [`EngineError::CommandRejected`](crate::EngineError::CommandRejected)
@@ -35,4 +37,8 @@ pub enum Command {
     /// when a session opens, so a switch applies from the next session
     /// on. Valid any time.
     SetPassageMode(bool),
+    /// Switch the latency timings at runtime (the settings window's
+    /// advanced form). Snapshotted when a session opens, so a switch
+    /// applies from the next session on. Valid any time.
+    SetEngineTimings(EngineTimings),
 }

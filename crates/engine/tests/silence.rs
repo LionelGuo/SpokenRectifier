@@ -3,9 +3,9 @@
 
 mod common;
 
-use common::{await_state, collect_summary, expect_quiet, harness, next_matching, ok};
+use common::{await_live, await_state, collect_summary, expect_quiet, harness, next_matching, ok};
 use spokenrectifier_engine::fakes::{AsrStep, LlmStep};
-use spokenrectifier_engine::{Command, EngineConfig, EngineEvent, SessionState};
+use spokenrectifier_engine::{Command, EngineConfig, EngineEvent, EngineTimings, SessionState};
 
 #[tokio::test]
 async fn passage_mode_silence_marks_paragraph_but_session_continues() {
@@ -200,6 +200,61 @@ async fn set_passage_mode_applies_from_the_next_session_on() {
     await_state(&mut rx, SessionState::Idle).await;
 
     // The next session opened with the switch in effect: the same 3 s
+    // silence now ends it.
+    ok(&h.engine, Command::StartSession).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(h.llm.call_count(), 1);
+}
+
+#[tokio::test]
+async fn set_engine_timings_applies_from_the_next_session_on() {
+    // Passage mode off, so the session-end silence is the threshold in
+    // play. Construction seeds 3000 ms; the switch tightens it.
+    let (h, mut rx) = harness(
+        EngineConfig {
+            passage_mode: false,
+            ..EngineConfig::default()
+        },
+        vec![
+            vec![
+                AsrStep::Say("第一场".into()),
+                // Under the switched-in threshold, but this session
+                // opened with the construction seed: silence continues.
+                AsrStep::Silence(1500),
+            ],
+            vec![
+                AsrStep::Say("第二场".into()),
+                // The same silence in the next session (opened after the
+                // switch): auto-end.
+                AsrStep::Silence(1500),
+            ],
+        ],
+        vec![vec![LlmStep::Token("修好".into())]],
+    );
+
+    ok(&h.engine, Command::StartSession).await;
+    // The scripted Say lands as partial + final: drain both before the
+    // quiet assertion (next_matching skips the state change).
+    await_live(&mut rx, "第一场").await;
+    await_live(&mut rx, "第一场").await;
+    // Switch mid-session: the running session keeps the thresholds it
+    // opened with — the switch applies from the next session on.
+    ok(
+        &h.engine,
+        Command::SetEngineTimings(EngineTimings {
+            paragraph_silence_ms: 1200,
+            session_end_silence_ms: 1000,
+            rectify_timeout_ms: 25_000,
+        }),
+    )
+    .await;
+    assert_eq!(h.engine.engine_timings().session_end_silence_ms, 1000);
+    expect_quiet(&mut rx, 50).await;
+    assert_eq!(h.engine.state(), SessionState::Recording);
+    ok(&h.engine, Command::Cancel).await;
+    await_state(&mut rx, SessionState::Idle).await;
+
+    // The next session opened with the switch in effect: the same 1.5 s
     // silence now ends it.
     ok(&h.engine, Command::StartSession).await;
     await_state(&mut rx, SessionState::Preview).await;

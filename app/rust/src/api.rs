@@ -63,6 +63,15 @@ pub enum BridgeCommand {
     SetPassageMode {
         on: bool,
     },
+    /// The latency timings as they stand now — the values the next
+    /// session opens with (the engine snapshots them per session). The
+    /// settings window's advanced form sends this right after the file
+    /// write, so the live engine adopts the saved values at once.
+    SetEngineTimings {
+        paragraph_silence_ms: u64,
+        session_end_silence_ms: u64,
+        rectify_timeout_ms: u64,
+    },
     /// History retrieval re-running a past utterance (see `RectifyText`).
     RectifyText {
         raw_transcript: String,
@@ -166,6 +175,15 @@ impl From<BridgeCommand> for Command {
             BridgeCommand::UpdatePreviewText { text } => Command::UpdatePreviewText(text),
             BridgeCommand::SetStyleDirective { directive } => Command::SetStyleDirective(directive),
             BridgeCommand::SetPassageMode { on } => Command::SetPassageMode(on),
+            BridgeCommand::SetEngineTimings {
+                paragraph_silence_ms,
+                session_end_silence_ms,
+                rectify_timeout_ms,
+            } => Command::SetEngineTimings(spokenrectifier_engine::EngineTimings {
+                paragraph_silence_ms,
+                session_end_silence_ms,
+                rectify_timeout_ms,
+            }),
             BridgeCommand::RectifyText { raw_transcript } => Command::RectifyText(raw_transcript),
         }
     }
@@ -600,28 +618,42 @@ pub fn set_history_config(
 
 // -- the connection domain (模型与连接, ticket 19) -----------------------------
 
-/// Dart-side mirror of a secret's placement — never the secret itself
-/// (the GUI paints this status; the stored key never leaves the file).
+/// Dart-side mirror of a key's state for the diff-echo field (ADR-0008,
+/// 2026-08-28 revision): a key stored in the git-ignored local file
+/// rides the wire as its VALUE — the GUI paints it masked by default
+/// with an eye toggle, and saves by diffing against it. An environment
+/// key never echoes a value: only its placement, so the field starts
+/// empty and typing would store a new local key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BridgeKeyStatus {
     Unset,
-    InLocalFile,
+    /// The stored key (from the local layer only — the loader's
+    /// shared-file guard makes that the sole source).
+    InLocalFile(String),
     FromEnv(String),
 }
 
-impl From<spokenrectifier_config::section_write::KeyStatus> for BridgeKeyStatus {
-    fn from(value: spokenrectifier_config::section_write::KeyStatus) -> Self {
-        use spokenrectifier_config::section_write::KeyStatus;
-        match value {
-            KeyStatus::Unset => BridgeKeyStatus::Unset,
-            KeyStatus::InLocalFile => BridgeKeyStatus::InLocalFile,
-            KeyStatus::FromEnv(name) => BridgeKeyStatus::FromEnv(name),
+/// The key view from a section's key pair: the local-file value when
+/// stored, else the env placement, else nothing.
+fn bridge_key(api_key: Option<String>, api_key_env: Option<String>) -> BridgeKeyStatus {
+    match spokenrectifier_config::section_write::key_status(
+        api_key.as_deref(),
+        api_key_env.as_deref(),
+    ) {
+        spokenrectifier_config::section_write::KeyStatus::Unset => BridgeKeyStatus::Unset,
+        spokenrectifier_config::section_write::KeyStatus::InLocalFile => {
+            BridgeKeyStatus::InLocalFile(api_key.unwrap_or_default())
+        }
+        spokenrectifier_config::section_write::KeyStatus::FromEnv(name) => {
+            BridgeKeyStatus::FromEnv(name)
         }
     }
 }
 
 /// Dart-side mirror of what a connection save does to the api_key: the
-/// stored key is never echoed back, so "keep" is a first-class action.
+/// field echoes the stored local key (see [`BridgeKeyStatus`]), so a
+/// save DIFFS against it — keep the stored one, replace it, or clear it
+/// (an empty `Set` is a `Clear` — an empty key is no key).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BridgeKeyEdit {
     Keep,
@@ -665,9 +697,10 @@ pub struct BridgeLlmConnection {
 }
 
 fn asr_view(config: spokenrectifier_aliyun::AsrConfig) -> BridgeAsrConnection {
+    let endpoint = config.endpoint();
     BridgeAsrConnection {
-        endpoint: config.endpoint(),
-        key: config.key_status().into(),
+        key: bridge_key(config.api_key, config.api_key_env),
+        endpoint,
         model: config.model,
         language: config.language,
         workspace_id: config.workspace_id,
@@ -677,12 +710,11 @@ fn asr_view(config: spokenrectifier_aliyun::AsrConfig) -> BridgeAsrConnection {
 }
 
 fn llm_view(config: spokenrectifier_llm::LlmConfig) -> BridgeLlmConnection {
-    let key = config.model.key_status().into();
     BridgeLlmConnection {
+        key: bridge_key(config.model.api_key, config.model.api_key_env),
         vendor: config.model.vendor.as_str().to_string(),
         base_url: config.model.base_url,
         model: config.model.model,
-        key,
     }
 }
 
@@ -799,10 +831,7 @@ pub struct BridgeInsertionTiming {
 }
 
 /// The advanced domain's one read: the session and insertion latency
-/// parameters, effective right now. Read-only by decision (ADR-0007):
-/// they are engine-construction-time values, so a GUI form over them
-/// would promise the hot-reload nothing delivers — the config file is
-/// the escape hatch, and the pane links to it.
+/// parameters, effective right now (the editable form's initial paint).
 pub fn advanced_config() -> anyhow::Result<BridgeAdvancedConfig> {
     let dirs = spokenrectifier_config::search_dirs();
     let engine = engine_config(&dirs)?;
@@ -816,14 +845,81 @@ pub fn advanced_config() -> anyhow::Result<BridgeAdvancedConfig> {
             rectify_timeout_ms: engine.rectify_timeout_ms,
         },
         insertion: BridgeInsertionTiming {
-            mode: match insertion.mode {
-                spokenrectifier_insertion::InsertionMode::Paste => "paste".to_string(),
-                spokenrectifier_insertion::InsertionMode::Typing => "typing".to_string(),
-            },
+            mode: insertion.mode.as_str().to_string(),
             focus_settle_ms: insertion.focus_settle_ms,
             paste_settle_ms: insertion.paste_settle_ms,
             typing_delay_ms: insertion.typing_delay_ms,
         },
+    })
+}
+
+/// Write the form's `[engine]` timings into the layer files and hand
+/// them to the live engine at once (ADR-0007, 2026-08-28 revision): the
+/// engine adopts them through the runtime command, and each session
+/// snapshots what it opens with — so the save applies from the NEXT
+/// session on, while the file stays the truth across launches. The
+/// passage-mode field is not written (its switch lives in the quick
+/// panel). Returns the re-read view.
+pub fn set_engine_timing(
+    paragraph_silence_ms: u64,
+    session_end_silence_ms: u64,
+    rectify_timeout_ms: u64,
+) -> anyhow::Result<BridgeEngineTiming> {
+    let dirs = spokenrectifier_config::search_dirs();
+    let timings = crate::engine_config::save_engine_timing(
+        &dirs,
+        spokenrectifier_engine::EngineTimings {
+            paragraph_silence_ms,
+            session_end_silence_ms,
+            rectify_timeout_ms,
+        },
+    )?;
+    execute(BridgeCommand::SetEngineTimings {
+        paragraph_silence_ms: timings.paragraph_silence_ms,
+        session_end_silence_ms: timings.session_end_silence_ms,
+        rectify_timeout_ms: timings.rectify_timeout_ms,
+    })?;
+    let engine = engine_config(&dirs)?;
+    Ok(BridgeEngineTiming {
+        passage_mode: engine.passage_mode,
+        paragraph_silence_ms: engine.paragraph_silence_ms,
+        session_end_silence_ms: engine.session_end_silence_ms,
+        rectify_timeout_ms: engine.rectify_timeout_ms,
+    })
+}
+
+/// Write the form's `[insertion]` model into the layer files and apply
+/// it to the live inserter at once (ADR-0007, 2026-08-28 revision):
+/// insertion is discrete per-confirm, so the swap is true real-time —
+/// the very next ConfirmInsert runs with the new mode and pacing. A
+/// no-op apply on the fake engine (tests and demos hold no target
+/// window); the file write still lands. Returns the re-read view.
+pub fn set_insertion_timing(
+    mode: String,
+    focus_settle_ms: u64,
+    paste_settle_ms: u64,
+    typing_delay_ms: u64,
+) -> anyhow::Result<BridgeInsertionTiming> {
+    let mode = spokenrectifier_insertion::InsertionMode::from_name(&mode).ok_or_else(|| {
+        anyhow!("[insertion] mode \"{mode}\" is unknown: pick \"paste\" or \"typing\"")
+    })?;
+    let config = spokenrectifier_insertion::InsertionConfig {
+        mode,
+        focus_settle_ms,
+        paste_settle_ms,
+        typing_delay_ms,
+    };
+    let dirs = spokenrectifier_config::search_dirs();
+    spokenrectifier_insertion::save_insertion_timing(&dirs, &config)
+        .map_err(|err| anyhow!("insertion {}", err.0))?;
+    if let InserterSlot::Real(inserter) = &global()?.inserter {
+        inserter.set_config(config);
+    }
+    Ok(BridgeInsertionTiming {
+        mode: mode.as_str().to_string(),
+        focus_settle_ms: config.focus_settle_ms,
+        paste_settle_ms: config.paste_settle_ms,
+        typing_delay_ms: config.typing_delay_ms,
     })
 }
 
@@ -1157,6 +1253,33 @@ mod tests {
         assert!(!passage_mode().unwrap());
         execute(BridgeCommand::SetPassageMode { on: true }).unwrap();
         assert!(passage_mode().unwrap());
+    }
+
+    /// The advanced form's engine-timings switch rides the wire any
+    /// time (the settings window sends it right after the file write)
+    /// and reads back through the engine's getter.
+    #[test]
+    fn engine_timings_ride_the_wire_any_time() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        let defaults = global().unwrap().engine.engine_timings();
+        execute(BridgeCommand::SetEngineTimings {
+            paragraph_silence_ms: 1500,
+            session_end_silence_ms: 2500,
+            rectify_timeout_ms: 30_000,
+        })
+        .unwrap();
+        let switched = global().unwrap().engine.engine_timings();
+        assert_eq!(switched.paragraph_silence_ms, 1500);
+        assert_eq!(switched.session_end_silence_ms, 2500);
+        assert_eq!(switched.rectify_timeout_ms, 30_000);
+        // Back to the seeded values so later tests see the defaults.
+        execute(BridgeCommand::SetEngineTimings {
+            paragraph_silence_ms: defaults.paragraph_silence_ms,
+            session_end_silence_ms: defaults.session_end_silence_ms,
+            rectify_timeout_ms: defaults.rectify_timeout_ms,
+        })
+        .unwrap();
     }
 
     /// The quick panel's close-restore is a quiet no-op on the fake

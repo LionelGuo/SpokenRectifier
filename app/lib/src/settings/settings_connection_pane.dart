@@ -1,13 +1,24 @@
 /// The 模型与连接 domain: the effective `[llm]` and `[asr]` sections as
 /// editable forms. One save per card writes the editor's whole model
 /// through the bridge (section-preserving into the layer files) and
-/// repaints from the re-read view — the file's truth, not the ask. The
-/// api_key never paints: only its placement does, the field writes a
-/// replacement (only ever into the git-ignored local layer), and the
-/// clear button removes it (falling back to the environment variable).
-/// The engine adopts the config at its creation, so changes apply from
-/// the next launch (the fidelity-eval run is the one place that adopts
-/// them at once, building its own engine per run).
+/// repaints from the re-read view — the file's truth, not the ask.
+///
+/// The vendor chips are PRESETS: clicking one adopts that vendor's
+/// default base_url (unconditionally — an endpoint switch is the point
+/// of the click) and its default model only when the current name is
+/// empty or happens to be some vendor's default, so a customized model
+/// never gets clobbered. The chip also selects the dialect (vendor).
+///
+/// The key block is DIFF-ECHO (ADR-0008, 2026-08-28 revision): a key
+/// stored in the local file paints in the field masked by default (the
+/// eye toggles plain text), and a save diffs the field against the
+/// loaded value — unchanged keeps, a change replaces, and emptying a
+/// saved key asks one confirm then clears (no standalone clear button).
+/// An environment key never echoes a value: the field starts empty, the
+/// status line names the variable, and typing would store a new local
+/// key. The engine adopts the config at its creation, so changes apply
+/// from the next launch (the fidelity-eval run is the one place that
+/// adopts them at once, building its own engine per run).
 
 library;
 
@@ -20,6 +31,27 @@ import 'connection_store.dart';
 
 /// The vendor chips' labels, in display order.
 const _vendors = ['deepseek', 'volcengine', 'qwen', 'openai'];
+
+/// What one vendor chip prefills: the endpoint to switch to, and the
+/// model to adopt only when the field is empty or holds some vendor's
+/// default.
+const _presets = <String, ({String baseUrl, String model})>{
+  'deepseek': (baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash'),
+  'volcengine': (
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: 'doubao-seed-2.0-lite',
+  ),
+  'qwen': (
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen3.5-flash',
+  ),
+  'openai': (baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.2'),
+};
+
+/// The model names any preset would have written — the values a chip
+/// click may freely replace (a customized name is never one of them).
+bool _isSomeVendorDefault(String model) =>
+    _presets.values.any((preset) => preset.model == model);
 
 class SettingsConnectionPane extends StatefulWidget {
   const SettingsConnectionPane({super.key, required this.store});
@@ -94,60 +126,74 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     }
   }
 
-  /// Adopt the file's truth into the form (the key fields always clear:
-  /// the stored key never echoes back).
+  /// Adopt the file's truth into the form. A local-file key echoes into
+  /// the field (the diff base); an env or unset key leaves it empty.
   void _adopt(LlmConnection llm, AsrConnection asr) {
     _llmVendor = llm.vendor;
     _llmBaseUrl.text = llm.baseUrl;
     _llmModel.text = llm.model;
-    _llmKey.clear();
+    _llmKey.text = llm.key.storedKey ?? '';
     _llmKeyInfo = llm.key;
     _asrModel.text = asr.model;
     _asrLanguage.text = asr.language;
     _asrRegion.text = asr.region;
     _asrWorkspace.text = asr.workspaceId ?? '';
     _asrBaseUrl.text = asr.baseUrl ?? '';
-    _asrKey.clear();
+    _asrKey.text = asr.key.storedKey ?? '';
     _asrKeyInfo = asr.key;
     _asrEndpoint = asr.endpoint;
   }
 
-  ApiKeyEdit _keyEdit(TextEditingController field) {
-    final typed = field.text.trim();
-    return typed.isEmpty ? const ApiKeyKeep() : ApiKeySet(typed);
+  /// A chip click: the preset's base_url unconditionally, its model only
+  /// when the current name is empty or some vendor's default.
+  void _applyVendorPreset(String vendor) {
+    final preset = _presets[vendor]!;
+    setState(() {
+      _llmVendor = vendor;
+      _llmBaseUrl.text = preset.baseUrl;
+      if (_llmModel.text.trim().isEmpty || _isSomeVendorDefault(_llmModel.text.trim())) {
+        _llmModel.text = preset.model;
+      }
+    });
   }
 
-  /// The clear button's destructive path: confirm once, then save with
-  /// the key edit forced to Clear — a cleared field alone would read as
-  /// Keep, so the override is explicit.
-  Future<void> _clearKey(
+  /// Diff the key field against the loaded value. `null` aborts the
+  /// whole save: the user emptied a saved key and declined the confirm.
+  Future<ApiKeyEdit?> _keyDiff(
     TextEditingController field,
-    Future<void> Function({ApiKeyEdit keyOverride}) save,
+    KeyInfo info,
+    String section,
   ) async {
-    final section = field == _llmKey ? '修正模型' : '语音识别';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => _ConfirmClearDialog(section: section),
-    );
-    if (confirmed != true) return;
-    field.clear();
-    await save(keyOverride: const ApiKeyClear());
+    final typed = field.text.trim();
+    final loaded = info.storedKey ?? '';
+    if (typed == loaded) return const ApiKeyKeep();
+    if (typed.isEmpty && loaded.isNotEmpty) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => _ConfirmClearDialog(section: section),
+      );
+      if (confirmed != true) return null;
+      return const ApiKeyClear();
+    }
+    return ApiKeySet(typed);
   }
 
-  Future<void> _saveLlm({ApiKeyEdit? keyOverride}) async {
+  Future<void> _saveLlm() async {
+    final key = await _keyDiff(_llmKey, _llmKeyInfo, '修正模型');
+    if (key == null) return;
     try {
       final saved = await widget.store.saveLlm(
         vendor: _llmVendor,
         baseUrl: _llmBaseUrl.text,
         model: _llmModel.text,
-        apiKey: keyOverride ?? _keyEdit(_llmKey),
+        apiKey: key,
       );
       if (!mounted) return;
       setState(() {
         _llmVendor = saved.vendor;
         _llmBaseUrl.text = saved.baseUrl;
         _llmModel.text = saved.model;
-        _llmKey.clear();
+        _llmKey.text = saved.key.storedKey ?? '';
         _llmKeyInfo = saved.key;
         _error = null;
         _savedNote = '修正模型已保存';
@@ -158,7 +204,9 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     }
   }
 
-  Future<void> _saveAsr({ApiKeyEdit? keyOverride}) async {
+  Future<void> _saveAsr() async {
+    final key = await _keyDiff(_asrKey, _asrKeyInfo, '语音识别');
+    if (key == null) return;
     try {
       final saved = await widget.store.saveAsr(
         model: _asrModel.text,
@@ -168,7 +216,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
             : _asrWorkspace.text,
         region: _asrRegion.text,
         baseUrl: _asrBaseUrl.text.trim().isEmpty ? null : _asrBaseUrl.text,
-        apiKey: keyOverride ?? _keyEdit(_asrKey),
+        apiKey: key,
       );
       if (!mounted) return;
       setState(() {
@@ -178,7 +226,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         _asrWorkspace.text = saved.workspaceId ?? '';
         _asrBaseUrl.text = saved.baseUrl ?? '';
         _asrEndpoint = saved.endpoint;
-        _asrKey.clear();
+        _asrKey.text = saved.key.storedKey ?? '';
         _asrKeyInfo = saved.key;
         _error = null;
         _savedNote = '语音识别已保存';
@@ -228,13 +276,12 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         else ...[
           _LlmCard(
             vendor: _llmVendor,
-            onVendor: (vendor) => setState(() => _llmVendor = vendor),
+            onVendor: _applyVendorPreset,
             baseUrl: _llmBaseUrl,
             model: _llmModel,
             keyField: _llmKey,
             keyInfo: _llmKeyInfo,
             onSave: _saveLlm,
-            onClearKey: () => _clearKey(_llmKey, _saveLlm),
           ),
           const SizedBox(height: 16),
           _AsrCard(
@@ -247,7 +294,6 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
             keyInfo: _asrKeyInfo,
             endpoint: _asrEndpoint,
             onSave: _saveAsr,
-            onClearKey: () => _clearKey(_asrKey, _saveAsr),
           ),
         ],
       ],
@@ -259,33 +305,41 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
 // Field recipes
 // ---------------------------------------------------------------------------
 
-/// The key block: the placement caption (never the key), a write-only
-/// field, and the destructive clear. [id] names the section ('llm' /
-/// 'asr') for the block's test keys.
-class _KeyBlock extends StatelessWidget {
+/// The key block (ADR-0008, 2026-08-28 revision): the placement caption,
+/// the diff-echo field (a local-file key paints masked; the eye toggles
+/// plain text), and the hint that emptying a saved key clears it on
+/// save. [id] names the section ('llm' / 'asr') for the block's test
+/// keys.
+class _KeyBlock extends StatefulWidget {
   const _KeyBlock({
     required this.id,
     required this.field,
     required this.keyInfo,
-    required this.onClear,
   });
 
   final String id;
   final TextEditingController field;
   final KeyInfo keyInfo;
-  final VoidCallback onClear;
+
+  @override
+  State<_KeyBlock> createState() => _KeyBlockState();
+}
+
+class _KeyBlockState extends State<_KeyBlock> {
+  bool _obscured = true;
 
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
+    final fromEnv = widget.keyInfo.status == KeyPlacement.fromEnv;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('API 密钥', style: SrType.micro.copyWith(color: pal.textTertiary)),
         const SizedBox(height: 4),
         Text(
-          '${keyInfo.label};密钥只存于本机 local 文件',
-          key: Key('settings-conn-key-status:$id'),
+          '${widget.keyInfo.label};密钥只存于本机 local 文件',
+          key: Key('settings-conn-key-status:${widget.id}'),
           style: SrType.micro.copyWith(color: pal.textSecondary),
         ),
         const SizedBox(height: 6),
@@ -293,19 +347,32 @@ class _KeyBlock extends StatelessWidget {
           children: [
             Expanded(
               child: SrField(
-                key: Key('settings-conn-$id-key'),
-                controller: field,
+                key: Key('settings-conn-${widget.id}-key'),
+                controller: widget.field,
                 label: '',
-                hint: '留空保持不变;输入即替换',
-                obscure: true,
+                hint: fromEnv ? '留空沿用环境变量;输入即另存本机' : '清空并保存即删除本机密钥',
+                obscure: _obscured,
                 monospace: true,
               ),
             ),
             const SizedBox(width: 8),
-            SrButton(
-              key: Key('settings-conn-key-clear:$id'),
-              label: '清除',
-              onTap: onClear,
+            SrHover(
+              builder: (hover) => Tooltip(
+                message: _obscured ? '显示密钥' : '隐藏密钥',
+                waitDuration: SrMotion.tooltipWait,
+                child: GestureDetector(
+                  key: Key('settings-conn-key-eye:${widget.id}'),
+                  onTap: () => setState(() => _obscured = !_obscured),
+                  behavior: HitTestBehavior.opaque,
+                  child: Icon(
+                    _obscured
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    size: 15,
+                    color: hover ? pal.accentText : pal.textTertiary,
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -314,7 +381,9 @@ class _KeyBlock extends StatelessWidget {
   }
 }
 
-/// The vendor chip set (the history pane's retention-chip recipe).
+/// The vendor chip set (the history pane's retention-chip recipe). The
+/// chips are presets: the selected look marks the vendor whose dialect
+/// the endpoint speaks.
 class _VendorChips extends StatelessWidget {
   const _VendorChips({required this.selected, required this.onSelect});
 
@@ -385,7 +454,6 @@ class _LlmCard extends StatelessWidget {
     required this.keyField,
     required this.keyInfo,
     required this.onSave,
-    required this.onClearKey,
   });
 
   final String vendor;
@@ -395,7 +463,6 @@ class _LlmCard extends StatelessWidget {
   final TextEditingController keyField;
   final KeyInfo keyInfo;
   final VoidCallback onSave;
-  final VoidCallback onClearKey;
 
   @override
   Widget build(BuildContext context) {
@@ -417,7 +484,7 @@ class _LlmCard extends StatelessWidget {
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
-          Text('服务商', style: SrType.micro.copyWith(color: pal.textTertiary)),
+          Text('服务商(点击预填端点)', style: SrType.micro.copyWith(color: pal.textTertiary)),
           const SizedBox(height: 6),
           _VendorChips(selected: vendor, onSelect: onVendor),
           const SizedBox(height: 12),
@@ -435,12 +502,7 @@ class _LlmCard extends StatelessWidget {
             monospace: true,
           ),
           const SizedBox(height: 12),
-          _KeyBlock(
-            id: 'llm',
-            field: keyField,
-            keyInfo: keyInfo,
-            onClear: onClearKey,
-          ),
+          _KeyBlock(id: 'llm', field: keyField, keyInfo: keyInfo),
           const SizedBox(height: 14),
           SrButton(
             key: const Key('settings-conn-llm-save'),
@@ -465,7 +527,6 @@ class _AsrCard extends StatelessWidget {
     required this.keyInfo,
     required this.endpoint,
     required this.onSave,
-    required this.onClearKey,
   });
 
   final TextEditingController model;
@@ -477,7 +538,6 @@ class _AsrCard extends StatelessWidget {
   final KeyInfo keyInfo;
   final String endpoint;
   final VoidCallback onSave;
-  final VoidCallback onClearKey;
 
   @override
   Widget build(BuildContext context) {
@@ -556,12 +616,7 @@ class _AsrCard extends StatelessWidget {
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 12),
-          _KeyBlock(
-            id: 'asr',
-            field: keyField,
-            keyInfo: keyInfo,
-            onClear: onClearKey,
-          ),
+          _KeyBlock(id: 'asr', field: keyField, keyInfo: keyInfo),
           const SizedBox(height: 14),
           SrButton(
             key: const Key('settings-conn-asr-save'),

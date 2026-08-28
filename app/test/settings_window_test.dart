@@ -3,8 +3,9 @@
 /// the fidelity-eval domain (run states through the controller), the
 /// history domain (browse/retrieve/retention/keep-nothing/clear), the
 /// terms domain (add/rename/remove over the same dictionary file), the
-/// connection domain (the two endpoint forms, key keep/clear/set), the
-/// advanced domain (read-only timings + the file escape hatch), the
+/// connection domain (the two endpoint forms, preset chips, the
+/// diff-echo key block), the advanced domain (the editable timing form
+/// + the file escape hatch), the
 /// about domain (version/license/open-config), the cross-window channel
 /// contract, and the main-window controller's library-change reactions.
 /// Everything rides pure-Dart fakes — no Rust dylib, no second engine.
@@ -234,7 +235,10 @@ class FakeConnectionStore implements ConnectionStore {
       baseUrl: baseUrl,
       model: model,
       key: switch (apiKey) {
-        ApiKeySet() => const KeyInfo(status: KeyPlacement.inLocalFile),
+        ApiKeySet(:final key) => KeyInfo(
+          status: KeyPlacement.inLocalFile,
+          storedKey: key,
+        ),
         ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
         ApiKeyKeep() => llm.key,
       },
@@ -272,7 +276,10 @@ class FakeConnectionStore implements ConnectionStore {
       baseUrl: baseUrl,
       endpoint: 'wss://resolved.example/api-ws/v1/realtime?model=$model',
       key: switch (apiKey) {
-        ApiKeySet() => const KeyInfo(status: KeyPlacement.inLocalFile),
+        ApiKeySet(:final key) => KeyInfo(
+          status: KeyPlacement.inLocalFile,
+          storedKey: key,
+        ),
         ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
         ApiKeyKeep() => asr.key,
       },
@@ -281,32 +288,92 @@ class FakeConnectionStore implements ConnectionStore {
   }
 }
 
-/// The advanced/about fake: fixed timings and about info; an
-/// open-config call is recorded (the same entry the tray makes).
+/// The advanced/about fake: timings in memory (a save mutates them,
+/// mirroring the file write + live apply); an open-config call is
+/// recorded (the same entry the tray makes).
 class FakeSystemStore implements SystemStore {
   FakeSystemStore({
-    this.about = const AboutInfo(version: '1.0.0', license: 'Apache-2.0'),
-  });
-
-  AboutInfo about;
-  int openConfigCalls = 0;
-
-  @override
-  Future<({EngineTiming engine, InsertionTiming insertion})>
-  loadAdvanced() async => (
-    engine: const EngineTiming(
+    this.engine = const EngineTiming(
       passageMode: true,
       paragraphSilenceMs: 1200,
       sessionEndSilenceMs: 3000,
       rectifyTimeoutMs: 25000,
     ),
-    insertion: const InsertionTiming(
+    this.insertion = const InsertionTiming(
       mode: 'paste',
       focusSettleMs: 50,
       pasteSettleMs: 250,
       typingDelayMs: 8,
     ),
-  );
+    this.about = const AboutInfo(version: '1.0.0', license: 'Apache-2.0'),
+  });
+
+  EngineTiming engine;
+  InsertionTiming insertion;
+  AboutInfo about;
+  int openConfigCalls = 0;
+  final engineSaves = <({int paragraph, int sessionEnd, int timeout})>[];
+  final insertionSaves =
+      <({String mode, int focus, int paste, int typing})>[];
+
+  /// When set, the next save throws (an unwritable layer file).
+  Object? failNextSave;
+
+  @override
+  Future<({EngineTiming engine, InsertionTiming insertion})>
+  loadAdvanced() async => (engine: engine, insertion: insertion);
+
+  @override
+  Future<EngineTiming> saveEngineTiming({
+    required int paragraphSilenceMs,
+    required int sessionEndSilenceMs,
+    required int rectifyTimeoutMs,
+  }) async {
+    if (failNextSave != null) {
+      final failure = failNextSave;
+      failNextSave = null;
+      throw failure!;
+    }
+    engineSaves.add((
+      paragraph: paragraphSilenceMs,
+      sessionEnd: sessionEndSilenceMs,
+      timeout: rectifyTimeoutMs,
+    ));
+    engine = EngineTiming(
+      passageMode: engine.passageMode, // the quick panel owns this one
+      paragraphSilenceMs: paragraphSilenceMs,
+      sessionEndSilenceMs: sessionEndSilenceMs,
+      rectifyTimeoutMs: rectifyTimeoutMs,
+    );
+    return engine;
+  }
+
+  @override
+  Future<InsertionTiming> saveInsertionTiming({
+    required String mode,
+    required int focusSettleMs,
+    required int pasteSettleMs,
+    required int typingDelayMs,
+  }) async {
+    if (failNextSave != null) {
+      final failure = failNextSave;
+      failNextSave = null;
+      throw failure!;
+    }
+    insertionSaves.add((
+      mode: mode,
+      focus: focusSettleMs,
+      paste: pasteSettleMs,
+      typing: typingDelayMs,
+    ));
+    insertion = InsertionTiming(
+      mode: mode,
+      focusSettleMs: focusSettleMs,
+      pasteSettleMs: pasteSettleMs,
+      typingDelayMs: typingDelayMs,
+    );
+    return insertion;
+  }
 
   @override
   Future<AboutInfo> loadAbout() async => about;
@@ -987,7 +1054,51 @@ void main() {
   // The connection domain (模型与连接)
   // -----------------------------------------------------------------------
 
-  testWidgets('the two cards paint the loaded config, keys never shown', (
+  testWidgets('the two cards paint the config; a local key echoes masked', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore(
+      llm: const LlmConnection(
+        vendor: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-v4-flash',
+        key: KeyInfo(
+          status: KeyPlacement.inLocalFile,
+          storedKey: 'sk-stored',
+        ),
+      ),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // The stored local-file key echoes into the field, masked by
+    // default; the eye toggles plain text (ADR-0008 revision).
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-key')),
+      'sk-stored',
+    );
+    TextField keyField() => tester.widget<TextField>(
+      find
+          .descendant(
+            of: find.byKey(const Key('settings-conn-llm-key')),
+            matching: find.byType(TextField),
+          )
+          .first,
+    );
+    expect(keyField().obscureText, isTrue);
+    await tester.tap(find.byKey(const Key('settings-conn-key-eye:llm')));
+    await tester.pump();
+    expect(keyField().obscureText, isFalse);
+    // No standalone clear button anywhere: clearing rides the save.
+    expect(find.byKey(const Key('settings-conn-key-clear:llm')), findsNothing);
+    expect(find.byKey(const Key('settings-conn-asr-endpoint')), findsOneWidget);
+    expect(find.byKey(const Key('settings-conn-restart-note')), findsOneWidget);
+  });
+
+  testWidgets('an env key never echoes; the status line names it', (
     tester,
   ) async {
     final store = FakeConnectionStore(
@@ -1004,21 +1115,11 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    // The forms adopt the file's truth; the key field stays EMPTY (the
-    // stored key never echoes back — only its placement paints).
-    expect(
-      fieldText(tester, const Key('settings-conn-llm-model')),
-      'deepseek-v4-flash',
-    );
-    expect(find.textContaining('取自环境变量 DEEPSEEK_API_KEY'), findsOneWidget);
     expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
-    // The ASR card sits below the fold in the test viewport; the
-    // endpoint preview still paints (ListView builds near-offscreen).
-    expect(find.byKey(const Key('settings-conn-asr-endpoint')), findsOneWidget);
-    expect(find.byKey(const Key('settings-conn-restart-note')), findsOneWidget);
+    expect(find.textContaining('取自环境变量 DEEPSEEK_API_KEY'), findsOneWidget);
   });
 
-  testWidgets('an llm save writes the form; a blank key keeps the stored one', (
+  testWidgets('a chip click prefills the vendor endpoint and model', (
     tester,
   ) async {
     final store = FakeConnectionStore();
@@ -1028,26 +1129,65 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
+    // The model holds deepseek's default, so the volcengine chip may
+    // switch both it and the endpoint.
     await tester.tap(
       find.byKey(const Key('settings-conn-llm-vendor:volcengine')),
     );
     await tester.pump();
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-baseurl')),
+      'https://ark.cn-beijing.volces.com/api/v3',
+    );
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-model')),
+      'doubao-seed-2.0-lite',
+    );
+
+    // A customized model survives a chip click; the endpoint switches
+    // unconditionally (that is the point of the click).
     await tester.enterText(
       find.byKey(const Key('settings-conn-llm-model')),
-      'doubao-seed-2.0-lite',
+      'my-own-model',
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendor:qwen')));
+    await tester.pump();
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-baseurl')),
+      'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    );
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-model')),
+      'my-own-model',
+    );
+  });
+
+  testWidgets('an llm save writes the form; an untouched key keeps', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-model')),
+      'deepseek-v4-pro',
     );
     await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pump();
 
     final save = store.llmSaves.single;
-    expect(save.vendor, 'volcengine');
-    expect(save.model, 'doubao-seed-2.0-lite');
+    expect(save.vendor, 'deepseek');
+    expect(save.model, 'deepseek-v4-pro');
     expect(save.baseUrl, 'https://api.deepseek.com'); // untouched field rides
-    expect(save.key, isA<ApiKeyKeep>()); // blank field = keep, never clear
+    expect(save.key, isA<ApiKeyKeep>()); // the echoed key, unchanged
     expect(find.byKey(const Key('settings-conn-saved')), findsOneWidget);
   });
 
-  testWidgets('a typed key replaces; the clear path confirms then clears', (
+  testWidgets('a typed key replaces; emptying one confirms then clears', (
     tester,
   ) async {
     final store = FakeConnectionStore();
@@ -1057,7 +1197,7 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    // Typed text = Set; the status repaints from the re-read view.
+    // Typed text = Set; the re-read view echoes the new key back.
     await tester.enterText(
       find.byKey(const Key('settings-conn-llm-key')),
       'sk-new',
@@ -1068,26 +1208,26 @@ void main() {
     expect(set.key, isA<ApiKeySet>());
     expect((set.key as ApiKeySet).key, 'sk-new');
     expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
+    expect(fieldText(tester, const Key('settings-conn-llm-key')), 'sk-new');
 
-    // The clear button confirms first; cancelling writes nothing.
-    await tester.ensureVisible(
-      find.byKey(const Key('settings-conn-key-clear:llm')),
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('settings-conn-key-clear:llm')));
+    // Emptying the echoed key and saving asks one confirm; cancelling
+    // writes nothing at all.
+    await tester.enterText(find.byKey(const Key('settings-conn-llm-key')), '');
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pump();
     expect(find.text('清除密钥?'), findsOneWidget);
     await tester.tap(find.byKey(const Key('settings-conn-clear-cancel')));
     await tester.pump();
     expect(store.llmSaves.length, 1);
 
-    // Confirming saves with an explicit Clear (not the blank-field Keep).
-    await tester.tap(find.byKey(const Key('settings-conn-key-clear:llm')));
+    // Confirming saves with an explicit Clear (the field is empty again).
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('settings-conn-clear-ok')));
     await tester.pump();
     final clear = store.llmSaves.last;
     expect(clear.key, isA<ApiKeyClear>());
+    expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
     expect(find.textContaining('已保存在本机 local 文件'), findsNothing);
   });
 
@@ -1153,10 +1293,10 @@ void main() {
   });
 
   // -----------------------------------------------------------------------
-  // The advanced domain (高级) — read-only by ADR-0007
+  // The advanced domain (高级) — editable form, ADR-0007 revised
   // -----------------------------------------------------------------------
 
-  testWidgets('the timings paint read-only; the file is the edit path', (
+  testWidgets('the timings paint as an editable form; passage stays put', (
     tester,
   ) async {
     final store = FakeSystemStore();
@@ -1167,15 +1307,105 @@ void main() {
     );
 
     expect(find.byKey(const Key('settings-advanced-passage')), findsOneWidget);
-    expect(find.text('1200 ms'), findsOneWidget);
-    expect(find.text('3000 ms'), findsOneWidget);
-    expect(find.text('25000 ms'), findsOneWidget);
-    expect(find.text('剪贴板粘贴'), findsOneWidget);
-    // Read-only decision: no field anywhere, the escape hatch instead.
-    expect(find.byType(TextField), findsNothing);
+    // The loaded values seed the fields.
+    expect(
+      fieldText(tester, const Key('settings-advanced-paragraph-silence')),
+      '1200',
+    );
+    expect(
+      fieldText(tester, const Key('settings-advanced-typing-delay')),
+      '8',
+    );
+    // The passage switch lives in the quick panel: read-only here. The
+    // insertion mode is a chip pair, not free text.
+    expect(
+      find.byKey(const Key('settings-advanced-insertion-mode:paste')),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const Key('settings-advanced-open-config')));
     await tester.pump();
     expect(store.openConfigCalls, 1);
+  });
+
+  testWidgets('an engine save records the form; the note says next session', (
+    tester,
+  ) async {
+    final store = FakeSystemStore();
+    await pumpSettings(
+      tester,
+      systemStore: store,
+      domain: SettingsDomain.advanced,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('settings-advanced-paragraph-silence')),
+      '1500',
+    );
+    await tester.enterText(
+      find.byKey(const Key('settings-advanced-session-end-silence')),
+      '2500',
+    );
+    await tester.tap(find.byKey(const Key('settings-advanced-engine-save')));
+    await tester.pump();
+
+    final save = store.engineSaves.single;
+    expect(save.paragraph, 1500);
+    expect(save.sessionEnd, 2500);
+    expect(save.timeout, 25000); // untouched field rides
+    expect(find.text('会话参数已保存,下一会话生效'), findsOneWidget);
+    expect(store.insertionSaves, isEmpty); // one card, one save
+  });
+
+  testWidgets('an insertion save records mode and pacing; instant note', (
+    tester,
+  ) async {
+    final store = FakeSystemStore();
+    await pumpSettings(
+      tester,
+      systemStore: store,
+      domain: SettingsDomain.advanced,
+    );
+
+    await tester.tap(
+      find.byKey(const Key('settings-advanced-insertion-mode:typing')),
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-advanced-typing-delay')),
+      '15',
+    );
+    await tester.tap(
+      find.byKey(const Key('settings-advanced-insertion-save')),
+    );
+    await tester.pump();
+
+    final save = store.insertionSaves.single;
+    expect(save.mode, 'typing');
+    expect(save.typing, 15);
+    expect(save.focus, 50); // untouched fields ride
+    expect(find.text('插入参数已保存,即时生效'), findsOneWidget);
+    expect(store.engineSaves, isEmpty);
+  });
+
+  testWidgets('a non-numeric field refuses the save with a visible error', (
+    tester,
+  ) async {
+    final store = FakeSystemStore();
+    await pumpSettings(
+      tester,
+      systemStore: store,
+      domain: SettingsDomain.advanced,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('settings-advanced-rectify-timeout')),
+      'soon',
+    );
+    await tester.tap(find.byKey(const Key('settings-advanced-engine-save')));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-advanced-error')), findsOneWidget);
+    expect(find.textContaining('需为非负整数'), findsOneWidget);
+    expect(store.engineSaves, isEmpty);
   });
 
   // -----------------------------------------------------------------------

@@ -9,9 +9,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `asr_provider`, `asr_view`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `token_scripts`
+// These functions are ignored because they are not marked as `pub`: `asr_provider`, `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config yields an API key, the Aliyun realtime
@@ -172,12 +172,44 @@ Future<void> updateTerm({required String old, required String new_}) =>
     RustLib.instance.api.crateApiUpdateTerm(old: old, new_: new_);
 
 /// The advanced domain's one read: the session and insertion latency
-/// parameters, effective right now. Read-only by decision (ADR-0007):
-/// they are engine-construction-time values, so a GUI form over them
-/// would promise the hot-reload nothing delivers — the config file is
-/// the escape hatch, and the pane links to it.
+/// parameters, effective right now (the editable form's initial paint).
 Future<BridgeAdvancedConfig> advancedConfig() =>
     RustLib.instance.api.crateApiAdvancedConfig();
+
+/// Write the form's `[engine]` timings into the layer files and hand
+/// them to the live engine at once (ADR-0007, 2026-08-28 revision): the
+/// engine adopts them through the runtime command, and each session
+/// snapshots what it opens with — so the save applies from the NEXT
+/// session on, while the file stays the truth across launches. The
+/// passage-mode field is not written (its switch lives in the quick
+/// panel). Returns the re-read view.
+Future<BridgeEngineTiming> setEngineTiming({
+  required BigInt paragraphSilenceMs,
+  required BigInt sessionEndSilenceMs,
+  required BigInt rectifyTimeoutMs,
+}) => RustLib.instance.api.crateApiSetEngineTiming(
+  paragraphSilenceMs: paragraphSilenceMs,
+  sessionEndSilenceMs: sessionEndSilenceMs,
+  rectifyTimeoutMs: rectifyTimeoutMs,
+);
+
+/// Write the form's `[insertion]` model into the layer files and apply
+/// it to the live inserter at once (ADR-0007, 2026-08-28 revision):
+/// insertion is discrete per-confirm, so the swap is true real-time —
+/// the very next ConfirmInsert runs with the new mode and pacing. A
+/// no-op apply on the fake engine (tests and demos hold no target
+/// window); the file write still lands. Returns the re-read view.
+Future<BridgeInsertionTiming> setInsertionTiming({
+  required String mode,
+  required BigInt focusSettleMs,
+  required BigInt pasteSettleMs,
+  required BigInt typingDelayMs,
+}) => RustLib.instance.api.crateApiSetInsertionTiming(
+  mode: mode,
+  focusSettleMs: focusSettleMs,
+  pasteSettleMs: pasteSettleMs,
+  typingDelayMs: typingDelayMs,
+);
 
 /// The about pane's one read (version, license, repository).
 Future<BridgeAbout> about() => RustLib.instance.api.crateApiAbout();
@@ -339,6 +371,16 @@ sealed class BridgeCommand with _$BridgeCommand {
   /// session opens with (the engine snapshots it per session).
   const factory BridgeCommand.setPassageMode({required bool on_}) =
       BridgeCommand_SetPassageMode;
+
+  /// The latency timings as they stand now — the values the next
+  /// session opens with (the engine snapshots them per session). The
+  /// settings window's advanced form sends this right after the file
+  /// write, so the live engine adopts the saved values at once.
+  const factory BridgeCommand.setEngineTimings({
+    required BigInt paragraphSilenceMs,
+    required BigInt sessionEndSilenceMs,
+    required BigInt rectifyTimeoutMs,
+  }) = BridgeCommand_SetEngineTimings;
 
   /// History retrieval re-running a past utterance (see `RectifyText`).
   const factory BridgeCommand.rectifyText({required String rawTranscript}) =
@@ -693,7 +735,11 @@ sealed class BridgeKeyStatus with _$BridgeKeyStatus {
   const BridgeKeyStatus._();
 
   const factory BridgeKeyStatus.unset() = BridgeKeyStatus_Unset;
-  const factory BridgeKeyStatus.inLocalFile() = BridgeKeyStatus_InLocalFile;
+
+  /// The stored key (from the local layer only — the loader's
+  /// shared-file guard makes that the sole source).
+  const factory BridgeKeyStatus.inLocalFile(String field0) =
+      BridgeKeyStatus_InLocalFile;
   const factory BridgeKeyStatus.fromEnv(String field0) =
       BridgeKeyStatus_FromEnv;
 }

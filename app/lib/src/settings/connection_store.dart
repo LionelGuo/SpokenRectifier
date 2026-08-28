@@ -1,10 +1,11 @@
 /// The settings window's connection seam: the effective `[asr]` / `[llm]`
 /// sections from the layer files, read and written directly through the
-/// Rust bridge. The stored api_key never rides this seam — only its
-/// placement ([KeyInfo]) and the edit the user asks for ([ApiKeyEdit]):
-/// the key's only legal home is the git-ignored local layer, and the
-/// write path enforces that (ticket 19's 定案; the shared file's
-/// key-rejection guard stays untouched and tested).
+/// Rust bridge. The stored api_key rides this seam only when it lives in
+/// the git-ignored local layer ([KeyInfo.storedKey], for the diff-echo
+/// field — masked by default in the pane); an environment key never
+/// echoes a value. The write path still enforces the key's only legal
+/// home (ticket 19's 定案, ADR-0008 revised 2026-08-28; the shared
+/// file's key-rejection guard stays untouched and tested).
 ///
 /// File-level and engine-independent: the engine adopts the config at
 /// its creation, so a save here applies from the next launch on (the
@@ -25,14 +26,20 @@ import '../rust/api.dart'
         BridgeKeyStatus_Unset,
         BridgeLlmConnection;
 
-/// A secret's placement for display — never the secret itself.
+/// A key's state for the diff-echo field: its placement, plus the stored
+/// value when (and only when) it lives in the local layer.
 class KeyInfo {
-  const KeyInfo({required this.status, this.envName});
+  const KeyInfo({required this.status, this.envName, this.storedKey});
 
   final KeyPlacement status;
 
   /// The environment variable name when [status] is fromEnv.
   final String? envName;
+
+  /// The stored key when [status] is inLocalFile — the value the field
+  /// echoes (masked) and a save diffs against. Never set for an
+  /// environment key: no env value ever crosses this seam.
+  final String? storedKey;
 
   /// The one-line status caption the pane paints.
   String get label => switch (status) {
@@ -43,16 +50,20 @@ class KeyInfo {
 
   @override
   bool operator ==(Object other) =>
-      other is KeyInfo && other.status == status && other.envName == envName;
+      other is KeyInfo &&
+      other.status == status &&
+      other.envName == envName &&
+      other.storedKey == storedKey;
 
   @override
-  int get hashCode => Object.hash(status, envName);
+  int get hashCode => Object.hash(status, envName, storedKey);
 }
 
 enum KeyPlacement { unset, inLocalFile, fromEnv }
 
-/// What a save does to the api_key: the field paints empty, so "keep"
-/// is the default action; the clear button clears.
+/// What a save does to the api_key: the field echoes the stored local
+/// key, so a save DIFFS the field against it — keep the stored one,
+/// replace it, or clear it (one confirm in the pane).
 sealed class ApiKeyEdit {
   const ApiKeyEdit();
 }
@@ -212,8 +223,9 @@ class RustConnectionStore implements ConnectionStore {
 
   static KeyInfo _keyFromWire(BridgeKeyStatus status) => switch (status) {
     BridgeKeyStatus_Unset() => const KeyInfo(status: KeyPlacement.unset),
-    BridgeKeyStatus_InLocalFile() => const KeyInfo(
+    BridgeKeyStatus_InLocalFile(:final field0) => KeyInfo(
       status: KeyPlacement.inLocalFile,
+      storedKey: field0,
     ),
     BridgeKeyStatus_FromEnv(:final field0) => KeyInfo(
       status: KeyPlacement.fromEnv,

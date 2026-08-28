@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::clock::Clock;
 use crate::command::Command;
-use crate::config::EngineConfig;
+use crate::config::{EngineConfig, EngineTimings};
 use crate::event::{EngineEvent, EventEnvelope, SessionId, SessionState};
 use crate::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
 use crate::provider::history::{RecordedSession, SessionRecorder};
@@ -55,7 +55,6 @@ pub struct Engine {
 }
 
 struct Inner {
-    config: EngineConfig,
     /// The selected scenario's style-directive text (`None` = the
     /// built-in default register). Read fresh when each rectify request
     /// is built, so a switch any time shapes the next attempt.
@@ -65,6 +64,11 @@ struct Inner {
     /// when each session opens, so a switch applies from the next
     /// session on.
     passage_mode: RwLock<bool>,
+    /// The latency timings as they stand now, seeded from the config at
+    /// construction and switched at runtime (the settings window's
+    /// advanced form). Snapshotted when each session opens, so a switch
+    /// applies from the next session on.
+    timings: RwLock<EngineTimings>,
     asr: Arc<dyn AsrProvider>,
     llm: Arc<dyn RectifyLlm>,
     inserter: Arc<dyn TextInserter>,
@@ -94,6 +98,10 @@ struct Session {
     /// Passage mode snapshotted when the session opened, so a runtime
     /// switch applies from the next session on.
     passage_mode: bool,
+    /// The latency timings snapshotted when the session opened, so a
+    /// runtime switch applies from the next session on (and never pulls
+    /// thresholds out from under a running session).
+    timings: EngineTimings,
     /// Paragraphs closed by a paragraph mark.
     paragraphs: Vec<String>,
     /// Finalized speech since the last paragraph mark.
@@ -131,7 +139,7 @@ impl Engine {
             inner: Arc::new(Inner {
                 style_directive: RwLock::new(None),
                 passage_mode: RwLock::new(config.passage_mode),
-                config,
+                timings: RwLock::new(config.timings()),
                 asr: deps.asr,
                 llm: deps.llm,
                 inserter: deps.inserter,
@@ -165,6 +173,12 @@ impl Engine {
     /// the value the NEXT session opens with. For the panel's toggle.
     pub fn passage_mode(&self) -> bool {
         *self.inner.passage_mode.read().unwrap()
+    }
+
+    /// The latency timings as they stand now (config-seeded,
+    /// runtime-switched) — the values the NEXT session opens with.
+    pub fn engine_timings(&self) -> EngineTimings {
+        *self.inner.timings.read().unwrap()
     }
 
     /// Submit a command. Returns `Err` only for rejected commands (wrong
@@ -213,6 +227,10 @@ impl Engine {
                 *self.inner.passage_mode.write().unwrap() = on;
                 Ok(())
             }
+            Command::SetEngineTimings(timings) => {
+                *self.inner.timings.write().unwrap() = timings;
+                Ok(())
+            }
         }
     }
 
@@ -237,7 +255,12 @@ impl Engine {
             // The command gate serializes commands, so we are still idle.
             let id = SessionId(st.next_session_id);
             st.next_session_id += 1;
-            let session = Session::new(id, terms, self.inner.current_passage_mode());
+            let session = Session::new(
+                id,
+                terms,
+                self.inner.current_passage_mode(),
+                self.inner.current_timings(),
+            );
             let cancel = session.asr_cancel.clone();
             st.session = Some(session);
             self.inner.transition(&mut st, id, SessionState::Recording);
@@ -252,7 +275,7 @@ impl Engine {
     /// machine (`Idle → Rectifying`), no microphone involved. Reroll,
     /// preview editing, cancel, and insert all work as after a recording.
     fn rectify_text(&self, raw_transcript: String) -> Result<(), EngineError> {
-        let (sid, cancel, request) = {
+        let (sid, cancel, request, timings) = {
             let mut st = self.inner.state_lock();
             if st.state != SessionState::Idle {
                 return Err(EngineError::CommandRejected {
@@ -272,6 +295,7 @@ impl Engine {
                 id,
                 self.inner.current_terms(),
                 self.inner.current_passage_mode(),
+                self.inner.current_timings(),
             );
             session.frozen = Some(FrozenUtterance {
                 raw_transcript: raw_transcript.clone(),
@@ -281,6 +305,7 @@ impl Engine {
             session.rectify_cancel = Some(cancel.clone());
             let sid = session.id;
             let terms = session.terms.clone();
+            let timings = session.timings;
             st.session = Some(session);
             self.inner
                 .transition(&mut st, sid, SessionState::Rectifying);
@@ -304,10 +329,18 @@ impl Engine {
                     style_directive: self.inner.current_style_directive(),
                     terms,
                 },
+                timings,
             )
         };
         let llm = self.inner.llm.clone();
-        tokio::spawn(rectify_task(self.inner.clone(), sid, llm, request, cancel));
+        tokio::spawn(rectify_task(
+            self.inner.clone(),
+            sid,
+            llm,
+            request,
+            cancel,
+            timings,
+        ));
         Ok(())
     }
 
@@ -433,6 +466,12 @@ impl Inner {
         *self.passage_mode.read().unwrap()
     }
 
+    /// The timings for a session about to open — same snapshot rule as
+    /// [`Inner::current_passage_mode`].
+    fn current_timings(&self) -> EngineTimings {
+        *self.timings.read().unwrap()
+    }
+
     /// Emit an event; the guard must be held so `seq` order can never
     /// diverge from send order.
     fn emit(&self, st: &mut SharedState, sid: SessionId, event: EngineEvent) {
@@ -516,14 +555,14 @@ fn current_sid(st: &SharedState) -> SessionId {
 /// silence auto-end (both from `Recording`), and reroll (from `Preview`).
 /// No-op unless the session is in one of those states.
 fn begin_rectify(inner: &Arc<Inner>) {
-    let (sid, cancel, request) = {
+    let (sid, cancel, request, timings) = {
         let mut st = inner.state_lock();
         let state = st.state;
         let Some(session) = st.session.as_mut() else {
             return;
         };
         let sid = session.id;
-        let (cancel, request) = match state {
+        let (cancel, request, timings) = match state {
             SessionState::Recording => {
                 session.asr_cancel.cancel();
                 let mut paragraphs = std::mem::take(&mut session.paragraphs);
@@ -549,6 +588,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 let cancel = CancellationToken::new();
                 session.rectify_cancel = Some(cancel.clone());
                 let terms = session.terms.clone();
+                let timings = session.timings;
                 (
                     cancel,
                     RectifyRequest {
@@ -557,6 +597,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         style_directive: inner.current_style_directive(),
                         terms,
                     },
+                    timings,
                 )
             }
             SessionState::Preview => {
@@ -565,6 +606,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 let cancel = CancellationToken::new();
                 session.rectify_cancel = Some(cancel.clone());
                 let terms = session.terms.clone();
+                let timings = session.timings;
                 (
                     cancel,
                     RectifyRequest {
@@ -573,26 +615,36 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         style_directive: inner.current_style_directive(),
                         terms,
                     },
+                    timings,
                 )
             }
             _ => return,
         };
         inner.transition(&mut st, sid, SessionState::Rectifying);
-        (sid, cancel, request)
+        (sid, cancel, request, timings)
     };
     let llm = inner.llm.clone();
-    tokio::spawn(rectify_task(inner.clone(), sid, llm, request, cancel));
+    tokio::spawn(rectify_task(
+        inner.clone(),
+        sid,
+        llm,
+        request,
+        cancel,
+        timings,
+    ));
 }
 
 impl Session {
     /// A fresh session: nothing said, nothing frozen. Both session
     /// openings (recording, history re-rectify) start from this shape,
-    /// each snapshotting the dictionary and passage mode as it opens.
-    fn new(id: SessionId, terms: Vec<String>, passage_mode: bool) -> Self {
+    /// each snapshotting the dictionary, passage mode, and timings as it
+    /// opens.
+    fn new(id: SessionId, terms: Vec<String>, passage_mode: bool, timings: EngineTimings) -> Self {
         Self {
             id,
             terms,
             passage_mode,
+            timings,
             paragraphs: Vec::new(),
             current_paragraph: String::new(),
             partial: String::new(),
@@ -672,7 +724,7 @@ async fn consume_asr(
                             // marks nothing. Transcript text is not required
                             // — until the real ASR adapter lands, VAD speech
                             // bursts alone carry the paragraph structure.
-                            if elapsed_ms >= inner.config.paragraph_silence_ms
+                            if elapsed_ms >= session.timings.paragraph_silence_ms
                                 && session.speech_since_mark
                                 && !session.paragraph_marked_current_silence
                             {
@@ -683,7 +735,7 @@ async fn consume_asr(
                                 }
                                 inner.emit_stream_event(&mut st, sid, EngineEvent::ParagraphMarked);
                             }
-                        } else if elapsed_ms >= inner.config.session_end_silence_ms {
+                        } else if elapsed_ms >= session.timings.session_end_silence_ms {
                             drop(st);
                             // Auto-end: same path as a manual stop.
                             begin_rectify(&inner);
@@ -717,23 +769,25 @@ async fn consume_asr(
 
 /// Stream one rectify attempt: token deltas out as
 /// [`EngineEvent::RectifiedTextChunk`], then `Preview`; errors abort the
-/// session. The attempt runs under the configured wall-clock hard cap
-/// (fresh per attempt, rerolls included); expiry aborts with a visible
-/// error. Exits silently if the attempt is cancelled or superseded.
+/// session. The attempt runs under the session's snapshotted wall-clock
+/// hard cap (fresh per attempt, rerolls included); expiry aborts with a
+/// visible error. Exits silently if the attempt is cancelled or
+/// superseded.
 async fn rectify_task(
     inner: Arc<Inner>,
     sid: SessionId,
     llm: Arc<dyn RectifyLlm>,
     request: RectifyRequest,
     cancel: CancellationToken,
+    timings: EngineTimings,
 ) {
-    let cap = std::time::Duration::from_millis(inner.config.rectify_timeout_ms);
+    let cap = std::time::Duration::from_millis(timings.rectify_timeout_ms);
     let deadline = tokio::time::Instant::now() + cap;
     let stream: RectifyTokenStream = tokio::select! {
         biased;
         _ = cancel.cancelled() => return,
         _ = tokio::time::sleep_until(deadline) => {
-            inner.abort_rectifying(sid, rectify_timeout_message(inner.config.rectify_timeout_ms));
+            inner.abort_rectifying(sid, rectify_timeout_message(timings.rectify_timeout_ms));
             return;
         }
         stream = llm.rectify(request) => match stream {
@@ -751,7 +805,7 @@ async fn rectify_task(
             biased;
             _ = cancel.cancelled() => return,
             _ = tokio::time::sleep_until(deadline) => {
-                inner.abort_rectifying(sid, rectify_timeout_message(inner.config.rectify_timeout_ms));
+                inner.abort_rectifying(sid, rectify_timeout_message(timings.rectify_timeout_ms));
                 return;
             }
             item = stream.next() => {

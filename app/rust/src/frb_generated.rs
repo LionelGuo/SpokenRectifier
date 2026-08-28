@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -601004644;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -948259410;
 
 // Section: executor
 
@@ -780,6 +780,47 @@ fn wire__crate__api__set_asr_connection_impl(
         },
     )
 }
+fn wire__crate__api__set_engine_timing_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_engine_timing",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_paragraph_silence_ms = <u64>::sse_decode(&mut deserializer);
+            let api_session_end_silence_ms = <u64>::sse_decode(&mut deserializer);
+            let api_rectify_timeout_ms = <u64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::set_engine_timing(
+                            api_paragraph_silence_ms,
+                            api_session_end_silence_ms,
+                            api_rectify_timeout_ms,
+                        )?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__set_history_config_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -810,6 +851,49 @@ fn wire__crate__api__set_history_config_impl(
                     (move || {
                         let output_ok =
                             crate::api::set_history_config(api_enabled, api_retention_days)?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__set_insertion_timing_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_insertion_timing",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_mode = <String>::sse_decode(&mut deserializer);
+            let api_focus_settle_ms = <u64>::sse_decode(&mut deserializer);
+            let api_paste_settle_ms = <u64>::sse_decode(&mut deserializer);
+            let api_typing_delay_ms = <u64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::set_insertion_timing(
+                            api_mode,
+                            api_focus_settle_ms,
+                            api_paste_settle_ms,
+                            api_typing_delay_ms,
+                        )?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -1169,6 +1253,16 @@ impl SseDecode for crate::api::BridgeCommand {
                 return crate::api::BridgeCommand::SetPassageMode { on: var_on_ };
             }
             8 => {
+                let mut var_paragraphSilenceMs = <u64>::sse_decode(deserializer);
+                let mut var_sessionEndSilenceMs = <u64>::sse_decode(deserializer);
+                let mut var_rectifyTimeoutMs = <u64>::sse_decode(deserializer);
+                return crate::api::BridgeCommand::SetEngineTimings {
+                    paragraph_silence_ms: var_paragraphSilenceMs,
+                    session_end_silence_ms: var_sessionEndSilenceMs,
+                    rectify_timeout_ms: var_rectifyTimeoutMs,
+                };
+            }
+            9 => {
                 let mut var_rawTranscript = <String>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::RectifyText {
                     raw_transcript: var_rawTranscript,
@@ -1451,7 +1545,8 @@ impl SseDecode for crate::api::BridgeKeyStatus {
                 return crate::api::BridgeKeyStatus::Unset;
             }
             1 => {
-                return crate::api::BridgeKeyStatus::InLocalFile;
+                let mut var_field0 = <String>::sse_decode(deserializer);
+                return crate::api::BridgeKeyStatus::InLocalFile(var_field0);
             }
             2 => {
                 let mut var_field0 = <String>::sse_decode(deserializer);
@@ -1668,13 +1763,15 @@ fn pde_ffi_dispatcher_primary_impl(
         19 => wire__crate__api__save_scenarios_impl(port, ptr, rust_vec_len, data_len),
         20 => wire__crate__api__scenarios_impl(port, ptr, rust_vec_len, data_len),
         21 => wire__crate__api__set_asr_connection_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__set_history_config_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__set_llm_connection_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__start_fidelity_eval_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__state_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__subscribe_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__terms_list_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__update_term_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__set_engine_timing_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__set_history_config_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__set_insertion_timing_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__set_llm_connection_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__start_fidelity_eval_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__state_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__subscribe_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__terms_list_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__update_term_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1775,8 +1872,19 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
             crate::api::BridgeCommand::SetPassageMode { on } => {
                 [7.into_dart(), on.into_into_dart().into_dart()].into_dart()
             }
+            crate::api::BridgeCommand::SetEngineTimings {
+                paragraph_silence_ms,
+                session_end_silence_ms,
+                rectify_timeout_ms,
+            } => [
+                8.into_dart(),
+                paragraph_silence_ms.into_into_dart().into_dart(),
+                session_end_silence_ms.into_into_dart().into_dart(),
+                rectify_timeout_ms.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
             crate::api::BridgeCommand::RectifyText { raw_transcript } => {
-                [8.into_dart(), raw_transcript.into_into_dart().into_dart()].into_dart()
+                [9.into_dart(), raw_transcript.into_into_dart().into_dart()].into_dart()
             }
             _ => {
                 unimplemented!("");
@@ -2097,7 +2205,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeKeyStatus {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
             crate::api::BridgeKeyStatus::Unset => [0.into_dart()].into_dart(),
-            crate::api::BridgeKeyStatus::InLocalFile => [1.into_dart()].into_dart(),
+            crate::api::BridgeKeyStatus::InLocalFile(field0) => {
+                [1.into_dart(), field0.into_into_dart().into_dart()].into_dart()
+            }
             crate::api::BridgeKeyStatus::FromEnv(field0) => {
                 [2.into_dart(), field0.into_into_dart().into_dart()].into_dart()
             }
@@ -2280,8 +2390,18 @@ impl SseEncode for crate::api::BridgeCommand {
                 <i32>::sse_encode(7, serializer);
                 <bool>::sse_encode(on, serializer);
             }
-            crate::api::BridgeCommand::RectifyText { raw_transcript } => {
+            crate::api::BridgeCommand::SetEngineTimings {
+                paragraph_silence_ms,
+                session_end_silence_ms,
+                rectify_timeout_ms,
+            } => {
                 <i32>::sse_encode(8, serializer);
+                <u64>::sse_encode(paragraph_silence_ms, serializer);
+                <u64>::sse_encode(session_end_silence_ms, serializer);
+                <u64>::sse_encode(rectify_timeout_ms, serializer);
+            }
+            crate::api::BridgeCommand::RectifyText { raw_transcript } => {
+                <i32>::sse_encode(9, serializer);
                 <String>::sse_encode(raw_transcript, serializer);
             }
             _ => {
@@ -2485,8 +2605,9 @@ impl SseEncode for crate::api::BridgeKeyStatus {
             crate::api::BridgeKeyStatus::Unset => {
                 <i32>::sse_encode(0, serializer);
             }
-            crate::api::BridgeKeyStatus::InLocalFile => {
+            crate::api::BridgeKeyStatus::InLocalFile(field0) => {
                 <i32>::sse_encode(1, serializer);
+                <String>::sse_encode(field0, serializer);
             }
             crate::api::BridgeKeyStatus::FromEnv(field0) => {
                 <i32>::sse_encode(2, serializer);

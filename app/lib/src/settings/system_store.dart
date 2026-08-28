@@ -1,17 +1,18 @@
-/// The settings window's system seam: the read-only advanced timings
-/// (the file escape hatch, ADR-0007), the about info, and the
+/// The settings window's system seam: the advanced timings (an editable
+/// form, ADR-0007 revised 2026-08-28 — a save writes the layer files and
+/// hands the new values to the live engine: engine timings from the next
+/// session on, insertion timings at once), the about info, and the
 /// open-config-file entry the tray already owns (the same bridge call —
 /// 同源迁移, ticket 19). Injectable so widget tests run with an
 /// in-memory model and no Rust dylib.
 
 library;
 
-import '../rust/api.dart' as rust show about, advancedConfig, openConfigFile;
+import '../rust/api.dart' as rust
+    show about, advancedConfig, openConfigFile, setEngineTiming, setInsertionTiming;
 
-/// The effective `[engine]` timings — read-only by decision: they are
-/// engine-construction-time values, so the pane shows what runs and
-/// points at the file (plain Dart ints; the wire's u64 arrives as
-/// BigInt, the seam converts).
+/// The effective `[engine]` timings (plain Dart ints; the wire's u64
+/// arrives as BigInt, the seam converts).
 class EngineTiming {
   const EngineTiming({
     required this.passageMode,
@@ -84,6 +85,25 @@ abstract class SystemStore {
   /// The effective engine and insertion timings, right now.
   Future<({EngineTiming engine, InsertionTiming insertion})> loadAdvanced();
 
+  /// Write the form's `[engine]` timings and hand them to the live
+  /// engine (each session snapshots what it opens with, so the save
+  /// applies from the NEXT session on). Returns the re-read view.
+  Future<EngineTiming> saveEngineTiming({
+    required int paragraphSilenceMs,
+    required int sessionEndSilenceMs,
+    required int rectifyTimeoutMs,
+  });
+
+  /// Write the form's `[insertion]` model and swap it into the live
+  /// inserter at once — the next confirm runs with the new mode and
+  /// pacing. Returns the re-read view.
+  Future<InsertionTiming> saveInsertionTiming({
+    required String mode,
+    required int focusSettleMs,
+    required int pasteSettleMs,
+    required int typingDelayMs,
+  });
+
   /// Version and open-source info.
   Future<AboutInfo> loadAbout();
 
@@ -114,6 +134,46 @@ class RustSystemStore implements SystemStore {
         pasteSettleMs: config.insertion.pasteSettleMs.toInt(),
         typingDelayMs: config.insertion.typingDelayMs.toInt(),
       ),
+    );
+  }
+
+  @override
+  Future<EngineTiming> saveEngineTiming({
+    required int paragraphSilenceMs,
+    required int sessionEndSilenceMs,
+    required int rectifyTimeoutMs,
+  }) async {
+    final saved = await rust.setEngineTiming(
+      paragraphSilenceMs: BigInt.from(paragraphSilenceMs),
+      sessionEndSilenceMs: BigInt.from(sessionEndSilenceMs),
+      rectifyTimeoutMs: BigInt.from(rectifyTimeoutMs),
+    );
+    return EngineTiming(
+      passageMode: saved.passageMode,
+      paragraphSilenceMs: saved.paragraphSilenceMs.toInt(),
+      sessionEndSilenceMs: saved.sessionEndSilenceMs.toInt(),
+      rectifyTimeoutMs: saved.rectifyTimeoutMs.toInt(),
+    );
+  }
+
+  @override
+  Future<InsertionTiming> saveInsertionTiming({
+    required String mode,
+    required int focusSettleMs,
+    required int pasteSettleMs,
+    required int typingDelayMs,
+  }) async {
+    final saved = await rust.setInsertionTiming(
+      mode: mode,
+      focusSettleMs: BigInt.from(focusSettleMs),
+      pasteSettleMs: BigInt.from(pasteSettleMs),
+      typingDelayMs: BigInt.from(typingDelayMs),
+    );
+    return InsertionTiming(
+      mode: saved.mode,
+      focusSettleMs: saved.focusSettleMs.toInt(),
+      pasteSettleMs: saved.pasteSettleMs.toInt(),
+      typingDelayMs: saved.typingDelayMs.toInt(),
     );
   }
 

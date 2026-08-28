@@ -56,7 +56,7 @@ extension BridgeCommandPatterns on BridgeCommand {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeCommand_StartSession value)?  startSession,TResult Function( BridgeCommand_StopSession value)?  stopSession,TResult Function( BridgeCommand_Cancel value)?  cancel,TResult Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult Function( BridgeCommand_Reroll value)?  reroll,TResult Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult Function( BridgeCommand_SetStyleDirective value)?  setStyleDirective,TResult Function( BridgeCommand_SetPassageMode value)?  setPassageMode,TResult Function( BridgeCommand_RectifyText value)?  rectifyText,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeCommand_StartSession value)?  startSession,TResult Function( BridgeCommand_StopSession value)?  stopSession,TResult Function( BridgeCommand_Cancel value)?  cancel,TResult Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult Function( BridgeCommand_Reroll value)?  reroll,TResult Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult Function( BridgeCommand_SetStyleDirective value)?  setStyleDirective,TResult Function( BridgeCommand_SetPassageMode value)?  setPassageMode,TResult Function( BridgeCommand_SetEngineTimings value)?  setEngineTimings,TResult Function( BridgeCommand_RectifyText value)?  rectifyText,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
@@ -67,7 +67,8 @@ return confirmInsert(_that);case BridgeCommand_Reroll() when reroll != null:
 return reroll(_that);case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that);case BridgeCommand_SetStyleDirective() when setStyleDirective != null:
 return setStyleDirective(_that);case BridgeCommand_SetPassageMode() when setPassageMode != null:
-return setPassageMode(_that);case BridgeCommand_RectifyText() when rectifyText != null:
+return setPassageMode(_that);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
+return setEngineTimings(_that);case BridgeCommand_RectifyText() when rectifyText != null:
 return rectifyText(_that);case _:
   return orElse();
 
@@ -86,7 +87,7 @@ return rectifyText(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeCommand_StartSession value)  startSession,required TResult Function( BridgeCommand_StopSession value)  stopSession,required TResult Function( BridgeCommand_Cancel value)  cancel,required TResult Function( BridgeCommand_ConfirmInsert value)  confirmInsert,required TResult Function( BridgeCommand_Reroll value)  reroll,required TResult Function( BridgeCommand_UpdatePreviewText value)  updatePreviewText,required TResult Function( BridgeCommand_SetStyleDirective value)  setStyleDirective,required TResult Function( BridgeCommand_SetPassageMode value)  setPassageMode,required TResult Function( BridgeCommand_RectifyText value)  rectifyText,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeCommand_StartSession value)  startSession,required TResult Function( BridgeCommand_StopSession value)  stopSession,required TResult Function( BridgeCommand_Cancel value)  cancel,required TResult Function( BridgeCommand_ConfirmInsert value)  confirmInsert,required TResult Function( BridgeCommand_Reroll value)  reroll,required TResult Function( BridgeCommand_UpdatePreviewText value)  updatePreviewText,required TResult Function( BridgeCommand_SetStyleDirective value)  setStyleDirective,required TResult Function( BridgeCommand_SetPassageMode value)  setPassageMode,required TResult Function( BridgeCommand_SetEngineTimings value)  setEngineTimings,required TResult Function( BridgeCommand_RectifyText value)  rectifyText,}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
@@ -97,7 +98,8 @@ return confirmInsert(_that);case BridgeCommand_Reroll():
 return reroll(_that);case BridgeCommand_UpdatePreviewText():
 return updatePreviewText(_that);case BridgeCommand_SetStyleDirective():
 return setStyleDirective(_that);case BridgeCommand_SetPassageMode():
-return setPassageMode(_that);case BridgeCommand_RectifyText():
+return setPassageMode(_that);case BridgeCommand_SetEngineTimings():
+return setEngineTimings(_that);case BridgeCommand_RectifyText():
 return rectifyText(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
@@ -112,7 +114,7 @@ return rectifyText(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeCommand_StartSession value)?  startSession,TResult? Function( BridgeCommand_StopSession value)?  stopSession,TResult? Function( BridgeCommand_Cancel value)?  cancel,TResult? Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult? Function( BridgeCommand_Reroll value)?  reroll,TResult? Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult? Function( BridgeCommand_SetStyleDirective value)?  setStyleDirective,TResult? Function( BridgeCommand_SetPassageMode value)?  setPassageMode,TResult? Function( BridgeCommand_RectifyText value)?  rectifyText,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeCommand_StartSession value)?  startSession,TResult? Function( BridgeCommand_StopSession value)?  stopSession,TResult? Function( BridgeCommand_Cancel value)?  cancel,TResult? Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult? Function( BridgeCommand_Reroll value)?  reroll,TResult? Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult? Function( BridgeCommand_SetStyleDirective value)?  setStyleDirective,TResult? Function( BridgeCommand_SetPassageMode value)?  setPassageMode,TResult? Function( BridgeCommand_SetEngineTimings value)?  setEngineTimings,TResult? Function( BridgeCommand_RectifyText value)?  rectifyText,}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
@@ -123,7 +125,8 @@ return confirmInsert(_that);case BridgeCommand_Reroll() when reroll != null:
 return reroll(_that);case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that);case BridgeCommand_SetStyleDirective() when setStyleDirective != null:
 return setStyleDirective(_that);case BridgeCommand_SetPassageMode() when setPassageMode != null:
-return setPassageMode(_that);case BridgeCommand_RectifyText() when rectifyText != null:
+return setPassageMode(_that);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
+return setEngineTimings(_that);case BridgeCommand_RectifyText() when rectifyText != null:
 return rectifyText(_that);case _:
   return null;
 
@@ -141,7 +144,7 @@ return rectifyText(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( String rawTranscript)?  rectifyText,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function( String rawTranscript)?  rectifyText,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -151,7 +154,8 @@ return confirmInsert();case BridgeCommand_Reroll() when reroll != null:
 return reroll();case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when setStyleDirective != null:
 return setStyleDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
-return setPassageMode(_that.on_);case BridgeCommand_RectifyText() when rectifyText != null:
+return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
+return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText() when rectifyText != null:
 return rectifyText(_that.rawTranscript);case _:
   return orElse();
 
@@ -170,7 +174,7 @@ return rectifyText(_that.rawTranscript);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( String rawTranscript)  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function( String rawTranscript)  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
 return startSession();case BridgeCommand_StopSession():
@@ -180,7 +184,8 @@ return confirmInsert();case BridgeCommand_Reroll():
 return reroll();case BridgeCommand_UpdatePreviewText():
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective():
 return setStyleDirective(_that.directive);case BridgeCommand_SetPassageMode():
-return setPassageMode(_that.on_);case BridgeCommand_RectifyText():
+return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings():
+return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText():
 return rectifyText(_that.rawTranscript);}
 }
 /// A variant of `when` that fallback to returning `null`
@@ -195,7 +200,7 @@ return rectifyText(_that.rawTranscript);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( String rawTranscript)?  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function( String rawTranscript)?  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -205,7 +210,8 @@ return confirmInsert();case BridgeCommand_Reroll() when reroll != null:
 return reroll();case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when setStyleDirective != null:
 return setStyleDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
-return setPassageMode(_that.on_);case BridgeCommand_RectifyText() when rectifyText != null:
+return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
+return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText() when rectifyText != null:
 return rectifyText(_that.rawTranscript);case _:
   return null;
 
@@ -566,6 +572,76 @@ class _$BridgeCommand_SetPassageModeCopyWithImpl<$Res>
   return _then(BridgeCommand_SetPassageMode(
 on_: null == on_ ? _self.on_ : on_ // ignore: cast_nullable_to_non_nullable
 as bool,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class BridgeCommand_SetEngineTimings extends BridgeCommand {
+  const BridgeCommand_SetEngineTimings({required this.paragraphSilenceMs, required this.sessionEndSilenceMs, required this.rectifyTimeoutMs}): super._();
+  
+
+ final  BigInt paragraphSilenceMs;
+ final  BigInt sessionEndSilenceMs;
+ final  BigInt rectifyTimeoutMs;
+
+/// Create a copy of BridgeCommand
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BridgeCommand_SetEngineTimingsCopyWith<BridgeCommand_SetEngineTimings> get copyWith => _$BridgeCommand_SetEngineTimingsCopyWithImpl<BridgeCommand_SetEngineTimings>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_SetEngineTimings&&(identical(other.paragraphSilenceMs, paragraphSilenceMs) || other.paragraphSilenceMs == paragraphSilenceMs)&&(identical(other.sessionEndSilenceMs, sessionEndSilenceMs) || other.sessionEndSilenceMs == sessionEndSilenceMs)&&(identical(other.rectifyTimeoutMs, rectifyTimeoutMs) || other.rectifyTimeoutMs == rectifyTimeoutMs));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,paragraphSilenceMs,sessionEndSilenceMs,rectifyTimeoutMs);
+
+@override
+String toString() {
+  return 'BridgeCommand.setEngineTimings(paragraphSilenceMs: $paragraphSilenceMs, sessionEndSilenceMs: $sessionEndSilenceMs, rectifyTimeoutMs: $rectifyTimeoutMs)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $BridgeCommand_SetEngineTimingsCopyWith<$Res> implements $BridgeCommandCopyWith<$Res> {
+  factory $BridgeCommand_SetEngineTimingsCopyWith(BridgeCommand_SetEngineTimings value, $Res Function(BridgeCommand_SetEngineTimings) _then) = _$BridgeCommand_SetEngineTimingsCopyWithImpl;
+@useResult
+$Res call({
+ BigInt paragraphSilenceMs, BigInt sessionEndSilenceMs, BigInt rectifyTimeoutMs
+});
+
+
+
+
+}
+/// @nodoc
+class _$BridgeCommand_SetEngineTimingsCopyWithImpl<$Res>
+    implements $BridgeCommand_SetEngineTimingsCopyWith<$Res> {
+  _$BridgeCommand_SetEngineTimingsCopyWithImpl(this._self, this._then);
+
+  final BridgeCommand_SetEngineTimings _self;
+  final $Res Function(BridgeCommand_SetEngineTimings) _then;
+
+/// Create a copy of BridgeCommand
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? paragraphSilenceMs = null,Object? sessionEndSilenceMs = null,Object? rectifyTimeoutMs = null,}) {
+  return _then(BridgeCommand_SetEngineTimings(
+paragraphSilenceMs: null == paragraphSilenceMs ? _self.paragraphSilenceMs : paragraphSilenceMs // ignore: cast_nullable_to_non_nullable
+as BigInt,sessionEndSilenceMs: null == sessionEndSilenceMs ? _self.sessionEndSilenceMs : sessionEndSilenceMs // ignore: cast_nullable_to_non_nullable
+as BigInt,rectifyTimeoutMs: null == rectifyTimeoutMs ? _self.rectifyTimeoutMs : rectifyTimeoutMs // ignore: cast_nullable_to_non_nullable
+as BigInt,
   ));
 }
 
@@ -2253,11 +2329,11 @@ return fromEnv(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  unset,TResult Function()?  inLocalFile,TResult Function( String field0)?  fromEnv,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  unset,TResult Function( String field0)?  inLocalFile,TResult Function( String field0)?  fromEnv,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeKeyStatus_Unset() when unset != null:
 return unset();case BridgeKeyStatus_InLocalFile() when inLocalFile != null:
-return inLocalFile();case BridgeKeyStatus_FromEnv() when fromEnv != null:
+return inLocalFile(_that.field0);case BridgeKeyStatus_FromEnv() when fromEnv != null:
 return fromEnv(_that.field0);case _:
   return orElse();
 
@@ -2276,11 +2352,11 @@ return fromEnv(_that.field0);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  unset,required TResult Function()  inLocalFile,required TResult Function( String field0)  fromEnv,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  unset,required TResult Function( String field0)  inLocalFile,required TResult Function( String field0)  fromEnv,}) {final _that = this;
 switch (_that) {
 case BridgeKeyStatus_Unset():
 return unset();case BridgeKeyStatus_InLocalFile():
-return inLocalFile();case BridgeKeyStatus_FromEnv():
+return inLocalFile(_that.field0);case BridgeKeyStatus_FromEnv():
 return fromEnv(_that.field0);}
 }
 /// A variant of `when` that fallback to returning `null`
@@ -2295,11 +2371,11 @@ return fromEnv(_that.field0);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  unset,TResult? Function()?  inLocalFile,TResult? Function( String field0)?  fromEnv,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  unset,TResult? Function( String field0)?  inLocalFile,TResult? Function( String field0)?  fromEnv,}) {final _that = this;
 switch (_that) {
 case BridgeKeyStatus_Unset() when unset != null:
 return unset();case BridgeKeyStatus_InLocalFile() when inLocalFile != null:
-return inLocalFile();case BridgeKeyStatus_FromEnv() when fromEnv != null:
+return inLocalFile(_that.field0);case BridgeKeyStatus_FromEnv() when fromEnv != null:
 return fromEnv(_that.field0);case _:
   return null;
 
@@ -2344,33 +2420,67 @@ String toString() {
 
 
 class BridgeKeyStatus_InLocalFile extends BridgeKeyStatus {
-  const BridgeKeyStatus_InLocalFile(): super._();
+  const BridgeKeyStatus_InLocalFile(this.field0): super._();
   
 
+ final  String field0;
 
-
+/// Create a copy of BridgeKeyStatus
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BridgeKeyStatus_InLocalFileCopyWith<BridgeKeyStatus_InLocalFile> get copyWith => _$BridgeKeyStatus_InLocalFileCopyWithImpl<BridgeKeyStatus_InLocalFile>(this, _$identity);
 
 
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeKeyStatus_InLocalFile);
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeKeyStatus_InLocalFile&&(identical(other.field0, field0) || other.field0 == field0));
 }
 
 
 @override
-int get hashCode => runtimeType.hashCode;
+int get hashCode => Object.hash(runtimeType,field0);
 
 @override
 String toString() {
-  return 'BridgeKeyStatus.inLocalFile()';
+  return 'BridgeKeyStatus.inLocalFile(field0: $field0)';
 }
 
 
 }
 
+/// @nodoc
+abstract mixin class $BridgeKeyStatus_InLocalFileCopyWith<$Res> implements $BridgeKeyStatusCopyWith<$Res> {
+  factory $BridgeKeyStatus_InLocalFileCopyWith(BridgeKeyStatus_InLocalFile value, $Res Function(BridgeKeyStatus_InLocalFile) _then) = _$BridgeKeyStatus_InLocalFileCopyWithImpl;
+@useResult
+$Res call({
+ String field0
+});
 
 
+
+
+}
+/// @nodoc
+class _$BridgeKeyStatus_InLocalFileCopyWithImpl<$Res>
+    implements $BridgeKeyStatus_InLocalFileCopyWith<$Res> {
+  _$BridgeKeyStatus_InLocalFileCopyWithImpl(this._self, this._then);
+
+  final BridgeKeyStatus_InLocalFile _self;
+  final $Res Function(BridgeKeyStatus_InLocalFile) _then;
+
+/// Create a copy of BridgeKeyStatus
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? field0 = null,}) {
+  return _then(BridgeKeyStatus_InLocalFile(
+null == field0 ? _self.field0 : field0 // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
 
 /// @nodoc
 

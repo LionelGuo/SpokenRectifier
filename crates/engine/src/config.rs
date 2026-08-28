@@ -1,13 +1,15 @@
-//! Engine configuration, fixed at construction. Hot-reloadable config
-//! arrives with the configuration work (file-backed settings); the fields
-//! here cover the session semantics the state machine already needs.
+//! Engine configuration: the construction-time values (seeded from the
+//! `[engine]` config files) and the runtime-switchable snapshot shape.
 
+/// The engine's construction-time values. The passage-mode field is only
+/// the seed: the runtime switch is
+/// [`Command::SetPassageMode`](crate::Command::SetPassageMode), and the
+/// timings likewise switch at runtime and snapshot per session (see
+/// [`EngineTimings`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineConfig {
     /// Passage mode (篇章模式): silence only marks paragraphs; the session
-    /// ends only on explicit stop. Default on. This field is the
-    /// construction-time value; the runtime switch is
-    /// [`Command::SetPassageMode`](crate::Command::SetPassageMode).
+    /// ends only on explicit stop. Default on.
     pub passage_mode: bool,
     /// Silence duration that marks a paragraph in passage mode.
     pub paragraph_silence_ms: u64,
@@ -28,4 +30,33 @@ impl Default for EngineConfig {
             rectify_timeout_ms: 25_000,
         }
     }
+}
+
+impl EngineConfig {
+    /// The timing fields as the runtime-switchable snapshot (ADR-0007:
+    /// a switch applies from the next session on, so each session opens
+    /// with its own copy).
+    pub fn timings(&self) -> EngineTimings {
+        EngineTimings {
+            paragraph_silence_ms: self.paragraph_silence_ms,
+            session_end_silence_ms: self.session_end_silence_ms,
+            rectify_timeout_ms: self.rectify_timeout_ms,
+        }
+    }
+}
+
+/// The latency timings a session runs with: seeded from
+/// [`EngineConfig`] at construction, switched at runtime by
+/// [`Command::SetEngineTimings`](crate::Command::SetEngineTimings)
+/// (the settings window's advanced form), and snapshotted when each
+/// session opens — so a switch applies from the next session on and
+/// never pulls the thresholds out from under a running session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EngineTimings {
+    /// Silence duration that marks a paragraph in passage mode.
+    pub paragraph_silence_ms: u64,
+    /// Silence duration that auto-ends the session when passage mode is off.
+    pub session_end_silence_ms: u64,
+    /// Wall-clock hard cap per rectify attempt.
+    pub rectify_timeout_ms: u64,
 }

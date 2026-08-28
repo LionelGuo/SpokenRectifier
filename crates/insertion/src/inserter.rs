@@ -6,9 +6,13 @@
 //! mode sends the text key by key and never touches the clipboard, for
 //! targets that block paste. The target window is remembered when the
 //! session starts (`note_target`) and re-focused before the keys go out,
-//! because editing the preview hands focus to our own window.
+//! because editing the preview hands focus to our own window. The
+//! mode/pacing config is swapped at runtime by the settings window's
+//! advanced form (`set_config`); each insert snapshots it up front, so
+//! a save applies from the next insert on and never tears a running
+//! insert apart.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 
@@ -19,13 +23,16 @@ use crate::os::InputOs;
 
 pub struct TargetInserter {
     os: Arc<dyn InputOs>,
-    config: InsertionConfig,
+    config: RwLock<InsertionConfig>,
 }
 
 impl TargetInserter {
     /// Test seam: the orchestration over a caller-supplied OS layer.
     pub fn new(os: Arc<dyn InputOs>, config: InsertionConfig) -> Self {
-        Self { os, config }
+        Self {
+            os,
+            config: RwLock::new(config),
+        }
     }
 
     /// The production OS layer: Win32 on Windows; a stub that fails every
@@ -46,6 +53,20 @@ impl TargetInserter {
         self.os.note_target();
     }
 
+    /// Swap the mode/pacing config at runtime (the settings window's
+    /// advanced form saves through the bridge). Each insert snapshots
+    /// the config it runs with, so the new values apply from the next
+    /// insert on.
+    pub fn set_config(&self, config: InsertionConfig) {
+        *self.config.write().unwrap() = config;
+    }
+
+    /// The config one insert runs with, snapshotted up front so a
+    /// mid-insert swap cannot tear mode and pacing apart.
+    fn config_snapshot(&self) -> InsertionConfig {
+        *self.config.read().unwrap()
+    }
+
     /// Give the keyboard back on a cancelled session — but only what we
     /// are holding: when our own window is the foreground, hand it to
     /// the remembered target; when someone else has it (the target
@@ -57,12 +78,12 @@ impl TargetInserter {
         }
     }
 
-    fn insert_by_paste(&self, text: &str) -> Result<(), InsertError> {
+    fn insert_by_paste(&self, text: &str, config: &InsertionConfig) -> Result<(), InsertError> {
         let saved = self
             .os
             .clipboard_save()
             .map_err(|err| InsertError(format!("clipboard save failed: {err}")))?;
-        let pasted = self.paste_steps(&to_crlf(text));
+        let pasted = self.paste_steps(&to_crlf(text), config);
         // Always hand the clipboard back, however the paste went. A
         // restore failure after a successful paste is swallowed
         // deliberately: the text already landed, and reporting the insert
@@ -71,7 +92,7 @@ impl TargetInserter {
         pasted
     }
 
-    fn paste_steps(&self, text: &str) -> Result<(), InsertError> {
+    fn paste_steps(&self, text: &str, config: &InsertionConfig) -> Result<(), InsertError> {
         // Without a remembered target the keys go to whatever holds the
         // foreground — right whenever the user focused the target
         // themselves, wrong when that window is our own preview.
@@ -79,17 +100,17 @@ impl TargetInserter {
         self.os
             .clipboard_set_text(text)
             .map_err(|err| InsertError(format!("clipboard set failed: {err}")))?;
-        self.os.wait_ms(self.config.focus_settle_ms);
+        self.os.wait_ms(config.focus_settle_ms);
         self.os
             .send_paste()
             .map_err(|err| InsertError(format!("paste keystroke failed: {err}")))?;
-        self.os.wait_ms(self.config.paste_settle_ms);
+        self.os.wait_ms(config.paste_settle_ms);
         Ok(())
     }
 
-    fn insert_by_typing(&self, text: &str) -> Result<(), InsertError> {
+    fn insert_by_typing(&self, text: &str, config: &InsertionConfig) -> Result<(), InsertError> {
         self.focus_somewhere()?;
-        self.os.wait_ms(self.config.focus_settle_ms);
+        self.os.wait_ms(config.focus_settle_ms);
         for ch in text.chars() {
             match ch {
                 // A CRLF pair types one Enter; a bare CR alone types
@@ -104,7 +125,7 @@ impl TargetInserter {
                     .send_char(ch)
                     .map_err(|err| InsertError(format!("typing failed at {ch:?}: {err}")))?,
             }
-            self.os.wait_ms(self.config.typing_delay_ms);
+            self.os.wait_ms(config.typing_delay_ms);
         }
         Ok(())
     }
@@ -137,9 +158,10 @@ impl TextInserter for TargetInserter {
                 "nothing to insert: the preview text is empty".into(),
             ));
         }
-        match self.config.mode {
-            InsertionMode::Paste => self.insert_by_paste(text),
-            InsertionMode::Typing => self.insert_by_typing(text),
+        let config = self.config_snapshot();
+        match config.mode {
+            InsertionMode::Paste => self.insert_by_paste(text, &config),
+            InsertionMode::Typing => self.insert_by_typing(text, &config),
         }
     }
 
@@ -494,6 +516,49 @@ mod tests {
         let err = insert(&fake, InsertionMode::Paste, "").await.unwrap_err();
         assert!(err.0.contains("nothing to insert"), "got: {}", err.0);
         assert!(fake.calls().is_empty());
+    }
+
+    // -- the runtime config swap (the advanced form's real-time save) -------
+
+    #[tokio::test]
+    async fn a_config_swap_applies_from_the_next_insert_on() {
+        let fake = Arc::new(FakeOs::new());
+        let inserter = TargetInserter::new(fake.clone(), InsertionConfig::default());
+
+        // Construction config in effect: paste at the default pacing.
+        inserter.insert("话").await.unwrap();
+        assert_eq!(
+            fake.calls(),
+            vec![
+                OsCall::Save,
+                OsCall::Activate(true),
+                OsCall::SetText("话".into()),
+                OsCall::Wait(50),
+                OsCall::Paste,
+                OsCall::Wait(250),
+                OsCall::Restore(old_clipboard()),
+            ]
+        );
+
+        // The advanced form's save swaps mode and pacing at once: the
+        // next insert runs typing with the new delay — never half of
+        // each config.
+        inserter.set_config(InsertionConfig {
+            mode: InsertionMode::Typing,
+            focus_settle_ms: 70,
+            paste_settle_ms: 400,
+            typing_delay_ms: 15,
+        });
+        inserter.insert("好").await.unwrap();
+        assert_eq!(
+            fake.calls()[7..],
+            vec![
+                OsCall::Activate(true),
+                OsCall::Wait(70),
+                OsCall::Char('好'),
+                OsCall::Wait(15),
+            ]
+        );
     }
 
     // -- focus restore ---------------------------------------------------
