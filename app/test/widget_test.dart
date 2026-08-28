@@ -17,6 +17,7 @@ import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeHistoryEntry, BridgeScenario, BridgeSessionState;
+import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
     show formatHistoryStamp;
 import 'package:spokenrectifier_app/src/shell/session_flow.dart' show StageKind;
@@ -68,6 +69,7 @@ Future<SpeechController> pumpController(
   FakeGateway gateway, {
   ThemeMode themeMode = ThemeMode.dark,
   stage.StageWindow? stageWindow,
+  void Function(SettingsDomain domain)? onOpenSettings,
 }) async {
   final controller = SpeechController(
     gateway: gateway,
@@ -76,7 +78,11 @@ Future<SpeechController> pumpController(
   );
   addTearDown(controller.dispose);
   await tester.pumpWidget(
-    SpokenRectifierApp(controller: controller, stageWindow: stageWindow),
+    SpokenRectifierApp(
+      controller: controller,
+      stageWindow: stageWindow,
+      onOpenSettings: onOpenSettings,
+    ),
   );
   return controller;
 }
@@ -668,14 +674,21 @@ void main() {
 
       expect(controller.stage, StageKind.quick);
       expect(find.text('快捷设置'), findsOneWidget);
-      // The sections paint: terms, passage, theme. The scenario section
-      // hides with an empty library; history shows its empty hint.
+      // The sections paint: terms, passage, theme. The scenario picker
+      // row hides with an empty library, but the section keeps its
+      // editor entry (the creation path into the settings window);
+      // history shows its empty hint.
       expect(find.text('术语速加'), findsOneWidget);
       expect(find.text('历史'), findsOneWidget);
       expect(find.byKey(const Key('quick-history-empty')), findsOneWidget);
       expect(find.text('输入'), findsOneWidget);
       expect(find.text('外观'), findsOneWidget);
-      expect(find.text('场景'), findsNothing);
+      expect(find.text('场景'), findsOneWidget);
+      expect(
+        find.byKey(const Key('quick-open-settings:scenarios')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('quick-scenario-default')), findsNothing);
       // The anchor-zone bottom fade is part of the panel's shape.
       expect(find.byKey(const Key('quick-bottom-fade')), findsOneWidget);
       // Opening refreshed the panel's lists.
@@ -711,6 +724,42 @@ void main() {
     expect(controller.stage, StageKind.orb);
     expect(gateway.commands, isNot(contains('cancelSession')));
     expect(controller.phase, BridgeSessionState.idle);
+  });
+
+  testWidgets('the management entries open the settings window on domain', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()
+      ..scenarioLibrary.add(
+        const BridgeScenario(name: '论文', directive: '学术书面语'),
+      );
+    final opened = <SettingsDomain>[];
+    final controller = await pumpController(
+      tester,
+      gateway,
+      onOpenSettings: opened.add,
+    );
+
+    // Right click the idle orb, then walk the three entry rows.
+    await tester.tap(
+      find.byIcon(Icons.mic_none_rounded),
+      buttons: kSecondaryButton,
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.byKey(const Key('quick-open-settings:scenarios')));
+    await tester.tap(find.byKey(const Key('quick-open-settings:history')));
+    await tester.tap(find.byKey(const Key('quick-open-settings:general')));
+    await tester.pump();
+
+    // 全面配置 lands on the first domain (the settings window's default).
+    expect(opened, [
+      SettingsDomain.scenarios,
+      SettingsDomain.history,
+      SettingsDomain.scenarios,
+    ]);
+    // Opening settings leaves the quick panel open (its own window).
+    expect(controller.stage, StageKind.quick);
+    expect(gateway.commands, isNot(contains('restoreFocus')));
   });
 
   testWidgets('a session start force-closes the quick panel', (tester) async {

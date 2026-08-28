@@ -1,10 +1,9 @@
 /// The quick panel: same footprint, same position, mutually exclusive
 /// with the session window (同形同位互斥). High-frequency settings and
 /// actions only — full configuration lives in the settings window
-/// (ticket 17; its entry button and the library-management entries stay
-/// hidden until that window exists). The orb doubles as the close
-/// button; Esc closes (the stage owns the keyboard while no field has
-/// it).
+/// (ticket 17), whose entry rows (编辑场景 / 全部历史与管理 / 全面配置)
+/// open it on the matching domain. The orb doubles as the close button;
+/// Esc closes (the stage owns the keyboard while no field has it).
 ///
 /// Sections (spec §4.3): scenario quick-pick chips (the third picker —
 /// chip, tray and here all share [SpeechController.selectScenario]),
@@ -25,8 +24,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../app_state.dart';
+import '../design/hover.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeHistoryEntry;
+import '../settings/settings_domain.dart';
 import 'window_stage.dart';
 
 class QuickPanel extends StatefulWidget {
@@ -34,10 +35,16 @@ class QuickPanel extends StatefulWidget {
     super.key,
     required this.controller,
     required this.exiting,
+    this.onOpenSettings,
   });
 
   final SpeechController controller;
   final bool exiting;
+
+  /// The settings window's doorway: every management entry row calls it
+  /// with the domain to land on. Null in tests that only exercise the
+  /// panel's own behavior.
+  final void Function(SettingsDomain domain)? onOpenSettings;
 
   @override
   State<QuickPanel> createState() => _QuickPanelState();
@@ -111,10 +118,12 @@ class _QuickPanelState extends State<QuickPanel> {
                         0,
                       ),
                       children: [
-                        // An empty library hides the section entirely: a lone
-                        // 默认 chip has nothing to pick between.
+                        // The scenario section stays with an empty library:
+                        // the picker row hides (a lone 默认 chip has nothing
+                        // to pick between) but the editor entry remains the
+                        // creation path into the settings window.
+                        _sectionLabel(pal, '场景'),
                         if (c.scenarios.isNotEmpty) ...[
-                          _sectionLabel(pal, '场景'),
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
@@ -134,8 +143,15 @@ class _QuickPanelState extends State<QuickPanel> {
                                 ),
                             ],
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 8),
                         ],
+                        _EntryRow(
+                          key: const Key('quick-open-settings:scenarios'),
+                          label: '编辑场景…',
+                          domain: SettingsDomain.scenarios,
+                          onOpen: _openSettings,
+                        ),
+                        const SizedBox(height: 20),
                         _sectionLabel(pal, '术语速加'),
                         Row(
                           children: [
@@ -181,6 +197,13 @@ class _QuickPanelState extends State<QuickPanel> {
                               entry: entry,
                               onRerectify: c.rerectifyHistory,
                             ),
+                        const SizedBox(height: 8),
+                        _EntryRow(
+                          key: const Key('quick-open-settings:history'),
+                          label: '全部历史与管理…',
+                          domain: SettingsDomain.history,
+                          onOpen: _openSettings,
+                        ),
                         const SizedBox(height: 20),
                         _sectionLabel(pal, '输入'),
                         _SwitchRow(
@@ -193,6 +216,14 @@ class _QuickPanelState extends State<QuickPanel> {
                         const SizedBox(height: 20),
                         _sectionLabel(pal, '外观'),
                         _ThemeRow(controller: c),
+                        const SizedBox(height: 20),
+                        _sectionLabel(pal, '设置入口'),
+                        _EntryRow(
+                          key: const Key('quick-open-settings:general'),
+                          label: '全面配置…',
+                          domain: SettingsDomain.scenarios,
+                          onOpen: _openSettings,
+                        ),
                         // Anchor zone clearance.
                         const SizedBox(height: SrGeometry.anchorInset * 2),
                       ],
@@ -245,6 +276,10 @@ class _QuickPanelState extends State<QuickPanel> {
     c.addQuickTerm(text);
   }
 
+  void _openSettings(SettingsDomain domain) {
+    widget.onOpenSettings?.call(domain);
+  }
+
   Widget _sectionLabel(SrPalette pal, String text) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: Text(text, style: SrType.caption.copyWith(color: pal.textTertiary)),
@@ -267,31 +302,6 @@ String formatHistoryStamp({required DateTime at, required DateTime now}) {
 // ---------------------------------------------------------------------------
 // Rows & controls
 // ---------------------------------------------------------------------------
-
-/// The shared hover machinery (MouseRegion + flag) every control below
-/// was copying; the builder gets the flag and paints its own hover
-/// states off the token palette.
-class _Hover extends StatefulWidget {
-  const _Hover({required this.builder});
-
-  final Widget Function(bool hover) builder;
-
-  @override
-  State<_Hover> createState() => _HoverState();
-}
-
-class _HoverState extends State<_Hover> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: widget.builder(_hover),
-    );
-  }
-}
 
 /// An icon whose color eases between its resting and hover tones over
 /// the shared micro-feedback window, so no color snaps beside the box
@@ -347,6 +357,60 @@ TextStyle _chipText(SrPalette pal, {required bool selected}) =>
       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
     );
 
+/// A full-width management entry (编辑场景… / 全部历史与管理… /
+/// 全面配置…): a ghost row, outlined at rest like the term add button,
+/// filling with raised on hover over the surface-fade window. Each row
+/// opens the settings window on its domain.
+class _EntryRow extends StatelessWidget {
+  const _EntryRow({
+    super.key,
+    required this.label,
+    required this.domain,
+    required this.onOpen,
+  });
+
+  final String label;
+  final SettingsDomain domain;
+  final ValueChanged<SettingsDomain> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = srPalette(context);
+    return SrHover(
+      builder: (hover) => GestureDetector(
+        onTap: () => onOpen(domain),
+        child: AnimatedContainer(
+          duration: SrMotion.fade,
+          curve: SrMotion.curveFade,
+          height: _termRowHeight,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
+            borderRadius: BorderRadius.circular(SrRadius.control),
+            border: Border.all(color: pal.hairline),
+          ),
+          child: Row(
+            children: [
+              Text(
+                label,
+                style: SrType.caption.copyWith(color: pal.textSecondary),
+              ),
+              const Spacer(),
+              _HoverTintIcon(
+                icon: Icons.chevron_right_rounded,
+                size: 16,
+                hover: hover,
+                resting: pal.textTertiary,
+                hovered: pal.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// A scenario quick-pick chip (dense, text only).
 class _SelectableChip extends StatelessWidget {
   const _SelectableChip({
@@ -363,7 +427,7 @@ class _SelectableChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return _Hover(
+    return SrHover(
       builder: (hover) => GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
@@ -396,7 +460,7 @@ class _ThemeSeg extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return _Hover(
+    return SrHover(
       builder: (hover) => GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
@@ -522,7 +586,7 @@ class _AddButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return _Hover(
+    return SrHover(
       builder: (hover) => GestureDetector(
         onTap: onTap,
         // Rest = outlined, the input's own visual family: a solid
@@ -563,7 +627,7 @@ class _TermChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return _Hover(
+    return SrHover(
       builder: (hover) => AnimatedContainer(
         duration: SrMotion.fast,
         padding: const EdgeInsets.fromLTRB(10, 5, 6, 5),
@@ -615,7 +679,7 @@ class _HistoryRow extends StatelessWidget {
       // The inter-row gap sits OUTSIDE the hover region: hover switches
       // exactly at the painted edge, not 6px past it.
       padding: const EdgeInsets.only(bottom: 6),
-      child: _Hover(
+      child: SrHover(
         builder: (hover) => AnimatedContainer(
           duration: SrMotion.fade,
           curve: SrMotion.curveFade,
@@ -706,7 +770,7 @@ class _HistoryAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return _Hover(
+    return SrHover(
       builder: (hover) => Tooltip(
         message: tooltip,
         waitDuration: SrMotion.tooltipWait,

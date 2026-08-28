@@ -72,7 +72,8 @@ void main() {
 
   test('an unreadable file is as good as absent', () {
     final d = dir('locked');
-    final f = File('${d.path}/$uiPrefsFile')..writeAsStringSync('theme = "dark"\n');
+    final f = File('${d.path}/$uiPrefsFile')
+      ..writeAsStringSync('theme = "dark"\n');
     // No portable "chmod 000" on Windows; delete instead and keep the
     // read guarded by the same catch.
     f.deleteSync();
@@ -136,10 +137,7 @@ void main() {
     // A commented-out theme line is not the key: the real one appends.
     file.writeAsStringSync('# theme = "dark"\n');
     saveUiThemeMode([d.path], ThemeMode.light);
-    expect(
-      file.readAsStringSync(),
-      '# theme = "dark"\ntheme = "light"\n',
-    );
+    expect(file.readAsStringSync(), '# theme = "dark"\ntheme = "light"\n');
 
     // A missing trailing newline is repaired, not glued onto.
     file.writeAsStringSync('theme = "dark"');

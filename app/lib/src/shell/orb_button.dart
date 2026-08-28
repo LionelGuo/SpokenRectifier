@@ -71,9 +71,7 @@ class _OrbButtonState extends State<OrbButton> {
               // Micro-feedback only; the core never breathes by scale.
               // 1.04 keeps even the aura's outermost alpha (46px) inside
               // the footprint (46 * 1.04 = 47.8 < 48).
-              scale: _pressing
-                  ? 0.96
-                  : (_hover && look.clickable ? 1.04 : 1.0),
+              scale: _pressing ? 0.96 : (_hover && look.clickable ? 1.04 : 1.0),
               duration: SrMotion.fast,
               curve: SrMotion.curveMicro,
               child: AnimatedBuilder(
@@ -403,7 +401,9 @@ class _SpinnerState extends State<_Spinner>
       height: widget.size,
       child: AnimatedBuilder(
         animation: _ctrl,
-        builder: (context, _) => CustomPaint(painter: _ArcSpinner(pal: pal, t: _ctrl.value)),
+        builder: (context, _) => CustomPaint(
+          painter: _ArcSpinner(pal: pal, t: _ctrl.value),
+        ),
       ),
     );
   }
@@ -423,7 +423,13 @@ class _ArcSpinner extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 2.5
       ..color = pal.textSecondary;
-    canvas.drawArc(rect.deflate(2), t * 2 * math.pi, 1.5 * math.pi / 2, false, paint);
+    canvas.drawArc(
+      rect.deflate(2),
+      t * 2 * math.pi,
+      1.5 * math.pi / 2,
+      false,
+      paint,
+    );
   }
 
   @override

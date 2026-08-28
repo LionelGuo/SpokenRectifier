@@ -66,7 +66,10 @@ class SpeechController extends ChangeNotifier {
     // onError: a subscribe against a not-yet-created engine emits a stream
     // error; the command paths surface the same failure with better
     // wording, so swallow it here instead of leaving it unhandled.
-    _subscription = gateway.events().listen(_onEnvelope, onError: (Object _) {});
+    _subscription = gateway.events().listen(
+      _onEnvelope,
+      onError: (Object _) {},
+    );
   }
 
   final SpeechEngineGateway gateway;
@@ -102,10 +105,9 @@ class SpeechController extends ChangeNotifier {
   DateTime? recordStartedAt;
 
   /// Elapsed recording time for the session header.
-  Duration get recordElapsed =>
-      recordStartedAt == null ? Duration.zero : DateTime.now().difference(
-        recordStartedAt!,
-      );
+  Duration get recordElapsed => recordStartedAt == null
+      ? Duration.zero
+      : DateTime.now().difference(recordStartedAt!);
 
   /// The receipt flash currently overriding the orb's idle look.
   OrbFlash orbFlash = OrbFlash.none;
@@ -313,6 +315,39 @@ class SpeechController extends ChangeNotifier {
     selectedScenario = null;
     notifyListeners();
   }
+
+  /// A settings-window edit landed on the library file: re-read it and
+  /// repair the selection. A rename the selection was sitting on carries
+  /// it across (through [selectScenario], so the engine adopts the new
+  /// directive text); a selection whose entry vanished — deleted, or a
+  /// rename away from under it — falls back to the default register.
+  /// The three pickers (tray, quick panel, session chip) repaint from
+  /// this controller, so one reload syncs them all.
+  Future<void> onScenariosLibraryChanged({
+    String? renamedFrom,
+    String? renamedTo,
+  }) async {
+    try {
+      scenarios = await gateway.scenarios();
+    } catch (_) {
+      return; // unreadable right now: keep painting what we had
+    }
+    final selected = selectedScenario;
+    if (selected == renamedFrom &&
+        renamedTo != null &&
+        _hasScenario(renamedTo)) {
+      await selectScenario(renamedTo);
+      return;
+    }
+    if (selected != null && !_hasScenario(selected)) {
+      await selectScenario(null);
+      return;
+    }
+    notifyListeners();
+  }
+
+  bool _hasScenario(String name) =>
+      scenarios.any((scenario) => scenario.name == name);
 
   /// Select a scenario — its directive text goes straight to the engine
   /// and applies from the next rectify on, rerolls included; null returns
@@ -575,7 +610,8 @@ class SpeechController extends ChangeNotifier {
         // (hotkey/orb) and rectifying alike: the history re-rectify path
         // enters through rectifying directly, and a panel left flagged
         // open would resurrect when that session ends.
-        final sessionActive = to == BridgeSessionState.recording ||
+        final sessionActive =
+            to == BridgeSessionState.recording ||
             to == BridgeSessionState.rectifying ||
             to == BridgeSessionState.preview;
         if (sessionActive) {

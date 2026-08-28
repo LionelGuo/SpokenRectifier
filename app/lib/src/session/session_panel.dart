@@ -44,7 +44,8 @@ class _SessionPanelState extends State<SessionPanel> {
   /// state; nothing else reads it).
   bool _showTranscript = false;
 
-  void _toggleTranscript() => setState(() => _showTranscript = !_showTranscript);
+  void _toggleTranscript() =>
+      setState(() => _showTranscript = !_showTranscript);
 
   @override
   void initState() {
@@ -175,7 +176,10 @@ class _SessionPanelState extends State<SessionPanel> {
             ),
           ],
           const Spacer(),
-          _ScenarioChip(label: '场景 · ${c.selectedScenario ?? '默认'}'),
+          // A picker over an empty library has nothing to pick between:
+          // the chip hides until the settings editor fills one in.
+          if (c.scenarios.isNotEmpty)
+            _ScenarioChip(label: '场景 · ${c.selectedScenario ?? '默认'}'),
         ],
       ),
     );

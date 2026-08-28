@@ -30,6 +30,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../app_state.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeSessionState;
+import '../settings/settings_domain.dart';
 import 'orb_button.dart';
 import 'quick_panel.dart';
 import '../session/session_panel.dart';
@@ -94,13 +95,20 @@ Future<void> stageBounds(
   final size = await window.getSize();
   final nx = dir.growLeft ? pos.dx + size.width - footprint.width : pos.dx;
   final ny = dir.growUp ? pos.dy + size.height - footprint.height : pos.dy;
-  await window.setBounds(Rect.fromLTWH(nx, ny, footprint.width, footprint.height));
+  await window.setBounds(
+    Rect.fromLTWH(nx, ny, footprint.width, footprint.height),
+  );
 }
 
 /// Hosts the surfaces and drives the window bounds with the choreography
 /// above. `_displayed` lags `controller.stage` during collapse.
 class StageHost extends StatefulWidget {
-  const StageHost({super.key, required this.controller, this.stageWindow});
+  const StageHost({
+    super.key,
+    required this.controller,
+    this.stageWindow,
+    this.onOpenSettings,
+  });
 
   final SpeechController controller;
 
@@ -108,6 +116,10 @@ class StageHost extends StatefulWidget {
   /// skipped (the fake choreography is asserted with a recording
   /// [StageWindow] instead).
   final StageWindow? stageWindow;
+
+  /// The settings window's doorway, handed down to the quick panel's
+  /// management entries. Null in tests.
+  final void Function(SettingsDomain domain)? onOpenSettings;
 
   @override
   State<StageHost> createState() => _StageHostState();
@@ -269,7 +281,13 @@ class _StageHostState extends State<StageHost> {
               child: SessionPanel(controller: c, exiting: _exiting),
             )
           else if (_displayed == StageKind.quick)
-            Positioned.fill(child: QuickPanel(controller: c, exiting: _exiting)),
+            Positioned.fill(
+              child: QuickPanel(
+                controller: c,
+                exiting: _exiting,
+                onOpenSettings: widget.onOpenSettings,
+              ),
+            ),
           // The one continuous element: orb in orb stage, anchor button
           // in panel stages — same widget, same screen position, always
           // bottom-right pinned. Flush to the corner: OrbButton lays
@@ -297,11 +315,7 @@ const _collapseSlack = Duration(milliseconds: 30);
 /// entrance and sinks/fades on exit. The card reserves the anchor zone
 /// (bottom-right) so the orb button overlaps it cleanly.
 class PanelBody extends StatefulWidget {
-  const PanelBody({
-    super.key,
-    required this.exiting,
-    required this.child,
-  });
+  const PanelBody({super.key, required this.exiting, required this.child});
 
   /// True while the stage host plays the exit animation before shrinking
   /// the window.

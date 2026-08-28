@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import 'app_state.dart';
 import 'src/design/theme.dart';
+import 'src/settings/settings_domain.dart';
 import 'src/shell/window_stage.dart';
 
 class SpokenRectifierApp extends StatelessWidget {
@@ -18,12 +19,17 @@ class SpokenRectifierApp extends StatelessWidget {
     super.key,
     required this.controller,
     this.stageWindow,
+    this.onOpenSettings,
   });
 
   final SpeechController controller;
 
   /// The window bounds seam; null in tests that only exercise surfaces.
   final StageWindow? stageWindow;
+
+  /// The settings window's doorway (the quick panel's management
+  /// entries); null in tests.
+  final void Function(SettingsDomain domain)? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +43,11 @@ class SpokenRectifierApp extends StatelessWidget {
         darkTheme: srTheme(Brightness.dark),
         home: Scaffold(
           backgroundColor: Colors.transparent,
-          body: StageHost(controller: controller, stageWindow: stageWindow),
+          body: StageHost(
+            controller: controller,
+            stageWindow: stageWindow,
+            onOpenSettings: onOpenSettings,
+          ),
         ),
       ),
     );
