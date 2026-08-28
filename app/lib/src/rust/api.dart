@@ -11,7 +11,7 @@ part 'api.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `asr_provider`, `global`, `launch_editor`, `open_fake_feed`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config yields an API key, the Aliyun realtime
@@ -103,6 +103,38 @@ Future<List<BridgeHistoryEntry>> historyList() =>
 /// the keep-nothing mode.
 Future<void> historyClear() => RustLib.instance.api.crateApiHistoryClear();
 
+/// The effective `[history]` settings from the layer files — the
+/// settings window's history pane initial paint.
+Future<BridgeHistoryConfig> historyConfig() =>
+    RustLib.instance.api.crateApiHistoryConfig();
+
+/// Write new `[history]` settings and apply them to the live store at
+/// once (the settings window's 保留期 / 不留存 controls): the file edit
+/// is section-preserving in the layer that owns the effective values,
+/// and the store adopts the new config immediately — a tightened
+/// retention sweeps at once, keep-nothing wipes, and turning it back on
+/// resumes recording. Returns the re-read effective config.
+Future<BridgeHistoryConfig> setHistoryConfig({
+  required bool enabled,
+  required BigInt retentionDays,
+}) => RustLib.instance.api.crateApiSetHistoryConfig(
+  enabled: enabled,
+  retentionDays: retentionDays,
+);
+
+/// Start one fidelity-eval run in the background — the settings window's
+/// manual entry. Every case rides the event stream; the run ends with
+/// `Finished` or `Failed`. Dropping the Dart listener (window closed,
+/// pane cancelled) aborts the run at the next case boundary. Only one
+/// run at a time: a second call while running is an error.
+///
+/// The run builds its own engine instance (noop inserter, no history
+/// recorder, the suite's fixed term list) against the real configured
+/// LLM — the app's live engine is never touched, so the eval neither
+/// inserts text nor pollutes history (the sr-eval seam, in-process).
+Stream<BridgeEvalEvent> startFidelityEval() =>
+    RustLib.instance.api.crateApiStartFidelityEval();
+
 /// Open the shared config file in the system text editor — the tray's
 /// settings entry. Creates a commented stub first when no config file
 /// exists yet (see `settings::ensure_shared_config` for where). Returns
@@ -157,6 +189,147 @@ sealed class BridgeCommand with _$BridgeCommand {
       BridgeCommand_RectifyText;
 }
 
+/// One failed case: the engine-level error when the case never produced
+/// output, else the assertion verdicts that failed.
+class BridgeEvalCaseDetail {
+  final String id;
+  final String? error;
+  final List<String> failures;
+
+  const BridgeEvalCaseDetail({
+    required this.id,
+    this.error,
+    required this.failures,
+  });
+
+  @override
+  int get hashCode => id.hashCode ^ error.hashCode ^ failures.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeEvalCaseDetail &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          error == other.error &&
+          failures == other.failures;
+}
+
+/// One category line in the summary (label + count).
+class BridgeEvalCategory {
+  final String label;
+  final int count;
+
+  const BridgeEvalCategory({required this.label, required this.count});
+
+  @override
+  int get hashCode => label.hashCode ^ count.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeEvalCategory &&
+          runtimeType == other.runtimeType &&
+          label == other.label &&
+          count == other.count;
+}
+
+@freezed
+sealed class BridgeEvalEvent with _$BridgeEvalEvent {
+  const BridgeEvalEvent._();
+
+  /// The suite loaded and the first case is about to run.
+  const factory BridgeEvalEvent.started({required int total}) =
+      BridgeEvalEvent_Started;
+  const factory BridgeEvalEvent.caseStarted({
+    required int index,
+    required int total,
+    required String id,
+  }) = BridgeEvalEvent_CaseStarted;
+  const factory BridgeEvalEvent.caseFinished({
+    required int index,
+    required String id,
+    required bool passed,
+  }) = BridgeEvalEvent_CaseFinished;
+
+  /// The run completed; the summary carries everything the pane paints.
+  const factory BridgeEvalEvent.finished({required BridgeEvalSummary summary}) =
+      BridgeEvalEvent_Finished;
+
+  /// The run never completed (missing LLM config, an aborted run, an
+  /// engine-level failure).
+  const factory BridgeEvalEvent.failed({required String message}) =
+      BridgeEvalEvent_Failed;
+}
+
+/// What a finished run reports: the pass rate against the recorded
+/// baseline, failure counts per category, and the failed cases with
+/// their machine-verdict details.
+class BridgeEvalSummary {
+  final int total;
+  final int passed;
+  final int failed;
+
+  /// Cases that never produced output to check (engine/LLM errors) —
+  /// already inside `failed`, broken out for display.
+  final int execFailed;
+
+  /// Passed share, 0.0–100.0.
+  final double ratePercent;
+
+  /// The recorded baseline (BASELINE.md beside the suite) the run
+  /// compares against.
+  final double baselinePercent;
+
+  /// Which LLM actually ran the cases.
+  final String model;
+
+  /// Failure counts per category, display order (Chinese labels).
+  final List<BridgeEvalCategory> categories;
+
+  /// The failed cases only, with assertion details.
+  final List<BridgeEvalCaseDetail> failedCases;
+
+  const BridgeEvalSummary({
+    required this.total,
+    required this.passed,
+    required this.failed,
+    required this.execFailed,
+    required this.ratePercent,
+    required this.baselinePercent,
+    required this.model,
+    required this.categories,
+    required this.failedCases,
+  });
+
+  @override
+  int get hashCode =>
+      total.hashCode ^
+      passed.hashCode ^
+      failed.hashCode ^
+      execFailed.hashCode ^
+      ratePercent.hashCode ^
+      baselinePercent.hashCode ^
+      model.hashCode ^
+      categories.hashCode ^
+      failedCases.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeEvalSummary &&
+          runtimeType == other.runtimeType &&
+          total == other.total &&
+          passed == other.passed &&
+          failed == other.failed &&
+          execFailed == other.execFailed &&
+          ratePercent == other.ratePercent &&
+          baselinePercent == other.baselinePercent &&
+          model == other.model &&
+          categories == other.categories &&
+          failedCases == other.failedCases;
+}
+
 @freezed
 sealed class BridgeEvent with _$BridgeEvent {
   const BridgeEvent._();
@@ -207,6 +380,28 @@ class BridgeEventEnvelope {
           sessionId == other.sessionId &&
           atMs == other.atMs &&
           event == other.event;
+}
+
+/// Dart-side mirror of the `[history]` settings (保留期 / 不留存).
+class BridgeHistoryConfig {
+  final bool enabled;
+  final BigInt retentionDays;
+
+  const BridgeHistoryConfig({
+    required this.enabled,
+    required this.retentionDays,
+  });
+
+  @override
+  int get hashCode => enabled.hashCode ^ retentionDays.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeHistoryConfig &&
+          runtimeType == other.runtimeType &&
+          enabled == other.enabled &&
+          retentionDays == other.retentionDays;
 }
 
 /// Dart-side mirror of the history store's row: one stored session.

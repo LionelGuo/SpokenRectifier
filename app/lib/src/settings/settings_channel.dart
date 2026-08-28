@@ -36,6 +36,16 @@ abstract class SettingsChannel {
   /// The user picked a scenario in the editor (null = default register).
   Future<void> sendScenarioSelected(String? name);
 
+  /// The history store changed shape from the history domain (retention
+  /// retightened, keep-nothing turned on, everything cleared): the main
+  /// window re-reads its recent rows — an event, never mirrored state.
+  Future<void> sendHistoryChanged();
+
+  /// History retrieval (重新修正) from the history domain: the main
+  /// window runs the utterance through the same rectify path the quick
+  /// panel's rows use.
+  Future<void> sendHistoryRerectify(String rawTranscript);
+
   // ---- inbound: main -> settings ----------------------------------------
 
   /// Theme follow (one-way from the main window's tri-state).
@@ -83,6 +93,13 @@ class DesktopSettingsChannel implements SettingsChannel {
   @override
   Future<void> sendScenarioSelected(String? name) =>
       _send('scenario-selected', name);
+
+  @override
+  Future<void> sendHistoryChanged() => _send('history-changed', null);
+
+  @override
+  Future<void> sendHistoryRerectify(String rawTranscript) =>
+      _send('history-rerectify', rawTranscript);
 
   Future<void> _send(String method, dynamic arguments) async {
     try {

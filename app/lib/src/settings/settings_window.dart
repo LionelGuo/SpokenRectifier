@@ -5,11 +5,11 @@
 /// data seam is [ScenarioStore] (the bridge, direct) and its cross-window
 /// link is [SettingsChannel] (events only, never state).
 ///
-/// The scenario domain (场景库) is filled at production quality: the card
-/// list doubles as the fourth scenario picker (click a card to select,
-/// click again to return to the default register), plus add/edit/delete
-/// through one dialog. The other domains are empty-state placeholders
-/// until tickets 18/19.
+/// The scenario domain (场景库), the fidelity-eval domain (保真评测,
+/// ticket 18), and the history domain (历史, ticket 18) are filled at
+/// production quality. The eval run lives in a controller here — it
+/// survives domain switches; closing the window is what stops it. The
+/// remaining domains are empty-state placeholders until ticket 19.
 
 library;
 
@@ -20,8 +20,12 @@ import '../design/theme.dart' show srTheme;
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeScenario;
 import 'caption_theme.dart';
+import 'fidelity_eval.dart';
+import 'history_store.dart';
 import 'settings_channel.dart';
 import 'settings_domain.dart';
+import 'settings_fidelity_pane.dart';
+import 'settings_history_pane.dart';
 import 'settings_store.dart';
 
 class SettingsWindowApp extends StatefulWidget {
@@ -30,6 +34,8 @@ class SettingsWindowApp extends StatefulWidget {
     required this.store,
     required this.channel,
     required this.initialDomain,
+    required this.historyStore,
+    required this.evalRunner,
     this.initialTheme = ThemeMode.system,
     this.initialSelection,
     this.captionTheme = applyWindowsCaptionTheme,
@@ -38,6 +44,13 @@ class SettingsWindowApp extends StatefulWidget {
   final ScenarioStore store;
   final SettingsChannel channel;
   final SettingsDomain initialDomain;
+
+  /// The history domain's data seam (the `[history]` config and the
+  /// stored sessions, direct through the bridge).
+  final HistorySettingsStore historyStore;
+
+  /// The fidelity-eval domain's seam (starts the Rust-side run).
+  final FidelityEvalRunner evalRunner;
 
   /// Theme and selection ride the window arguments (the main window
   /// cannot push into the sub-engine before its handler exists), then
@@ -61,6 +74,13 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   String? _selected;
   String? _error;
 
+  /// The eval run outlives the pane: switching domains must not stop it
+  /// (only closing the window — this state dying with the engine — or
+  /// the pane's 取消 does).
+  late final FidelityEvalController _eval = FidelityEvalController(
+    runner: widget.evalRunner,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +101,7 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
 
   @override
   void dispose() {
+    _eval.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -224,6 +245,12 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
         onSelect: _select,
         onAddOrUpdate: _addOrUpdate,
         onDelete: _delete,
+      ),
+      SettingsDomain.fidelity => SettingsFidelityPane(controller: _eval),
+      SettingsDomain.history => SettingsHistoryPane(
+        store: widget.historyStore,
+        onHistoryChanged: widget.channel.sendHistoryChanged,
+        onRerectify: widget.channel.sendHistoryRerectify,
       ),
       _ => _PlaceholderPane(domain: _domain),
     };
@@ -842,10 +869,8 @@ class _PlaceholderPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    final filledBy = switch (domain) {
-      SettingsDomain.fidelity || SettingsDomain.history => '工单 18',
-      _ => '工单 19',
-    };
+    // Only ticket 19's domains still land here.
+    const filledBy = '工单 19';
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,

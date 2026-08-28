@@ -16,6 +16,7 @@ spokenrectifier-aliyun = { path = "../../crates/aliyun" }
 spokenrectifier-audio = { path = "../../crates/audio" }
 spokenrectifier-config = { path = "../../crates/config" }
 spokenrectifier-engine = { path = "../../crates/engine" }
+spokenrectifier-eval = { path = "../../crates/eval" }
 spokenrectifier-history = { path = "../../crates/history" }
 spokenrectifier-insertion = { path = "../../crates/insertion" }
 spokenrectifier-llm = { path = "../../crates/llm" }

@@ -103,6 +103,14 @@ class DesktopSettingsWindow {
         );
       case 'scenario-selected':
         await _controller.selectScenario(call.arguments as String?);
+      case 'history-changed':
+        // The history domain reshaped the store (retention, keep-nothing,
+        // clear): the quick panel's rows re-read the same bridge call.
+        await _controller.loadRecentHistory();
+      case 'history-rerectify':
+        // History retrieval: the same entry point the quick panel's rows
+        // take — the session window takes over from here.
+        await _controller.rerectifyHistory(call.arguments as String? ?? '');
     }
     return null;
   }

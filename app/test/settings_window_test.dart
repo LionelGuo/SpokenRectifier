@@ -1,19 +1,27 @@
 /// Widget tests for the settings window: the seven-domain shell, the
 /// scenario library editor (add/edit/delete/select through one dialog),
-/// the cross-window channel contract, and the main-window controller's
+/// the fidelity-eval domain (run states through the controller), the
+/// history domain (browse/retrieve/retention/keep-nothing/clear), the
+/// cross-window channel contract, and the main-window controller's
 /// library-change reactions. Everything rides pure-Dart fakes — no Rust
 /// dylib, no second engine.
 
 library;
 
+import 'dart:async' show StreamController;
+
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette;
-import 'package:spokenrectifier_app/src/rust/api.dart' show BridgeScenario;
+import 'package:spokenrectifier_app/src/rust/api.dart'
+    show BridgeEvalCategory, BridgeEvalEvent, BridgeEvalSummary, BridgeHistoryEntry, BridgeScenario;
+import 'package:spokenrectifier_app/src/settings/fidelity_eval.dart';
+import 'package:spokenrectifier_app/src/settings/history_store.dart';
 import 'package:spokenrectifier_app/src/settings/settings_channel.dart';
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/settings/settings_store.dart';
@@ -52,11 +60,77 @@ class FakeScenarioStore implements ScenarioStore {
   }
 }
 
+/// The history domain's fake: config + entries in memory, mirroring the
+/// keep-nothing semantics (saving it empties what a list would show).
+class FakeHistorySettingsStore implements HistorySettingsStore {
+  FakeHistorySettingsStore({
+    HistorySettings config = const HistorySettings(
+      enabled: true,
+      retentionDays: 30,
+    ),
+    List<BridgeHistoryEntry> entries = const [],
+  }) : this._(config, List.of(entries));
+
+  FakeHistorySettingsStore._(this._config, this._entries);
+
+  HistorySettings _config;
+  List<BridgeHistoryEntry> _entries;
+
+  final saves = <HistorySettings>[];
+  int clears = 0;
+
+  /// When set, the next saveConfig throws (an unwritable config file).
+  Object? failNextSave;
+
+  @override
+  Future<HistorySettings> loadConfig() async => _config;
+
+  @override
+  Future<HistorySettings> saveConfig(HistorySettings settings) async {
+    if (failNextSave != null) {
+      final failure = failNextSave;
+      failNextSave = null;
+      throw failure!;
+    }
+    saves.add(settings);
+    _config = settings;
+    if (!settings.enabled) _entries = const [];
+    return settings;
+  }
+
+  @override
+  Future<List<BridgeHistoryEntry>> list() async => List.of(_entries);
+
+  @override
+  Future<void> clear() async {
+    clears++;
+    _entries = const [];
+  }
+}
+
+/// Drives the eval run by hand: the pane subscribes, the test emits.
+class FakeFidelityEvalRunner implements FidelityEvalRunner {
+  final _events = StreamController<BridgeEvalEvent>.broadcast();
+  int startCount = 0;
+
+  @override
+  Stream<BridgeEvalEvent> start() {
+    startCount++;
+    return _events.stream;
+  }
+
+  void emit(BridgeEvalEvent event) => _events.add(event);
+
+  void close() => _events.close();
+}
+
 /// Records every outbound event; inbound pushes are invoked by the test
 /// through the exposed handlers.
 class FakeSettingsChannel implements SettingsChannel {
   final libraryChanged = <({String? from, String? to})>[];
   final selections = <String?>[];
+  int historyChanged = 0;
+  final rerectifies = <String>[];
 
   void Function(ThemeMode mode)? themeHandler;
   void Function(String? name)? selectionHandler;
@@ -85,6 +159,13 @@ class FakeSettingsChannel implements SettingsChannel {
 
   @override
   Future<void> sendScenarioSelected(String? name) async => selections.add(name);
+
+  @override
+  Future<void> sendHistoryChanged() async => historyChanged++;
+
+  @override
+  Future<void> sendHistoryRerectify(String rawTranscript) async =>
+      rerectifies.add(rawTranscript);
 }
 
 const _seeded = [
@@ -92,10 +173,44 @@ const _seeded = [
   BridgeScenario(name: '聊天', directive: '轻松自然:保留语气'),
 ];
 
+/// Two history rows the panes and tests share.
+final _historyEntries = [
+  BridgeHistoryEntry(
+    id: 2,
+    createdAtMs: BigInt.from(1_758_900_000_000),
+    rawTranscript: '第二句的原话',
+    rectifiedText: '第二句的成文',
+  ),
+  BridgeHistoryEntry(
+    id: 1,
+    createdAtMs: BigInt.from(1_758_800_000_000),
+    rawTranscript: '第一句的原话',
+    rectifiedText: '第一句的成文',
+  ),
+];
+
+const _evalSummary = BridgeEvalSummary(
+  total: 23,
+  passed: 20,
+  failed: 3,
+  execFailed: 1,
+  ratePercent: 87.0,
+  baselinePercent: 87.0,
+  model: 'deepseek-v4-flash',
+  categories: [
+    BridgeEvalCategory(label: '捏造', count: 0),
+    BridgeEvalCategory(label: '丢失', count: 1),
+    BridgeEvalCategory(label: '残留', count: 1),
+  ],
+  failedCases: [],
+);
+
 Future<void> pumpSettings(
   WidgetTester tester, {
   FakeScenarioStore? store,
   FakeSettingsChannel? channel,
+  FakeHistorySettingsStore? historyStore,
+  FakeFidelityEvalRunner? evalRunner,
   SettingsDomain domain = SettingsDomain.scenarios,
   ThemeMode initialTheme = ThemeMode.system,
   String? selected,
@@ -108,6 +223,8 @@ Future<void> pumpSettings(
       initialDomain: domain,
       initialTheme: initialTheme,
       initialSelection: selected,
+      historyStore: historyStore ?? FakeHistorySettingsStore(),
+      evalRunner: evalRunner ?? FakeFidelityEvalRunner(),
       captionTheme: captionTheme ?? (_) {},
     ),
   );
@@ -129,6 +246,20 @@ Future<void> hoverCardAction(
   await tester.tap(find.descendant(of: card, matching: find.byIcon(icon)));
 }
 
+/// Hover an entry row by key, then tap its action icon. The gesture is
+/// removed at the end so a second hover in the same test starts clean
+/// (the mouse tracker refuses a second add while one pointer lives).
+Future<void> hoverRowAction(WidgetTester tester, Key row, IconData icon) async {
+  final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+  await gesture.addPointer(location: tester.getCenter(find.byKey(row)));
+  await tester.pump(SrMotion.fade);
+  await tester.tap(
+    find.descendant(of: find.byKey(row), matching: find.byIcon(icon)),
+  );
+  await gesture.removePointer();
+  await tester.pump();
+}
+
 // ---------------------------------------------------------------------------
 // The shell
 // ---------------------------------------------------------------------------
@@ -141,7 +272,7 @@ void main() {
     expect(SettingsDomain.fidelity.label, '保真评测');
   });
 
-  testWidgets('sidebar lists every domain; placeholders say their ticket', (
+  testWidgets('sidebar lists every domain; ticket-19 domains stay placeholders', (
     tester,
   ) async {
     final channel = FakeSettingsChannel();
@@ -152,11 +283,16 @@ void main() {
       expect(find.text(domain.label), findsWidgets);
     }
 
-    // Navigating to a placeholder paints its empty state.
+    // Ticket 18's two domains are real panes now: the eval offers its
+    // manual entry, the history domain paints its config card.
     await tester.tap(find.text('保真评测'));
     await tester.pump();
-    expect(find.text('保真评测域'), findsOneWidget);
-    expect(find.text('设计稿占位 · 工单 18 填充'), findsOneWidget);
+    expect(find.text('开始评测'), findsOneWidget);
+
+    await tester.tap(find.text('历史'));
+    await tester.pump();
+    await tester.pump(); // the config load lands (two chained awaits)
+    expect(find.text('不留存'), findsOneWidget);
 
     await tester.tap(find.text('术语'));
     await tester.pump();
@@ -176,6 +312,299 @@ void main() {
     await pumpSettings(tester, store: FakeScenarioStore());
     expect(find.byKey(const Key('settings-scenario-empty')), findsOneWidget);
     expect(find.byKey(const Key('settings-scenario-new')), findsOneWidget);
+  });
+
+  // -----------------------------------------------------------------------
+  // The fidelity-eval domain (保真评测)
+  // -----------------------------------------------------------------------
+
+  testWidgets('a run walks idle → running → finished with the summary', (
+    tester,
+  ) async {
+    final runner = FakeFidelityEvalRunner();
+    await pumpSettings(
+      tester,
+      evalRunner: runner,
+      domain: SettingsDomain.fidelity,
+    );
+
+    // Idle: the manual entry explains itself (real LLM, no side effects).
+    expect(find.text('开始评测'), findsOneWidget);
+    await tester.tap(find.text('开始评测'));
+    await tester.pump();
+    expect(runner.startCount, 1);
+    expect(find.byKey(const Key('settings-eval-spinner')), findsOneWidget);
+
+    runner.emit(const BridgeEvalEvent.started(total: 23));
+    await tester.pump();
+    expect(find.text('0 / 23'), findsOneWidget);
+
+    runner.emit(
+      const BridgeEvalEvent.caseStarted(index: 1, total: 23, id: 'correction-01'),
+    );
+    runner.emit(
+      const BridgeEvalEvent.caseFinished(index: 1, id: 'correction-01', passed: true),
+    );
+    await tester.pump();
+    expect(find.text('1 / 23'), findsOneWidget);
+    expect(find.text('correction-01'), findsOneWidget);
+
+    runner.emit(const BridgeEvalEvent.finished(summary: _evalSummary));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-eval-rate')), findsOneWidget);
+    expect(find.text('87.0%'), findsOneWidget);
+    expect(find.text('与基线持平'), findsOneWidget);
+    expect(
+      find.byKey(const Key('settings-eval-category:捏造')),
+      findsOneWidget,
+    );
+    expect(find.text('通过 20 / 23 · 执行失败 1 · 基线 87.0% · deepseek-v4-flash'), findsOneWidget);
+  });
+
+  testWidgets('a failed run paints its message and offers a retry', (
+    tester,
+  ) async {
+    final runner = FakeFidelityEvalRunner();
+    await pumpSettings(
+      tester,
+      evalRunner: runner,
+      domain: SettingsDomain.fidelity,
+    );
+
+    await tester.tap(find.text('开始评测'));
+    await tester.pump();
+    runner.emit(
+      const BridgeEvalEvent.failed(message: '评测需要真实 LLM 连接'),
+    );
+    await tester.pump();
+    expect(find.text('评测未能完成'), findsOneWidget);
+    expect(find.text('评测需要真实 LLM 连接'), findsOneWidget);
+
+    // The retry starts a fresh run.
+    await tester.tap(find.text('重试'));
+    await tester.pump();
+    expect(runner.startCount, 2);
+  });
+
+  testWidgets('cancel stops the run; switching domains does not', (tester) async {
+    final runner = FakeFidelityEvalRunner();
+    await pumpSettings(
+      tester,
+      evalRunner: runner,
+      domain: SettingsDomain.fidelity,
+    );
+
+    await tester.tap(find.text('开始评测'));
+    await tester.pump();
+    runner.emit(const BridgeEvalEvent.started(total: 23));
+    await tester.pump();
+
+    // The run outlives the pane: switch away and back, still running.
+    await tester.tap(find.text('场景库'));
+    await tester.pump();
+    await tester.tap(find.text('保真评测'));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-eval-spinner')), findsOneWidget);
+
+    // Cancel returns to idle, and a fresh start works right away.
+    await tester.tap(find.text('取消'));
+    await tester.pump();
+    expect(find.text('开始评测'), findsOneWidget);
+    await tester.tap(find.text('开始评测'));
+    await tester.pump();
+    expect(runner.startCount, 2);
+    expect(find.text('取消'), findsOneWidget); // the fresh run is live
+
+    // Cancelling drops the listener: later events land nowhere.
+    await tester.tap(find.text('取消'));
+    await tester.pump();
+    runner.emit(const BridgeEvalEvent.started(total: 23));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-eval-spinner')), findsNothing);
+  });
+
+  // -----------------------------------------------------------------------
+  // The history domain (历史)
+  // -----------------------------------------------------------------------
+
+  testWidgets('entries paint with both texts; retrieval is same-source', (
+    tester,
+  ) async {
+    final channel = FakeSettingsChannel();
+    final store = FakeHistorySettingsStore(entries: _historyEntries);
+    await pumpSettings(
+      tester,
+      channel: channel,
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+
+    // Both texts per row (the quick panel shows raw only).
+    expect(find.text('第二句的原话'), findsOneWidget);
+    expect(find.byKey(const Key('settings-history-rectified:2')), findsOneWidget);
+
+    // 复制原文 lands on the clipboard, like the quick panel's rows
+    // (same mock recipe: record the Clipboard.setData call).
+    String? copied;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = call.arguments['text'] as String?;
+          }
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+    await hoverRowAction(
+      tester,
+      const Key('settings-history-copy:2'),
+      Icons.copy_rounded,
+    );
+    await tester.pump();
+    expect(copied, '第二句的原话');
+
+    // 重新修正 routes to the main window (the quick panel's controller
+    // path), never to a local session.
+    await hoverRowAction(
+      tester,
+      const Key('settings-history-rerectify:1'),
+      Icons.refresh_rounded,
+    );
+    await tester.pump();
+    expect(channel.rerectifies, ['第一句的原话']);
+  });
+
+  testWidgets('a retention pick saves and reports the change', (tester) async {
+    final channel = FakeSettingsChannel();
+    final store = FakeHistorySettingsStore(entries: _historyEntries);
+    await pumpSettings(
+      tester,
+      channel: channel,
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+
+    await tester.tap(find.byKey(const Key('settings-history-retention:7')));
+    await tester.pump();
+
+    expect(
+      store.saves.single,
+      const HistorySettings(enabled: true, retentionDays: 7),
+    );
+    expect(channel.historyChanged, 1);
+  });
+
+  testWidgets('a hand-edited retention value paints as its own chip', (
+    tester,
+  ) async {
+    await pumpSettings(
+      tester,
+      historyStore: FakeHistorySettingsStore(
+        config: const HistorySettings(enabled: true, retentionDays: 45),
+      ),
+      domain: SettingsDomain.history,
+    );
+    expect(find.text('45 天'), findsOneWidget);
+    expect(find.text('30 天'), findsOneWidget);
+  });
+
+  testWidgets('enabling keep-nothing confirms, then clears everything', (
+    tester,
+  ) async {
+    final channel = FakeSettingsChannel();
+    final store = FakeHistorySettingsStore(entries: _historyEntries);
+    await pumpSettings(
+      tester,
+      channel: channel,
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+
+    // The switch's enable is destructive: confirm first.
+    await tester.tap(find.byKey(const Key('settings-history-keep-nothing')));
+    await tester.pump();
+    expect(find.text('开启不留存?'), findsOneWidget);
+    expect(find.text('将立即清空全部 2 条既有历史,且不再记录新会话。'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('settings-history-confirm-cancel')));
+    await tester.pump();
+    expect(store.saves, isEmpty); // cancelled: nothing written
+
+    // Confirming empties the pane and stops recording.
+    await tester.tap(find.byKey(const Key('settings-history-keep-nothing')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-history-confirm-ok')));
+    await tester.pump();
+    expect(store.saves.single.enabled, false);
+    expect(channel.historyChanged, 1);
+    expect(
+      find.byKey(const Key('settings-history-keep-nothing-note')),
+      findsOneWidget,
+    );
+    expect(find.text('第二句的原话'), findsNothing);
+
+    // Turning it back off resumes: no dialog (nothing to destroy), the
+    // empty state paints instead.
+    await tester.tap(find.byKey(const Key('settings-history-keep-nothing')));
+    await tester.pump();
+    expect(store.saves.last.enabled, true);
+    expect(find.byKey(const Key('settings-history-empty')), findsOneWidget);
+  });
+
+  testWidgets('the one-click clear confirms, then clears and reports', (
+    tester,
+  ) async {
+    final channel = FakeSettingsChannel();
+    final store = FakeHistorySettingsStore(entries: _historyEntries);
+    await pumpSettings(
+      tester,
+      channel: channel,
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+
+    await tester.tap(find.byKey(const Key('settings-history-clear')));
+    await tester.pump();
+    expect(find.text('清空全部历史?'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('settings-history-confirm-ok')));
+    await tester.pump();
+    expect(store.clears, 1);
+    expect(channel.historyChanged, 1);
+    expect(find.byKey(const Key('settings-history-empty')), findsOneWidget);
+  });
+
+  testWidgets('an empty history paints the empty state; clear is inert', (
+    tester,
+  ) async {
+    final store = FakeHistorySettingsStore();
+    await pumpSettings(
+      tester,
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+
+    expect(find.byKey(const Key('settings-history-empty')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('settings-history-clear')));
+    await tester.pump();
+    expect(store.clears, 0); // nothing to clear, nothing confirmed
+    expect(find.text('清空全部历史?'), findsNothing);
+  });
+
+  testWidgets('a failed save surfaces the error and keeps the pane honest', (
+    tester,
+  ) async {
+    final store = FakeHistorySettingsStore(entries: _historyEntries)
+      ..failNextSave = StateError('locked');
+    await pumpSettings(tester, historyStore: store, domain: SettingsDomain.history);
+
+    await tester.tap(find.byKey(const Key('settings-history-retention:7')));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-history-error')), findsOneWidget);
+    // The rows survived.
+    expect(find.text('第二句的原话'), findsOneWidget);
   });
 
   // -----------------------------------------------------------------------
