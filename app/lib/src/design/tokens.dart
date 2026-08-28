@@ -203,6 +203,11 @@ abstract final class SrMotion {
   /// Hover / press micro-feedback.
   static const fast = Duration(milliseconds: 120);
 
+  /// Surface fades: row hover fills and reveal groups. Longer than
+  /// [fast], with the symmetric [curveFade] — the micro curve's fast
+  /// start reads as a snap, not a gradient.
+  static const fade = Duration(milliseconds: 180);
+
   /// Content entrance after a window jump.
   static const enter = Duration(milliseconds: 240);
 
@@ -232,6 +237,11 @@ abstract final class SrMotion {
 
   /// Micro-feedback (hover/press scale snaps).
   static const curveMicro = Curves.easeOut;
+
+  /// Symmetric surface fades (row hover fills, reveal groups): a slow
+  /// start reads as a gradient where [curveMicro]'s fast start would
+  /// read as a snap.
+  static const curveFade = Curves.easeInOut;
 }
 
 // ---------------------------------------------------------------------------

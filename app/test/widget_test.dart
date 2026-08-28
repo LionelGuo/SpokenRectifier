@@ -19,9 +19,9 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeHistoryEntry, BridgeScenario, BridgeSessionState;
 import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
     show formatHistoryStamp;
-import 'package:spokenrectifier_app/src/shell/session_flow.dart'
-    show StageKind;
-import 'package:spokenrectifier_app/src/shell/window_stage.dart' as stage
+import 'package:spokenrectifier_app/src/shell/session_flow.dart' show StageKind;
+import 'package:spokenrectifier_app/src/shell/window_stage.dart'
+    as stage
     show GrowthDirection, StageWindow, stageBounds;
 import 'package:spokenrectifier_app/ui_prefs.dart';
 
@@ -247,8 +247,7 @@ void main() {
       stageWindow: window,
     );
 
-    await pumpToPreview(tester, controller, gateway,
-        chunks: ['修正', '后的文本']);
+    await pumpToPreview(tester, controller, gateway, chunks: ['修正', '后的文本']);
 
     // The session field holds the joined chunks, editable in preview.
     final field = tester.widget<EditableText>(findSessionField());
@@ -354,7 +353,10 @@ void main() {
     // Preview hands the keyboard to the editable field (its own re-claim
     // on entry): edits, IME, and Enter live there.
     await pumpToPreview(tester, controller, gateway);
-    expect(tester.widget<EditableText>(findSessionField()).focusNode.hasFocus, isTrue);
+    expect(
+      tester.widget<EditableText>(findSessionField()).focusNode.hasFocus,
+      isTrue,
+    );
 
     // Reroll returns to rectifying: the field is read-only again, the
     // stage node takes the keyboard back.
@@ -408,8 +410,9 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('reroll restarts chunk accumulation instead of concatenating',
-      (tester) async {
+  testWidgets('reroll restarts chunk accumulation instead of concatenating', (
+    tester,
+  ) async {
     final gateway = FakeGateway();
     final controller = await pumpController(tester, gateway);
     await pumpToPreview(tester, controller, gateway, chunks: ['第一版']);
@@ -467,8 +470,9 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('Enter within the debounce window inserts the edited text',
-      (tester) async {
+  testWidgets('Enter within the debounce window inserts the edited text', (
+    tester,
+  ) async {
     final gateway = FakeGateway();
     final controller = await pumpController(tester, gateway);
     await pumpToPreview(tester, controller, gateway, chunks: ['初稿']);
@@ -488,8 +492,9 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('the hotkey within the edit debounce inserts what is on screen',
-      (tester) async {
+  testWidgets('the hotkey within the edit debounce inserts what is on screen', (
+    tester,
+  ) async {
     final gateway = FakeGateway();
     final controller = await pumpController(tester, gateway);
     await pumpToPreview(tester, controller, gateway, chunks: ['初稿']);
@@ -510,44 +515,48 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('the raw transcript comparison expands under the rectified text',
-      (tester) async {
-    final gateway = FakeGateway();
-    final controller = await pumpController(tester, gateway);
-    await pumpToRecording(tester, controller);
-    gateway.emit(const BridgeEvent.liveTranscriptUpdated(text: '嗯那个\n原话'));
-    await tester.pump();
-    await controller.stopSession();
-    await tester.pump(const Duration(milliseconds: 350));
-    gateway.streamRectify(['整理好的书面文本']);
-    await tester.pump(const Duration(milliseconds: 350));
+  testWidgets(
+    'the raw transcript comparison expands under the rectified text',
+    (tester) async {
+      final gateway = FakeGateway();
+      final controller = await pumpController(tester, gateway);
+      await pumpToRecording(tester, controller);
+      gateway.emit(const BridgeEvent.liveTranscriptUpdated(text: '嗯那个\n原话'));
+      await tester.pump();
+      await controller.stopSession();
+      await tester.pump(const Duration(milliseconds: 350));
+      gateway.streamRectify(['整理好的书面文本']);
+      await tester.pump(const Duration(milliseconds: 350));
 
-    // Hidden until asked; the session field is always there.
-    expect(find.byKey(const Key('session-raw')), findsNothing);
-    expect(find.byKey(const Key('session-text')), findsOneWidget);
+      // Hidden until asked; the session field is always there.
+      expect(find.byKey(const Key('session-raw')), findsNothing);
+      expect(find.byKey(const Key('session-text')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('session-raw-toggle')));
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(find.byKey(const Key('session-text')), findsOneWidget);
-    expect(find.text('原始转写'), findsOneWidget);
-    expect(find.text('嗯那个\n原话'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('session-raw-toggle')));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byKey(const Key('session-text')), findsOneWidget);
+      expect(find.text('原始转写'), findsOneWidget);
+      expect(find.text('嗯那个\n原话'), findsOneWidget);
 
-    // Toggling again hides the comparison; the edit flow is unaffected.
-    await tester.tap(find.byKey(const Key('session-raw-toggle')));
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(find.byKey(const Key('session-raw')), findsNothing);
-    expect(controller.previewText, '整理好的书面文本');
-    await windDown(tester, controller);
-  });
+      // Toggling again hides the comparison; the edit flow is unaffected.
+      await tester.tap(find.byKey(const Key('session-raw-toggle')));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byKey(const Key('session-raw')), findsNothing);
+      expect(controller.previewText, '整理好的书面文本');
+      await windDown(tester, controller);
+    },
+  );
 
   testWidgets('the scenario chip mirrors the selection from the tray entry', (
     tester,
   ) async {
     final gateway = FakeGateway()
-      ..scenarioLibrary.add(const BridgeScenario(
-        name: 'Prompt 工程',
-        directive: '输出将直接用作 AI 提示词,可分点分行',
-      ));
+      ..scenarioLibrary.add(
+        const BridgeScenario(
+          name: 'Prompt 工程',
+          directive: '输出将直接用作 AI 提示词,可分点分行',
+        ),
+      );
     final controller = await pumpController(tester, gateway);
     await controller.loadScenarios();
     await pumpToRecording(tester, controller);
@@ -577,10 +586,9 @@ void main() {
     tester,
   ) async {
     final gateway = FakeGateway()
-      ..scenarioLibrary.add(const BridgeScenario(
-        name: '正式文档',
-        directive: '严谨规范',
-      ))
+      ..scenarioLibrary.add(
+        const BridgeScenario(name: '正式文档', directive: '严谨规范'),
+      )
       ..failNextSetStyleDirective = StateError('engine gone');
     final controller = await pumpController(tester, gateway);
     await controller.loadScenarios();
@@ -640,53 +648,54 @@ void main() {
     expect(find.byIcon(Icons.mic_none_rounded), findsNothing);
   });
 
-  testWidgets('the quick panel opens from an idle right-click with its sections', (
-    tester,
-  ) async {
-    final gateway = FakeGateway();
-    final window = RecordingStageWindow();
-    final controller = await pumpController(
-      tester,
-      gateway,
-      stageWindow: window,
-    );
+  testWidgets(
+    'the quick panel opens from an idle right-click with its sections',
+    (tester) async {
+      final gateway = FakeGateway();
+      final window = RecordingStageWindow();
+      final controller = await pumpController(
+        tester,
+        gateway,
+        stageWindow: window,
+      );
 
-    // Right click the idle orb (会话期无右键: idle only).
-    await tester.tap(
-      find.byIcon(Icons.mic_none_rounded),
-      buttons: kSecondaryButton,
-    );
-    await tester.pump(const Duration(milliseconds: 350));
+      // Right click the idle orb (会话期无右键: idle only).
+      await tester.tap(
+        find.byIcon(Icons.mic_none_rounded),
+        buttons: kSecondaryButton,
+      );
+      await tester.pump(const Duration(milliseconds: 350));
 
-    expect(controller.stage, StageKind.quick);
-    expect(find.text('快捷设置'), findsOneWidget);
-    // The sections paint: terms, passage, theme. The scenario section
-    // hides with an empty library; history shows its empty hint.
-    expect(find.text('术语速加'), findsOneWidget);
-    expect(find.text('历史'), findsOneWidget);
-    expect(find.byKey(const Key('quick-history-empty')), findsOneWidget);
-    expect(find.text('输入'), findsOneWidget);
-    expect(find.text('外观'), findsOneWidget);
-    expect(find.text('场景'), findsNothing);
-    // The anchor-zone bottom fade is part of the panel's shape.
-    expect(find.byKey(const Key('quick-bottom-fade')), findsOneWidget);
-    // Opening refreshed the panel's lists.
-    expect(gateway.commands, containsAll(['termsList', 'historyList']));
-    // Same footprint as the session window, corner still pinned.
-    expect(window.bounds.last.size, SrGeometry.panelSize);
-    // The quick panel's Esc-to-close affordance needs the keyboard too.
-    expect(window.focuses, greaterThanOrEqualTo(1));
-    // The orb is now the close button.
-    expect(find.byIcon(Icons.close), findsOneWidget);
+      expect(controller.stage, StageKind.quick);
+      expect(find.text('快捷设置'), findsOneWidget);
+      // The sections paint: terms, passage, theme. The scenario section
+      // hides with an empty library; history shows its empty hint.
+      expect(find.text('术语速加'), findsOneWidget);
+      expect(find.text('历史'), findsOneWidget);
+      expect(find.byKey(const Key('quick-history-empty')), findsOneWidget);
+      expect(find.text('输入'), findsOneWidget);
+      expect(find.text('外观'), findsOneWidget);
+      expect(find.text('场景'), findsNothing);
+      // The anchor-zone bottom fade is part of the panel's shape.
+      expect(find.byKey(const Key('quick-bottom-fade')), findsOneWidget);
+      // Opening refreshed the panel's lists.
+      expect(gateway.commands, containsAll(['termsList', 'historyList']));
+      // Same footprint as the session window, corner still pinned.
+      expect(window.bounds.last.size, SrGeometry.panelSize);
+      // The quick panel's Esc-to-close affordance needs the keyboard too.
+      expect(window.focuses, greaterThanOrEqualTo(1));
+      // The orb is now the close button.
+      expect(find.byIcon(Icons.close), findsOneWidget);
 
-    // The orb-as-close collapses back to the orb footprint — and hands
-    // the keyboard back to the remembered target (挂账 from ticket 15).
-    await tester.tap(find.byIcon(Icons.close));
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(controller.stage, StageKind.orb);
-    expect(window.bounds.last.size, SrGeometry.orbFootprint);
-    expect(gateway.commands, contains('restoreFocus'));
-  });
+      // The orb-as-close collapses back to the orb footprint — and hands
+      // the keyboard back to the remembered target (挂账 from ticket 15).
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(controller.stage, StageKind.orb);
+      expect(window.bounds.last.size, SrGeometry.orbFootprint);
+      expect(gateway.commands, contains('restoreFocus'));
+    },
+  );
 
   testWidgets('Esc closes the quick panel without touching the session', (
     tester,
@@ -729,23 +738,23 @@ void main() {
   }
 
   /// Hovers the mouse over `finder` and lets the hover fades land (the
-  /// reveals are animated, so affordances need the frames before taps).
+  /// reveals are animated, so affordances need the frames before taps;
+  /// the surface fade outlasts the micro one).
   Future<void> hoverOver(WidgetTester tester, Finder finder) async {
     final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await gesture.addPointer(location: tester.getCenter(finder));
     addTearDown(gesture.removePointer);
     await tester.pump();
-    await tester.pump(SrMotion.fast);
+    await tester.pump(SrMotion.fade);
   }
 
   testWidgets('quick scenario chips are the third selector of the same pick', (
     tester,
   ) async {
     final gateway = FakeGateway()
-      ..scenarioLibrary.add(const BridgeScenario(
-        name: 'Prompt 工程',
-        directive: '输出将直接用作 AI 提示词',
-      ));
+      ..scenarioLibrary.add(
+        const BridgeScenario(name: 'Prompt 工程', directive: '输出将直接用作 AI 提示词'),
+      );
     final controller = await pumpController(tester, gateway);
     await controller.loadScenarios();
     await pumpQuickOpen(tester, controller);
@@ -805,91 +814,100 @@ void main() {
     expect(find.text('新术语'), findsNothing);
   });
 
-  testWidgets('history rows copy the raw and re-rectify takes the session window', (
-    tester,
-  ) async {
-    final gateway = FakeGateway();
-    for (var i = 1; i <= 4; i++) {
-      gateway.historyEntries.add(BridgeHistoryEntry(
-        id: i,
-        createdAtMs: BigInt.from(i),
-        rawTranscript: '第$i句原话',
-        rectifiedText: '第$i句修正',
-      ));
-    }
-    final controller = await pumpController(tester, gateway);
-    await pumpQuickOpen(tester, controller);
+  testWidgets(
+    'history rows copy the raw and re-rectify takes the session window',
+    (tester) async {
+      final gateway = FakeGateway();
+      for (var i = 1; i <= 4; i++) {
+        gateway.historyEntries.add(
+          BridgeHistoryEntry(
+            id: i,
+            createdAtMs: BigInt.from(i),
+            rawTranscript: '第$i句原话',
+            rectifiedText: '第$i句修正',
+          ),
+        );
+      }
+      final controller = await pumpController(tester, gateway);
+      await pumpQuickOpen(tester, controller);
 
-    // Three rows — the fourth stays in the store, not the panel.
-    expect(find.textContaining('句原话'), findsNWidgets(3));
+      // Three rows — the fourth stays in the store, not the panel.
+      expect(find.textContaining('句原话'), findsNWidgets(3));
 
-    // The actions ride every row but stay faded out until hover
-    // (悬停显复制/重修) — one animated reveal, no layout pop.
-    final row = find.text('第1句原话');
-    double actionsFade() =>
-        (tester.widget(find.byKey(const Key('quick-history-actions:1')))
-            as AnimatedOpacity).opacity;
-    expect(actionsFade(), 0);
-    await hoverOver(tester, row);
-    expect(actionsFade(), 1);
-    expect(find.byKey(const Key('quick-history-copy:1')), findsOneWidget);
-    expect(find.byKey(const Key('quick-history-rerectify:1')), findsOneWidget);
+      // The actions ride every row but stay faded out until hover
+      // (悬停显复制/重修) — one animated reveal, no layout pop.
+      final row = find.text('第1句原话');
+      double actionsFade() => (tester.widget(
+        find.byKey(const Key('quick-history-actions:1')),
+      ) as AnimatedOpacity).opacity;
+      expect(actionsFade(), 0);
+      await hoverOver(tester, row);
+      expect(actionsFade(), 1);
+      expect(find.byKey(const Key('quick-history-copy:1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('quick-history-rerectify:1')),
+        findsOneWidget,
+      );
 
-    // Copy puts the raw transcript on the clipboard.
-    String? copied;
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-          if (call.method == 'Clipboard.setData') {
-            copied = call.arguments['text'] as String?;
-          }
-          return null;
-        });
-    addTearDown(() {
+      // Copy puts the raw transcript on the clipboard.
+      String? copied;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null);
-    });
-    await tester.tap(find.byKey(const Key('quick-history-copy:1')));
-    await tester.pump();
-    expect(copied, '第1句原话');
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+            if (call.method == 'Clipboard.setData') {
+              copied = call.arguments['text'] as String?;
+            }
+            return null;
+          });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null);
+      });
+      await tester.tap(find.byKey(const Key('quick-history-copy:1')));
+      await tester.pump();
+      expect(copied, '第1句原话');
 
-    // Re-rectify: the session window takes over from the panel, the
-    // utterance re-runs through rectification (the fake streams it to
-    // preview in one step; the engine's path is the same takeover).
-    await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(gateway.commands, contains('rectifyText:第1句原话'));
-    expect(controller.phase, BridgeSessionState.preview);
-    expect(controller.stage, StageKind.session);
-    expect(controller.quickOpen, isFalse);
+      // Re-rectify: the session window takes over from the panel, the
+      // utterance re-runs through rectification (the fake streams it to
+      // preview in one step; the engine's path is the same takeover).
+      await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(gateway.commands, contains('rectifyText:第1句原话'));
+      expect(controller.phase, BridgeSessionState.preview);
+      expect(controller.stage, StageKind.session);
+      expect(controller.quickOpen, isFalse);
 
-    // And when that session ends, the orb rests — the panel does not
-    // resurrect from the stale flag.
-    await controller.cancelSession();
-    await tester.pump(const Duration(milliseconds: 1200));
-    expect(controller.stage, StageKind.orb);
-  });
+      // And when that session ends, the orb rests — the panel does not
+      // resurrect from the stale flag.
+      await controller.cancelSession();
+      await tester.pump(const Duration(milliseconds: 1200));
+      expect(controller.stage, StageKind.orb);
+    },
+  );
 
-  testWidgets('a failed re-rectify surfaces on the panel instead of vanishing', (
-    tester,
-  ) async {
-    final gateway = FakeGateway()
-      ..historyEntries.add(BridgeHistoryEntry(
-        id: 1,
-        createdAtMs: BigInt.one,
-        rawTranscript: '原话',
-        rectifiedText: '修正',
-      ))
-      ..failNextRectifyText = StateError('engine gone');
-    final controller = await pumpController(tester, gateway);
-    await pumpQuickOpen(tester, controller);
+  testWidgets(
+    'a failed re-rectify surfaces on the panel instead of vanishing',
+    (tester) async {
+      final gateway = FakeGateway()
+        ..historyEntries.add(
+          BridgeHistoryEntry(
+            id: 1,
+            createdAtMs: BigInt.one,
+            rawTranscript: '原话',
+            rectifiedText: '修正',
+          ),
+        )
+        ..failNextRectifyText = StateError('engine gone');
+      final controller = await pumpController(tester, gateway);
+      await pumpQuickOpen(tester, controller);
 
-    await hoverOver(tester, find.text('原话'));
-    await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
-    await tester.pump(const Duration(milliseconds: 350));
+      await hoverOver(tester, find.text('原话'));
+      await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
+      await tester.pump(const Duration(milliseconds: 350));
 
-    expect(controller.lastError, contains('重新修正失败'));
-    expect(controller.stage, StageKind.quick); // the panel is still up
-  });
+      expect(controller.lastError, contains('重新修正失败'));
+      expect(controller.stage, StageKind.quick); // the panel is still up
+    },
+  );
 
   testWidgets('the passage switch toggles the engine flag', (tester) async {
     final gateway = FakeGateway();
@@ -897,7 +915,10 @@ void main() {
     await controller.loadPassageMode(); // engine says on
     await pumpQuickOpen(tester, controller);
 
-    expect((tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value, isTrue);
+    expect(
+      (tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value,
+      isTrue,
+    );
     await tester.tap(find.byKey(const Key('quick-passage')));
     await tester.pump(const Duration(milliseconds: 350));
     expect(gateway.commands, contains('setPassageMode:false'));
@@ -909,91 +930,94 @@ void main() {
     expect(controller.passageMode, isTrue);
   });
 
-  testWidgets('a failed passage switch rolls the toggle back to the engine truth', (
-    tester,
-  ) async {
-    final gateway = FakeGateway()..failNextSetPassageMode = StateError('engine gone');
-    final controller = await pumpController(tester, gateway);
-    await pumpQuickOpen(tester, controller);
+  testWidgets(
+    'a failed passage switch rolls the toggle back to the engine truth',
+    (tester) async {
+      final gateway = FakeGateway()
+        ..failNextSetPassageMode = StateError('engine gone');
+      final controller = await pumpController(tester, gateway);
+      await pumpQuickOpen(tester, controller);
 
-    await tester.tap(find.byKey(const Key('quick-passage')));
-    await tester.pump(const Duration(milliseconds: 350));
+      await tester.tap(find.byKey(const Key('quick-passage')));
+      await tester.pump(const Duration(milliseconds: 350));
 
-    // The toggle mirrors engine state the next session runs with: a
-    // rejected switch must not paint a mode the engine never adopted.
-    expect(controller.passageMode, isTrue);
-    expect(gateway.passage, isTrue);
-    expect(controller.lastError, contains('篇章模式切换失败'));
-    // The switch still paints the truth.
-    expect(
-      (tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value,
-      isTrue,
-    );
-  });
+      // The toggle mirrors engine state the next session runs with: a
+      // rejected switch must not paint a mode the engine never adopted.
+      expect(controller.passageMode, isTrue);
+      expect(gateway.passage, isTrue);
+      expect(controller.lastError, contains('篇章模式切换失败'));
+      // The switch still paints the truth.
+      expect(
+        (tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value,
+        isTrue,
+      );
+    },
+  );
 
-  testWidgets('the theme tri-state repaints at once and persists for restarts', (
-    tester,
-  ) async {
-    // Sync IO: async dart:io futures never complete inside the widget-test
-    // zone on this host (WSL quirk, probed and confirmed).
-    final dir = Directory.systemTemp.createTempSync('sr-ui-prefs-widget-');
-    addTearDown(() => dir.deleteSync(recursive: true));
-    final gateway = FakeGateway();
-    final controller = SpeechController(
-      gateway: gateway,
-      scriptedPhrases: const [],
-      uiPrefsDirs: [dir.path],
-    );
-    addTearDown(controller.dispose);
-    await tester.pumpWidget(
-      SpokenRectifierApp(controller: controller, stageWindow: null),
-    );
-    await pumpQuickOpen(tester, controller);
+  testWidgets(
+    'the theme tri-state repaints at once and persists for restarts',
+    (tester) async {
+      // Sync IO: async dart:io futures never complete inside the widget-test
+      // zone on this host (WSL quirk, probed and confirmed).
+      final dir = Directory.systemTemp.createTempSync('sr-ui-prefs-widget-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final gateway = FakeGateway();
+      final controller = SpeechController(
+        gateway: gateway,
+        scriptedPhrases: const [],
+        uiPrefsDirs: [dir.path],
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        SpokenRectifierApp(controller: controller, stageWindow: null),
+      );
+      await pumpQuickOpen(tester, controller);
 
-    // The 外观 section sits below the fold of the scrollable list:
-    // bring it into view before tapping its segments.
-    await tester.dragUntilVisible(
-      find.byKey(const Key('quick-theme-dark')),
-      find.byType(Scrollable),
-      const Offset(0, -40),
-    );
-    await tester.pumpAndSettle();
+      // The 外观 section sits below the fold of the scrollable list:
+      // bring it into view before tapping its segments.
+      await tester.dragUntilVisible(
+        find.byKey(const Key('quick-theme-dark')),
+        find.byType(Scrollable),
+        const Offset(0, -40),
+      );
+      await tester.pumpAndSettle();
 
-    // Dark: the surfaces repaint immediately and the file says so.
-    // (A plain frame first — the theme-mode swap lands on the frame
-    // after the rebuild in the test scheduler; sync IO throughout, see
-    // the temp-dir note above.)
-    await tester.tap(find.byKey(const Key('quick-theme-dark')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(controller.themeMode, ThemeMode.dark);
-    expect(
-      find.byWidgetPredicate(
-        (w) =>
-            w is Container &&
-            w.decoration is BoxDecoration &&
-            (w.decoration as BoxDecoration).color == SrPalette.dark.surface,
-      ),
-      findsOneWidget,
-    );
-    expect(
-      File('${dir.path}/$uiPrefsFile').readAsStringSync(),
-      'theme = "dark"\n',
-    );
+      // Dark: the surfaces repaint immediately and the file says so.
+      // (A plain frame first — the theme-mode swap lands on the frame
+      // after the rebuild in the test scheduler; sync IO throughout, see
+      // the temp-dir note above.)
+      await tester.tap(find.byKey(const Key('quick-theme-dark')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(controller.themeMode, ThemeMode.dark);
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Container &&
+              w.decoration is BoxDecoration &&
+              (w.decoration as BoxDecoration).color == SrPalette.dark.surface,
+        ),
+        findsOneWidget,
+      );
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        'theme = "dark"\n',
+      );
 
-    // Light: the write replaces the key in place, not a second file.
-    await tester.tap(find.byKey(const Key('quick-theme-light')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(controller.themeMode, ThemeMode.light);
-    expect(
-      File('${dir.path}/$uiPrefsFile').readAsStringSync(),
-      'theme = "light"\n',
-    );
+      // Light: the write replaces the key in place, not a second file.
+      await tester.tap(find.byKey(const Key('quick-theme-light')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(controller.themeMode, ThemeMode.light);
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        'theme = "light"\n',
+      );
 
-    // A fresh controller reads the same file back (restart persistence).
-    expect(loadUiThemeMode([dir.path]), ThemeMode.light);
-  });
+      // A fresh controller reads the same file back (restart persistence).
+      expect(loadUiThemeMode([dir.path]), ThemeMode.light);
+    },
+  );
 
   testWidgets('rectifying keeps the panel footprint — reroll never resizes', (
     tester,

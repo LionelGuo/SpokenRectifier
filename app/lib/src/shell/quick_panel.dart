@@ -428,13 +428,24 @@ class _TermField extends StatelessWidget {
           ),
           filled: true,
           fillColor: pal.surfaceOverlay,
+          // Centered strokes: OutlineInputBorder defaults to an INSIDE
+          // stroke, which paints the box a logical pixel shorter than
+          // the button's center-aligned Border.all beside it (pixel
+          // scan, round-3 follow-up). Every other stroked control here
+          // centers, so the field joins them.
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(SrRadius.control),
-            borderSide: BorderSide(color: pal.hairline),
+            borderSide: BorderSide(
+              color: pal.hairline,
+              strokeAlign: BorderSide.strokeAlignCenter,
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(SrRadius.control),
-            borderSide: BorderSide(color: pal.accent.withValues(alpha: 0.6)),
+            borderSide: BorderSide(
+              color: pal.accent.withValues(alpha: 0.6),
+              strokeAlign: BorderSide.strokeAlignCenter,
+            ),
           ),
         ),
         // Enter commits the term (an IME composition commits instead,
@@ -457,13 +468,18 @@ class _AddButton extends StatelessWidget {
     return _Hover(
       builder: (hover) => GestureDetector(
         onTap: onTap,
+        // Rest = outlined, the input's own visual family: a solid
+        // accent-tinted block next to the low-contrast input reads as
+        // taller than it is (round-3 feedback) — equal geometry, unequal
+        // optical weight. Hover brings the solid accent.
         child: AnimatedContainer(
           duration: SrMotion.fast,
           width: _termRowHeight,
           height: _termRowHeight,
           decoration: BoxDecoration(
-            color: hover ? pal.accent : pal.accentSoft,
+            color: hover ? pal.accent : Colors.transparent,
             borderRadius: BorderRadius.circular(SrRadius.control),
+            border: Border.all(color: hover ? pal.accent : pal.hairline),
           ),
           child: Icon(
             key: const Key('quick-term-add'),
@@ -534,13 +550,15 @@ class _HistoryRow extends StatelessWidget {
     );
     return _Hover(
       builder: (hover) => AnimatedContainer(
-        duration: SrMotion.fast,
-        curve: SrMotion.curveMicro,
+        duration: SrMotion.fade,
+        curve: SrMotion.curveFade,
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         // One hover treatment: a single raised fill. A fill PLUS a
         // hairline stroke reads as two stacked rectangles fighting
-        // (round-3 feedback), so the stroke stays out entirely.
+        // (round-3 feedback), so the stroke stays out entirely. The
+        // surface-fade curve (not the micro one) makes both directions
+        // read as a gradient.
         decoration: BoxDecoration(
           color: hover ? pal.surfaceRaised : Colors.transparent,
           borderRadius: BorderRadius.circular(SrRadius.control),
@@ -573,8 +591,8 @@ class _HistoryRow extends StatelessWidget {
               ignoring: !hover,
               child: AnimatedOpacity(
                 key: Key('quick-history-actions:${entry.id}'),
-                duration: SrMotion.fast,
-                curve: SrMotion.curveMicro,
+                duration: SrMotion.fade,
+                curve: SrMotion.curveFade,
                 opacity: hover ? 1 : 0,
                 child: Row(
                   children: [
@@ -625,10 +643,13 @@ class _HistoryAction extends StatelessWidget {
         waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: onTap,
-          child: Icon(
-            icon,
-            size: 15,
-            color: hover ? pal.accentText : pal.textTertiary,
+          // The tint walks the micro curve — a hard color swap under
+          // the pointer reads as a pop inside an otherwise fading row.
+          child: TweenAnimationBuilder<Color?>(
+            tween: ColorTween(end: hover ? pal.accentText : pal.textTertiary),
+            duration: SrMotion.fast,
+            curve: SrMotion.curveMicro,
+            builder: (context, color, _) => Icon(icon, size: 15, color: color),
           ),
         ),
       ),
