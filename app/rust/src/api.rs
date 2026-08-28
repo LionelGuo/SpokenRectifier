@@ -492,6 +492,26 @@ pub fn scenarios() -> anyhow::Result<Vec<BridgeScenario>> {
         .collect())
 }
 
+/// Save the whole scenario library — the settings editor's model,
+/// wholesale — into the file the loader resolves (created in the app's
+/// settings home when no library exists yet). File-level and
+/// engine-independent like [`scenarios`]: the pickers re-read the library
+/// after a save; the selected scenario's directive rides the next
+/// `SetStyleDirective` as usual. Only ever runs on a user action (the
+/// editor's add/edit/delete), never on load.
+pub fn save_scenarios(scenarios: Vec<BridgeScenario>) -> anyhow::Result<()> {
+    let dirs = spokenrectifier_config::search_dirs();
+    let library: Vec<spokenrectifier_config::scenarios::Scenario> = scenarios
+        .into_iter()
+        .map(|scenario| spokenrectifier_config::scenarios::Scenario {
+            name: scenario.name,
+            directive: scenario.directive,
+        })
+        .collect();
+    spokenrectifier_config::scenarios::save_scenarios(&dirs, &library)
+        .map_err(|err| anyhow!("cannot save the scenario library: {err}"))
+}
+
 /// Everything the fake inserter received, in order (demo introspection).
 /// The production inserter does not record; insertion outcomes arrive on
 /// the event stream instead (`TextInserted` / `Error`).

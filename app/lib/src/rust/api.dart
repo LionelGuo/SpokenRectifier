@@ -78,6 +78,16 @@ Future<void> removeTerm({required String term}) =>
 Future<List<BridgeScenario>> scenarios() =>
     RustLib.instance.api.crateApiScenarios();
 
+/// Save the whole scenario library — the settings editor's model,
+/// wholesale — into the file the loader resolves (created in the app's
+/// settings home when no library exists yet). File-level and
+/// engine-independent like [`scenarios`]: the pickers re-read the library
+/// after a save; the selected scenario's directive rides the next
+/// `SetStyleDirective` as usual. Only ever runs on a user action (the
+/// editor's add/edit/delete), never on load.
+Future<void> saveScenarios({required List<BridgeScenario> scenarios}) =>
+    RustLib.instance.api.crateApiSaveScenarios(scenarios: scenarios);
+
 /// Everything the fake inserter received, in order (demo introspection).
 /// The production inserter does not record; insertion outcomes arrive on
 /// the event stream instead (`TextInserted` / `Error`).
