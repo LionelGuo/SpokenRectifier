@@ -33,10 +33,14 @@ class DesktopSettingsWindow {
   ThemeMode? _lastTheme;
   String? _lastSelection;
 
-  /// Open the settings window on [domain] — creating it hidden, pushing
-  /// the current theme and selection into its arguments (a push cannot
-  /// beat the sub-engine's handler registration), then showing it. An
-  /// already-open window is navigated and brought back instead.
+  /// Open the settings window on [domain] — creating it hidden, with the
+  /// current theme and selection riding its arguments (a push cannot beat
+  /// the sub-engine's handler registration). The sub-engine owns the
+  /// FIRST show: it stages the window (size, center, caption theme) while
+  /// still hidden and only then shows itself — showing from this side
+  /// would reveal the window at dmw's native default origin (10,10,
+  /// 800×600) and it would visibly jump once the sub-engine's geometry
+  /// lands. An already-open window is navigated and brought back instead.
   Future<void> open(SettingsDomain domain) async {
     final existing = _window;
     if (existing != null) {
@@ -62,7 +66,6 @@ class DesktopSettingsWindow {
     _window = controller;
     _lastTheme = _controller.themeMode;
     _lastSelection = _controller.selectedScenario;
-    await controller.show();
   }
 
   /// Push the theme to the settings window (no-op while closed).
