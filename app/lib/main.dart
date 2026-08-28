@@ -33,6 +33,7 @@ import 'src/design/tokens.dart' show SrGeometry;
 import 'src/rust/api.dart' show BridgeSessionState, createEngine;
 import 'src/rust/frb_generated.dart' show RustLib;
 import 'src/settings/caption_theme.dart';
+import 'src/settings/connection_store.dart';
 import 'src/settings/fidelity_eval.dart';
 import 'src/settings/history_store.dart';
 import 'src/settings/settings_channel.dart';
@@ -40,6 +41,8 @@ import 'src/settings/settings_domain.dart';
 import 'src/settings/settings_glue.dart';
 import 'src/settings/settings_store.dart';
 import 'src/settings/settings_window.dart';
+import 'src/settings/system_store.dart';
+import 'src/settings/terms_store.dart';
 import 'src/shell/window_stage.dart' show StageWindow, WindowManagerStageWindow;
 import 'ui_prefs.dart';
 
@@ -195,6 +198,9 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
       initialSelection: launch.selected,
       historyStore: const RustHistorySettingsStore(),
       evalRunner: const RustFidelityEvalRunner(),
+      termsStore: const RustTermsStore(),
+      connectionStore: const RustConnectionStore(),
+      systemStore: const RustSystemStore(),
     ),
   );
 }

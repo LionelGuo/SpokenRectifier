@@ -46,6 +46,12 @@ abstract class SettingsChannel {
   /// panel's rows use.
   Future<void> sendHistoryRerectify(String rawTranscript);
 
+  /// The dictionary changed on disk (the terms domain's add/rename/
+  /// remove — the same file the quick panel's quick-add writes): the
+  /// main window re-reads its term chips; the engine re-reads per
+  /// session on its own.
+  Future<void> sendTermsChanged();
+
   // ---- inbound: main -> settings ----------------------------------------
 
   /// Theme follow (one-way from the main window's tri-state).
@@ -100,6 +106,9 @@ class DesktopSettingsChannel implements SettingsChannel {
   @override
   Future<void> sendHistoryRerectify(String rawTranscript) =>
       _send('history-rerectify', rawTranscript);
+
+  @override
+  Future<void> sendTermsChanged() => _send('terms-changed', null);
 
   Future<void> _send(String method, dynamic arguments) async {
     try {

@@ -2,9 +2,12 @@
 /// scenario library editor (add/edit/delete/select through one dialog),
 /// the fidelity-eval domain (run states through the controller), the
 /// history domain (browse/retrieve/retention/keep-nothing/clear), the
-/// cross-window channel contract, and the main-window controller's
-/// library-change reactions. Everything rides pure-Dart fakes — no Rust
-/// dylib, no second engine.
+/// terms domain (add/rename/remove over the same dictionary file), the
+/// connection domain (the two endpoint forms, key keep/clear/set), the
+/// advanced domain (read-only timings + the file escape hatch), the
+/// about domain (version/license/open-config), the cross-window channel
+/// contract, and the main-window controller's library-change reactions.
+/// Everything rides pure-Dart fakes — no Rust dylib, no second engine.
 
 library;
 
@@ -20,12 +23,15 @@ import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette;
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvalCategory, BridgeEvalEvent, BridgeEvalSummary, BridgeHistoryEntry, BridgeScenario;
+import 'package:spokenrectifier_app/src/settings/connection_store.dart';
 import 'package:spokenrectifier_app/src/settings/fidelity_eval.dart';
 import 'package:spokenrectifier_app/src/settings/history_store.dart';
 import 'package:spokenrectifier_app/src/settings/settings_channel.dart';
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/settings/settings_store.dart';
 import 'package:spokenrectifier_app/src/settings/settings_window.dart';
+import 'package:spokenrectifier_app/src/settings/system_store.dart';
+import 'package:spokenrectifier_app/src/settings/terms_store.dart';
 
 import 'fake_gateway.dart';
 
@@ -124,6 +130,188 @@ class FakeFidelityEvalRunner implements FidelityEvalRunner {
   void close() => _events.close();
 }
 
+/// The terms domain's fake: the dictionary in memory, mutating like the
+/// file does (append idempotent, rename refuses collisions and misses).
+class FakeTermsStore implements TermsStore {
+  FakeTermsStore([List<String> initial = const []]) : terms = List.of(initial);
+
+  List<String> terms;
+  int loads = 0;
+
+  @override
+  Future<List<String>> load() async {
+    loads++;
+    return List.of(terms);
+  }
+
+  @override
+  Future<void> add(String term) async {
+    if (!terms.contains(term)) terms.add(term);
+  }
+
+  @override
+  Future<void> update(String oldTerm, String newTerm) async {
+    if (terms.contains(newTerm)) {
+      throw StateError('the dictionary already holds "$newTerm"');
+    }
+    final index = terms.indexOf(oldTerm);
+    if (index < 0) throw StateError('"$oldTerm" is not in the dictionary');
+    terms[index] = newTerm;
+  }
+
+  @override
+  Future<void> remove(String term) async => terms.remove(term);
+}
+
+/// The connection domain's fake: the two views in memory; a save
+/// records the ask and returns it as the re-read truth.
+class FakeConnectionStore implements ConnectionStore {
+  FakeConnectionStore({
+    AsrConnection? asr,
+    LlmConnection? llm,
+  }) : asr =
+           asr ??
+           const AsrConnection(
+             model: 'qwen3-asr-flash-realtime',
+             language: 'zh',
+             workspaceId: null,
+             region: 'cn-beijing',
+             baseUrl: null,
+             endpoint:
+                 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
+             key: KeyInfo(status: KeyPlacement.unset),
+           ),
+       llm =
+           llm ??
+           const LlmConnection(
+             vendor: 'deepseek',
+             baseUrl: 'https://api.deepseek.com',
+             model: 'deepseek-v4-flash',
+             key: KeyInfo(status: KeyPlacement.unset),
+           );
+
+  AsrConnection asr;
+  LlmConnection llm;
+
+  final llmSaves = <({String vendor, String baseUrl, String model, ApiKeyEdit key})>[];
+  final asrSaves = <({
+    String model,
+    String language,
+    String? workspaceId,
+    String region,
+    String? baseUrl,
+    ApiKeyEdit key,
+  })>[];
+
+  /// When set, the next save throws (an unwritable layer file).
+  Object? failNextSave;
+
+  @override
+  Future<({AsrConnection asr, LlmConnection llm})> load() async =>
+      (asr: asr, llm: llm);
+
+  @override
+  Future<LlmConnection> saveLlm({
+    required String vendor,
+    required String baseUrl,
+    required String model,
+    required ApiKeyEdit apiKey,
+  }) async {
+    if (failNextSave != null) {
+      final failure = failNextSave;
+      failNextSave = null;
+      throw failure!;
+    }
+    llmSaves.add((vendor: vendor, baseUrl: baseUrl, model: model, key: apiKey));
+    llm = LlmConnection(
+      vendor: vendor,
+      baseUrl: baseUrl,
+      model: model,
+      key: switch (apiKey) {
+        ApiKeySet() => const KeyInfo(status: KeyPlacement.inLocalFile),
+        ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
+        ApiKeyKeep() => llm.key,
+      },
+    );
+    return llm;
+  }
+
+  @override
+  Future<AsrConnection> saveAsr({
+    required String model,
+    required String language,
+    required String? workspaceId,
+    required String region,
+    required String? baseUrl,
+    required ApiKeyEdit apiKey,
+  }) async {
+    if (failNextSave != null) {
+      final failure = failNextSave;
+      failNextSave = null;
+      throw failure!;
+    }
+    asrSaves.add((
+      model: model,
+      language: language,
+      workspaceId: workspaceId,
+      region: region,
+      baseUrl: baseUrl,
+      key: apiKey,
+    ));
+    asr = AsrConnection(
+      model: model,
+      language: language,
+      workspaceId: workspaceId,
+      region: region,
+      baseUrl: baseUrl,
+      endpoint: 'wss://resolved.example/api-ws/v1/realtime?model=$model',
+      key: switch (apiKey) {
+        ApiKeySet() => const KeyInfo(status: KeyPlacement.inLocalFile),
+        ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
+        ApiKeyKeep() => asr.key,
+      },
+    );
+    return asr;
+  }
+}
+
+/// The advanced/about fake: fixed timings and about info; an
+/// open-config call is recorded (the same entry the tray makes).
+class FakeSystemStore implements SystemStore {
+  FakeSystemStore({
+    this.about = const AboutInfo(version: '1.0.0', license: 'Apache-2.0'),
+  });
+
+  AboutInfo about;
+  int openConfigCalls = 0;
+
+  @override
+  Future<({EngineTiming engine, InsertionTiming insertion})> loadAdvanced()
+      async => (
+          engine: const EngineTiming(
+            passageMode: true,
+            paragraphSilenceMs: 1200,
+            sessionEndSilenceMs: 3000,
+            rectifyTimeoutMs: 25000,
+          ),
+          insertion: const InsertionTiming(
+            mode: 'paste',
+            focusSettleMs: 50,
+            pasteSettleMs: 250,
+            typingDelayMs: 8,
+          ),
+        );
+
+  @override
+  Future<AboutInfo> loadAbout() async => about;
+
+  @override
+  Future<String> openConfigFile() async {
+    openConfigCalls++;
+    return '/fake/spokenrectifier.toml';
+  }
+}
+
 /// Records every outbound event; inbound pushes are invoked by the test
 /// through the exposed handlers.
 class FakeSettingsChannel implements SettingsChannel {
@@ -131,6 +319,7 @@ class FakeSettingsChannel implements SettingsChannel {
   final selections = <String?>[];
   int historyChanged = 0;
   final rerectifies = <String>[];
+  int termsChanged = 0;
 
   void Function(ThemeMode mode)? themeHandler;
   void Function(String? name)? selectionHandler;
@@ -166,6 +355,9 @@ class FakeSettingsChannel implements SettingsChannel {
   @override
   Future<void> sendHistoryRerectify(String rawTranscript) async =>
       rerectifies.add(rawTranscript);
+
+  @override
+  Future<void> sendTermsChanged() async => termsChanged++;
 }
 
 const _seeded = [
@@ -211,6 +403,9 @@ Future<void> pumpSettings(
   FakeSettingsChannel? channel,
   FakeHistorySettingsStore? historyStore,
   FakeFidelityEvalRunner? evalRunner,
+  FakeTermsStore? termsStore,
+  FakeConnectionStore? connectionStore,
+  FakeSystemStore? systemStore,
   SettingsDomain domain = SettingsDomain.scenarios,
   ThemeMode initialTheme = ThemeMode.system,
   String? selected,
@@ -225,6 +420,9 @@ Future<void> pumpSettings(
       initialSelection: selected,
       historyStore: historyStore ?? FakeHistorySettingsStore(),
       evalRunner: evalRunner ?? FakeFidelityEvalRunner(),
+      termsStore: termsStore ?? FakeTermsStore(),
+      connectionStore: connectionStore ?? FakeConnectionStore(),
+      systemStore: systemStore ?? FakeSystemStore(),
       captionTheme: captionTheme ?? (_) {},
     ),
   );
@@ -260,6 +458,10 @@ Future<void> hoverRowAction(WidgetTester tester, Key row, IconData icon) async {
   await tester.pump();
 }
 
+/// A text field's current text, by its key.
+String fieldText(WidgetTester tester, Key key) =>
+    tester.widget<TextField>(find.byKey(key)).controller!.text;
+
 // ---------------------------------------------------------------------------
 // The shell
 // ---------------------------------------------------------------------------
@@ -272,7 +474,7 @@ void main() {
     expect(SettingsDomain.fidelity.label, '保真评测');
   });
 
-  testWidgets('sidebar lists every domain; ticket-19 domains stay placeholders', (
+  testWidgets('sidebar lists every domain; all seven are real panes', (
     tester,
   ) async {
     final channel = FakeSettingsChannel();
@@ -283,8 +485,8 @@ void main() {
       expect(find.text(domain.label), findsWidgets);
     }
 
-    // Ticket 18's two domains are real panes now: the eval offers its
-    // manual entry, the history domain paints its config card.
+    // Every ticket-18/19 domain paints its real content — no
+    // placeholder pane survives.
     await tester.tap(find.text('保真评测'));
     await tester.pump();
     expect(find.text('开始评测'), findsOneWidget);
@@ -296,8 +498,24 @@ void main() {
 
     await tester.tap(find.text('术语'));
     await tester.pump();
-    expect(find.text('术语域'), findsOneWidget);
-    expect(find.text('设计稿占位 · 工单 19 填充'), findsOneWidget);
+    await tester.pump(); // the dictionary load lands
+    expect(find.byKey(const Key('settings-terms-field')), findsOneWidget);
+
+    await tester.tap(find.text('模型与连接'));
+    await tester.pump();
+    await tester.pump(); // the connection load lands
+    expect(find.text('修正模型'), findsOneWidget);
+    expect(find.text('语音识别 · 阿里云'), findsOneWidget);
+
+    await tester.tap(find.text('高级'));
+    await tester.pump();
+    await tester.pump(); // the timings load lands
+    expect(find.byKey(const Key('settings-advanced-open-config')), findsOneWidget);
+
+    await tester.tap(find.text('关于'));
+    await tester.pump();
+    await tester.pump(); // the about load lands
+    expect(find.byKey(const Key('settings-about-open-config')), findsOneWidget);
 
     // The inbound navigate push switches domains too (the entry rows).
     channel.navigateHandler?.call(SettingsDomain.scenarios);
@@ -612,6 +830,337 @@ void main() {
     expect(find.byKey(const Key('settings-history-error')), findsOneWidget);
     // The rows survived.
     expect(find.text('第二句的原话'), findsOneWidget);
+  });
+
+  // -----------------------------------------------------------------------
+  // The terms domain (术语)
+  // -----------------------------------------------------------------------
+
+  testWidgets('a term adds through the field, lands, and reports the change', (
+    tester,
+  ) async {
+    final channel = FakeSettingsChannel();
+    final store = FakeTermsStore(['既有术语']);
+    await pumpSettings(
+      tester,
+      channel: channel,
+      termsStore: store,
+      domain: SettingsDomain.terms,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('settings-terms-field')),
+      'EGFR抑制剂',
+    );
+    await tester.tap(find.byKey(const Key('settings-terms-add')));
+    await tester.pump();
+
+    expect(store.terms, ['既有术语', 'EGFR抑制剂']);
+    expect(find.byKey(const Key('settings-terms-row:EGFR抑制剂')), findsOneWidget);
+    expect(channel.termsChanged, 1);
+
+    // Blank input adds nothing and reports nothing.
+    await tester.enterText(find.byKey(const Key('settings-terms-field')), '  ');
+    await tester.tap(find.byKey(const Key('settings-terms-add')));
+    await tester.pump();
+    expect(store.terms.length, 2);
+    expect(channel.termsChanged, 1);
+  });
+
+  testWidgets('a rename edits the row in place and refuses collisions', (
+    tester,
+  ) async {
+    final store = FakeTermsStore(['甲', '乙']);
+    await pumpSettings(tester, termsStore: store, domain: SettingsDomain.terms);
+
+    await hoverRowAction(
+      tester,
+      const Key('settings-terms-rename:甲'),
+      Icons.edit_outlined,
+    );
+    await tester.pump();
+
+    // Renaming onto the other entry is refused; nothing was written.
+    await tester.enterText(
+      find.byKey(const Key('settings-terms-rename-field')),
+      '乙',
+    );
+    await tester.tap(find.byKey(const Key('settings-terms-rename-save')));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-terms-form-error')), findsOneWidget);
+    expect(store.terms, ['甲', '乙']);
+
+    // A real rename replaces the row where it sits.
+    await tester.enterText(
+      find.byKey(const Key('settings-terms-rename-field')),
+      '丙',
+    );
+    await tester.tap(find.byKey(const Key('settings-terms-rename-save')));
+    await tester.pump();
+    expect(store.terms, ['丙', '乙']);
+    expect(find.byKey(const Key('settings-terms-row:甲')), findsNothing);
+    expect(find.byKey(const Key('settings-terms-row:丙')), findsOneWidget);
+    expect(find.byKey(const Key('settings-terms-row:乙')), findsOneWidget);
+  });
+
+  testWidgets('a remove deletes the row and reports the change', (
+    tester,
+  ) async {
+    final channel = FakeSettingsChannel();
+    final store = FakeTermsStore(['甲']);
+    await pumpSettings(
+      tester,
+      channel: channel,
+      termsStore: store,
+      domain: SettingsDomain.terms,
+    );
+
+    await hoverRowAction(
+      tester,
+      const Key('settings-terms-remove:甲'),
+      Icons.delete_outline_rounded,
+    );
+    await tester.pump();
+
+    expect(store.terms, isEmpty);
+    expect(find.byKey(const Key('settings-terms-empty')), findsOneWidget);
+    expect(channel.termsChanged, 1);
+  });
+
+  testWidgets('a failed mutation surfaces the error and keeps the list', (
+    tester,
+  ) async {
+    final store = FakeTermsStore(['甲']);
+    await pumpSettings(tester, termsStore: store, domain: SettingsDomain.terms);
+
+    // The dictionary moved underneath the editor (a stale model): the
+    // rename throws and the pane says so, rows intact.
+    await hoverRowAction(
+      tester,
+      const Key('settings-terms-rename:甲'),
+      Icons.edit_outlined,
+    );
+    await tester.pump();
+    store.terms.clear(); // the file changed since the dialog opened
+    await tester.enterText(
+      find.byKey(const Key('settings-terms-rename-field')),
+      '新名',
+    );
+    await tester.tap(find.byKey(const Key('settings-terms-rename-save')));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-terms-error')), findsOneWidget);
+  });
+
+  // -----------------------------------------------------------------------
+  // The connection domain (模型与连接)
+  // -----------------------------------------------------------------------
+
+  testWidgets('the two cards paint the loaded config, keys never shown', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore(
+      llm: const LlmConnection(
+        vendor: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-v4-flash',
+        key: KeyInfo(status: KeyPlacement.fromEnv, envName: 'DEEPSEEK_API_KEY'),
+      ),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // The forms adopt the file's truth; the key field stays EMPTY (the
+    // stored key never echoes back — only its placement paints).
+    expect(fieldText(tester, const Key('settings-conn-llm-model')), 'deepseek-v4-flash');
+    expect(find.textContaining('取自环境变量 DEEPSEEK_API_KEY'), findsOneWidget);
+    expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
+    // The ASR card sits below the fold in the test viewport; the
+    // endpoint preview still paints (ListView builds near-offscreen).
+    expect(find.byKey(const Key('settings-conn-asr-endpoint')), findsOneWidget);
+    expect(find.byKey(const Key('settings-conn-restart-note')), findsOneWidget);
+  });
+
+  testWidgets('an llm save writes the form; a blank key keeps the stored one', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendor:volcengine')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-model')),
+      'doubao-seed-2.0-lite',
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+
+    final save = store.llmSaves.single;
+    expect(save.vendor, 'volcengine');
+    expect(save.model, 'doubao-seed-2.0-lite');
+    expect(save.baseUrl, 'https://api.deepseek.com'); // untouched field rides
+    expect(save.key, isA<ApiKeyKeep>()); // blank field = keep, never clear
+    expect(find.byKey(const Key('settings-conn-saved')), findsOneWidget);
+  });
+
+  testWidgets('a typed key replaces; the clear path confirms then clears', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // Typed text = Set; the status repaints from the re-read view.
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-key')),
+      'sk-new',
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+    final set = store.llmSaves.single;
+    expect(set.key, isA<ApiKeySet>());
+    expect((set.key as ApiKeySet).key, 'sk-new');
+    expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
+
+    // The clear button confirms first; cancelling writes nothing.
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-key-clear:llm')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-key-clear:llm')));
+    await tester.pump();
+    expect(find.text('清除密钥?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('settings-conn-clear-cancel')));
+    await tester.pump();
+    expect(store.llmSaves.length, 1);
+
+    // Confirming saves with an explicit Clear (not the blank-field Keep).
+    await tester.tap(find.byKey(const Key('settings-conn-key-clear:llm')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-clear-ok')));
+    await tester.pump();
+    final clear = store.llmSaves.last;
+    expect(clear.key, isA<ApiKeyClear>());
+    expect(find.textContaining('已保存在本机 local 文件'), findsNothing);
+  });
+
+  testWidgets('an asr save turns blank optional fields into resets', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore(
+      asr: const AsrConnection(
+        model: 'qwen3-asr-flash-realtime',
+        language: 'zh',
+        workspaceId: 'llm-abc',
+        region: 'cn-beijing',
+        baseUrl: null,
+        endpoint: 'wss://llm-abc.cn-beijing.maas.aliyuncs.com/x',
+        key: KeyInfo(status: KeyPlacement.unset),
+      ),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // Clearing the workspace field saves None (the field's reset). The
+    // ASR card starts below the fold; scroll it into view first.
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-workspace')),
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-workspace')),
+      '',
+    );
+    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+
+    final save = store.asrSaves.single;
+    expect(save.workspaceId, isNull);
+    expect(save.region, 'cn-beijing');
+    expect(save.key, isA<ApiKeyKeep>());
+  });
+
+  testWidgets('a failed save surfaces the error and keeps the form', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore()..failNextSave = StateError('locked');
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-conn-error')), findsOneWidget);
+    // The form keeps what the user typed; nothing was adopted.
+    expect(fieldText(tester, const Key('settings-conn-llm-model')), 'deepseek-v4-flash');
+  });
+
+  // -----------------------------------------------------------------------
+  // The advanced domain (高级) — read-only by ADR-0007
+  // -----------------------------------------------------------------------
+
+  testWidgets('the timings paint read-only; the file is the edit path', (
+    tester,
+  ) async {
+    final store = FakeSystemStore();
+    await pumpSettings(
+      tester,
+      systemStore: store,
+      domain: SettingsDomain.advanced,
+    );
+
+    expect(find.byKey(const Key('settings-advanced-passage')), findsOneWidget);
+    expect(find.text('1200 ms'), findsOneWidget);
+    expect(find.text('3000 ms'), findsOneWidget);
+    expect(find.text('25000 ms'), findsOneWidget);
+    expect(find.text('剪贴板粘贴'), findsOneWidget);
+    // Read-only decision: no field anywhere, the escape hatch instead.
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.byKey(const Key('settings-advanced-open-config')));
+    await tester.pump();
+    expect(store.openConfigCalls, 1);
+  });
+
+  // -----------------------------------------------------------------------
+  // The about domain (关于)
+  // -----------------------------------------------------------------------
+
+  testWidgets('about paints version and license; open-config rides the same seam', (
+    tester,
+  ) async {
+    final store = FakeSystemStore();
+    await pumpSettings(
+      tester,
+      systemStore: store,
+      domain: SettingsDomain.about,
+    );
+
+    expect(find.byKey(const Key('settings-about-version')), findsOneWidget);
+    expect(find.text('v1.0.0'), findsOneWidget);
+    expect(find.text('Apache-2.0'), findsOneWidget);
+    expect(find.text('随开源发布公布'), findsOneWidget);
+
+    // The tray entry's own bridge call, same source.
+    await tester.tap(find.byKey(const Key('settings-about-open-config')));
+    await tester.pump();
+    expect(store.openConfigCalls, 1);
   });
 
   // -----------------------------------------------------------------------

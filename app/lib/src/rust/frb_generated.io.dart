@@ -46,7 +46,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeEvalSummary dco_decode_box_autoadd_bridge_eval_summary(dynamic raw);
 
   @protected
+  BridgeKeyEdit dco_decode_box_autoadd_bridge_key_edit(dynamic raw);
+
+  @protected
+  BridgeAbout dco_decode_bridge_about(dynamic raw);
+
+  @protected
+  BridgeAdvancedConfig dco_decode_bridge_advanced_config(dynamic raw);
+
+  @protected
+  BridgeAsrConnection dco_decode_bridge_asr_connection(dynamic raw);
+
+  @protected
   BridgeCommand dco_decode_bridge_command(dynamic raw);
+
+  @protected
+  BridgeConnection dco_decode_bridge_connection(dynamic raw);
+
+  @protected
+  BridgeEngineTiming dco_decode_bridge_engine_timing(dynamic raw);
 
   @protected
   BridgeEvalCaseDetail dco_decode_bridge_eval_case_detail(dynamic raw);
@@ -71,6 +89,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BridgeHistoryEntry dco_decode_bridge_history_entry(dynamic raw);
+
+  @protected
+  BridgeInsertionTiming dco_decode_bridge_insertion_timing(dynamic raw);
+
+  @protected
+  BridgeKeyEdit dco_decode_bridge_key_edit(dynamic raw);
+
+  @protected
+  BridgeKeyStatus dco_decode_bridge_key_status(dynamic raw);
+
+  @protected
+  BridgeLlmConnection dco_decode_bridge_llm_connection(dynamic raw);
 
   @protected
   BridgeScenario dco_decode_bridge_scenario(dynamic raw);
@@ -151,7 +181,33 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BridgeKeyEdit sse_decode_box_autoadd_bridge_key_edit(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeAbout sse_decode_bridge_about(SseDeserializer deserializer);
+
+  @protected
+  BridgeAdvancedConfig sse_decode_bridge_advanced_config(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeAsrConnection sse_decode_bridge_asr_connection(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BridgeCommand sse_decode_bridge_command(SseDeserializer deserializer);
+
+  @protected
+  BridgeConnection sse_decode_bridge_connection(SseDeserializer deserializer);
+
+  @protected
+  BridgeEngineTiming sse_decode_bridge_engine_timing(
+    SseDeserializer deserializer,
+  );
 
   @protected
   BridgeEvalCaseDetail sse_decode_bridge_eval_case_detail(
@@ -186,6 +242,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BridgeHistoryEntry sse_decode_bridge_history_entry(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeInsertionTiming sse_decode_bridge_insertion_timing(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeKeyEdit sse_decode_bridge_key_edit(SseDeserializer deserializer);
+
+  @protected
+  BridgeKeyStatus sse_decode_bridge_key_status(SseDeserializer deserializer);
+
+  @protected
+  BridgeLlmConnection sse_decode_bridge_llm_connection(
     SseDeserializer deserializer,
   );
 
@@ -284,7 +356,40 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_bridge_key_edit(
+    BridgeKeyEdit self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_about(BridgeAbout self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bridge_advanced_config(
+    BridgeAdvancedConfig self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_asr_connection(
+    BridgeAsrConnection self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bridge_command(BridgeCommand self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bridge_connection(
+    BridgeConnection self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_engine_timing(
+    BridgeEngineTiming self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_bridge_eval_case_detail(
@@ -328,6 +433,27 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_bridge_history_entry(
     BridgeHistoryEntry self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_insertion_timing(
+    BridgeInsertionTiming self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_key_edit(BridgeKeyEdit self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bridge_key_status(
+    BridgeKeyStatus self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_llm_connection(
+    BridgeLlmConnection self,
     SseSerializer serializer,
   );
 

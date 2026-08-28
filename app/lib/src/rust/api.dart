@@ -9,9 +9,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `asr_provider`, `global`, `launch_editor`, `open_fake_feed`, `token_scripts`
+// These functions are ignored because they are not marked as `pub`: `asr_provider`, `asr_view`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config yields an API key, the Aliyun realtime
@@ -122,6 +122,66 @@ Future<BridgeHistoryConfig> setHistoryConfig({
   retentionDays: retentionDays,
 );
 
+/// The effective `[asr]` and `[llm]` connections from the layer files —
+/// the connection domain's initial paint. File-level, engine-
+/// independent: the engine adopts the config at its creation, so a
+/// change written here applies from the next launch on (the pane says
+/// so; the fidelity-eval run is the one place that adopts it at once,
+/// building its own engine per run).
+Future<BridgeConnection> connectionConfig() =>
+    RustLib.instance.api.crateApiConnectionConfig();
+
+/// Write the editor's `[asr]` model back into the layer files (see
+/// `save_asr_connection` for the placement and preservation rules) and
+/// return the re-read view — the file's truth, not the ask.
+Future<BridgeAsrConnection> setAsrConnection({
+  required String model,
+  required String language,
+  String? workspaceId,
+  required String region,
+  String? baseUrl,
+  required BridgeKeyEdit apiKey,
+}) => RustLib.instance.api.crateApiSetAsrConnection(
+  model: model,
+  language: language,
+  workspaceId: workspaceId,
+  region: region,
+  baseUrl: baseUrl,
+  apiKey: apiKey,
+);
+
+/// Write the editor's `[llm]` model back into the layer files (see
+/// `save_llm_connection`) and return the re-read view.
+Future<BridgeLlmConnection> setLlmConnection({
+  required String vendor,
+  required String baseUrl,
+  required String model,
+  required BridgeKeyEdit apiKey,
+}) => RustLib.instance.api.crateApiSetLlmConnection(
+  vendor: vendor,
+  baseUrl: baseUrl,
+  model: model,
+  apiKey: apiKey,
+);
+
+/// Rename a term in the dictionary, in place (the settings editor's 改;
+/// the quick panel's quick-add and quick-remove stay the same calls).
+/// See [`spokenrectifier_config::terms::update_term`] for the placement
+/// and collision rules.
+Future<void> updateTerm({required String old, required String new_}) =>
+    RustLib.instance.api.crateApiUpdateTerm(old: old, new_: new_);
+
+/// The advanced domain's one read: the session and insertion latency
+/// parameters, effective right now. Read-only by decision (ADR-0007):
+/// they are engine-construction-time values, so a GUI form over them
+/// would promise the hot-reload nothing delivers — the config file is
+/// the escape hatch, and the pane links to it.
+Future<BridgeAdvancedConfig> advancedConfig() =>
+    RustLib.instance.api.crateApiAdvancedConfig();
+
+/// The about pane's one read (version, license, repository).
+Future<BridgeAbout> about() => RustLib.instance.api.crateApiAbout();
+
 /// Start one fidelity-eval run in the background — the settings window's
 /// manual entry. Every case rides the event stream; the run ends with
 /// `Finished` or `Failed`. Dropping the Dart listener (window closed,
@@ -161,6 +221,102 @@ Future<void> fakeSay({required String text}) =>
 Future<void> fakeSilence({required BigInt elapsedMs}) =>
     RustLib.instance.api.crateApiFakeSilence(elapsedMs: elapsedMs);
 
+/// What the about pane paints. The version is the app crate's manifest
+/// (kept in step with the Flutter `pubspec.yaml` — bump both together).
+class BridgeAbout {
+  final String version;
+  final String license;
+
+  /// The public repository; absent until the open-source packaging
+  /// (ticket 11) names one.
+  final String? repoUrl;
+
+  const BridgeAbout({
+    required this.version,
+    required this.license,
+    this.repoUrl,
+  });
+
+  @override
+  int get hashCode => version.hashCode ^ license.hashCode ^ repoUrl.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAbout &&
+          runtimeType == other.runtimeType &&
+          version == other.version &&
+          license == other.license &&
+          repoUrl == other.repoUrl;
+}
+
+/// Both timing cards in one read.
+class BridgeAdvancedConfig {
+  final BridgeEngineTiming engine;
+  final BridgeInsertionTiming insertion;
+
+  const BridgeAdvancedConfig({required this.engine, required this.insertion});
+
+  @override
+  int get hashCode => engine.hashCode ^ insertion.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAdvancedConfig &&
+          runtimeType == other.runtimeType &&
+          engine == other.engine &&
+          insertion == other.insertion;
+}
+
+/// The effective `[asr]` connection as the settings pane paints it: the
+/// folded fields, the resolved endpoint (a read-only preview), and the
+/// key's placement.
+class BridgeAsrConnection {
+  final String model;
+  final String language;
+  final String? workspaceId;
+  final String region;
+  final String? baseUrl;
+
+  /// The WebSocket URL the current fields resolve to.
+  final String endpoint;
+  final BridgeKeyStatus key;
+
+  const BridgeAsrConnection({
+    required this.model,
+    required this.language,
+    this.workspaceId,
+    required this.region,
+    this.baseUrl,
+    required this.endpoint,
+    required this.key,
+  });
+
+  @override
+  int get hashCode =>
+      model.hashCode ^
+      language.hashCode ^
+      workspaceId.hashCode ^
+      region.hashCode ^
+      baseUrl.hashCode ^
+      endpoint.hashCode ^
+      key.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrConnection &&
+          runtimeType == other.runtimeType &&
+          model == other.model &&
+          language == other.language &&
+          workspaceId == other.workspaceId &&
+          region == other.region &&
+          baseUrl == other.baseUrl &&
+          endpoint == other.endpoint &&
+          key == other.key;
+}
+
 @freezed
 sealed class BridgeCommand with _$BridgeCommand {
   const BridgeCommand._();
@@ -187,6 +343,58 @@ sealed class BridgeCommand with _$BridgeCommand {
   /// History retrieval re-running a past utterance (see `RectifyText`).
   const factory BridgeCommand.rectifyText({required String rawTranscript}) =
       BridgeCommand_RectifyText;
+}
+
+/// Both connections in one read.
+class BridgeConnection {
+  final BridgeAsrConnection asr;
+  final BridgeLlmConnection llm;
+
+  const BridgeConnection({required this.asr, required this.llm});
+
+  @override
+  int get hashCode => asr.hashCode ^ llm.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeConnection &&
+          runtimeType == other.runtimeType &&
+          asr == other.asr &&
+          llm == other.llm;
+}
+
+/// The effective `[engine]` timings as the advanced pane paints them
+/// (read-only; see ADR-0007 for why they stay file-only).
+class BridgeEngineTiming {
+  final bool passageMode;
+  final BigInt paragraphSilenceMs;
+  final BigInt sessionEndSilenceMs;
+  final BigInt rectifyTimeoutMs;
+
+  const BridgeEngineTiming({
+    required this.passageMode,
+    required this.paragraphSilenceMs,
+    required this.sessionEndSilenceMs,
+    required this.rectifyTimeoutMs,
+  });
+
+  @override
+  int get hashCode =>
+      passageMode.hashCode ^
+      paragraphSilenceMs.hashCode ^
+      sessionEndSilenceMs.hashCode ^
+      rectifyTimeoutMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeEngineTiming &&
+          runtimeType == other.runtimeType &&
+          passageMode == other.passageMode &&
+          paragraphSilenceMs == other.paragraphSilenceMs &&
+          sessionEndSilenceMs == other.sessionEndSilenceMs &&
+          rectifyTimeoutMs == other.rectifyTimeoutMs;
 }
 
 /// One failed case: the engine-level error when the case never produced
@@ -436,6 +644,87 @@ class BridgeHistoryEntry {
           createdAtMs == other.createdAtMs &&
           rawTranscript == other.rawTranscript &&
           rectifiedText == other.rectifiedText;
+}
+
+/// The effective `[insertion]` timings as the advanced pane paints them.
+class BridgeInsertionTiming {
+  /// `paste` or `typing`.
+  final String mode;
+  final BigInt focusSettleMs;
+  final BigInt pasteSettleMs;
+  final BigInt typingDelayMs;
+
+  const BridgeInsertionTiming({
+    required this.mode,
+    required this.focusSettleMs,
+    required this.pasteSettleMs,
+    required this.typingDelayMs,
+  });
+
+  @override
+  int get hashCode =>
+      mode.hashCode ^
+      focusSettleMs.hashCode ^
+      pasteSettleMs.hashCode ^
+      typingDelayMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeInsertionTiming &&
+          runtimeType == other.runtimeType &&
+          mode == other.mode &&
+          focusSettleMs == other.focusSettleMs &&
+          pasteSettleMs == other.pasteSettleMs &&
+          typingDelayMs == other.typingDelayMs;
+}
+
+@freezed
+sealed class BridgeKeyEdit with _$BridgeKeyEdit {
+  const BridgeKeyEdit._();
+
+  const factory BridgeKeyEdit.keep() = BridgeKeyEdit_Keep;
+  const factory BridgeKeyEdit.clear() = BridgeKeyEdit_Clear;
+  const factory BridgeKeyEdit.set_(String field0) = BridgeKeyEdit_Set;
+}
+
+@freezed
+sealed class BridgeKeyStatus with _$BridgeKeyStatus {
+  const BridgeKeyStatus._();
+
+  const factory BridgeKeyStatus.unset() = BridgeKeyStatus_Unset;
+  const factory BridgeKeyStatus.inLocalFile() = BridgeKeyStatus_InLocalFile;
+  const factory BridgeKeyStatus.fromEnv(String field0) =
+      BridgeKeyStatus_FromEnv;
+}
+
+/// The effective `[llm]` connection as the settings pane paints it.
+class BridgeLlmConnection {
+  final String vendor;
+  final String baseUrl;
+  final String model;
+  final BridgeKeyStatus key;
+
+  const BridgeLlmConnection({
+    required this.vendor,
+    required this.baseUrl,
+    required this.model,
+    required this.key,
+  });
+
+  @override
+  int get hashCode =>
+      vendor.hashCode ^ baseUrl.hashCode ^ model.hashCode ^ key.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeLlmConnection &&
+          runtimeType == other.runtimeType &&
+          vendor == other.vendor &&
+          baseUrl == other.baseUrl &&
+          model == other.model &&
+          key == other.key;
 }
 
 /// Dart-side mirror of one scenario (场景): a user-named style directive

@@ -111,6 +111,11 @@ class DesktopSettingsWindow {
         // History retrieval: the same entry point the quick panel's rows
         // take — the session window takes over from here.
         await _controller.rerectifyHistory(call.arguments as String? ?? '');
+      case 'terms-changed':
+        // The terms domain edited the dictionary file: the quick panel's
+        // chips re-read the same bridge call (the engine re-reads per
+        // session on its own).
+        await _controller.loadTerms();
     }
     return null;
   }

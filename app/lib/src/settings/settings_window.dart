@@ -2,14 +2,14 @@
 /// taskbar entry, centered, resizable — spec §4.4), not another panel of
 /// the morphing orb window. Spawned via desktop_multi_window (a second
 /// Flutter engine re-runs main; see main.dart's sub-entry branch). Its
-/// data seam is [ScenarioStore] (the bridge, direct) and its cross-window
-/// link is [SettingsChannel] (events only, never state).
+/// data seams are the file-backed stores (the bridge, direct) and its
+/// cross-window link is [SettingsChannel] (events only, never state).
 ///
-/// The scenario domain (场景库), the fidelity-eval domain (保真评测,
-/// ticket 18), and the history domain (历史, ticket 18) are filled at
-/// production quality. The eval run lives in a controller here — it
-/// survives domain switches; closing the window is what stops it. The
-/// remaining domains are empty-state placeholders until ticket 19.
+/// All seven domains are filled: scenarios (场景库), fidelity eval
+/// (保真评测) and history (历史) since ticket 18, terms (术语),
+/// connection (模型与连接), advanced (高级, read-only escape hatch) and
+/// about (关于) since ticket 19. The eval run lives in a controller here
+/// — it survives domain switches; closing the window is what stops it.
 
 library;
 
@@ -21,13 +21,20 @@ import '../design/theme.dart' show srTheme;
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeScenario;
 import 'caption_theme.dart';
+import 'connection_store.dart';
 import 'fidelity_eval.dart';
 import 'history_store.dart';
+import 'settings_about_pane.dart';
+import 'settings_advanced_pane.dart';
 import 'settings_channel.dart';
+import 'settings_connection_pane.dart';
 import 'settings_domain.dart';
 import 'settings_fidelity_pane.dart';
 import 'settings_history_pane.dart';
 import 'settings_store.dart';
+import 'settings_terms_pane.dart';
+import 'system_store.dart';
+import 'terms_store.dart';
 
 class SettingsWindowApp extends StatefulWidget {
   const SettingsWindowApp({
@@ -37,6 +44,9 @@ class SettingsWindowApp extends StatefulWidget {
     required this.initialDomain,
     required this.historyStore,
     required this.evalRunner,
+    required this.termsStore,
+    required this.connectionStore,
+    required this.systemStore,
     this.initialTheme = ThemeMode.system,
     this.initialSelection,
     this.captionTheme = applyWindowsCaptionTheme,
@@ -52,6 +62,18 @@ class SettingsWindowApp extends StatefulWidget {
 
   /// The fidelity-eval domain's seam (starts the Rust-side run).
   final FidelityEvalRunner evalRunner;
+
+  /// The terms domain's seam (the hotword dictionary file — the same
+  /// calls the quick panel's quick-add makes, plus the rename).
+  final TermsStore termsStore;
+
+  /// The connection domain's seam (the effective `[asr]`/`[llm]`
+  /// sections; keys ride as placement + edit, never values).
+  final ConnectionStore connectionStore;
+
+  /// The advanced and about domains' seam (read-only timings, version,
+  /// and the open-config entry the tray shares).
+  final SystemStore systemStore;
 
   /// Theme and selection ride the window arguments (the main window
   /// cannot push into the sub-engine before its handler exists), then
@@ -253,7 +275,15 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
         onHistoryChanged: widget.channel.sendHistoryChanged,
         onRerectify: widget.channel.sendHistoryRerectify,
       ),
-      _ => _PlaceholderPane(domain: _domain),
+      SettingsDomain.terms => SettingsTermsPane(
+        store: widget.termsStore,
+        onTermsChanged: widget.channel.sendTermsChanged,
+      ),
+      SettingsDomain.connection => SettingsConnectionPane(
+        store: widget.connectionStore,
+      ),
+      SettingsDomain.advanced => SettingsAdvancedPane(store: widget.systemStore),
+      SettingsDomain.about => SettingsAboutPane(store: widget.systemStore),
     };
   }
 }
@@ -778,40 +808,6 @@ class _DialogField extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-
-// ---------------------------------------------------------------------------
-// Placeholder domains (tickets 18/19)
-// ---------------------------------------------------------------------------
-
-class _PlaceholderPane extends StatelessWidget {
-  const _PlaceholderPane({required this.domain});
-
-  final SettingsDomain domain;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    // Only ticket 19's domains still land here.
-    const filledBy = '工单 19';
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '${domain.label}域',
-            style: SrType.title.copyWith(color: pal.textPrimary),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '设计稿占位 · $filledBy 填充',
-            style: SrType.caption.copyWith(color: pal.textTertiary),
-          ),
-        ],
-      ),
     );
   }
 }
