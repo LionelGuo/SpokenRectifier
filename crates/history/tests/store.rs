@@ -226,3 +226,142 @@ fn the_database_resolves_to_the_first_writable_directory() {
     std::fs::remove_file(&unwritable).unwrap();
     std::fs::remove_dir_all(&writable).unwrap();
 }
+
+// -- runtime config changes (the settings window, ticket 18) ------------------
+
+#[test]
+fn a_tightened_retention_applies_at_once() {
+    let dir = scratch("sr-history-apply-retention");
+    let (clock, now) = settable_clock(1_000);
+    let store = HistoryStore::open_at(
+        &dir.join("history.db"),
+        HistoryConfig::default(),
+        now.clone(),
+    )
+    .unwrap();
+    store.record(entry("十天前的原话", "十天前的成文"));
+
+    // Tighten to 7 days: the row is 9 days old under the moved clock,
+    // so the eager sweep must take it without any further record/read.
+    clock.store(1_000 + 9 * DAY_MS, Ordering::SeqCst);
+    store
+        .apply_config(HistoryConfig {
+            enabled: true,
+            retention_days: 7,
+        })
+        .unwrap();
+    assert!(
+        store.list(10).is_empty(),
+        "the tightened retention swept the old row immediately"
+    );
+
+    // Loosening back keeps what comes after.
+    store.record(entry("新原话", "新成文"));
+    store.apply_config(HistoryConfig::default()).unwrap();
+    assert_eq!(store.list(10).len(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn turning_keep_nothing_on_clears_and_removes_the_database() {
+    let dir = scratch("sr-history-apply-off");
+    let db = dir.join("history.db");
+    let (_clock, now) = settable_clock(1_000);
+    let store = HistoryStore::open_at(&db, HistoryConfig::default(), now.clone()).unwrap();
+    store.record(entry("切换前的原话", "切换前的成文"));
+
+    store
+        .apply_config(HistoryConfig {
+            enabled: false,
+            retention_days: 30,
+        })
+        .unwrap();
+
+    assert!(!db.exists(), "the database file is gone, rows and all");
+    // Recording under keep-nothing keeps nothing, exactly like a store
+    // opened with the mode already on.
+    store.record(entry("不留存的原话", "不留存的成文"));
+    assert!(store.list(10).is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn turning_keep_nothing_back_off_resumes_recording() {
+    let dir = scratch("sr-history-apply-back-on");
+    let db = dir.join("history.db");
+    let (_clock, now) = settable_clock(1_000);
+    let store = HistoryStore::open_at(&db, HistoryConfig::default(), now.clone()).unwrap();
+    store
+        .apply_config(HistoryConfig {
+            enabled: false,
+            retention_days: 30,
+        })
+        .unwrap();
+
+    // Back on: the store re-resolves its home (the same directory) and
+    // records again — nothing from the wiped era resurfaces.
+    store.apply_config(HistoryConfig::default()).unwrap();
+    store.record(entry("恢复后的原话", "恢复后的成文"));
+    let listed = store.list(10);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].raw_transcript, "恢复后的原话");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_store_with_no_home_stays_off_no_matter_the_config() {
+    // The default store (the fake engine's placeholder) has no
+    // directories to resolve: every apply_config is a quiet no-op.
+    let store = HistoryStore::default();
+    store.apply_config(HistoryConfig::default()).unwrap();
+    store.record(entry("原话", "成文"));
+    assert!(store.list(10).is_empty());
+}
+
+#[test]
+fn reopening_the_store_after_a_save_returns_the_saved_config() {
+    // The full settings loop: save through the write path, reopen a
+    // store through it — keep-nothing wipes what open() sees, and the
+    // resumed mode sees the tightened retention.
+    use spokenrectifier_history::{load_history_config, save_history_config};
+
+    let dir = scratch("sr-history-apply-file-loop");
+    let (_clock, now) = settable_clock(1_000);
+    let store = HistoryStore::open(
+        std::slice::from_ref(&dir),
+        HistoryConfig::default(),
+        now.clone(),
+    )
+    .unwrap();
+    store.record(entry("三十天内的原话", "三十天内的成文"));
+    let tightened = HistoryConfig {
+        enabled: true,
+        retention_days: 7,
+    };
+    save_history_config(std::slice::from_ref(&dir), &tightened).unwrap();
+    store
+        .apply_config(load_history_config(std::slice::from_ref(&dir)).unwrap())
+        .unwrap();
+    assert_eq!(store.list(10).len(), 1, "inside 7 days, the row stays");
+
+    let keep_nothing = HistoryConfig {
+        enabled: false,
+        retention_days: 7,
+    };
+    save_history_config(std::slice::from_ref(&dir), &keep_nothing).unwrap();
+    store
+        .apply_config(load_history_config(std::slice::from_ref(&dir)).unwrap())
+        .unwrap();
+    assert!(store.list(10).is_empty());
+
+    // A brand-new store over the same files lands in the same mode.
+    let reopened = HistoryStore::open(
+        std::slice::from_ref(&dir),
+        load_history_config(std::slice::from_ref(&dir)).unwrap(),
+        now.clone(),
+    )
+    .unwrap();
+    assert!(reopened.list(10).is_empty());
+    assert!(!dir.join("spokenrectifier-history.db").exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}

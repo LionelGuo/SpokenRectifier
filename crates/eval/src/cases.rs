@@ -81,15 +81,27 @@ pub struct EvalCase {
 
 /// Where the bundled suite lives, next to the crate manifest.
 pub fn default_suite_path() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("eval/cases.toml")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cases.toml")
 }
 
 /// Load and validate a suite file.
 pub fn load_suite(path: &Path) -> Result<EvalSuite, String> {
     let source = std::fs::read_to_string(path)
         .map_err(|err| format!("cannot read {}: {err}", path.display()))?;
+    parse_suite(&source, &path.display().to_string())
+}
+
+/// The suite compiled into this binary ([`crate::EMBEDDED_SUITE`]) — the
+/// app's runner never touches the file system for the suite.
+pub fn embedded_suite() -> Result<EvalSuite, String> {
+    parse_suite(crate::EMBEDDED_SUITE, "embedded cases.toml")
+}
+
+/// Parse and validate suite text; `origin` names the source in errors
+/// (a path, or "embedded cases.toml").
+fn parse_suite(source: &str, origin: &str) -> Result<EvalSuite, String> {
     let file: SuiteFile =
-        toml::from_str(&source).map_err(|err| format!("cannot parse {}: {err}", path.display()))?;
+        toml::from_str(source).map_err(|err| format!("cannot parse {origin}: {err}"))?;
 
     let terms = file
         .terms
@@ -103,10 +115,10 @@ pub fn load_suite(path: &Path) -> Result<EvalSuite, String> {
     for raw in file.case {
         let id = raw.id.trim().to_string();
         if id.is_empty() {
-            return Err(format!("a case has a blank id in {}", path.display()));
+            return Err(format!("a case has a blank id in {origin}"));
         }
         if !seen.insert(id.clone()) {
-            return Err(format!("duplicate case id {id} in {}", path.display()));
+            return Err(format!("duplicate case id {id} in {origin}"));
         }
         let transcript = raw.transcript.trim().to_string();
         if transcript.is_empty() {
@@ -162,7 +174,7 @@ pub fn load_suite(path: &Path) -> Result<EvalSuite, String> {
         });
     }
     if cases.is_empty() {
-        return Err(format!("no cases in {}", path.display()));
+        return Err(format!("no cases in {origin}"));
     }
     Ok(EvalSuite { terms, cases })
 }
@@ -326,6 +338,18 @@ transcript = \"嗯我先走了\"
             load_suite(&path)
                 .unwrap_err()
                 .contains("at least one assertion")
+        );
+    }
+
+    #[test]
+    fn the_embedded_suite_is_the_bundled_file() {
+        // What the app compiles in must be what the repo ships — this
+        // pins the include_str! against drift by construction (it reads
+        // the same file), but keeps an explicit failure with a name if
+        // either side moves.
+        assert_eq!(
+            embedded_suite().unwrap(),
+            load_suite(&default_suite_path()).unwrap()
         );
     }
 

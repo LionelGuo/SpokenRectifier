@@ -45,16 +45,64 @@ const CATEGORIES: [FailureCategory; 5] = [
     FailureCategory::Residual,
 ];
 
+/// The pass rate the recorded baseline earned (BASELINE.md beside the
+/// suite: run at commit 2342441 on deepseek-v4-flash, 20/23 = 87.0%) —
+/// the number an interactive run in the settings window is compared
+/// against. Update it whenever a new baseline is recorded there.
+pub const BASELINE_PASS_RATE: f64 = 87.0;
+
+/// The structured summary behind the markdown report — what the
+/// settings window paints as the 通过率 + 失败类别摘要. Pure over the
+/// outcomes, same numbers the report header carries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EvalSummary {
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    /// Cases that never produced output to check (engine/LLM errors) —
+    /// already inside `failed`, broken out for display.
+    pub exec_failed: usize,
+    /// Passed share, 0.0–100.0.
+    pub rate_percent: f64,
+    /// Failure counts per assertion category, in display order (zero
+    /// counts included; execution failures are not a category).
+    pub category_counts: Vec<(FailureCategory, usize)>,
+}
+
+impl EvalSummary {
+    pub fn of(outcomes: &[CaseOutcome]) -> Self {
+        let total = outcomes.len();
+        let passed = outcomes.iter().filter(|o| o.passed()).count();
+        let rate = if total == 0 {
+            0.0
+        } else {
+            passed as f64 * 100.0 / total as f64
+        };
+        let category_counts = CATEGORIES
+            .iter()
+            .map(|category| {
+                let count = outcomes
+                    .iter()
+                    .flat_map(|o| &o.failures)
+                    .filter(|f| f.category == *category)
+                    .count();
+                (*category, count)
+            })
+            .collect();
+        Self {
+            total,
+            passed,
+            failed: total - passed,
+            exec_failed: outcomes.iter().filter(|o| o.error.is_some()).count(),
+            rate_percent: rate,
+            category_counts,
+        }
+    }
+}
+
 /// Compose the full markdown report.
 pub fn build_report(meta: &ReportMeta, outcomes: &[CaseOutcome]) -> String {
-    let total = outcomes.len();
-    let passed = outcomes.iter().filter(|o| o.passed()).count();
-    let failed = total - passed;
-    let rate = if total == 0 {
-        0.0
-    } else {
-        passed as f64 * 100.0 / total as f64
-    };
+    let summary = EvalSummary::of(outcomes);
 
     let mut report = String::new();
     report.push_str("# 保真评测报告\n\n");
@@ -64,22 +112,15 @@ pub fn build_report(meta: &ReportMeta, outcomes: &[CaseOutcome]) -> String {
     ));
     report.push_str(&format!(
         "- 用例 {} · 通过 {} · 失败 {} · 通过率 {:.1}%\n\n",
-        total, passed, failed, rate
+        summary.total, summary.passed, summary.failed, summary.rate_percent
     ));
 
-    let mut parts: Vec<String> = CATEGORIES
+    let mut parts: Vec<String> = summary
+        .category_counts
         .iter()
-        .map(|category| {
-            let count = outcomes
-                .iter()
-                .flat_map(|o| &o.failures)
-                .filter(|f| f.category == *category)
-                .count();
-            format!("{} {}", category.name(), count)
-        })
+        .map(|(category, count)| format!("{} {}", category.name(), count))
         .collect();
-    let exec_failed = outcomes.iter().filter(|o| o.error.is_some()).count();
-    parts.push(format!("执行失败 {exec_failed}"));
+    parts.push(format!("执行失败 {}", summary.exec_failed));
     report.push_str(&format!("失败分类:{}\n", parts.join(" ")));
 
     let bad: Vec<&CaseOutcome> = outcomes.iter().filter(|o| !o.passed()).collect();
@@ -216,5 +257,57 @@ mod tests {
         };
         let report = build_report(&meta(), &[outcome]);
         assert!(report.contains("\n> 第一行\n> 第二行\n"));
+    }
+
+    #[test]
+    fn the_summary_counts_categories_with_zeros_and_breaks_out_exec_failures() {
+        let outcomes = vec![
+            passed("terms-url"),
+            CaseOutcome {
+                id: "correction-date".into(),
+                output: "输出".into(),
+                failures: vec![
+                    Failure {
+                        category: FailureCategory::Lost,
+                        detail: "关键意思缺失:分页".into(),
+                    },
+                    Failure {
+                        category: FailureCategory::Lost,
+                        detail: "关键意思缺失:设计".into(),
+                    },
+                    Failure {
+                        category: FailureCategory::Fabricated,
+                        detail: "捏造:没说过的话".into(),
+                    },
+                ],
+                error: None,
+                duration_ms: 3_000,
+            },
+            CaseOutcome {
+                id: "numeral-large".into(),
+                output: String::new(),
+                failures: vec![],
+                error: Some("timed out".into()),
+                duration_ms: 120_000,
+            },
+        ];
+
+        let summary = EvalSummary::of(&outcomes);
+        assert_eq!(summary.total, 3);
+        assert_eq!(summary.passed, 1);
+        assert_eq!(summary.failed, 2);
+        assert_eq!(summary.exec_failed, 1);
+        assert!((summary.rate_percent - 100.0 / 3.0).abs() < 1e-9);
+        // Every category appears in display order, zeros included; the
+        // execution failure is broken out separately, not as a category.
+        let rendered: Vec<String> = summary
+            .category_counts
+            .iter()
+            .map(|(category, count)| format!("{} {count}", category.name()))
+            .collect();
+        assert_eq!(
+            rendered,
+            vec!["捏造 1", "丢失 2", "过度改写 0", "保留失败 0", "残留 0"]
+        );
     }
 }

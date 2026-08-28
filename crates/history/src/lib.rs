@@ -10,7 +10,7 @@
 pub mod config;
 pub mod store;
 
-pub use config::{HistoryConfig, HistoryConfigError, load_history_config};
+pub use config::{HistoryConfig, HistoryConfigError, load_history_config, save_history_config};
 pub use store::{
     HistoryEntry, HistoryError, HistoryStore, NowMs, SqliteHistory, resolve_db_path, wall_clock,
 };

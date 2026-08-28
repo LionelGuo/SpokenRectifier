@@ -11,6 +11,12 @@
 //! the injected wall clock, so retention is deterministic under tests
 //! and correct across process restarts (unlike a monotonic clock, which
 //! resets its epoch with every launch).
+//!
+//! The settings window can change the `[history]` config while the app
+//! runs (保留期 / 不留存, ticket 18): [`HistoryStore::apply_config`]
+//! retightens retention on the open database or flips the keep-nothing
+//! mode in place — the engine and the bridge hold the same store, so
+//! both see the change without anyone rebuilding them.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -58,21 +64,54 @@ impl From<rusqlite::Error> for HistoryError {
 }
 
 /// The store, in one of its two modes: keeping sessions in SQLite, or
-/// keeping nothing at all (the keep-nothing config, or nowhere writable).
-#[derive(Default)]
-pub enum HistoryStore {
-    #[default]
-    Disabled,
-    Sqlite(SqliteHistory),
+/// keeping nothing at all (the keep-nothing config, or nowhere
+/// writable). The mode lives behind a mutex so it can flip at runtime
+/// ([`HistoryStore::apply_config`]) on the one instance the engine
+/// records into and the panels read from.
+pub struct HistoryStore {
+    state: Mutex<State>,
+    now_ms: NowMs,
+    /// The directories the database resolves among — kept so the
+    /// keep-nothing mode can turn back off at runtime and find (or
+    /// re-create) a home.
+    dirs: Vec<PathBuf>,
+}
+
+enum State {
+    /// Keep-nothing (or nowhere writable): nothing is recorded, and
+    /// every database file the search order knows is gone.
+    Off,
+    On(SqliteHistory),
+}
+
+impl Default for HistoryStore {
+    /// The off store with no home: the fake engine's placeholder (tests
+    /// and headless demos keep no files, so `apply_config` has nowhere
+    /// to open either).
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(State::Off),
+            now_ms: wall_clock(),
+            dirs: Vec::new(),
+        }
+    }
 }
 
 impl HistoryStore {
+    fn off(dirs: Vec<PathBuf>, now_ms: NowMs) -> Self {
+        Self {
+            state: Mutex::new(State::Off),
+            now_ms,
+            dirs,
+        }
+    }
+
     /// Open the store: resolve the database among `dirs` (first writable
     /// wins, the config layer order) and sweep expired rows. Falls back
-    /// to [`HistoryStore::Disabled`] when history is off or no directory
-    /// is writable — history is a convenience and never blocks startup
-    /// over a database location. (A malformed `[history]` layer still
-    /// fails the caller, like every other config section.)
+    /// to the keep-nothing mode when history is off or no directory is
+    /// writable — history is a convenience and never blocks startup over
+    /// a database location. (A malformed `[history]` layer still fails
+    /// the caller, like every other config section.)
     pub fn open(
         dirs: &[PathBuf],
         config: HistoryConfig,
@@ -85,14 +124,14 @@ impl HistoryStore {
             for dir in dirs.iter().filter(|dir| dir.is_dir()) {
                 let _ = std::fs::remove_file(dir.join(DB_FILE));
             }
-            return Ok(Self::Disabled);
+            return Ok(Self::off(dirs.to_vec(), now_ms));
         }
         let Some(path) = resolve_db_path(dirs) else {
             eprintln!(
                 "spokenrectifier-history: no writable directory for the \
                  history database; keeping no history"
             );
-            return Ok(Self::Disabled);
+            return Ok(Self::off(dirs.to_vec(), now_ms));
         };
         Self::open_at(&path, config, now_ms)
     }
@@ -100,43 +139,90 @@ impl HistoryStore {
     /// Open the store at an explicit path (tests, or a caller with its
     /// own location policy). Sweeps expired rows on open. The keep-nothing
     /// config holds here too — an existing file at the path is wiped.
+    /// The path's directory becomes the store's search order, so a
+    /// later [`Self::apply_config`] re-resolves to the same home.
     pub fn open_at(
         path: &Path,
         config: HistoryConfig,
         now_ms: NowMs,
     ) -> Result<Self, HistoryError> {
+        let dirs = path
+            .parent()
+            .map(|dir| vec![dir.to_path_buf()])
+            .unwrap_or_default();
         if !config.enabled {
             let _ = std::fs::remove_file(path);
-            return Ok(Self::Disabled);
+            return Ok(Self::off(dirs, now_ms));
         }
-        let conn = Connection::open(path)
-            .map_err(|err| HistoryError(format!("{}: {err}", path.display())))?;
-        let store = SqliteHistory {
-            conn: Mutex::new(conn),
-            retention_ms: config.retention_days.saturating_mul(24 * 60 * 60 * 1000),
+        let sqlite = SqliteHistory::open(path, config.retention_days, now_ms.clone())?;
+        Ok(Self {
+            state: Mutex::new(State::On(sqlite)),
             now_ms,
-        };
-        store.migrate()?;
-        store.sweep()?;
-        Ok(Self::Sqlite(store))
+            dirs,
+        })
+    }
+
+    /// Apply a runtime config change (the settings window's controls):
+    /// a new retention takes effect at once (the sweep runs eagerly, so
+    /// a tightened period hides old rows immediately), and flipping the
+    /// keep-nothing mode behaves exactly like opening the store under
+    /// the new config — turning it ON clears and removes the database
+    /// files; turning it OFF re-resolves a home among the search order
+    /// and resumes recording.
+    pub fn apply_config(&self, config: HistoryConfig) -> Result<(), HistoryError> {
+        let mut state = self.state.lock().unwrap();
+        match (&mut *state, config.enabled) {
+            (State::On(sqlite), true) => {
+                sqlite.retention_ms = config.retention_days.saturating_mul(24 * 60 * 60 * 1000);
+                let _ = sqlite.sweep();
+                Ok(())
+            }
+            (State::On(sqlite), false) => {
+                // Empty first (a removed-but-locked file would otherwise
+                // keep its rows), then close the connection so the file
+                // can go, then remove the live file and every canonical
+                // database the search order knows (open_at may sit on a
+                // caller-chosen name).
+                let path = sqlite.path.clone();
+                let _ = sqlite.clear();
+                *state = State::Off; // drops the connection
+                let _ = std::fs::remove_file(&path);
+                for dir in &self.dirs {
+                    let _ = std::fs::remove_file(dir.join(DB_FILE));
+                }
+                Ok(())
+            }
+            (State::Off, true) => {
+                // Nowhere writable is the off store's own situation too:
+                // staying off is the same fallback `open` makes.
+                let Some(path) = resolve_db_path(&self.dirs) else {
+                    return Ok(());
+                };
+                let sqlite =
+                    SqliteHistory::open(&path, config.retention_days, self.now_ms.clone())?;
+                *state = State::On(sqlite);
+                Ok(())
+            }
+            (State::Off, false) => Ok(()),
+        }
     }
 
     /// The most recent sessions, newest first. Sweeps first: the panel
     /// must never show a row past its retention, however long the
     /// process has been running.
     pub fn list(&self, limit: usize) -> Vec<HistoryEntry> {
-        match self {
-            Self::Disabled => Vec::new(),
-            Self::Sqlite(store) => {
+        match &*self.state.lock().unwrap() {
+            State::Off => Vec::new(),
+            State::On(store) => {
                 let _ = store.sweep();
                 store.list(limit).unwrap_or_default()
             }
         }
     }
 
-    /// Remove every stored session. A no-op when disabled.
+    /// Remove every stored session. A no-op when off.
     pub fn clear(&self) {
-        if let Self::Sqlite(store) = self {
+        if let State::On(store) = &*self.state.lock().unwrap() {
             // A failed clear surfaces nowhere by design: the next list
             // still shows whatever survived, and the user can retry.
             let _ = store.clear();
@@ -146,7 +232,7 @@ impl HistoryStore {
 
 impl SessionRecorder for HistoryStore {
     fn record(&self, session: RecordedSession) {
-        if let Self::Sqlite(store) = self {
+        if let State::On(store) = &*self.state.lock().unwrap() {
             // Sweep first, then insert: the new row's timestamp is always
             // inside retention, so the sweep can never take it.
             let _ = store.sweep();
@@ -161,9 +247,27 @@ pub struct SqliteHistory {
     conn: Mutex<Connection>,
     retention_ms: u64,
     now_ms: NowMs,
+    /// Where this database lives — the file a mode flip removes.
+    path: PathBuf,
 }
 
 impl SqliteHistory {
+    /// Open (creating if needed), migrate, and sweep the database at
+    /// `path` for the given retention.
+    fn open(path: &Path, retention_days: u64, now_ms: NowMs) -> Result<Self, HistoryError> {
+        let conn = Connection::open(path)
+            .map_err(|err| HistoryError(format!("{}: {err}", path.display())))?;
+        let store = SqliteHistory {
+            conn: Mutex::new(conn),
+            retention_ms: retention_days.saturating_mul(24 * 60 * 60 * 1000),
+            now_ms,
+            path: path.to_path_buf(),
+        };
+        store.migrate()?;
+        store.sweep()?;
+        Ok(store)
+    }
+
     fn migrate(&self) -> Result<(), HistoryError> {
         self.conn.lock().unwrap().execute(
             "CREATE TABLE IF NOT EXISTS sessions (
@@ -220,8 +324,9 @@ impl SqliteHistory {
         self.conn
             .lock()
             .unwrap()
-            .execute("DELETE FROM sessions", ())?;
-        Ok(())
+            .execute("DELETE FROM sessions", ())
+            .map(|_| ())
+            .map_err(HistoryError::from)
     }
 }
 

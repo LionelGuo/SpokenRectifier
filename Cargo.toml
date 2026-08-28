@@ -6,6 +6,7 @@ members = [
     "crates/config",
     "crates/aliyun",
     "crates/cli",
+    "crates/eval",
     "crates/history",
     "crates/insertion",
     "crates/llm",

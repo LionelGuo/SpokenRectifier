@@ -12,6 +12,7 @@ futures.workspace = true
 serde = { version = "1", features = ["derive"] }
 spokenrectifier-config = { path = "../config" }
 spokenrectifier-engine = { path = "../engine" }
+spokenrectifier-eval = { path = "../eval" }
 spokenrectifier-llm = { path = "../llm" }
 tokio.workspace = true
 toml = "0.8"

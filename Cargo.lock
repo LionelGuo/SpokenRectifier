@@ -2245,6 +2245,7 @@ dependencies = [
  "spokenrectifier-audio",
  "spokenrectifier-config",
  "spokenrectifier-engine",
+ "spokenrectifier-eval",
  "spokenrectifier-history",
  "spokenrectifier-insertion",
  "spokenrectifier-llm",
@@ -2541,6 +2542,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "spokenrectifier-eval"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "spokenrectifier-engine",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "spokenrectifier-history"
 version = "0.1.0"
 dependencies = [
@@ -2549,6 +2561,7 @@ dependencies = [
  "spokenrectifier-config",
  "spokenrectifier-engine",
  "thiserror 2.0.20",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]
@@ -2602,6 +2615,7 @@ dependencies = [
  "serde",
  "spokenrectifier-config",
  "spokenrectifier-engine",
+ "spokenrectifier-eval",
  "spokenrectifier-llm",
  "tokio",
  "toml",

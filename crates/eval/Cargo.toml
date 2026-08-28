@@ -1,0 +1,13 @@
+[package]
+name = "spokenrectifier-eval"
+description = "The fidelity eval suite and runner (保真评测): golden cases, machine assertions, report building, and the engine-seam harness the sr-eval CLI and the app's settings window both ride."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+serde = { version = "1", features = ["derive"] }
+spokenrectifier-engine = { path = "../engine" }
+tokio.workspace = true
+toml = "0.8"
