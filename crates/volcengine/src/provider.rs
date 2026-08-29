@@ -38,9 +38,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// inside the endpoint's wait-packet window.
 const KEEPALIVE_EVERY: Duration = Duration::from_secs(5);
 
-/// The cloud ASR adapter.
+/// The cloud ASR adapter. The dialect reads nothing per-stream from
+/// the config — the credentials live in the connect headers, so the
+/// folded [`AsrConfig`] is consumed at construction and not kept.
 pub struct VolcengineAsr {
-    config: AsrConfig,
     vad: VadConfig,
     source: FrameSource,
     connect: Arc<dyn RealtimeConnect<Vec<u8>>>,
@@ -101,7 +102,6 @@ impl VolcengineAsr {
             BytesWire,
         );
         Ok(Self {
-            config,
             vad,
             source: Arc::new(spokenrectifier_audio::open_mic),
             connect: Arc::new(connect),
@@ -112,7 +112,6 @@ impl VolcengineAsr {
 
     /// Fully injected assembly (tests).
     pub fn with_parts(
-        config: AsrConfig,
         vad: VadConfig,
         source: FrameSource,
         connect: Arc<dyn RealtimeConnect<Vec<u8>>>,
@@ -120,7 +119,6 @@ impl VolcengineAsr {
         keepalive_every: Option<Duration>,
     ) -> Self {
         Self {
-            config,
             vad,
             source,
             connect,
@@ -137,7 +135,6 @@ impl AsrProvider for VolcengineAsr {
         terms: &[String],
     ) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
         let frames = (self.source)().map_err(AsrOpenError)?;
-        let _ = &self.config; // the dialect reads nothing per-stream from it
         spokenrectifier_asr::open_session(
             frames,
             VolcengineProtocol::new(terms.to_vec()),
@@ -157,151 +154,31 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    use async_trait::async_trait;
-    use futures::StreamExt;
     use tokio::sync::mpsc;
 
-    use spokenrectifier_asr::transport::{ConnectError, RealtimeChannel};
+    use spokenrectifier_asr::testing::{
+        PlanEntry, ScriptedConnect, collect, live_conn, paced_source, scripted_source,
+    };
+    use spokenrectifier_asr::transport::ConnectError;
     use spokenrectifier_audio::MicEvent;
 
     use crate::frame::{MESSAGE_AUDIO_ONLY, encode_server_response};
     use crate::test_support::{tone_frames as tone, zero_frames as zeros};
 
-    // -- scripted connection ------------------------------------------------
-
-    /// What one planned `connect()` does.
-    enum PlanEntry {
-        Live {
-            channel: RealtimeChannel<Vec<u8>>,
-            release: Option<mpsc::Receiver<()>>,
-        },
-        Fail(ConnectError),
-    }
-
-    /// The halves of a planned connection the test keeps: watch what the
-    /// adapter sends, feed it server frames.
-    #[derive(Clone)]
-    struct ConnHandles {
-        observe: Arc<tokio::sync::Mutex<mpsc::Receiver<Vec<u8>>>>,
-        feed: mpsc::Sender<Result<Vec<u8>, String>>,
-    }
-
-    fn live_conn(release: Option<mpsc::Receiver<()>>) -> (PlanEntry, ConnHandles) {
-        let (client_tx, observe) = mpsc::channel(64);
-        let (feed, client_rx) = mpsc::channel(64);
-        (
-            PlanEntry::Live {
-                channel: RealtimeChannel {
-                    tx: client_tx,
-                    rx: client_rx,
-                },
-                release,
-            },
-            ConnHandles {
-                observe: Arc::new(tokio::sync::Mutex::new(observe)),
-                feed,
-            },
-        )
-    }
-
-    #[derive(Clone, Default)]
-    struct ScriptedConnect {
-        plan: Arc<std::sync::Mutex<std::collections::VecDeque<PlanEntry>>>,
-        connect_count: Arc<std::sync::atomic::AtomicUsize>,
-    }
-
-    impl ScriptedConnect {
-        fn new(plan: Vec<PlanEntry>) -> Self {
-            Self {
-                plan: Arc::new(std::sync::Mutex::new(plan.into())),
-                connect_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl RealtimeConnect<Vec<u8>> for ScriptedConnect {
-        async fn connect(&self) -> Result<RealtimeChannel<Vec<u8>>, ConnectError> {
-            self.connect_count
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let entry = self.plan.lock().unwrap().pop_front();
-            match entry {
-                Some(PlanEntry::Fail(err)) => Err(err),
-                Some(PlanEntry::Live { channel, release }) => {
-                    if let Some(mut release) = release {
-                        let _ = release.recv().await;
-                    }
-                    Ok(channel)
-                }
-                None => Err(ConnectError::Other("no more planned connections".into())),
-            }
-        }
-    }
-
     // -- harness ------------------------------------------------------------
 
-    fn scripted_source(sends: Vec<MicEvent>, stay_open: bool) -> FrameSource {
-        paced_source(sends, stay_open, None)
-    }
-
-    /// Like [`scripted_source`], but pacing frames `delay` apart so
-    /// wall-clock arms (the keepalive tick) get their turn.
-    fn paced_source(sends: Vec<MicEvent>, stay_open: bool, delay: Option<Duration>) -> FrameSource {
-        Arc::new(move || {
-            let (tx, rx) = std::sync::mpsc::channel();
-            let script = sends.clone();
-            std::thread::spawn(move || {
-                for event in script {
-                    if let Some(delay) = delay {
-                        std::thread::sleep(delay);
-                    }
-                    if tx.send(event).is_err() {
-                        return;
-                    }
-                }
-                if stay_open {
-                    std::mem::forget(tx); // leak the sender: no end signal
-                }
-            });
-            Ok(rx)
-        })
-    }
-
     fn provider(
-        connect: Arc<ScriptedConnect>,
+        connect: Arc<ScriptedConnect<Vec<u8>>>,
         sends: Vec<MicEvent>,
         stay_open: bool,
     ) -> VolcengineAsr {
         VolcengineAsr::with_parts(
-            volc_config(),
             Default::default(),
             scripted_source(sends, stay_open),
             connect,
             Duration::from_millis(500),
             None,
         )
-    }
-
-    fn volc_config() -> AsrConfig {
-        let mut config = AsrConfig::defaults();
-        config.provider = AsrProviderKind::Volcengine;
-        config.volcengine.app_id = Some("42".into());
-        config.volcengine.access_key = Some("volc-token".into());
-        config
-    }
-
-    async fn collect(mut stream: BoxStream<'static, AsrEvent>) -> Vec<AsrEvent> {
-        let mut events = Vec::new();
-        while let Ok(Some(event)) =
-            tokio::time::timeout(Duration::from_millis(800), stream.next()).await
-        {
-            let failed = matches!(event, AsrEvent::Failed { .. });
-            events.push(event);
-            if failed {
-                break;
-            }
-        }
-        events
     }
 
     /// Await at least one adapter-sent frame of the given message type,
@@ -354,7 +231,8 @@ mod tests {
         sends.extend(zeros(20).into_iter().map(MicEvent::Frame));
 
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<Vec<u8>>> =
+            Arc::new(ScriptedConnect::<Vec<u8>>::new(vec![entry]));
         let provider = provider(connect, sends, false);
         let dictionary = vec!["SpokenRectifier".to_string()];
         let stream = provider.open_stream(&dictionary).await.expect("open");
@@ -398,7 +276,8 @@ mod tests {
         sends.push(MicEvent::Error("device gone".into()));
 
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<Vec<u8>>> =
+            Arc::new(ScriptedConnect::<Vec<u8>>::new(vec![entry]));
         let provider = provider(connect, sends, false);
         let stream = provider.open_stream(&[]).await.expect("open");
         let events = collect(stream).await;
@@ -437,9 +316,9 @@ mod tests {
         sends.push(MicEvent::Error("device gone".into()));
 
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<Vec<u8>>> =
+            Arc::new(ScriptedConnect::<Vec<u8>>::new(vec![entry]));
         let provider = VolcengineAsr::with_parts(
-            volc_config(),
             Default::default(),
             paced_source(sends, false, Some(Duration::from_millis(40))),
             connect,
@@ -488,7 +367,8 @@ mod tests {
         sends.extend(tone(0.6, 3).into_iter().map(MicEvent::Frame));
 
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<Vec<u8>>> =
+            Arc::new(ScriptedConnect::<Vec<u8>>::new(vec![entry]));
         let provider = provider(connect, sends, false);
         let stream = provider.open_stream(&[]).await.expect("open");
 
@@ -514,7 +394,8 @@ mod tests {
     #[tokio::test]
     async fn server_error_frames_end_the_session_with_feedback() {
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<Vec<u8>>> =
+            Arc::new(ScriptedConnect::<Vec<u8>>::new(vec![entry]));
         let provider = provider(connect, vec![], true);
         let stream = provider.open_stream(&[]).await.expect("open");
 
@@ -543,7 +424,8 @@ mod tests {
         let (entry1, handles1) = live_conn(None);
         let (release_tx, release_rx) = mpsc::channel(1);
         let (entry2, handles2) = live_conn(Some(release_rx));
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry1, entry2]));
+        let connect: Arc<ScriptedConnect<Vec<u8>>> =
+            Arc::new(ScriptedConnect::<Vec<u8>>::new(vec![entry1, entry2]));
         let provider = provider(connect, sends, true);
         let dictionary = vec!["语音实验室".to_string()];
         let stream = provider.open_stream(&dictionary).await.expect("open");
@@ -598,9 +480,10 @@ mod tests {
 
     #[tokio::test]
     async fn auth_failure_at_open_is_an_open_error() {
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![PlanEntry::Fail(
-            ConnectError::Auth("handshake rejected: HTTP 401".into()),
-        )]));
+        let connect: Arc<ScriptedConnect<Vec<u8>>> =
+            Arc::new(ScriptedConnect::<Vec<u8>>::new(vec![PlanEntry::Fail(
+                ConnectError::Auth("handshake rejected: HTTP 401".into()),
+            )]));
         let provider = provider(connect, vec![], true);
         let Err(err) = provider.open_stream(&[]).await else {
             panic!("expected open to fail");

@@ -21,6 +21,7 @@
 pub mod gate;
 pub mod schema;
 pub mod session;
+pub mod testing;
 pub mod transport;
 
 pub use gate::{PAD_MS, SendGate};

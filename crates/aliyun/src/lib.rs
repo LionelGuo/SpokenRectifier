@@ -30,7 +30,6 @@
 mod provider;
 
 pub use provider::AliyunAsr;
-pub use spokenrectifier_asr::transport::{ConnectError, RealtimeChannel, RealtimeConnect};
 
 /// Synthetic 100 ms frame builders for the crate's deterministic tests —
 /// the same shape the audio crate's tests use, kept local because its

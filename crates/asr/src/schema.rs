@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use spokenrectifier_config::load_section_layers;
 use spokenrectifier_config::section_write::{
-    KeyEdit, KeyStatus, SectionField, WriteLayer, write_section_fields,
+    KeyEdit, SectionField, WriteLayer, write_section_fields,
 };
 
 /// Which vendor the `[asr]` section routes to. One adapter crate per
@@ -295,24 +295,6 @@ impl AsrConfig {
                     || present(&self.tencent.secret_id)
                     || present(&self.tencent.secret_key)
             }
-        }
-    }
-
-    /// The key's placement for display (the diff-echo key block): the
-    /// common `api_key` pair.
-    pub fn common_key_status(&self) -> KeyStatus {
-        spokenrectifier_config::section_write::key_status(
-            self.api_key.as_deref(),
-            self.api_key_env.as_deref(),
-        )
-    }
-
-    /// The placement for a stored-only secret (the sub-section keys have
-    /// no environment variant): stored, or nothing.
-    pub fn stored_key_status(value: &Option<String>) -> KeyStatus {
-        match value {
-            Some(_) => KeyStatus::InLocalFile,
-            None => KeyStatus::Unset,
         }
     }
 

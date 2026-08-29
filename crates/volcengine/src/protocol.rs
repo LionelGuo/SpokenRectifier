@@ -199,15 +199,14 @@ impl VolcengineProtocol {
 /// (45000001 bad parameter, 45000081 wait-packet timeout, 55000031
 /// busy…), the message says what broke.
 fn parse_error(json: &str) -> AsrEvent {
-    let code = serde_json::from_str::<serde_json::Value>(json)
-        .ok()
-        .and_then(|value| {
-            value["code"]
-                .as_u64()
-                .or_else(|| value["error_code"].as_u64())
-        });
-    let message = serde_json::from_str::<serde_json::Value>(json)
-        .ok()
+    let value = serde_json::from_str::<serde_json::Value>(json).ok();
+    let code = value.as_ref().and_then(|value| {
+        value["code"]
+            .as_u64()
+            .or_else(|| value["error_code"].as_u64())
+    });
+    let message = value
+        .as_ref()
         .and_then(|value| {
             value["message"]
                 .as_str()

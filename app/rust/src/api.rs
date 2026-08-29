@@ -300,7 +300,8 @@ fn token_scripts(llm_responses: &[String]) -> Vec<Vec<LlmStep>> {
 /// provider's cloud adapter streaming real transcripts (see
 /// `engine_factory::asr_provider` for the dispatch and its error
 /// rules). Without credentials the mic+VAD provider keeps the session
-/// semantics (speech activity, silence, device failure). The rectify LLM is the real OpenAI-compatible client when
+/// semantics (speech activity, silence, device failure). The rectify
+/// LLM is the real OpenAI-compatible client when
 /// `[llm]` yields a key; the scripted demo LLM otherwise — but that
 /// combination is refused under a real ASR key (see `engine_factory`).
 /// Insertion is the production inserter (clipboard paste with restore, or

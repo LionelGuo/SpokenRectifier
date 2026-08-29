@@ -213,117 +213,25 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    use async_trait::async_trait;
-    use futures::StreamExt;
     use serde_json::Value;
     use tokio::sync::mpsc;
 
-    use spokenrectifier_asr::transport::{ConnectError, RealtimeChannel};
+    use spokenrectifier_asr::testing::{
+        PlanEntry, ScriptedConnect, collect, live_conn, scripted_source,
+    };
+    use spokenrectifier_asr::transport::ConnectError;
     use spokenrectifier_audio::MicEvent;
 
     use crate::test_support::{tone_frames as tone, zero_frames as zeros};
     use spokenrectifier_asr::PAD_MS;
 
-    // -- scripted connection ------------------------------------------------
-
-    /// What one planned `connect()` does.
-    enum PlanEntry {
-        /// A live channel; `release` gates when `connect()` resolves, so a
-        /// test can hold a reconnect open while frames keep arriving.
-        Live {
-            channel: RealtimeChannel<String>,
-            release: Option<mpsc::Receiver<()>>,
-        },
-        /// Fail before the session begins (auth, unreachable).
-        Fail(ConnectError),
-    }
-
-    /// The halves of a planned connection the test keeps: watch what the
-    /// adapter sends, feed it server events.
-    #[derive(Clone)]
-    struct ConnHandles {
-        observe: Arc<tokio::sync::Mutex<mpsc::Receiver<String>>>,
-        feed: mpsc::Sender<Result<String, String>>,
-    }
-
-    /// Plumb one planned live connection.
-    fn live_conn(release: Option<mpsc::Receiver<()>>) -> (PlanEntry, ConnHandles) {
-        let (client_tx, observe) = mpsc::channel(64);
-        let (feed, client_rx) = mpsc::channel(64);
-        (
-            PlanEntry::Live {
-                channel: RealtimeChannel {
-                    tx: client_tx,
-                    rx: client_rx,
-                },
-                release,
-            },
-            ConnHandles {
-                observe: Arc::new(tokio::sync::Mutex::new(observe)),
-                feed,
-            },
-        )
-    }
-
-    #[derive(Clone, Default)]
-    struct ScriptedConnect {
-        plan: Arc<std::sync::Mutex<std::collections::VecDeque<PlanEntry>>>,
-        connect_count: Arc<std::sync::atomic::AtomicUsize>,
-    }
-
-    impl ScriptedConnect {
-        fn new(plan: Vec<PlanEntry>) -> Self {
-            Self {
-                plan: Arc::new(std::sync::Mutex::new(plan.into())),
-                connect_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl RealtimeConnect<String> for ScriptedConnect {
-        async fn connect(&self) -> Result<RealtimeChannel<String>, ConnectError> {
-            self.connect_count
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let entry = self.plan.lock().unwrap().pop_front();
-            match entry {
-                Some(PlanEntry::Fail(err)) => Err(err),
-                Some(PlanEntry::Live { channel, release }) => {
-                    if let Some(mut release) = release {
-                        let _ = release.recv().await;
-                    }
-                    Ok(channel)
-                }
-                None => Err(ConnectError::Other("no more planned connections".into())),
-            }
-        }
-    }
-
     // -- harness ------------------------------------------------------------
 
-    /// Frame-source factory that scripts one mic session. With
-    /// `stay_open` the channel stays open after the script — a healthy
-    /// capture has no end-of-stream — so tests can keep feeding server
-    /// events into a live session.
-    fn scripted_source(sends: Vec<MicEvent>, stay_open: bool) -> FrameSource {
-        Arc::new(move || {
-            let (tx, rx) = std::sync::mpsc::channel();
-            let script = sends.clone();
-            std::thread::spawn(move || {
-                for event in script {
-                    if tx.send(event).is_err() {
-                        return;
-                    }
-                }
-                if stay_open {
-                    std::mem::forget(tx); // leak the sender: no end signal
-                }
-            });
-            Ok(rx)
-        })
-    }
-
-    fn provider(connect: Arc<ScriptedConnect>, sends: Vec<MicEvent>, stay_open: bool) -> AliyunAsr {
+    fn provider(
+        connect: Arc<ScriptedConnect<String>>,
+        sends: Vec<MicEvent>,
+        stay_open: bool,
+    ) -> AliyunAsr {
         AliyunAsr::with_parts(
             AsrConfig::defaults(),
             Default::default(),
@@ -335,22 +243,6 @@ mod tests {
 
     fn terms(list: &[&str]) -> Vec<String> {
         list.iter().map(|t| t.to_string()).collect()
-    }
-
-    /// Collect adapter events until the stream ends, a Failed lands, or
-    /// the deadline passes.
-    async fn collect(mut stream: BoxStream<'static, AsrEvent>) -> Vec<AsrEvent> {
-        let mut events = Vec::new();
-        while let Ok(Some(event)) =
-            tokio::time::timeout(Duration::from_millis(800), stream.next()).await
-        {
-            let failed = matches!(event, AsrEvent::Failed { .. });
-            events.push(event);
-            if failed {
-                break;
-            }
-        }
-        events
     }
 
     /// Await at least one adapter-sent text matching `pred`.
@@ -420,7 +312,8 @@ mod tests {
         sends.extend(zeros(20).into_iter().map(MicEvent::Frame));
 
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<String>> =
+            Arc::new(ScriptedConnect::<String>::new(vec![entry]));
         let provider = provider(connect, sends, false);
         let stream = provider.open_stream(&[]).await.expect("open");
 
@@ -494,7 +387,8 @@ mod tests {
         let (entry1, handles1) = live_conn(None);
         let (release_tx, release_rx) = mpsc::channel(1);
         let (entry2, handles2) = live_conn(Some(release_rx));
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry1, entry2]));
+        let connect: Arc<ScriptedConnect<String>> =
+            Arc::new(ScriptedConnect::<String>::new(vec![entry1, entry2]));
         let provider = provider(connect, sends, true);
         let dictionary = terms(&["SpokenRectifier", "语音实验室"]);
         let stream = provider.open_stream(&dictionary).await.expect("open");
@@ -529,7 +423,8 @@ mod tests {
         sends.push(MicEvent::Error("device gone".into())); // end the session
 
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<String>> =
+            Arc::new(ScriptedConnect::<String>::new(vec![entry]));
         let provider = provider(connect, sends, false);
         let stream = provider.open_stream(&[]).await.expect("open");
 
@@ -550,7 +445,8 @@ mod tests {
     #[tokio::test]
     async fn server_error_ends_the_session_with_feedback() {
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<String>> =
+            Arc::new(ScriptedConnect::<String>::new(vec![entry]));
         let provider = provider(connect, vec![], true);
         let stream = provider.open_stream(&[]).await.expect("open");
 
@@ -579,7 +475,8 @@ mod tests {
         let (entry1, handles1) = live_conn(None);
         let (release_tx, release_rx) = mpsc::channel(1);
         let (entry2, handles2) = live_conn(Some(release_rx));
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry1, entry2]));
+        let connect: Arc<ScriptedConnect<String>> =
+            Arc::new(ScriptedConnect::<String>::new(vec![entry1, entry2]));
         let provider = provider(connect, sends, true);
         let stream = provider.open_stream(&[]).await.expect("open");
 
@@ -616,7 +513,7 @@ mod tests {
         sends.extend(zeros(20).into_iter().map(MicEvent::Frame));
 
         let (entry1, handles1) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![
+        let connect: Arc<ScriptedConnect<String>> = Arc::new(ScriptedConnect::<String>::new(vec![
             entry1,
             PlanEntry::Fail(ConnectError::Other("connection failed: dns".into())),
             PlanEntry::Fail(ConnectError::Other("connection failed: dns".into())),
@@ -639,7 +536,7 @@ mod tests {
     #[tokio::test]
     async fn auth_failure_is_not_retried() {
         let (entry1, handles1) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![
+        let connect: Arc<ScriptedConnect<String>> = Arc::new(ScriptedConnect::<String>::new(vec![
             entry1,
             PlanEntry::Fail(ConnectError::Auth("handshake rejected: HTTP 401".into())),
         ]));
@@ -657,12 +554,7 @@ mod tests {
         };
         assert!(message.contains("401"), "got: {message}");
         // One live connection, one auth-failed attempt — no second retry.
-        assert_eq!(
-            connect
-                .connect_count
-                .load(std::sync::atomic::Ordering::SeqCst),
-            2
-        );
+        assert_eq!(connect.connect_count(), 2);
     }
 
     #[tokio::test]
@@ -672,7 +564,8 @@ mod tests {
         let (entry1, handles1) = live_conn(None);
         let (_release_tx, release_rx) = mpsc::channel(1);
         let (entry2, _handles2) = live_conn(Some(release_rx));
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry1, entry2]));
+        let connect: Arc<ScriptedConnect<String>> =
+            Arc::new(ScriptedConnect::<String>::new(vec![entry1, entry2]));
         let provider = AliyunAsr::with_parts(
             AsrConfig::defaults(),
             Default::default(),
@@ -692,19 +585,15 @@ mod tests {
             matches!(events.last(), Some(AsrEvent::Failed { .. })),
             "got {events:?}"
         );
-        assert!(
-            connect
-                .connect_count
-                .load(std::sync::atomic::Ordering::SeqCst)
-                >= 2
-        );
+        assert!(connect.connect_count() >= 2);
     }
 
     #[tokio::test]
     async fn auth_failure_at_open_is_an_open_error() {
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![PlanEntry::Fail(
-            ConnectError::Auth("handshake rejected: HTTP 401".into()),
-        )]));
+        let connect: Arc<ScriptedConnect<String>> =
+            Arc::new(ScriptedConnect::<String>::new(vec![PlanEntry::Fail(
+                ConnectError::Auth("handshake rejected: HTTP 401".into()),
+            )]));
         let provider = provider(connect, vec![], true);
         let Err(err) = provider.open_stream(&[]).await else {
             panic!("expected open to fail");
@@ -721,7 +610,8 @@ mod tests {
         sends.extend(tone(0.6, 3).into_iter().map(MicEvent::Frame));
 
         let (entry, handles) = live_conn(None);
-        let connect: Arc<ScriptedConnect> = Arc::new(ScriptedConnect::new(vec![entry]));
+        let connect: Arc<ScriptedConnect<String>> =
+            Arc::new(ScriptedConnect::<String>::new(vec![entry]));
         let provider = provider(connect, sends, false);
         let stream = provider.open_stream(&[]).await.expect("open");
 

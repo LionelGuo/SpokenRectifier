@@ -103,9 +103,10 @@ pub fn asr_provider(dirs: &[PathBuf]) -> anyhow::Result<Arc<dyn AsrProvider>> {
                 .map_err(|err| anyhow!("ASR {}", err.0))?,
         )),
         AsrProviderKind::Tencent | AsrProviderKind::Openai | AsrProviderKind::Azure => {
-            let scheduled = match config.provider {
-                AsrProviderKind::Tencent => " (ticket 25)",
-                _ => "",
+            let scheduled = if config.provider == AsrProviderKind::Tencent {
+                " (ticket 25)"
+            } else {
+                ""
             };
             Err(anyhow!(
                 "ASR [asr] provider \"{}\": no adapter yet{scheduled}; \
