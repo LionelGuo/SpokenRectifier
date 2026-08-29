@@ -18,7 +18,8 @@ part 'api.freezed.dart';
 /// provider's cloud adapter streaming real transcripts (see
 /// `engine_factory::asr_provider` for the dispatch and its error
 /// rules). Without credentials the mic+VAD provider keeps the session
-/// semantics (speech activity, silence, device failure). The rectify LLM is the real OpenAI-compatible client when
+/// semantics (speech activity, silence, device failure). The rectify
+/// LLM is the real OpenAI-compatible client when
 /// `[llm]` yields a key; the scripted demo LLM otherwise — but that
 /// combination is refused under a real ASR key (see `engine_factory`).
 /// Insertion is the production inserter (clipboard paste with restore, or
@@ -139,6 +140,24 @@ Future<BridgeConnection> connectionConfig() =>
 /// not the ask.
 Future<BridgeAsrConnection> setAsrConnection({required BridgeAsrEdit edit}) =>
     RustLib.instance.api.crateApiSetAsrConnection(edit: edit);
+
+/// The settings pane's live endpoint preview: the WebSocket URL the
+/// form's current fields resolve to, recomputed while the user types
+/// or switches the provider chip — the same [`AsrConfig::endpoint`]
+/// derivation the loaded view previews with, so there is exactly one.
+Future<String?> asrEndpointPreview({
+  required String provider,
+  required String model,
+  String? baseUrl,
+  String? workspaceId,
+  required String region,
+}) => RustLib.instance.api.crateApiAsrEndpointPreview(
+  provider: provider,
+  model: model,
+  baseUrl: baseUrl,
+  workspaceId: workspaceId,
+  region: region,
+);
 
 /// Write the editor's `[llm]` model back into the layer files (see
 /// `save_llm_connection`) and return the re-read view.

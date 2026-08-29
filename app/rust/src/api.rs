@@ -27,7 +27,7 @@ use tokio::runtime::Runtime;
 use crate::frb_generated::StreamSink;
 
 use spokenrectifier_asr::schema::{
-    load_asr_config, save_asr_connection, AliyunEdit, AsrConfig, AsrConnectionEdit,
+    load_asr_config, save_asr_connection, AliyunConfig, AliyunEdit, AsrConfig, AsrConnectionEdit,
     AsrProviderKind, AzureEdit, TencentEdit, VolcengineEdit,
 };
 use spokenrectifier_engine::fakes::{
@@ -886,6 +886,34 @@ pub fn set_asr_connection(edit: BridgeAsrEdit) -> anyhow::Result<BridgeAsrConnec
     Ok(asr_view(config))
 }
 
+/// The settings pane's live endpoint preview: the WebSocket URL the
+/// form's current fields resolve to, recomputed while the user types
+/// or switches the provider chip — the same [`AsrConfig::endpoint`]
+/// derivation the loaded view previews with, so there is exactly one.
+pub fn asr_endpoint_preview(
+    provider: String,
+    model: String,
+    base_url: Option<String>,
+    workspace_id: Option<String>,
+    region: String,
+) -> anyhow::Result<Option<String>> {
+    let provider = AsrProviderKind::from_str_name(&provider).ok_or_else(|| {
+        anyhow!("[asr] provider \"{provider}\" is unknown: pick one of the known providers")
+    })?;
+    Ok(AsrConfig {
+        provider,
+        model,
+        // `endpoint` trims and ignores whitespace-only overrides.
+        base_url,
+        aliyun: AliyunConfig {
+            workspace_id,
+            region,
+        },
+        ..AsrConfig::defaults()
+    }
+    .endpoint())
+}
+
 /// Write the editor's `[llm]` model back into the layer files (see
 /// `save_llm_connection`) and return the re-read view.
 pub fn set_llm_connection(
@@ -1270,6 +1298,56 @@ mod tests {
 
     /// The bridge is a process-wide singleton: serialize the tests.
     static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn the_endpoint_preview_matches_the_loaded_derivation() {
+        // The form's live preview must be exactly what a load would
+        // paint: the default aliyun URL carries the typed model.
+        let preview = asr_endpoint_preview(
+            "aliyun".into(),
+            "my-engine".into(),
+            None,
+            None,
+            "cn-beijing".into(),
+        )
+        .unwrap();
+        assert_eq!(
+            preview.as_deref(),
+            Some("wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=my-engine")
+        );
+
+        // A base_url override wins; whitespace-only is no override.
+        let preview = asr_endpoint_preview(
+            "volcengine".into(),
+            "bigmodel".into(),
+            Some("  ".into()),
+            None,
+            String::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            preview.as_deref(),
+            Some("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel")
+        );
+
+        // The unadapted providers promise no URL.
+        let preview = asr_endpoint_preview(
+            "tencent".into(),
+            "16k_zh_en".into(),
+            None,
+            None,
+            String::new(),
+        )
+        .unwrap();
+        assert_eq!(preview, None);
+
+        assert!(
+            asr_endpoint_preview("wat".into(), String::new(), None, None, String::new())
+                .unwrap_err()
+                .to_string()
+                .contains("provider")
+        );
+    }
 
     async fn wait_for<F>(
         rx: &mut tokio::sync::broadcast::Receiver<EventEnvelope>,

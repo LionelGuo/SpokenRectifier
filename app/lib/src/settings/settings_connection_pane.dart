@@ -134,9 +134,36 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   late final TextEditingController _asrAzureRegion = TextEditingController();
   late final TextEditingController _asrAzureEndpointId = TextEditingController();
 
+  /// Latest-wins token for the endpoint preview: a slower earlier
+  /// refresh must not overwrite a newer one.
+  int _asrEndpointToken = 0;
+
+  /// Recompute the endpoint preview from the form as it stands — every
+  /// edit to the fields the URL derives from and every provider chip
+  /// click, never only on save.
+  void _refreshAsrEndpoint() {
+    final token = ++_asrEndpointToken;
+    widget.store
+        .asrEndpoint(
+          provider: _asrProvider,
+          model: _asrModel.text,
+          baseUrl: _asrBaseUrl.text,
+          workspaceId: _asrWorkspace.text,
+          region: _asrRegion.text,
+        )
+        .then((endpoint) {
+          if (!mounted || token != _asrEndpointToken) return;
+          setState(() => _asrEndpoint = endpoint);
+        })
+        .catchError((Object _) {}); // keep the last good preview
+  }
+
   @override
   void initState() {
     super.initState();
+    for (final controller in [_asrModel, _asrBaseUrl, _asrWorkspace, _asrRegion]) {
+      controller.addListener(_refreshAsrEndpoint);
+    }
     _reload();
   }
 
@@ -243,6 +270,9 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         _asrModel.text = _asrModelPresets[provider]!;
       }
     });
+    // The preview follows the chip immediately (the model prefill above
+    // already refreshed it when it replaced the text).
+    _refreshAsrEndpoint();
   }
 
   /// Diff the key field against the loaded value. `null` aborts the

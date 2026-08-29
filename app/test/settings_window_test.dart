@@ -249,6 +249,15 @@ class FakeConnectionStore implements ConnectionStore {
   }
 
   @override
+  Future<String?> asrEndpoint({
+    required String provider,
+    required String model,
+    String? baseUrl,
+    String? workspaceId,
+    required String region,
+  }) async => fakeAsrEndpoint(provider: provider, model: model, baseUrl: baseUrl);
+
+  @override
   Future<AsrConnection> saveAsr({required AsrEdit edit}) async {
     if (failNextSave != null) {
       final failure = failNextSave;
@@ -269,7 +278,11 @@ class FakeConnectionStore implements ConnectionStore {
       model: edit.model,
       language: edit.language,
       baseUrl: edit.baseUrl,
-      endpoint: 'wss://resolved.example/…?model=${edit.model}',
+      endpoint: fakeAsrEndpoint(
+        provider: edit.provider,
+        model: edit.model,
+        baseUrl: edit.baseUrl,
+      ),
       key: resolved(edit.apiKey, asr.key),
       aliyun: AsrAliyun(
         workspaceId: edit.aliyun.workspaceId,
@@ -291,6 +304,28 @@ class FakeConnectionStore implements ConnectionStore {
       ),
     );
     return asr;
+  }
+}
+
+/// The fake's mirror of the Rust endpoint derivation (the adapted
+/// providers' default hosts with a base_url override; the single real
+/// source is `AsrConfig::endpoint` behind the bridge).
+String? fakeAsrEndpoint({
+  required String provider,
+  required String model,
+  String? baseUrl,
+}) {
+  String host(String fallback) {
+    final text = baseUrl?.trim() ?? '';
+    return text.isEmpty ? fallback : text.replaceAll(RegExp(r'/+$'), '');
+  }
+  switch (provider) {
+    case 'aliyun':
+      return '${host('wss://dashscope.aliyuncs.com')}/api-ws/v1/realtime?model=$model';
+    case 'volcengine':
+      return '${host('wss://openspeech.bytedance.com')}/api/v3/sauc/bigmodel';
+    default:
+      return null;
   }
 }
 
@@ -1467,6 +1502,51 @@ void main() {
       fieldText(tester, const Key('settings-conn-asr-key')),
       'sk-asr-stored',
     );
+  });
+
+  testWidgets('the endpoint preview recomputes live, never only on save', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // The load paints the default aliyun URL.
+    expect(
+      find.textContaining('当前端点:wss://dashscope.aliyuncs.com/api-ws/v1/realtime'),
+      findsOneWidget,
+    );
+
+    // Typing a base_url override repaints immediately — no save.
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-baseurl')),
+      'wss://proxy.example.com',
+    );
+    await tester.pump();
+    expect(
+      find.textContaining(
+        '当前端点:wss://proxy.example.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
+      ),
+      findsOneWidget,
+    );
+
+    // A provider chip click repaints without a save too — and the
+    // base_url override is a common field, so it follows the switch.
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-providers:volcengine')),
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:volcengine')));
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-endpoint')));
+    await tester.pump();
+    expect(
+      find.textContaining('当前端点:wss://proxy.example.com/api/v3/sauc/bigmodel'),
+      findsOneWidget,
+    );
+    expect(store.asrSaves, isEmpty); // nothing was saved along the way
   });
 
   testWidgets('a failed save surfaces the error and keeps the form', (

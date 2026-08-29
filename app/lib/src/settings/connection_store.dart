@@ -312,6 +312,17 @@ abstract class ConnectionStore {
   /// (the file's truth, not the ask).
   Future<AsrConnection> saveAsr({required AsrEdit edit});
 
+  /// The live endpoint preview for the form's current fields — the
+  /// same derivation the loaded view carries, recomputed on every
+  /// edit and provider switch (never only on save).
+  Future<String?> asrEndpoint({
+    required String provider,
+    required String model,
+    String? baseUrl,
+    String? workspaceId,
+    required String region,
+  });
+
   /// Write the editor's `[llm]` model; returns the re-read view.
   Future<LlmConnection> saveLlm({
     required String vendor,
@@ -335,6 +346,21 @@ class RustConnectionStore implements ConnectionStore {
   Future<AsrConnection> saveAsr({required AsrEdit edit}) => rust
       .setAsrConnection(edit: _asrEditToWire(edit))
       .then(_asrFromWire);
+
+  @override
+  Future<String?> asrEndpoint({
+    required String provider,
+    required String model,
+    String? baseUrl,
+    String? workspaceId,
+    required String region,
+  }) => rust.asrEndpointPreview(
+    provider: provider,
+    model: model,
+    baseUrl: baseUrl,
+    workspaceId: workspaceId,
+    region: region,
+  );
 
   @override
   Future<LlmConnection> saveLlm({
