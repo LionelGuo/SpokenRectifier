@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// The dialect quirks of a compatible endpoint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Vendor {
     /// api.deepseek.com: `thinking: {"type": ...}`; enabling also requires
@@ -19,6 +19,17 @@ pub enum Vendor {
     /// Plain OpenAI shape; only `reasoning_effort` exists, so thinking-off
     /// sends no extra field.
     OpenAi,
+}
+
+impl Vendor {
+    /// Every vendor, in declaration order — keying the per-vendor key
+    /// slots (ADR-0011).
+    pub const ALL: [Vendor; 4] = [
+        Vendor::DeepSeek,
+        Vendor::Volcengine,
+        Vendor::Qwen,
+        Vendor::OpenAi,
+    ];
 }
 
 impl Vendor {
@@ -42,6 +53,18 @@ impl Vendor {
             "qwen" => Some(Vendor::Qwen),
             "openai" => Some(Vendor::OpenAi),
             _ => None,
+        }
+    }
+
+    /// The conventional environment variable this vendor's key falls
+    /// back to when no local-file key exists (each vendor keeps its own
+    /// slot, so each names its own variable, ADR-0011).
+    pub fn default_env(self) -> &'static str {
+        match self {
+            Vendor::DeepSeek => "DEEPSEEK_API_KEY",
+            Vendor::Volcengine => "ARK_API_KEY",
+            Vendor::Qwen => "DASHSCOPE_API_KEY",
+            Vendor::OpenAi => "OPENAI_API_KEY",
         }
     }
 

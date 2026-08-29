@@ -11,7 +11,7 @@ part 'api.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config carries credentials, the configured
@@ -181,12 +181,13 @@ Future<BridgeLlmConnection> setLlmConnection({
 /// startup path uses (mic-only fallback included: clearing the provider's
 /// credentials really does drop back to mic+VAD at runtime).
 ///
-/// Both are built first and handed over together: any failure (an
-/// incomplete credential set, an unadapted provider, the demo-mode LLM
-/// that has no runtime script) returns `Err` and keeps BOTH previous
-/// collaborators running — the files stay saved either way, so the next
-/// launch adopts them regardless. A no-op on the fake engine (tests and
-/// demos hold no production collaborators to swap).
+/// The rebuild happens before any handover, so any refusal (an incomplete
+/// credential set, an unadapted provider, the demo-mode LLM that has no
+/// runtime script — all tested in `engine_factory`) returns `Err` and
+/// keeps BOTH previous collaborators running; the files stay saved either
+/// way, so the next launch adopts them regardless. The swap semantics are
+/// locked by the engine's `live_swap` tests. A no-op on the fake engine
+/// (tests and demos hold no production collaborators to swap).
 Future<void> applyConnectionConfigs() =>
     RustLib.instance.api.crateApiApplyConnectionConfigs();
 
@@ -1019,22 +1020,32 @@ sealed class BridgeKeyStatus with _$BridgeKeyStatus {
 }
 
 /// The effective `[llm]` connection as the settings pane paints it.
+/// `key` is the ACTIVE vendor's resolved pair; `keys` carries every
+/// vendor's — a key authenticates exactly one vendor, so the pane
+/// re-binds its key block per vendor chip and a switch never shows
+/// another vendor's key (ADR-0011).
 class BridgeLlmConnection {
   final String vendor;
   final String baseUrl;
   final String model;
   final BridgeKeyStatus key;
+  final List<BridgeLlmVendorKey> keys;
 
   const BridgeLlmConnection({
     required this.vendor,
     required this.baseUrl,
     required this.model,
     required this.key,
+    required this.keys,
   });
 
   @override
   int get hashCode =>
-      vendor.hashCode ^ baseUrl.hashCode ^ model.hashCode ^ key.hashCode;
+      vendor.hashCode ^
+      baseUrl.hashCode ^
+      model.hashCode ^
+      key.hashCode ^
+      keys.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1044,6 +1055,26 @@ class BridgeLlmConnection {
           vendor == other.vendor &&
           baseUrl == other.baseUrl &&
           model == other.model &&
+          key == other.key &&
+          keys == other.keys;
+}
+
+/// One vendor's resolved key pair, for the pane's per-vendor key block.
+class BridgeLlmVendorKey {
+  final String vendor;
+  final BridgeKeyStatus key;
+
+  const BridgeLlmVendorKey({required this.vendor, required this.key});
+
+  @override
+  int get hashCode => vendor.hashCode ^ key.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeLlmVendorKey &&
+          runtimeType == other.runtimeType &&
+          vendor == other.vendor &&
           key == other.key;
 }
 

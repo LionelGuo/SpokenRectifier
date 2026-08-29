@@ -100,12 +100,22 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   String? _savedNote;
   bool _loaded = false;
 
-  // LLM fields.
+  // LLM fields. The key block is one controller per vendor: a key
+  // authenticates exactly one vendor, so each chip binds its own pair
+  // and a switch never carries (or loses) another vendor's key
+  // (ADR-0011) — same rule as the ASR card's vendor sub-fields.
   late final TextEditingController _llmBaseUrl = TextEditingController();
   late final TextEditingController _llmModel = TextEditingController();
-  late final TextEditingController _llmKey = TextEditingController();
+  static const _llmVendors = ['deepseek', 'volcengine', 'qwen', 'openai'];
+  final Map<String, TextEditingController> _llmKeys = {
+    for (final vendor in _llmVendors) vendor: TextEditingController(),
+  };
+  final Map<String, KeyInfo> _llmKeyInfos = {
+    for (final vendor in _llmVendors) vendor: const KeyInfo(status: KeyPlacement.unset),
+  };
   String _llmVendor = 'deepseek';
-  KeyInfo _llmKeyInfo = const KeyInfo(status: KeyPlacement.unset);
+  KeyInfo get _llmKeyInfo => _llmKeyInfos[_llmVendor] ?? const KeyInfo(status: KeyPlacement.unset);
+  TextEditingController get _llmKey => _llmKeys[_llmVendor]!;
 
   // ASR fields: the common segment, then one group per vendor
   // sub-section — a provider switch repaints, never clears.
@@ -172,7 +182,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     for (final controller in [
       _llmBaseUrl,
       _llmModel,
-      _llmKey,
+      ..._llmKeys.values,
       _asrModel,
       _asrLanguage,
       _asrBaseUrl,
@@ -211,14 +221,25 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     }
   }
 
-  /// Adopt the file's truth into the form. A local-file key echoes into
-  /// the field (the diff base); an env or unset key leaves it empty.
-  void _adopt(LlmConnection llm, AsrConnection asr) {
+  /// Adopt the LLM view's truth into the form: the endpoint fields, and
+  /// every vendor's key pair (a local-file key echoes into that vendor's
+  /// field — the diff base; an env or unset key leaves it empty).
+  void _adoptLlm(LlmConnection llm) {
     _llmVendor = llm.vendor;
     _llmBaseUrl.text = llm.baseUrl;
     _llmModel.text = llm.model;
-    _llmKey.text = llm.key.storedKey ?? '';
-    _llmKeyInfo = llm.key;
+    for (final entry in llm.keys.entries) {
+      final controller = _llmKeys[entry.key];
+      if (controller == null) continue;
+      controller.text = entry.value.storedKey ?? '';
+      _llmKeyInfos[entry.key] = entry.value;
+    }
+  }
+
+  /// Adopt the file's truth into the form. A local-file key echoes into
+  /// the field (the diff base); an env or unset key leaves it empty.
+  void _adopt(LlmConnection llm, AsrConnection asr) {
+    _adoptLlm(llm);
 
     _asrProvider = asr.provider;
     _asrModel.text = asr.model;
@@ -252,6 +273,8 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     final preset = _presets[vendor]!;
     setState(() {
       _llmVendor = vendor;
+      // The key block re-binds to this vendor's own controller on the
+      // rebuild — another vendor's key never carries across (ADR-0011).
       _llmBaseUrl.text = preset.baseUrl;
       if (_llmModel.text.trim().isEmpty || _isSomeVendorDefault(_llmModel.text.trim())) {
         _llmModel.text = preset.model;
@@ -308,11 +331,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
       );
       if (!mounted) return;
       setState(() {
-        _llmVendor = saved.vendor;
-        _llmBaseUrl.text = saved.baseUrl;
-        _llmModel.text = saved.model;
-        _llmKey.text = saved.key.storedKey ?? '';
-        _llmKeyInfo = saved.key;
+        _adoptLlm(saved);
         _error = null;
         _savedNote = '修正模型已保存';
       });

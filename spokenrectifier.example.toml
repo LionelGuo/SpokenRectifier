@@ -133,14 +133,26 @@ light_touch_max_chars = 40
 vendor = "deepseek"                     # deepseek | volcengine | qwen | openai
 base_url = "https://api.deepseek.com"   # everything before /chat/completions
 model = "deepseek-v4-flash"
-api_key_env = "DEEPSEEK_API_KEY"        # or api_key in spokenrectifier.local.toml
 
-# Swapping the model is three fields, e.g. Volcengine Ark:
+# Each vendor keeps its OWN api_key pair under its sub-section (ADR-0011):
+# a key authenticates exactly one vendor, so switching vendors never
+# carries (or loses) another vendor's key. api_key lives only in
+# spokenrectifier.local.toml; api_key_env names a fallback environment
+# variable and defaults per vendor (DEEPSEEK_API_KEY / ARK_API_KEY /
+# DASHSCOPE_API_KEY / OPENAI_API_KEY) when the sub-section omits it.
+# [llm.deepseek]
+# api_key = "sk-..."        # spokenrectifier.local.toml only
+# [llm.volcengine]
+# api_key = "ark-..."       # spokenrectifier.local.toml only
+
+# Swapping the model is three fields plus the new vendor's own key, e.g.
+# Volcengine Ark:
 #   [llm]
 #   vendor = "volcengine"
 #   base_url = "https://ark.cn-beijing.volces.com/api/v3"
 #   model = "doubao-seed-2.0-lite"
-#   api_key_env = "ARK_API_KEY"
+#   [llm.volcengine]        # in spokenrectifier.local.toml
+#   api_key = "ark-..."
 
 # Escape hatch: merged into the request body last, so it can override
 # anything this config models.

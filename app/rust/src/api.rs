@@ -758,11 +758,23 @@ pub struct BridgeAsrAzureEdit {
 }
 
 /// The effective `[llm]` connection as the settings pane paints it.
+/// `key` is the ACTIVE vendor's resolved pair; `keys` carries every
+/// vendor's — a key authenticates exactly one vendor, so the pane
+/// re-binds its key block per vendor chip and a switch never shows
+/// another vendor's key (ADR-0011).
 #[derive(Debug, Clone, PartialEq)]
 pub struct BridgeLlmConnection {
     pub vendor: String,
     pub base_url: String,
     pub model: String,
+    pub key: BridgeKeyStatus,
+    pub keys: Vec<BridgeLlmVendorKey>,
+}
+
+/// One vendor's resolved key pair, for the pane's per-vendor key block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeLlmVendorKey {
+    pub vendor: String,
     pub key: BridgeKeyStatus,
 }
 
@@ -800,11 +812,22 @@ fn asr_view(config: AsrConfig) -> BridgeAsrConnection {
 }
 
 fn llm_view(config: spokenrectifier_llm::LlmConfig) -> BridgeLlmConnection {
+    let keys = spokenrectifier_llm::Vendor::ALL
+        .iter()
+        .map(|&vendor| {
+            let pair = config.resolved_keys(vendor);
+            BridgeLlmVendorKey {
+                vendor: vendor.as_str().to_string(),
+                key: bridge_key(pair.api_key, pair.api_key_env),
+            }
+        })
+        .collect();
     BridgeLlmConnection {
         key: bridge_key(config.model.api_key, config.model.api_key_env),
         vendor: config.model.vendor.as_str().to_string(),
         base_url: config.model.base_url,
         model: config.model.model,
+        keys,
     }
 }
 

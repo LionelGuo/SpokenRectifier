@@ -1771,10 +1771,24 @@ impl SseDecode for crate::api::BridgeLlmConnection {
         let mut var_baseUrl = <String>::sse_decode(deserializer);
         let mut var_model = <String>::sse_decode(deserializer);
         let mut var_key = <crate::api::BridgeKeyStatus>::sse_decode(deserializer);
+        let mut var_keys = <Vec<crate::api::BridgeLlmVendorKey>>::sse_decode(deserializer);
         return crate::api::BridgeLlmConnection {
             vendor: var_vendor,
             base_url: var_baseUrl,
             model: var_model,
+            key: var_key,
+            keys: var_keys,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeLlmVendorKey {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_vendor = <String>::sse_decode(deserializer);
+        let mut var_key = <crate::api::BridgeKeyStatus>::sse_decode(deserializer);
+        return crate::api::BridgeLlmVendorKey {
+            vendor: var_vendor,
             key: var_key,
         };
     }
@@ -1872,6 +1886,18 @@ impl SseDecode for Vec<crate::api::BridgeHistoryEntry> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::BridgeHistoryEntry>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::BridgeLlmVendorKey> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::BridgeLlmVendorKey>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -2627,6 +2653,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeLlmConnection {
             self.base_url.into_into_dart().into_dart(),
             self.model.into_into_dart().into_dart(),
             self.key.into_into_dart().into_dart(),
+            self.keys.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2639,6 +2666,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeLlmConnection>
     for crate::api::BridgeLlmConnection
 {
     fn into_into_dart(self) -> crate::api::BridgeLlmConnection {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeLlmVendorKey {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.vendor.into_into_dart().into_dart(),
+            self.key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeLlmVendorKey
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeLlmVendorKey>
+    for crate::api::BridgeLlmVendorKey
+{
+    fn into_into_dart(self) -> crate::api::BridgeLlmVendorKey {
         self
     }
 }
@@ -3107,6 +3155,15 @@ impl SseEncode for crate::api::BridgeLlmConnection {
         <String>::sse_encode(self.base_url, serializer);
         <String>::sse_encode(self.model, serializer);
         <crate::api::BridgeKeyStatus>::sse_encode(self.key, serializer);
+        <Vec<crate::api::BridgeLlmVendorKey>>::sse_encode(self.keys, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeLlmVendorKey {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.vendor, serializer);
+        <crate::api::BridgeKeyStatus>::sse_encode(self.key, serializer);
     }
 }
 
@@ -3195,6 +3252,16 @@ impl SseEncode for Vec<crate::api::BridgeHistoryEntry> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::BridgeHistoryEntry>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::BridgeLlmVendorKey> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::BridgeLlmVendorKey>::sse_encode(item, serializer);
         }
     }
 }

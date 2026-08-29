@@ -185,6 +185,12 @@ class FakeConnectionStore implements ConnectionStore {
             baseUrl: 'https://api.deepseek.com',
             model: 'deepseek-v4-flash',
             key: KeyInfo(status: KeyPlacement.unset),
+            keys: {
+              'deepseek': KeyInfo(status: KeyPlacement.unset),
+              'volcengine': KeyInfo(status: KeyPlacement.unset),
+              'qwen': KeyInfo(status: KeyPlacement.unset),
+              'openai': KeyInfo(status: KeyPlacement.unset),
+            },
           );
 
   static const _defaultAsr = AsrConnection(
@@ -242,18 +248,20 @@ class FakeConnectionStore implements ConnectionStore {
       throw failure!;
     }
     llmSaves.add((vendor: vendor, baseUrl: baseUrl, model: model, key: apiKey));
+    // Only the saved vendor's slot moves; every other vendor's key pair
+    // survives the save untouched (ADR-0011).
+    final keys = Map.of(llm.keys);
+    keys[vendor] = switch (apiKey) {
+      ApiKeySet(:final key) => KeyInfo(status: KeyPlacement.inLocalFile, storedKey: key),
+      ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
+      ApiKeyKeep() => keys[vendor] ?? const KeyInfo(status: KeyPlacement.unset),
+    };
     llm = LlmConnection(
       vendor: vendor,
       baseUrl: baseUrl,
       model: model,
-      key: switch (apiKey) {
-        ApiKeySet(:final key) => KeyInfo(
-          status: KeyPlacement.inLocalFile,
-          storedKey: key,
-        ),
-        ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
-        ApiKeyKeep() => llm.key,
-      },
+      key: keys[vendor]!,
+      keys: keys,
     );
     return llm;
   }
@@ -1150,6 +1158,15 @@ void main() {
           status: KeyPlacement.inLocalFile,
           storedKey: 'sk-stored',
         ),
+        keys: {
+          'deepseek': KeyInfo(
+            status: KeyPlacement.inLocalFile,
+            storedKey: 'sk-stored',
+          ),
+          'volcengine': KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'ark-stored'),
+          'qwen': KeyInfo(status: KeyPlacement.unset),
+          'openai': KeyInfo(status: KeyPlacement.unset),
+        },
       ),
     );
     await pumpSettings(
@@ -1195,6 +1212,12 @@ void main() {
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-v4-flash',
         key: KeyInfo(status: KeyPlacement.fromEnv, envName: 'DEEPSEEK_API_KEY'),
+        keys: {
+          'deepseek': KeyInfo(status: KeyPlacement.fromEnv, envName: 'DEEPSEEK_API_KEY'),
+          'volcengine': KeyInfo(status: KeyPlacement.unset),
+          'qwen': KeyInfo(status: KeyPlacement.unset),
+          'openai': KeyInfo(status: KeyPlacement.unset),
+        },
       ),
     );
     await pumpSettings(
@@ -1250,6 +1273,97 @@ void main() {
       fieldText(tester, const Key('settings-conn-llm-model')),
       'my-own-model',
     );
+  });
+
+  testWidgets('a vendor chip click re-binds the key block to that vendor', (
+    tester,
+  ) async {
+    // Ticket 26's acceptance defect: one shared key field carried the
+    // previous vendor's key across a chip click. Each vendor now binds
+    // its own pair (ADR-0011) — a stored key shows its own, a vendor
+    // without one shows empty, and a round trip loses nothing.
+    final store = FakeConnectionStore(
+      llm: const LlmConnection(
+        vendor: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-v4-flash',
+        key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
+        keys: {
+          'deepseek': KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
+          'volcengine': KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'ark-stored'),
+          'qwen': KeyInfo(status: KeyPlacement.unset),
+          'openai': KeyInfo(status: KeyPlacement.unset),
+        },
+      ),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    expect(fieldText(tester, const Key('settings-conn-llm-key')), 'sk-stored');
+
+    // Volcengine has its own stored key: the field shows THAT, never
+    // deepseek's.
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:volcengine')));
+    await tester.pump();
+    expect(fieldText(tester, const Key('settings-conn-llm-key')), 'ark-stored');
+
+    // Qwen stored nothing: the field is empty, not a borrowed key.
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:qwen')));
+    await tester.pump();
+    expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
+
+    // Back to deepseek: its pair is where it was.
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:deepseek')));
+    await tester.pump();
+    expect(fieldText(tester, const Key('settings-conn-llm-key')), 'sk-stored');
+  });
+
+  testWidgets('a vendor-switch save keeps every other vendor key', (tester) async {
+    final store = FakeConnectionStore(
+      llm: const LlmConnection(
+        vendor: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-v4-flash',
+        key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
+        keys: {
+          'deepseek': KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
+          'volcengine': KeyInfo(status: KeyPlacement.unset),
+          'qwen': KeyInfo(status: KeyPlacement.unset),
+          'openai': KeyInfo(status: KeyPlacement.unset),
+        },
+      ),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:volcengine')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-key')),
+      'ark-new',
+    );
+    // Center the button: the default edge alignment leaves its center
+    // clipped by the viewport top after the field's auto-scroll.
+    Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('settings-conn-llm-save'))),
+      alignment: 0.5,
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+
+    final save = store.llmSaves.single;
+    expect(save.vendor, 'volcengine');
+    expect(save.key, isA<ApiKeySet>().having((k) => k.key, 'key', 'ark-new'));
+    // The re-read truth: volcengine's slot moves, deepseek's survives.
+    expect(store.llm.keys['volcengine']!.storedKey, 'ark-new');
+    expect(store.llm.keys['deepseek']!.storedKey, 'sk-stored');
   });
 
   testWidgets('an llm save writes the form; an untouched key keeps', (

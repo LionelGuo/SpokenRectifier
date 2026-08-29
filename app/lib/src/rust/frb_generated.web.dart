@@ -135,6 +135,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeLlmConnection dco_decode_bridge_llm_connection(dynamic raw);
 
   @protected
+  BridgeLlmVendorKey dco_decode_bridge_llm_vendor_key(dynamic raw);
+
+  @protected
   BridgeScenario dco_decode_bridge_scenario(dynamic raw);
 
   @protected
@@ -162,6 +165,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BridgeHistoryEntry> dco_decode_list_bridge_history_entry(dynamic raw);
+
+  @protected
+  List<BridgeLlmVendorKey> dco_decode_list_bridge_llm_vendor_key(dynamic raw);
 
   @protected
   List<BridgeScenario> dco_decode_list_bridge_scenario(dynamic raw);
@@ -336,6 +342,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BridgeLlmVendorKey sse_decode_bridge_llm_vendor_key(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BridgeScenario sse_decode_bridge_scenario(SseDeserializer deserializer);
 
   @protected
@@ -367,6 +378,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BridgeHistoryEntry> sse_decode_list_bridge_history_entry(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<BridgeLlmVendorKey> sse_decode_list_bridge_llm_vendor_key(
     SseDeserializer deserializer,
   );
 
@@ -589,6 +605,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_bridge_llm_vendor_key(
+    BridgeLlmVendorKey self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bridge_scenario(
     BridgeScenario self,
     SseSerializer serializer,
@@ -627,6 +649,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_bridge_history_entry(
     List<BridgeHistoryEntry> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_bridge_llm_vendor_key(
+    List<BridgeLlmVendorKey> self,
     SseSerializer serializer,
   );
 

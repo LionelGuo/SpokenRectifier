@@ -1611,13 +1611,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BridgeLlmConnection dco_decode_bridge_llm_connection(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return BridgeLlmConnection(
       vendor: dco_decode_String(arr[0]),
       baseUrl: dco_decode_String(arr[1]),
       model: dco_decode_String(arr[2]),
       key: dco_decode_bridge_key_status(arr[3]),
+      keys: dco_decode_list_bridge_llm_vendor_key(arr[4]),
+    );
+  }
+
+  @protected
+  BridgeLlmVendorKey dco_decode_bridge_llm_vendor_key(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return BridgeLlmVendorKey(
+      vendor: dco_decode_String(arr[0]),
+      key: dco_decode_bridge_key_status(arr[1]),
     );
   }
 
@@ -1683,6 +1696,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<BridgeHistoryEntry> dco_decode_list_bridge_history_entry(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_bridge_history_entry).toList();
+  }
+
+  @protected
+  List<BridgeLlmVendorKey> dco_decode_list_bridge_llm_vendor_key(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_bridge_llm_vendor_key)
+        .toList();
   }
 
   @protected
@@ -2274,12 +2295,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_baseUrl = sse_decode_String(deserializer);
     var var_model = sse_decode_String(deserializer);
     var var_key = sse_decode_bridge_key_status(deserializer);
+    var var_keys = sse_decode_list_bridge_llm_vendor_key(deserializer);
     return BridgeLlmConnection(
       vendor: var_vendor,
       baseUrl: var_baseUrl,
       model: var_model,
       key: var_key,
+      keys: var_keys,
     );
+  }
+
+  @protected
+  BridgeLlmVendorKey sse_decode_bridge_llm_vendor_key(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_vendor = sse_decode_String(deserializer);
+    var var_key = sse_decode_bridge_key_status(deserializer);
+    return BridgeLlmVendorKey(vendor: var_vendor, key: var_key);
   }
 
   @protected
@@ -2367,6 +2400,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <BridgeHistoryEntry>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_bridge_history_entry(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<BridgeLlmVendorKey> sse_decode_list_bridge_llm_vendor_key(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <BridgeLlmVendorKey>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_bridge_llm_vendor_key(deserializer));
     }
     return ans_;
   }
@@ -2911,6 +2958,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.baseUrl, serializer);
     sse_encode_String(self.model, serializer);
     sse_encode_bridge_key_status(self.key, serializer);
+    sse_encode_list_bridge_llm_vendor_key(self.keys, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_llm_vendor_key(
+    BridgeLlmVendorKey self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.vendor, serializer);
+    sse_encode_bridge_key_status(self.key, serializer);
   }
 
   @protected
@@ -2992,6 +3050,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_bridge_history_entry(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_bridge_llm_vendor_key(
+    List<BridgeLlmVendorKey> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_bridge_llm_vendor_key(item, serializer);
     }
   }
 

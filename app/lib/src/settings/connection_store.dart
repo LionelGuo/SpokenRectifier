@@ -25,6 +25,8 @@
 
 library;
 
+import 'package:collection/collection.dart' show MapEquality;
+
 import '../rust/api.dart' as rust;
 
 
@@ -281,13 +283,18 @@ class AsrAzureEdit {
   final String? endpointId;
 }
 
-/// The effective `[llm]` connection as the pane paints it.
+/// The effective `[llm]` connection as the pane paints it. [key] is the
+/// ACTIVE vendor's resolved pair; [keys] carries every vendor's — a key
+/// authenticates exactly one vendor, so the pane re-binds its key block
+/// per vendor chip and a switch never shows another vendor's key
+/// (ADR-0011).
 class LlmConnection {
   const LlmConnection({
     required this.vendor,
     required this.baseUrl,
     required this.model,
     required this.key,
+    required this.keys,
   });
 
   final String vendor;
@@ -295,16 +302,20 @@ class LlmConnection {
   final String model;
   final KeyInfo key;
 
+  /// Every vendor's resolved key pair, keyed by vendor name.
+  final Map<String, KeyInfo> keys;
+
   @override
   bool operator ==(Object other) =>
       other is LlmConnection &&
       other.vendor == vendor &&
       other.baseUrl == baseUrl &&
       other.model == model &&
-      other.key == key;
+      other.key == key &&
+      MapEquality().equals(other.keys, keys);
 
   @override
-  int get hashCode => Object.hash(vendor, baseUrl, model, key);
+  int get hashCode => Object.hash(vendor, baseUrl, model, key, keys.length);
 }
 
 /// Connection persistence as the connection domain needs it.
@@ -465,5 +476,8 @@ class RustConnectionStore implements ConnectionStore {
     baseUrl: llm.baseUrl,
     model: llm.model,
     key: _keyFromWire(llm.key),
+    keys: {
+      for (final entry in llm.keys) entry.vendor: _keyFromWire(entry.key),
+    },
   );
 }

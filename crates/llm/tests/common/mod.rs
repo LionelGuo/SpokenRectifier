@@ -6,19 +6,18 @@ use spokenrectifier_llm::{LlmConfig, ModelConfig, OpenAiCompatLlm, Vendor};
 
 /// An `LlmConfig` pointing at one fake endpoint/model.
 pub fn config_with_base(base_url: String, thinking: bool) -> LlmConfig {
-    LlmConfig {
-        thinking,
-        light_touch_max_chars: 40,
-        endpoint_configured: true,
-        model: ModelConfig {
-            base_url,
-            model: "test-model".into(),
-            api_key: Some("sk-test".into()),
-            api_key_env: None,
-            vendor: Vendor::DeepSeek,
-            extra_body: None,
-        },
-    }
+    let mut config = LlmConfig::defaults();
+    config.thinking = thinking;
+    config.endpoint_configured = true;
+    config.model = ModelConfig {
+        base_url,
+        model: "test-model".into(),
+        api_key: Some("sk-test".into()),
+        api_key_env: None,
+        vendor: Vendor::DeepSeek,
+        extra_body: None,
+    };
+    config
 }
 
 /// A client wired to a mock server.
