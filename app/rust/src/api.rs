@@ -809,11 +809,11 @@ fn llm_view(config: spokenrectifier_llm::LlmConfig) -> BridgeLlmConnection {
 }
 
 /// The effective `[asr]` and `[llm]` connections from the layer files —
-/// the connection domain's initial paint. File-level, engine-
-/// independent: the engine adopts the config at its creation, so a
-/// change written here applies from the next launch on (the pane says
-/// so; the fidelity-eval run is the one place that adopts it at once,
-/// building its own engine per run).
+/// the connection domain's initial paint. File-level and
+/// engine-independent: the engine adopts the config at its creation,
+/// and a save re-adopts it at once via [`apply_connection_configs`] —
+/// next session (ASR) / next attempt (LLM), no restart (ADR-0010). The
+/// fidelity-eval run builds its own engine per run, unaffected.
 pub fn connection_config() -> anyhow::Result<BridgeConnection> {
     let dirs = spokenrectifier_config::search_dirs();
     let asr = load_asr_config(&dirs).map_err(|err| anyhow!("ASR {}", err.0))?;
@@ -939,6 +939,33 @@ pub fn set_llm_connection(
     let config =
         spokenrectifier_llm::load_llm_config(&dirs).map_err(|err| anyhow!("LLM {}", err.0))?;
     Ok(llm_view(config))
+}
+
+/// Adopt the saved `[asr]` and `[llm]` connections into the live engine at
+/// once (ADR-0010): the settings window calls this right after a save
+/// lands, so the next session opens with the new ASR provider and the next
+/// rectify attempt with the new LLM — no restart. Re-reads the layer
+/// files and rebuilds both collaborators through the same factory the
+/// startup path uses (mic-only fallback included: clearing the provider's
+/// credentials really does drop back to mic+VAD at runtime).
+///
+/// The rebuild happens before any handover, so any refusal (an incomplete
+/// credential set, an unadapted provider, the demo-mode LLM that has no
+/// runtime script — all tested in `engine_factory`) returns `Err` and
+/// keeps BOTH previous collaborators running; the files stay saved either
+/// way, so the next launch adopts them regardless. The swap semantics are
+/// locked by the engine's `live_swap` tests. A no-op on the fake engine
+/// (tests and demos hold no production collaborators to swap).
+pub fn apply_connection_configs() -> anyhow::Result<()> {
+    let g = global()?;
+    if !matches!(g.source, SpeechSource::Mic) {
+        return Ok(());
+    }
+    let (asr, llm) =
+        crate::engine_factory::rebuild_connections(&spokenrectifier_config::search_dirs())?;
+    g.engine.set_asr_provider(asr);
+    g.engine.set_llm_provider(llm);
+    Ok(())
 }
 
 // -- the terms domain (术语, ticket 19) ----------------------------------------
@@ -1479,6 +1506,18 @@ mod tests {
             rectify_timeout_ms: defaults.rectify_timeout_ms,
         })
         .unwrap();
+    }
+
+    /// The connection re-adoption is a quiet no-op on the fake engine:
+    /// tests and demos hold no production collaborators to swap, and no
+    /// config files are touched (the real path's refusals are tested in
+    /// `engine_factory`, its swap semantics in the engine's live_swap
+    /// tests).
+    #[test]
+    fn apply_connection_configs_is_a_noop_on_the_fake_engine() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        apply_connection_configs().unwrap();
     }
 
     /// The quick panel's close-restore is a quiet no-op on the fake

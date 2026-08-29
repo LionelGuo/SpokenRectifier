@@ -72,6 +72,29 @@ pub fn production_inserter(dirs: &[PathBuf]) -> anyhow::Result<Arc<TargetInserte
     Ok(Arc::new(TargetInserter::production(config)))
 }
 
+/// Rebuild BOTH connection collaborators from the layer files — the one
+/// assembly the runtime re-adoption uses (ADR-0010). Both are built
+/// before any handover, so a refusal here (an incomplete credential
+/// set, an unadapted provider, the demo-mode LLM that has no runtime
+/// script) leaves the caller's previous pair running: the
+/// failure-keeps-old rule lives in this ordering.
+pub fn rebuild_connections(
+    dirs: &[PathBuf],
+) -> anyhow::Result<(Arc<dyn AsrProvider>, Arc<dyn RectifyLlm>)> {
+    let asr = asr_provider(dirs)?;
+    let llm = match llm_choice(dirs)? {
+        LlmChoice::Real(llm) => llm,
+        LlmChoice::ScriptedDemo => {
+            return Err(anyhow!(
+                "the [llm] config resolved no key, and the scripted demo \
+                 LLM cannot be adopted at runtime: restart the app to enter \
+                 demo mode; until then the previous providers keep running"
+            ))
+        }
+    };
+    Ok((asr, llm))
+}
+
 fn llm_config(dirs: &[PathBuf]) -> anyhow::Result<spokenrectifier_llm::LlmConfig> {
     spokenrectifier_llm::load_llm_config(dirs).map_err(|err| anyhow!("LLM {}", err.0))
 }
@@ -312,5 +335,60 @@ mod tests {
         production_inserter(std::slice::from_ref(&typing)).unwrap();
         production_inserter(&[]).unwrap();
         std::fs::remove_dir_all(typing).unwrap();
+    }
+
+    // -- the runtime re-adoption (ticket 26 / ADR-0010) --------------------
+
+    /// The re-adoption refuses a credentialed unadapted provider: the
+    /// error names the gap, and the caller keeps its previous pair.
+    #[test]
+    fn a_refused_rebuild_names_the_missing_adapter() {
+        let unadapted = dir("sr-factory-rebuild-unadapted");
+        std::fs::write(
+            unadapted.join("spokenrectifier.local.toml"),
+            "[asr]\nprovider = \"tencent\"\n[asr.tencent]\nsecret_key = \"s\"\n\
+             [llm]\napi_key = \"sk\"\n",
+        )
+        .unwrap();
+        let err = match rebuild_connections(std::slice::from_ref(&unadapted)) {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("an unadapted provider must refuse the rebuild"),
+        };
+        assert!(err.contains("tencent"), "got: {err}");
+        assert!(err.contains("no adapter yet"), "got: {err}");
+        std::fs::remove_dir_all(unadapted).unwrap();
+    }
+
+    /// The demo-mode combination is legal at startup but has no runtime
+    /// counterpart: the rebuild refuses it with the restart hint instead
+    /// of handing the real engine a scripted demo.
+    #[test]
+    fn a_demo_mode_rebuild_is_refused_with_the_restart_hint() {
+        let demo = dir("sr-factory-rebuild-demo");
+        std::fs::write(
+            demo.join("spokenrectifier.local.toml"),
+            "[asr]\napi_key_env = \"SR_TEST_UNSET_ASR_KEY\"\n\
+             [llm]\napi_key_env = \"SR_TEST_UNSET_LLM_KEY\"\n",
+        )
+        .unwrap();
+        let err = match rebuild_connections(std::slice::from_ref(&demo)) {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("the scripted demo must refuse the rebuild"),
+        };
+        assert!(err.contains("restart the app"), "got: {err}");
+        std::fs::remove_dir_all(demo).unwrap();
+    }
+
+    /// A sound config rebuilds both collaborators (offline construction).
+    #[test]
+    fn a_sound_config_rebuilds_both_collaborators() {
+        let sound = dir("sr-factory-rebuild-sound");
+        std::fs::write(
+            sound.join("spokenrectifier.local.toml"),
+            "[asr]\napi_key = \"sk-asr\"\n[llm]\napi_key = \"sk\"\n",
+        )
+        .unwrap();
+        rebuild_connections(std::slice::from_ref(&sound)).unwrap();
+        std::fs::remove_dir_all(sound).unwrap();
     }
 }

@@ -125,11 +125,11 @@ Future<BridgeHistoryConfig> setHistoryConfig({
 );
 
 /// The effective `[asr]` and `[llm]` connections from the layer files —
-/// the connection domain's initial paint. File-level, engine-
-/// independent: the engine adopts the config at its creation, so a
-/// change written here applies from the next launch on (the pane says
-/// so; the fidelity-eval run is the one place that adopts it at once,
-/// building its own engine per run).
+/// the connection domain's initial paint. File-level and
+/// engine-independent: the engine adopts the config at its creation,
+/// and a save re-adopts it at once via [`apply_connection_configs`] —
+/// next session (ASR) / next attempt (LLM), no restart (ADR-0010). The
+/// fidelity-eval run builds its own engine per run, unaffected.
 Future<BridgeConnection> connectionConfig() =>
     RustLib.instance.api.crateApiConnectionConfig();
 
@@ -172,6 +172,23 @@ Future<BridgeLlmConnection> setLlmConnection({
   model: model,
   apiKey: apiKey,
 );
+
+/// Adopt the saved `[asr]` and `[llm]` connections into the live engine at
+/// once (ADR-0010): the settings window calls this right after a save
+/// lands, so the next session opens with the new ASR provider and the next
+/// rectify attempt with the new LLM — no restart. Re-reads the layer
+/// files and rebuilds both collaborators through the same factory the
+/// startup path uses (mic-only fallback included: clearing the provider's
+/// credentials really does drop back to mic+VAD at runtime).
+///
+/// Both are built first and handed over together: any failure (an
+/// incomplete credential set, an unadapted provider, the demo-mode LLM
+/// that has no runtime script) returns `Err` and keeps BOTH previous
+/// collaborators running — the files stay saved either way, so the next
+/// launch adopts them regardless. A no-op on the fake engine (tests and
+/// demos hold no production collaborators to swap).
+Future<void> applyConnectionConfigs() =>
+    RustLib.instance.api.crateApiApplyConnectionConfigs();
 
 /// Rename a term in the dictionary, in place (the settings editor's 改;
 /// the quick panel's quick-add and quick-remove stay the same calls).
