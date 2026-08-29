@@ -69,8 +69,15 @@ struct Inner {
     /// advanced form). Snapshotted when each session opens, so a switch
     /// applies from the next session on.
     timings: RwLock<EngineTimings>,
-    asr: Arc<dyn AsrProvider>,
-    llm: Arc<dyn RectifyLlm>,
+    /// The ASR provider the NEXT session opens with — the
+    /// construction-time one, or a runtime replacement (ADR-0010). Read
+    /// once at each session open, so a running session's stream never
+    /// changes under it.
+    asr: RwLock<Arc<dyn AsrProvider>>,
+    /// The LLM each rectify attempt runs with — the construction-time
+    /// one, or a runtime replacement (ADR-0010). Cloned per attempt,
+    /// so a switch shapes the next attempt, never one in flight.
+    llm: RwLock<Arc<dyn RectifyLlm>>,
     inserter: Arc<dyn TextInserter>,
     history: Option<Arc<dyn SessionRecorder>>,
     terms: Option<Arc<dyn TermSource>>,
@@ -140,8 +147,8 @@ impl Engine {
                 style_directive: RwLock::new(None),
                 passage_mode: RwLock::new(config.passage_mode),
                 timings: RwLock::new(config.timings()),
-                asr: deps.asr,
-                llm: deps.llm,
+                asr: RwLock::new(deps.asr),
+                llm: RwLock::new(deps.llm),
                 inserter: deps.inserter,
                 history: deps.history,
                 terms: deps.terms,
@@ -179,6 +186,19 @@ impl Engine {
     /// runtime-switched) — the values the NEXT session opens with.
     pub fn engine_timings(&self) -> EngineTimings {
         *self.inner.timings.read().unwrap()
+    }
+
+    /// Swap the ASR provider at runtime: the next session opens with the
+    /// new one; a running session keeps the stream it opened (ADR-0010).
+    pub fn set_asr_provider(&self, asr: Arc<dyn AsrProvider>) {
+        *self.inner.asr.write().unwrap() = asr;
+    }
+
+    /// Swap the rectify LLM at runtime: the next attempt (first stop,
+    /// reroll, history re-rectify alike) runs with the new one; an
+    /// attempt in flight keeps the LLM it started with (ADR-0010).
+    pub fn set_llm_provider(&self, llm: Arc<dyn RectifyLlm>) {
+        *self.inner.llm.write().unwrap() = llm;
     }
 
     /// Submit a command. Returns `Err` only for rejected commands (wrong
@@ -249,7 +269,11 @@ impl Engine {
         // One read feeds both injection paths for this session: the
         // stream opens biased by it and the rectify request carries it.
         let terms = self.inner.current_terms();
-        let stream = self.inner.asr.open_stream(&terms).await?;
+        // Clone out of the slot so the lock never crosses the await, and
+        // so this session owns the provider it opened even if the slot is
+        // swapped while the open is in flight.
+        let asr = self.inner.asr.read().unwrap().clone();
+        let stream = asr.open_stream(&terms).await?;
         let (sid, cancel) = {
             let mut st = self.inner.state_lock();
             // The command gate serializes commands, so we are still idle.
@@ -332,7 +356,7 @@ impl Engine {
                 timings,
             )
         };
-        let llm = self.inner.llm.clone();
+        let llm = self.inner.llm.read().unwrap().clone();
         tokio::spawn(rectify_task(
             self.inner.clone(),
             sid,
@@ -623,7 +647,7 @@ fn begin_rectify(inner: &Arc<Inner>) {
         inner.transition(&mut st, sid, SessionState::Rectifying);
         (sid, cancel, request, timings)
     };
-    let llm = inner.llm.clone();
+    let llm = inner.llm.read().unwrap().clone();
     tokio::spawn(rectify_task(
         inner.clone(),
         sid,
