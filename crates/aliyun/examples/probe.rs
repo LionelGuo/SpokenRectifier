@@ -3,9 +3,9 @@
 //! on rejection. Never prints the key. Diagnostic tool for ticket 04.
 //! Pass a second argument to also send a User-Agent header.
 
-use spokenrectifier_aliyun::load_asr_config;
-use tokio_tungstenite::tungstenite::Error as WsError;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use spokenrectifier_asr::schema::{AsrProviderKind, load_asr_config};
+use spokenrectifier_asr::transport::{TextWire, TungsteniteConnect};
+use spokenrectifier_asr::{ConnectError, RealtimeConnect};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -14,26 +14,27 @@ async fn main() {
         .expect("usage: probe <config-dir> [with-user-agent]");
     let with_ua = std::env::args().nth(2).is_some();
     let config = load_asr_config(&[dir.into()]).expect("config loads");
-    let endpoint = config.endpoint();
+    assert_eq!(
+        config.provider,
+        AsrProviderKind::Aliyun,
+        "probe is aliyun-only"
+    );
+    let endpoint = config.endpoint().expect("endpoint resolves");
     println!("endpoint: {endpoint}");
-    let key = config.resolve_key().expect("key resolves");
+    let key = config
+        .resolve_common_key()
+        .expect("key resolves (api_key or DASHSCOPE_API_KEY)");
     println!("key: present ({} chars), user-agent: {with_ua}", key.len());
     println!("connecting...");
 
-    let mut request = endpoint.as_str().into_client_request().unwrap();
-    request
-        .headers_mut()
-        .insert("Authorization", format!("Bearer {key}").parse().unwrap());
+    let mut headers = vec![("Authorization".to_string(), format!("Bearer {key}"))];
     if with_ua {
-        request
-            .headers_mut()
-            .insert("User-Agent", "spokenrectifier-probe".parse().unwrap());
+        headers.push(("User-Agent".to_string(), "spokenrectifier-probe".into()));
     }
-    match tokio_tungstenite::connect_async(request).await {
-        Ok((_ws, resp)) => println!("RESULT: HANDSHAKE OK ({:?})", resp.status()),
-        Err(WsError::Http(resp)) => {
-            println!("RESULT: HTTP {} body: {:?}", resp.status(), resp.body())
-        }
-        Err(other) => println!("RESULT: HANDSHAKE FAILED: {other}"),
+    let connect = TungsteniteConnect::new(endpoint, headers, TextWire);
+    match connect.connect().await {
+        Ok(_channel) => println!("RESULT: HANDSHAKE OK"),
+        Err(ConnectError::Auth(message)) => println!("RESULT: AUTH REJECTED: {message}"),
+        Err(ConnectError::Other(message)) => println!("RESULT: HANDSHAKE FAILED: {message}"),
     }
 }

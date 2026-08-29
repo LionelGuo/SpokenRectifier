@@ -1,0 +1,25 @@
+[package]
+name = "spokenrectifier-asr"
+description = "The [asr] layered-config schema (common section + per-vendor sub-sections, ADR-0009) and the streaming session machinery every cloud ASR adapter runs on."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures.workspace = true
+serde = { version = "1", features = ["derive"] }
+# Exactly one rustls crypto provider, chosen here: without it the first
+# TLS handshake panics ("could not determine the process-level
+# CryptoProvider"). ring over aws-lc-rs: no CMake/NASM on Windows builds.
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+spokenrectifier-audio = { path = "../audio" }
+spokenrectifier-config = { path = "../config" }
+spokenrectifier-engine = { path = "../engine" }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }

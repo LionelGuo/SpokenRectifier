@@ -1,55 +1,36 @@
 //! [`AliyunAsr`]: the [`AsrProvider`] adapter over the DashScope realtime
-//! WebSocket protocol.
+//! WebSocket protocol — the qwen3-asr-flash-realtime model's OpenAI-
+//! Realtime-shaped events on a DashScope endpoint (deliberately not an
+//! OpenAI-compatible assumption).
 //!
-//! One recording session is one WebSocket: mic frames flow through the
-//! local VAD (speech activity and the silence clock drive the engine
-//! exactly like the mic-only provider), and the [`SendGate`] decides
-//! which frames also travel to the server as `input_audio_buffer.append`
-//! events. Server transcripts fold back as partials (`text`+`stash`) and
-//! finals (`transcript`).
-//!
-//! A lost connection is retried a bounded number of times; frames that
-//! pass the gate while offline are buffered briefly and flushed after the
-//! reconnect. Auth-looking failures are not retried. When retries run out
-//! — or the server reports an error — the session ends with
-//! [`AsrEvent::Failed`] feedback. On any session end the adapter sends
-//! `session.finish` and drains trailing finals for a moment before
-//! closing.
+//! The dialect lives entirely here, as a [`WireProtocol`]: the
+//! `session.update` that configures recognition (language, PCM 16k, the
+//! server VAD, and the hotword dictionary riding as the transcription
+//! corpus), `input_audio_buffer.append` frames (base64 PCM), the
+//! graceful `session.finish`, and the server events folding back —
+//! partials (`text`+`stash`) and finals (`transcript`). Everything
+//! else — the VAD pump, the send gate, bounded reconnects, the drain —
+//! is the shared session machinery in `spokenrectifier-asr`.
 //!
 //! [`AsrProvider`]: spokenrectifier_engine::AsrProvider
-//! [`AsrEvent::Failed`]: spokenrectifier_engine::provider::asr::AsrEvent::Failed
 
-use std::collections::VecDeque;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine as _;
 use futures::stream::BoxStream;
-use futures::{Stream, StreamExt};
-use tokio::sync::mpsc as async_mpsc;
 
-use spokenrectifier_audio::{FrameEvents, FrameSource, MicEvent, Vad, VadConfig};
+use spokenrectifier_asr::schema::{AsrConfig, AsrConfigError};
+use spokenrectifier_asr::session::{SessionParams, WireProtocol};
+use spokenrectifier_asr::transport::{RealtimeConnect, TextWire, TungsteniteConnect};
+use spokenrectifier_audio::{FrameSource, VadConfig};
 use spokenrectifier_engine::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
 
-use crate::config::{AsrConfig, AsrConfigError};
-use crate::gate::{PAD_MS, SendGate};
-use crate::transport::{ConnectError, RealtimeChannel, RealtimeConnect, TungsteniteConnect};
-
-/// Reconnect attempts after a connection is lost before giving up; healthy
-/// server traffic replenishes the budget.
-const MAX_RECONNECTS: u32 = 2;
 /// Handshake budget per (re)connect attempt.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Gate-approved frames buffered while a reconnect is pending; overflow
-/// drops the oldest.
-const RECONNECT_BUFFER_FRAMES: usize = 30;
-/// How long to wait for trailing finals after `session.finish`.
-const FINISH_DRAIN: Duration = Duration::from_secs(2);
 /// The server-side VAD pause we configure — must sit comfortably inside
-/// the gate's [`PAD_MS`].
+/// the send gate's pad (`spokenrectifier_asr::PAD_MS`).
 const SERVER_SILENCE_MS: u64 = 400;
 
 /// The cloud ASR adapter.
@@ -57,25 +38,31 @@ pub struct AliyunAsr {
     config: AsrConfig,
     vad: VadConfig,
     source: FrameSource,
-    connect: Arc<dyn RealtimeConnect>,
+    connect: Arc<dyn RealtimeConnect<String>>,
     /// Handshake budget per (re)connect attempt; injectable for tests.
     connect_timeout: Duration,
 }
 
 impl AliyunAsr {
     /// Capture from the real default microphone and connect to the
-    /// configured endpoint. Fails when the config is incomplete (no key,
-    /// no resolvable endpoint).
+    /// configured endpoint. Fails when the config is incomplete (no
+    /// key, no resolvable endpoint).
     pub fn new(config: AsrConfig, vad: VadConfig) -> Result<Self, AsrConfigError> {
-        let endpoint = config.endpoint();
-        let api_key = config.resolve_key().ok_or_else(|| {
+        let endpoint = config.endpoint().ok_or_else(|| {
+            AsrConfigError("[asr] provider \"aliyun\": no endpoint resolves".into())
+        })?;
+        let api_key = config.resolve_common_key().ok_or_else(|| {
             AsrConfigError("no api key: set [asr] api_key in the local config".into())
         })?;
         Ok(Self::with_parts(
             config,
             vad,
             Arc::new(spokenrectifier_audio::open_mic),
-            Arc::new(TungsteniteConnect::new(endpoint, api_key)),
+            Arc::new(TungsteniteConnect::new(
+                endpoint,
+                vec![("Authorization".into(), format!("Bearer {api_key}"))],
+                TextWire,
+            )),
             CONNECT_TIMEOUT,
         ))
     }
@@ -85,7 +72,7 @@ impl AliyunAsr {
         config: AsrConfig,
         vad: VadConfig,
         source: FrameSource,
-        connect: Arc<dyn RealtimeConnect>,
+        connect: Arc<dyn RealtimeConnect<String>>,
         connect_timeout: Duration,
     ) -> Self {
         Self {
@@ -105,320 +92,93 @@ impl AsrProvider for AliyunAsr {
         terms: &[String],
     ) -> Result<BoxStream<'static, AsrEvent>, AsrOpenError> {
         let frames = (self.source)().map_err(AsrOpenError)?;
-        let mut channel = connect_once(self.connect.as_ref(), self.connect_timeout).await?;
-        let (tx, rx) = async_mpsc::channel::<AsrEvent>(64);
-
-        // Bridge the blocking mic receiver into async land; when the pump
-        // ends, the bridge ends, which drops the receiver and stops
-        // capture.
-        let (frame_tx, mut frame_rx) = async_mpsc::channel::<MicEvent>(64);
-        std::thread::spawn(move || {
-            for event in frames {
-                if frame_tx.blocking_send(event).is_err() {
-                    break;
-                }
-            }
-        });
-
-        let connect = self.connect.clone();
-        let language = self.config.language.clone();
-        let terms = terms.to_vec();
-        let connect_timeout = self.connect_timeout;
-        let vad_config = self.vad;
-
-        tokio::spawn(async move {
-            let mut pump = Pump::new(vad_config);
-
-            let _ = channel
-                .tx
-                .send(session_update_payload(&language, &terms))
-                .await;
-
-            'session: loop {
-                tokio::select! {
-                    biased;
-                    maybe = frame_rx.recv() => {
-                        match maybe {
-                            None => break 'session, // source gone quiet, no error report
-                            Some(MicEvent::Error(message)) => {
-                                let _ = tx.send(AsrEvent::Failed { message }).await;
-                                break 'session;
-                            }
-                            Some(MicEvent::Frame(frame)) => {
-                                let (events, on_wire) = pump.analyze(&frame);
-                                if !emit(&tx, events).await {
-                                    break 'session; // engine side gone
-                                }
-                                if on_wire
-                                    && channel.tx.send(append_payload(&frame)).await.is_err()
-                                {
-                                    // Writer gone: same story as a lost
-                                    // connection — reconnect.
-                                    match try_reconnect(
-                                        &connect, &language, &terms, connect_timeout,
-                                        &mut frame_rx, &mut pump, &tx,
-                                    )
-                                    .await
-                                    {
-                                        Some(live) => channel = live,
-                                        None => break 'session, // feedback already emitted
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    maybe = channel.rx.recv() => {
-                        match maybe {
-                            Some(Ok(text)) => {
-                                if let Some(event) = server_event(&text) {
-                                    let failed = matches!(event, AsrEvent::Failed { .. });
-                                    // Healthy traffic replenishes the budget.
-                                    pump.reconnects_left = MAX_RECONNECTS;
-                                    if !emit(&tx, vec![event]).await || failed {
-                                        break 'session;
-                                    }
-                                } else {
-                                    pump.reconnects_left = MAX_RECONNECTS;
-                                }
-                            }
-                            Some(Err(_)) | None => {
-                                match try_reconnect(
-                                    &connect, &language, &terms, connect_timeout,
-                                    &mut frame_rx, &mut pump, &tx,
-                                )
-                                .await
-                                {
-                                    Some(live) => channel = live,
-                                    None => break 'session, // feedback already emitted
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Graceful end: tell the server, then forward trailing finals
-            // for a moment — the engine may still be listening (e.g. the
-            // mic died mid-session).
-            let _ = channel.tx.send(finish_payload()).await;
-            let deadline = tokio::time::Instant::now() + FINISH_DRAIN;
-            while let Ok(Some(Ok(text))) =
-                tokio::time::timeout_at(deadline, channel.rx.recv()).await
-            {
-                let event_type = serde_json::from_str::<serde_json::Value>(&text)
-                    .ok()
-                    .and_then(|value| value["type"].as_str().map(str::to_string));
-                if event_type.as_deref() == Some("session.finished") {
-                    break;
-                }
-                let Some(event) = server_event(&text) else {
-                    continue;
-                };
-                if matches!(event, AsrEvent::Failed { .. }) {
-                    let _ = tx.send(event).await;
-                    break;
-                }
-                if tx.send(event).await.is_err() {
-                    break; // engine side gone
-                }
-            }
-        });
-
-        Ok(RecvAsrStream { rx }.boxed())
-    }
-}
-
-/// The per-session analysis state shared by the live loop and reconnects:
-/// one place for the VAD, the frame-to-event mapping, the send gate, and
-/// the offline audio buffer.
-struct Pump {
-    vad: Vad,
-    frame_events: FrameEvents,
-    gate: SendGate,
-    offline_buffer: VecDeque<Vec<i16>>,
-    reconnects_left: u32,
-}
-
-impl Pump {
-    fn new(vad_config: VadConfig) -> Self {
-        Self {
-            vad: Vad::new(vad_config),
-            frame_events: FrameEvents::new(),
-            gate: SendGate::new(PAD_MS),
-            offline_buffer: VecDeque::new(),
-            reconnects_left: MAX_RECONNECTS,
-        }
-    }
-
-    /// Analyze one frame: the engine events it produces, and whether it
-    /// belongs on the wire.
-    fn analyze(&mut self, frame: &[i16]) -> (Vec<AsrEvent>, bool) {
-        let decision = self.vad.push(frame);
-        (self.frame_events.push(&decision), self.gate.push(&decision))
-    }
-
-    /// Stash a wire frame while offline; overflow drops the oldest.
-    fn buffer_offline(&mut self, frame: Vec<i16>) {
-        if self.offline_buffer.len() == RECONNECT_BUFFER_FRAMES {
-            self.offline_buffer.pop_front();
-        }
-        self.offline_buffer.push_back(frame);
-    }
-}
-
-struct RecvAsrStream {
-    rx: async_mpsc::Receiver<AsrEvent>,
-}
-
-impl Stream for RecvAsrStream {
-    type Item = AsrEvent;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<AsrEvent>> {
-        self.rx.poll_recv(cx)
-    }
-}
-
-/// Forward events to the engine; `false` when the engine side is gone.
-async fn emit(tx: &async_mpsc::Sender<AsrEvent>, events: Vec<AsrEvent>) -> bool {
-    for event in events {
-        if tx.send(event).await.is_err() {
-            return false;
-        }
-    }
-    true
-}
-
-async fn connect_once(
-    connect: &dyn RealtimeConnect,
-    timeout: Duration,
-) -> Result<RealtimeChannel, AsrOpenError> {
-    tokio::time::timeout(timeout, connect.connect())
-        .await
-        .map_err(|_| AsrOpenError("connecting to the ASR endpoint timed out".into()))?
-        .map_err(|err| AsrOpenError(err.to_string()))
-}
-
-/// Replace a lost connection. While a reconnect is pending the mic keeps
-/// being analyzed (the orb stays live) and gate-approved frames are
-/// buffered; on success the session is reconfigured and the buffer
-/// flushed. Each attempt gets the handshake budget — a hanging reconnect
-/// fails over instead of wedging the session offline. Returns `None` when
-/// the session must end — the `Failed` feedback (or a dead engine/source)
-/// has already been emitted or makes further work moot.
-async fn try_reconnect(
-    connect: &Arc<dyn RealtimeConnect>,
-    language: &str,
-    terms: &[String],
-    connect_timeout: Duration,
-    frame_rx: &mut async_mpsc::Receiver<MicEvent>,
-    pump: &mut Pump,
-    engine_tx: &async_mpsc::Sender<AsrEvent>,
-) -> Option<RealtimeChannel> {
-    while pump.reconnects_left > 0 {
-        pump.reconnects_left -= 1;
-        let deadline = tokio::time::Instant::now() + connect_timeout;
-        let attempt = {
-            let fut = connect.connect();
-            tokio::pin!(fut);
-            loop {
-                tokio::select! {
-                    result = &mut fut => break result,
-                    _ = tokio::time::sleep_until(deadline) => {
-                        break Err(ConnectError::Other("reconnecting timed out".into()));
-                    }
-                    maybe = frame_rx.recv() => match maybe {
-                        Some(MicEvent::Frame(frame)) => {
-                            let (events, on_wire) = pump.analyze(&frame);
-                            if !emit(engine_tx, events).await {
-                                return None; // engine side gone
-                            }
-                            if on_wire {
-                                pump.buffer_offline(frame);
-                            }
-                        }
-                        Some(MicEvent::Error(message)) => {
-                            let _ = engine_tx.send(AsrEvent::Failed { message }).await;
-                            return None;
-                        }
-                        None => return None, // source gone
-                    },
-                }
-            }
+        let protocol = AliyunProtocol {
+            language: self.config.language.clone(),
+            terms: terms.to_vec(),
         };
-        match attempt {
-            Ok(channel) => {
-                if channel
-                    .tx
-                    .send(session_update_payload(language, terms))
-                    .await
-                    .is_err()
-                {
-                    continue; // died instantly; try again
-                }
-                let mut flushed = true;
-                while let Some(frame) = pump.offline_buffer.pop_front() {
-                    if channel.tx.send(append_payload(&frame)).await.is_err() {
-                        flushed = false;
-                        break;
-                    }
-                }
-                if flushed {
-                    return Some(channel);
-                }
-            }
-            Err(ConnectError::Auth(message)) => {
-                let _ = engine_tx.send(AsrEvent::Failed { message }).await;
-                return None; // credentials will not heal by retrying
-            }
-            Err(ConnectError::Other(_)) => {} // transient; bounded retry
-        }
+        spokenrectifier_asr::open_session(
+            frames,
+            protocol,
+            self.vad,
+            SessionParams {
+                connect: self.connect.clone(),
+                connect_timeout: self.connect_timeout,
+                // DashScope tolerates an idle connection; no liveness
+                // message needed.
+                keepalive_every: None,
+            },
+        )
+        .await
     }
-    let _ = engine_tx
-        .send(AsrEvent::Failed {
-            message: "connection lost; reconnecting failed".into(),
+}
+
+/// The DashScope realtime dialect: what a session says on connect, how
+/// audio rides, and how server events fold back. Built per session (it
+/// carries the language and the dictionary).
+struct AliyunProtocol {
+    language: String,
+    terms: Vec<String>,
+}
+
+impl WireProtocol for AliyunProtocol {
+    type Message = String;
+
+    /// Configure the recognition session. The hotword dictionary rides as the
+    /// transcription corpus — this realtime protocol's recognition-biasing
+    /// channel (the DashScope SDK's `TranscriptionParams.corpus_text`; weighted
+    /// instant hotwords exist only on the run-task inference protocol). The
+    /// server keeps each corpus text short, truncating from the end silently,
+    /// so a very large dictionary biases only its head.
+    fn opening(&self) -> String {
+        let mut transcription = serde_json::json!({ "language": self.language });
+        if !self.terms.is_empty() {
+            transcription["corpus"] = serde_json::json!({ "text": self.terms.join("、") });
+        }
+        serde_json::json!({
+            "type": "session.update",
+            "session": {
+                "input_audio_format": "pcm",
+                "sample_rate": 16000,
+                "input_audio_transcription": transcription,
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.0,
+                    "silence_duration_ms": SERVER_SILENCE_MS
+                }
+            }
         })
-        .await;
-    None
-}
-
-/// Configure the recognition session. The hotword dictionary rides as the
-/// transcription corpus — this realtime protocol's recognition-biasing
-/// channel (the DashScope SDK's `TranscriptionParams.corpus_text`; weighted
-/// instant hotwords exist only on the run-task inference protocol). The
-/// server keeps each corpus text short, truncating from the end silently,
-/// so a very large dictionary biases only its head.
-fn session_update_payload(language: &str, terms: &[String]) -> String {
-    let mut transcription = serde_json::json!({ "language": language });
-    if !terms.is_empty() {
-        transcription["corpus"] = serde_json::json!({ "text": terms.join("、") });
+        .to_string()
     }
-    serde_json::json!({
-        "type": "session.update",
-        "session": {
-            "input_audio_format": "pcm",
-            "sample_rate": 16000,
-            "input_audio_transcription": transcription,
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.0,
-                "silence_duration_ms": SERVER_SILENCE_MS
-            }
-        }
-    })
-    .to_string()
+
+    fn audio(&self, frame: &[i16]) -> String {
+        let bytes: Vec<u8> = frame.iter().flat_map(|s| s.to_le_bytes()).collect();
+        serde_json::json!({
+            "type": "input_audio_buffer.append",
+            "audio": base64::engine::general_purpose::STANDARD.encode(bytes),
+        })
+        .to_string()
+    }
+
+    fn finish(&self) -> String {
+        serde_json::json!({ "type": "session.finish" }).to_string()
+    }
+
+    fn parse(&mut self, text: &String) -> Vec<AsrEvent> {
+        server_event(text).into_iter().collect()
+    }
+
+    fn session_over(&self, text: &String) -> bool {
+        event_type(text).as_deref() == Some("session.finished")
+    }
 }
 
-fn append_payload(frame: &[i16]) -> String {
-    let bytes: Vec<u8> = frame.iter().flat_map(|s| s.to_le_bytes()).collect();
-    serde_json::json!({
-        "type": "input_audio_buffer.append",
-        "audio": base64::engine::general_purpose::STANDARD.encode(bytes),
-    })
-    .to_string()
-}
-
-fn finish_payload() -> String {
-    serde_json::json!({ "type": "session.finish" }).to_string()
+/// One server event's `type`, when the message parses at all.
+fn event_type(text: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()?
+        .get("type")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
 }
 
 /// Map one server text event onto the engine's ASR events; `None` for the
@@ -458,11 +218,11 @@ mod tests {
     use serde_json::Value;
     use tokio::sync::mpsc;
 
+    use spokenrectifier_asr::transport::{ConnectError, RealtimeChannel};
     use spokenrectifier_audio::MicEvent;
 
-    use crate::gate::PAD_MS;
     use crate::test_support::{tone_frames as tone, zero_frames as zeros};
-    use crate::transport::RealtimeChannel;
+    use spokenrectifier_asr::PAD_MS;
 
     // -- scripted connection ------------------------------------------------
 
@@ -471,7 +231,7 @@ mod tests {
         /// A live channel; `release` gates when `connect()` resolves, so a
         /// test can hold a reconnect open while frames keep arriving.
         Live {
-            channel: RealtimeChannel,
+            channel: RealtimeChannel<String>,
             release: Option<mpsc::Receiver<()>>,
         },
         /// Fail before the session begins (auth, unreachable).
@@ -521,8 +281,8 @@ mod tests {
     }
 
     #[async_trait]
-    impl RealtimeConnect for ScriptedConnect {
-        async fn connect(&self) -> Result<RealtimeChannel, ConnectError> {
+    impl RealtimeConnect<String> for ScriptedConnect {
+        async fn connect(&self) -> Result<RealtimeChannel<String>, ConnectError> {
             self.connect_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let entry = self.plan.lock().unwrap().pop_front();

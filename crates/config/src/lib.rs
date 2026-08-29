@@ -186,34 +186,47 @@ fn span_line_column(text: &str, span: Option<std::ops::Range<usize>>) -> (usize,
     (line, column)
 }
 
-/// Reject a non-empty `api_key` anywhere in the shared (committable)
-/// file — at the root, under any section, or nested deeper (inside
-/// `[llm.extra_body]`, say) — including places the caller never asked
-/// about. Failing loudly here beats accepting a key into a file that
-/// gets committed. The local file is exempt: it is the key's legal home.
+/// Reject secret-shaped fields in the shared (committable) file. Two
+/// rules (the layering ironclad, ADR-0008, extended by ADR-0009):
+///
+/// - a non-empty `api_key` anywhere — at the root, under any section, or
+///   nested deeper (inside `[llm.extra_body]`, say), including places the
+///   caller never asked about;
+/// - inside `[asr]` or any `[asr.*]` sub-table: a non-empty `secret_id`
+///   or any `*_key` field (`access_key`, `secret_key`, …) — the cloud ASR
+///   credentials, of which the Tencent signing key is the most sensitive.
+///
+/// Failing loudly here beats accepting a key into a file that gets
+/// committed. The local file is exempt: it is the keys' legal home.
 fn guard_against_secrets(path: &Path, table: &toml::Table) -> Result<(), ConfigError> {
-    if table_carries_key(table) {
+    if table_carries_secret(table, false) {
         return Err(ConfigError(format!(
-            "{}: api_key may not live in the shared committed config; \
-             move it to {LOCAL_FILE}",
+            "{}: secret fields (api_key, any *_key, secret_id) may not live \
+             in the shared committed config; move them to {LOCAL_FILE}",
             path.display()
         )));
     }
     Ok(())
 }
 
-/// Whether this table (at any depth) holds a non-empty string `api_key`.
-fn table_carries_key(table: &toml::Table) -> bool {
-    let carries_key = |value: &toml::Value| matches!(value.as_str(), Some(key) if !key.is_empty());
-    table.get("api_key").is_some_and(carries_key) || table.values().any(value_carries_key)
+/// Whether this table (at any depth) holds a secret the shared file may
+/// not carry. `in_asr` marks the walk as being inside the `[asr]` tree,
+/// where the extended ASR field set (`secret_id`, any `*_key`) applies.
+fn table_carries_secret(table: &toml::Table, in_asr: bool) -> bool {
+    let carries = |value: &toml::Value| matches!(value.as_str(), Some(key) if !key.is_empty());
+    table.iter().any(|(name, value)| {
+        carries(value)
+            && (name == "api_key" || in_asr && (name == "secret_id" || name.ends_with("_key")))
+            || value_carries_secret(value, in_asr || name == "asr")
+    })
 }
 
 /// Tables hide one level deeper inside values: sub-tables, and arrays of
 /// tables (`[[section]]`).
-fn value_carries_key(value: &toml::Value) -> bool {
+fn value_carries_secret(value: &toml::Value, in_asr: bool) -> bool {
     match value {
-        toml::Value::Table(table) => table_carries_key(table),
-        toml::Value::Array(items) => items.iter().any(value_carries_key),
+        toml::Value::Table(table) => table_carries_secret(table, in_asr),
+        toml::Value::Array(items) => items.iter().any(|item| value_carries_secret(item, in_asr)),
         _ => false,
     }
 }
@@ -341,6 +354,111 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // -- the extended ASR field set (ADR-0009) ------------------------------
+
+    /// One shared-file body carrying an ASR credential, and the field it
+    /// hides: every one of them must be rejected.
+    #[test]
+    fn asr_credentials_in_shared_are_rejected_whatever_their_name() {
+        for (name, body) in [
+            (
+                "volcengine-access-key",
+                "[asr.volcengine]\naccess_key = \"volc-secret\"\n",
+            ),
+            (
+                "tencent-secret-key",
+                "[asr.tencent]\nsecret_key = \"signing-secret\"\n",
+            ),
+            (
+                "tencent-secret-id",
+                "[asr.tencent]\nsecret_id = \"id-1234\"\n",
+            ),
+            (
+                "asr-root-access-key",
+                "[asr]\naccess_key = \"root-secret\"\n",
+            ),
+            (
+                "any-suffixed-key-field",
+                "[asr.azure]\ncustom_thing_key = \"also-secret\"\n",
+            ),
+            (
+                "deeper-than-a-vendor-section",
+                "[asr.volcengine.extra]\naccess_key = \"deep-secret\"\n",
+            ),
+        ] {
+            let dir = scratch("sr-config-guard-asr");
+            std::fs::write(dir.join(SHARED_FILE), body).unwrap();
+
+            let err = load_section_layers::<ToySection>(std::slice::from_ref(&dir), "toy")
+                .unwrap_err()
+                .0;
+            assert!(err.contains(SHARED_FILE), "{name}: got: {err}");
+            assert!(!err.contains("secret\""), "{name} leaked a value: {err}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    /// The extension is scoped to the `[asr]` tree: a `*_key` field some
+    /// other section legitimately carries stays legal in shared.
+    #[test]
+    fn a_key_shaped_field_outside_asr_stays_legal_in_shared() {
+        let dir = scratch("sr-config-guard-scoped");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[toy]\nnot_a_secret_key = \"public-value\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_section_layers::<ToySection>(std::slice::from_ref(&dir), "toy")
+                .unwrap()
+                .len(),
+            1
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The whole ASR credential set is legal in the local layer — that is
+    /// its point.
+    #[test]
+    fn asr_credentials_in_local_are_fine() {
+        let dir = scratch("sr-config-guard-asr-local");
+        std::fs::write(
+            dir.join(LOCAL_FILE),
+            "[asr.volcengine]\naccess_key = \"volc-secret\"\n[asr.tencent]\nsecret_key = \"s\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_section_layers::<ToySection>(std::slice::from_ref(&dir), "toy")
+                .unwrap()
+                .len(),
+            0 // local has no [toy]: no layers, and no guard error either
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An empty credential string reads as absent — the same rule the
+    /// bare `api_key` guard follows (the example file ships commented
+    /// placeholders that must not trip the guard).
+    #[test]
+    fn empty_asr_credentials_in_shared_read_as_absent() {
+        let dir = scratch("sr-config-guard-asr-empty");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[asr.volcengine]\naccess_key = \"\"\n[asr.tencent]\nsecret_id = \"\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_section_layers::<ToySection>(std::slice::from_ref(&dir), "toy")
+                .unwrap()
+                .len(),
+            0
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

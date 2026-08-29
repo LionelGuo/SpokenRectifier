@@ -220,7 +220,7 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
     .map_err(|err| ConfigError(err.0))?;
     edit.api_key
         .clone()
-        .write_to_local(dirs, "llm")
+        .write_to_local(dirs, "llm", "api_key")
         .map_err(|err| ConfigError(err.0))?;
     Ok(())
 }

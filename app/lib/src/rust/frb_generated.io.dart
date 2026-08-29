@@ -40,6 +40,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  BridgeAsrEdit dco_decode_box_autoadd_bridge_asr_edit(dynamic raw);
+
+  @protected
   BridgeCommand dco_decode_box_autoadd_bridge_command(dynamic raw);
 
   @protected
@@ -55,7 +58,34 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeAdvancedConfig dco_decode_bridge_advanced_config(dynamic raw);
 
   @protected
+  BridgeAsrAliyun dco_decode_bridge_asr_aliyun(dynamic raw);
+
+  @protected
+  BridgeAsrAliyunEdit dco_decode_bridge_asr_aliyun_edit(dynamic raw);
+
+  @protected
+  BridgeAsrAzure dco_decode_bridge_asr_azure(dynamic raw);
+
+  @protected
+  BridgeAsrAzureEdit dco_decode_bridge_asr_azure_edit(dynamic raw);
+
+  @protected
   BridgeAsrConnection dco_decode_bridge_asr_connection(dynamic raw);
+
+  @protected
+  BridgeAsrEdit dco_decode_bridge_asr_edit(dynamic raw);
+
+  @protected
+  BridgeAsrTencent dco_decode_bridge_asr_tencent(dynamic raw);
+
+  @protected
+  BridgeAsrTencentEdit dco_decode_bridge_asr_tencent_edit(dynamic raw);
+
+  @protected
+  BridgeAsrVolcengine dco_decode_bridge_asr_volcengine(dynamic raw);
+
+  @protected
+  BridgeAsrVolcengineEdit dco_decode_bridge_asr_volcengine_edit(dynamic raw);
 
   @protected
   BridgeCommand dco_decode_bridge_command(dynamic raw);
@@ -171,6 +201,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  BridgeAsrEdit sse_decode_box_autoadd_bridge_asr_edit(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BridgeCommand sse_decode_box_autoadd_bridge_command(
     SseDeserializer deserializer,
   );
@@ -194,7 +229,44 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BridgeAsrAliyun sse_decode_bridge_asr_aliyun(SseDeserializer deserializer);
+
+  @protected
+  BridgeAsrAliyunEdit sse_decode_bridge_asr_aliyun_edit(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeAsrAzure sse_decode_bridge_asr_azure(SseDeserializer deserializer);
+
+  @protected
+  BridgeAsrAzureEdit sse_decode_bridge_asr_azure_edit(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BridgeAsrConnection sse_decode_bridge_asr_connection(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeAsrEdit sse_decode_bridge_asr_edit(SseDeserializer deserializer);
+
+  @protected
+  BridgeAsrTencent sse_decode_bridge_asr_tencent(SseDeserializer deserializer);
+
+  @protected
+  BridgeAsrTencentEdit sse_decode_bridge_asr_tencent_edit(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeAsrVolcengine sse_decode_bridge_asr_volcengine(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeAsrVolcengineEdit sse_decode_bridge_asr_volcengine_edit(
     SseDeserializer deserializer,
   );
 
@@ -344,6 +416,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_bridge_asr_edit(
+    BridgeAsrEdit self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_bridge_command(
     BridgeCommand self,
     SseSerializer serializer,
@@ -371,8 +449,59 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_bridge_asr_aliyun(
+    BridgeAsrAliyun self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_asr_aliyun_edit(
+    BridgeAsrAliyunEdit self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_asr_azure(
+    BridgeAsrAzure self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_asr_azure_edit(
+    BridgeAsrAzureEdit self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bridge_asr_connection(
     BridgeAsrConnection self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_asr_edit(BridgeAsrEdit self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bridge_asr_tencent(
+    BridgeAsrTencent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_asr_tencent_edit(
+    BridgeAsrTencentEdit self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_asr_volcengine(
+    BridgeAsrVolcengine self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_asr_volcengine_edit(
+    BridgeAsrVolcengineEdit self,
     SseSerializer serializer,
   );
 

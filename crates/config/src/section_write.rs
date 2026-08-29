@@ -108,7 +108,10 @@ impl SectionField {
 /// What a settings write does to a secret field. The stored value never
 /// rides this API: `Keep` leaves the file alone, `Clear` removes the key
 /// (falling back to the configured environment variable), `Set` replaces
-/// it. An empty `Set` is a `Clear` — an empty key is no key.
+/// it. An empty `Set` is a `Clear` — an empty key is no key. The field's
+/// name is a parameter: every section's secret is `api_key` except the
+/// ASR sub-sections (`access_key`, `secret_id`, `secret_key` — ADR-0009),
+/// all of them local-layer-only like the rest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyEdit {
     Keep,
@@ -119,26 +122,31 @@ pub enum KeyEdit {
 impl KeyEdit {
     /// The local-layer field write this edit maps to; `None` when the
     /// file should not be touched at all.
-    pub fn as_field(self) -> Option<SectionField> {
+    pub fn as_field(self, field: &str) -> Option<SectionField> {
         match self {
             KeyEdit::Keep => None,
-            KeyEdit::Clear => Some(SectionField::reset("api_key")),
+            KeyEdit::Clear => Some(SectionField::reset(field)),
             KeyEdit::Set(key) => {
                 let key = key.trim();
                 if key.is_empty() {
-                    Some(SectionField::reset("api_key"))
+                    Some(SectionField::reset(field))
                 } else {
-                    Some(SectionField::str("api_key", key))
+                    Some(SectionField::str(field, key))
                 }
             }
         }
     }
 
-    /// Apply this edit to `section` of the local layer — the secret's
-    /// only legal home, whatever layer owns the section. A `Keep`
-    /// touches nothing (not even creating the file).
-    pub fn write_to_local(self, dirs: &[PathBuf], section: &str) -> Result<(), ConfigError> {
-        match self.as_field() {
+    /// Apply this edit to `section`'s `field` of the local layer — the
+    /// secret's only legal home, whatever layer owns the section. A
+    /// `Keep` touches nothing (not even creating the file).
+    pub fn write_to_local(
+        self,
+        dirs: &[PathBuf],
+        section: &str,
+        field: &str,
+    ) -> Result<(), ConfigError> {
+        match self.as_field(field) {
             Some(field) => write_section_fields(dirs, section, &[field], WriteLayer::Local),
             None => Ok(()),
         }
@@ -180,10 +188,44 @@ pub fn key_status(api_key: Option<&str>, api_key_env: Option<&str>) -> KeyStatus
     }
 }
 
+/// The components of a section's address: `"asr.volcengine"` addresses
+/// the sub-table `[asr.volcengine]` — a `'.'`-separated path, the way
+/// TOML itself nests sections.
+fn section_steps(section: &str) -> Vec<&str> {
+    section.split('.').collect()
+}
+
+/// Whether the document holds the section the steps address.
+fn contains_section(document: &toml_edit::DocumentMut, steps: &[&str]) -> bool {
+    let mut table = document.as_table();
+    for key in steps {
+        match table.get(key).and_then(toml_edit::Item::as_table) {
+            Some(next) => table = next,
+            None => return false,
+        }
+    }
+    true
+}
+
+/// The nested table the steps address, when it already exists.
+fn table_at_mut<'a>(
+    document: &'a mut toml_edit::DocumentMut,
+    steps: &[&str],
+) -> Option<&'a mut toml_edit::Table> {
+    let mut table = document.as_table_mut();
+    for key in steps {
+        table = table.get_mut(key)?.as_table_mut()?;
+    }
+    Some(table)
+}
+
 /// Write fields into one section of the layer files (see the module docs
-/// for the placement rule). The edit is section-preserving: every other
-/// value, comment, and blank line in each touched file survives byte for
-/// byte, and a malformed file is refused, never clobbered.
+/// for the placement rule). `section` may name a sub-section through a
+/// dotted path (`"asr.volcengine"` → `[asr.volcengine]`), with the same
+/// placement and preservation rules. The edit is section-preserving:
+/// every other value, comment, and blank line in each touched file
+/// survives byte for byte, and a malformed file is refused, never
+/// clobbered.
 ///
 /// A save touching two files (a `Reset` stripping a key from every
 /// layer) is not atomic: an IO failure after the first write leaves the
@@ -195,6 +237,7 @@ pub fn write_section_fields(
     fields: &[SectionField],
     layer: WriteLayer,
 ) -> Result<(), ConfigError> {
+    let steps = section_steps(section);
     // Every existing file parses before anything is written: a malformed
     // layer refuses the whole save, and no file is left half-edited.
     let mut documents = Vec::new();
@@ -209,7 +252,7 @@ pub fn write_section_fields(
         WriteLayer::Owning => documents
             .iter()
             .rev()
-            .find(|(_, document)| document.contains_key(section))
+            .find(|(_, document)| contains_section(document, &steps))
             .map(|(path, _)| path.clone())
             .unwrap_or_else(|| shared_path(dirs)),
     };
@@ -224,16 +267,12 @@ pub fn write_section_fields(
         }
         let original = document.to_string();
         if is_target {
-            let table = section_table_mut(document, section, path)?;
+            let table = section_table_mut(document, &steps, path)?;
             for field in fields {
                 write_field(table, field);
             }
         }
-        if resets_here
-            && let Some(table) = document
-                .get_mut(section)
-                .and_then(|item| item.as_table_mut())
-        {
+        if resets_here && let Some(table) = table_at_mut(document, &steps) {
             for field in fields
                 .iter()
                 .filter(|field| matches!(field, SectionField::Reset { .. }))
@@ -255,7 +294,7 @@ pub fn write_section_fields(
             .any(|field| !matches!(field, SectionField::Reset { .. }))
     {
         let mut document = toml_edit::DocumentMut::new();
-        let table = section_table_mut(&mut document, section, &target)?;
+        let table = section_table_mut(&mut document, &steps, &target)?;
         for field in fields {
             write_field(table, field);
         }
@@ -291,26 +330,37 @@ fn shared_path(dirs: &[PathBuf]) -> PathBuf {
     find_file(dirs, SHARED_FILE).unwrap_or_else(|| settings_home(dirs).join(SHARED_FILE))
 }
 
-/// The section's table, created when the section is absent; an error
-/// when the key exists but is not a table (index-reading a non-table
-/// would panic).
+/// The section's table (nested for a dotted path), created — parents
+/// first — when absent; an error when any step exists but is not a table
+/// (index-reading a non-table would panic).
 fn section_table_mut<'a>(
     document: &'a mut toml_edit::DocumentMut,
-    section: &str,
+    steps: &[&str],
     path: &Path,
 ) -> Result<&'a mut toml_edit::Table, ConfigError> {
-    if document.get_mut(section).is_none() {
-        document[section] = toml_edit::Item::Table(toml_edit::Table::new());
+    let mut table = document.as_table_mut();
+    for (depth, key) in steps.iter().enumerate() {
+        if table.get_mut(key).is_none() {
+            let mut created = toml_edit::Table::new();
+            // A fresh ancestor renders no header of its own: only the
+            // leaf section the write addresses appears in the file.
+            if depth + 1 < steps.len() {
+                created.set_implicit(true);
+            }
+            table.insert(key, toml_edit::Item::Table(created));
+        }
+        table = table
+            .get_mut(key)
+            .and_then(|item| item.as_table_mut())
+            .ok_or_else(|| {
+                ConfigError(format!(
+                    "{}: [{}] exists but is not a table",
+                    path.display(),
+                    steps[..=depth].join(".")
+                ))
+            })?;
     }
-    document
-        .get_mut(section)
-        .and_then(|item| item.as_table_mut())
-        .ok_or_else(|| {
-            ConfigError(format!(
-                "{}: [{section}] exists but is not a table",
-                path.display()
-            ))
-        })
+    Ok(table)
 }
 
 /// One field onto the table: `insert` keeps an existing key's position
@@ -607,19 +657,159 @@ mod tests {
 
     #[test]
     fn key_edits_map_onto_local_fields_with_empty_set_clearing() {
-        assert_eq!(KeyEdit::Keep.as_field(), None);
+        assert_eq!(KeyEdit::Keep.as_field("api_key"), None);
         assert_eq!(
-            KeyEdit::Clear.as_field(),
+            KeyEdit::Clear.as_field("api_key"),
             Some(SectionField::reset("api_key"))
         );
         assert_eq!(
-            KeyEdit::Set("sk-x".into()).as_field(),
+            KeyEdit::Set("sk-x".into()).as_field("api_key"),
             Some(SectionField::str("api_key", "sk-x"))
         );
         assert_eq!(
-            KeyEdit::Set("  ".into()).as_field(),
+            KeyEdit::Set("  ".into()).as_field("api_key"),
             Some(SectionField::reset("api_key"))
         );
+        // The ASR sub-sections' secret fields ride the same edit shape.
+        assert_eq!(
+            KeyEdit::Set("volc".into()).as_field("access_key"),
+            Some(SectionField::str("access_key", "volc"))
+        );
+    }
+
+    // -- dotted sub-section paths (the [asr.*] sections, ADR-0009) ---------
+
+    #[test]
+    fn a_dotted_sub_section_write_creates_the_nested_tables() {
+        let dir = scratch("sr-write-dotted-fresh");
+
+        write_section_fields(
+            std::slice::from_ref(&dir),
+            "asr.volcengine",
+            &[
+                SectionField::str("app_id", "123"),
+                SectionField::str("resource_id", "volc.seedasr.sauc.duration"),
+            ],
+            WriteLayer::Owning,
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(written.contains("[asr.volcengine]"), "got: {written}");
+        assert!(written.contains("app_id = \"123\""), "got: {written}");
+        // The parent [asr] table itself is never emitted bare: only the
+        // leaf section the write addressed.
+        assert!(!written.contains("[asr]\n"), "got: {written}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_dotted_write_extends_an_existing_asr_section_preserving_its_fields() {
+        let dir = scratch("sr-write-dotted-existing");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "# comment\n[asr]\nprovider = \"volcengine\"\nmodel = \"big\"\n",
+        )
+        .unwrap();
+
+        write_section_fields(
+            std::slice::from_ref(&dir),
+            "asr.volcengine",
+            &[SectionField::str("app_id", "123")],
+            WriteLayer::Owning,
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(written.contains("# comment"), "comment lost: {written}");
+        assert!(
+            written.contains("provider = \"volcengine\""),
+            "asr fields lost: {written}"
+        );
+        assert!(written.contains("[asr.volcengine]"), "got: {written}");
+        assert!(written.contains("app_id = \"123\""), "got: {written}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_dotted_local_write_targets_local_whatever_owns_the_sub_section() {
+        let dir = scratch("sr-write-dotted-local");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[asr.volcengine]\napp_id = \"123\"\n",
+        )
+        .unwrap();
+
+        write_section_fields(
+            std::slice::from_ref(&dir),
+            "asr.volcengine",
+            &[SectionField::str("access_key", "volc-secret")],
+            WriteLayer::Local,
+        )
+        .unwrap();
+
+        // The secret created a local [asr.volcengine] without touching
+        // the shared one.
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(!shared.contains("access_key"), "leaked: {shared}");
+        let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
+        assert!(local.contains("[asr.volcengine]"), "got: {local}");
+        assert!(
+            local.contains("access_key = \"volc-secret\""),
+            "got: {local}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_dotted_reset_strips_the_key_from_every_layers_sub_section() {
+        let dir = scratch("sr-write-dotted-reset");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[asr.volcengine]\napp_id = \"123\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(LOCAL_FILE),
+            "[asr.volcengine]\naccess_key = \"old\"\nresource_id = \"r\"\n",
+        )
+        .unwrap();
+
+        write_section_fields(
+            std::slice::from_ref(&dir),
+            "asr.volcengine",
+            &[SectionField::reset("access_key")],
+            WriteLayer::Owning,
+        )
+        .unwrap();
+
+        let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
+        assert!(!local.contains("access_key"), "not removed: {local}");
+        assert!(
+            local.contains("resource_id = \"r\""),
+            "over-removed: {local}"
+        );
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(shared.contains("app_id"), "over-removed: {shared}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_dotted_step_that_exists_as_a_value_is_refused() {
+        let dir = scratch("sr-write-dotted-non-table");
+        std::fs::write(dir.join(SHARED_FILE), "[asr]\nvolcengine = 3\n").unwrap();
+
+        let err = write_section_fields(
+            std::slice::from_ref(&dir),
+            "asr.volcengine",
+            &[SectionField::str("app_id", "1")],
+            WriteLayer::Owning,
+        )
+        .unwrap_err()
+        .0;
+        assert!(err.contains("not a table"), "got: {err}");
+        assert!(err.contains("asr.volcengine"), "got: {err}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

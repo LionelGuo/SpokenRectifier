@@ -1,5 +1,6 @@
-//! Production engine assembly: which LLM and which inserter the real
-//! engine runs with, decided from the layered config files.
+//! Production engine assembly: which ASR provider, which LLM, and which
+//! inserter the real engine runs with, decided from the layered config
+//! files.
 //!
 //! Lives outside `api.rs` so flutter_rust_bridge's codegen (which mirrors
 //! the whole api module) does not pick these types up as part of the
@@ -9,8 +10,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use spokenrectifier_aliyun::AliyunAsr;
+use spokenrectifier_asr::schema::{load_asr_config, AsrProviderKind};
+use spokenrectifier_audio::{MicVadAsr, VadConfig};
+use spokenrectifier_engine::provider::asr::AsrProvider;
 use spokenrectifier_engine::RectifyLlm;
 use spokenrectifier_insertion::{load_insertion_config, TargetInserter};
+use spokenrectifier_volcengine::VolcengineAsr;
 
 /// Which rectify LLM the real engine runs with.
 pub enum LlmChoice {
@@ -71,9 +77,44 @@ fn llm_config(dirs: &[PathBuf]) -> anyhow::Result<spokenrectifier_llm::LlmConfig
 }
 
 fn asr_key_resolves(dirs: &[PathBuf]) -> anyhow::Result<bool> {
-    let config =
-        spokenrectifier_aliyun::load_asr_config(dirs).map_err(|err| anyhow!("ASR {}", err.0))?;
-    Ok(config.resolve_key().is_some_and(|key| !key.is_empty()))
+    let config = load_asr_config(dirs).map_err(|err| anyhow!("ASR {}", err.0))?;
+    Ok(config.carries_credentials())
+}
+
+/// The ASR provider for the real engine, dispatched by `[asr]` provider
+/// (ADR-0009): no credential anywhere means the mic+VAD provider (the
+/// session semantics without cloud text); any credential configured
+/// means the vendor's adapter must connect or fail loudly — never a
+/// silent mic-only fallback that would read as broken recognition.
+/// Tencent/OpenAI/Azure carry credentials only in the schema for now:
+/// picking one of them with credentials set is an error naming the
+/// missing adapter.
+pub fn asr_provider(dirs: &[PathBuf]) -> anyhow::Result<Arc<dyn AsrProvider>> {
+    let config = load_asr_config(dirs).map_err(|err| anyhow!("ASR {}", err.0))?;
+    if !config.carries_credentials() {
+        return Ok(Arc::new(MicVadAsr::new(VadConfig::default())));
+    }
+    match config.provider {
+        AsrProviderKind::Aliyun => Ok(Arc::new(
+            AliyunAsr::new(config, VadConfig::default()).map_err(|err| anyhow!("ASR {}", err.0))?,
+        )),
+        AsrProviderKind::Volcengine => Ok(Arc::new(
+            VolcengineAsr::new(config, VadConfig::default())
+                .map_err(|err| anyhow!("ASR {}", err.0))?,
+        )),
+        AsrProviderKind::Tencent | AsrProviderKind::Openai | AsrProviderKind::Azure => {
+            let scheduled = match config.provider {
+                AsrProviderKind::Tencent => " (ticket 25)",
+                _ => "",
+            };
+            Err(anyhow!(
+                "ASR [asr] provider \"{}\": no adapter yet{scheduled}; \
+                 pick aliyun or volcengine, or clear the provider's \
+                 credentials for the mic-only fallback",
+                config.provider.as_str()
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -171,6 +212,90 @@ mod tests {
         assert!(err.contains("api_key"), "got: {err}");
         assert!(err.contains("spokenrectifier.local.toml"), "got: {err}");
         std::fs::remove_dir_all(no_key).unwrap();
+    }
+
+    // -- the ASR dispatch (ticket 24) --------------------------------------
+
+    #[test]
+    fn no_asr_credential_keeps_the_mic_only_provider() {
+        let empty = dir("sr-factory-asr-empty");
+        std::fs::write(
+            empty.join("spokenrectifier.local.toml"),
+            // The default api_key_env names an unset variable: nothing
+            // carries, whatever the provider.
+            "[asr]\napi_key_env = \"SR_TEST_UNSET_ASR_KEY\"\n",
+        )
+        .unwrap();
+        // Building is the assertion: every path here returns a provider
+        // (the mic-only one) rather than an error.
+        asr_provider(std::slice::from_ref(&empty)).unwrap();
+        std::fs::remove_dir_all(empty).unwrap();
+    }
+
+    #[test]
+    fn an_aliyun_key_builds_the_real_adapter() {
+        let with_key = dir("sr-factory-asr-aliyun");
+        std::fs::write(
+            with_key.join("spokenrectifier.local.toml"),
+            "[asr]\napi_key = \"sk-asr\"\n",
+        )
+        .unwrap();
+        // Construction is offline: the adapter builds without touching
+        // the network or the microphone.
+        asr_provider(std::slice::from_ref(&with_key)).unwrap();
+        std::fs::remove_dir_all(with_key).unwrap();
+    }
+
+    #[test]
+    fn a_complete_volcengine_triple_builds_the_real_adapter() {
+        let with_key = dir("sr-factory-asr-volcengine");
+        std::fs::write(
+            with_key.join("spokenrectifier.local.toml"),
+            "[asr]\nprovider = \"volcengine\"\n\
+             [asr.volcengine]\napp_id = \"42\"\naccess_key = \"tok\"\n",
+        )
+        .unwrap();
+        asr_provider(std::slice::from_ref(&with_key)).unwrap();
+        std::fs::remove_dir_all(with_key).unwrap();
+    }
+
+    #[test]
+    fn a_partial_volcengine_triple_is_an_error_not_a_fallback() {
+        let partial = dir("sr-factory-asr-partial");
+        std::fs::write(
+            partial.join("spokenrectifier.local.toml"),
+            "[asr]\nprovider = \"volcengine\"\n\
+             [asr.volcengine]\naccess_key = \"tok\"\n",
+        )
+        .unwrap();
+        let err = match asr_provider(std::slice::from_ref(&partial)) {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("a partial credential set must be an error"),
+        };
+        assert!(err.contains("app_id"), "got: {err}");
+        assert!(err.contains("resource_id"), "got: {err}");
+        std::fs::remove_dir_all(partial).unwrap();
+    }
+
+    #[test]
+    fn a_credentialed_unadapted_provider_is_an_error_naming_the_gap() {
+        for (name, body) in [
+            (
+                "tencent",
+                "[asr]\nprovider = \"tencent\"\n[asr.tencent]\nsecret_key = \"s\"\n",
+            ),
+            ("openai", "[asr]\nprovider = \"openai\"\napi_key = \"sk\"\n"),
+        ] {
+            let unadapted = dir("sr-factory-asr-unadapted");
+            std::fs::write(unadapted.join("spokenrectifier.local.toml"), body).unwrap();
+            let err = match asr_provider(std::slice::from_ref(&unadapted)) {
+                Err(err) => err.to_string(),
+                Ok(_) => panic!("{name}: a credentialed unadapted provider must error"),
+            };
+            assert!(err.contains(name), "{name}: got: {err}");
+            assert!(err.contains("no adapter yet"), "{name}: got: {err}");
+            std::fs::remove_dir_all(unadapted).unwrap();
+        }
     }
 
     #[test]

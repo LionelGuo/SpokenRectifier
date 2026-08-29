@@ -1,35 +1,35 @@
-//! Aliyun cloud ASR adapter for SpokenRectifier.
+//! Volcengine cloud ASR adapter for SpokenRectifier.
 //!
-//! This crate is the cloud half of the [`AsrProvider`] seam: the
-//! qwen3-asr-flash-realtime model over DashScope's private realtime
-//! WebSocket protocol (OpenAI-Realtime-shaped events, but a DashScope
-//! endpoint and auth — deliberately not an OpenAI-compatible
-//! assumption).
+//! This crate is the cloud half of the [`AsrProvider`] seam: the Seed-ASR
+//! bigmodel streaming recognition over Volcengine's private `sauc` v3
+//! WebSocket protocol — gzip'd binary frames, header authentication
+//! (app id + access token + resource id, no signature), the hotword
+//! dictionary injected per connection as recognition context.
 //!
-//! The `[asr]` config the adapter reads (common segment plus this
-//! vendor's `[asr.aliyun]` sub-section) lives in `spokenrectifier-asr`,
-//! the schema owner; the session machinery (mic capture through the
-//! local VAD, the hallucination send gate, bounded reconnects, the
-//! graceful drain) lives there too. What remains here is the DashScope
-//! dialect: the `session.update` that opens a recognition session (the
-//! hotword dictionary riding as the transcription corpus), the
-//! base64-PCM `input_audio_buffer.append` frames, and the server events
-//! folding onto [`AsrEvent::Partial`] / [`AsrEvent::Final`], which the
-//! engine folds into the live transcript exactly like the fake
-//! providers' scripted text.
+//! The `[asr]` config it reads (common segment plus the
+//! `[asr.volcengine]` sub-section) lives in `spokenrectifier-asr`, the
+//! schema owner; the session machinery (mic capture through the local
+//! VAD, the hallucination send gate, bounded reconnects, the graceful
+//! drain) lives there too. What remains here is the dialect: the
+//! frame codec ([`frame`]) and the protocol translation ([`protocol`])
+//! — server utterance results folding onto
+//! [`AsrEvent::Partial`]/[`AsrEvent::Final`], which the engine folds
+//! into the live transcript exactly like every other provider's text.
 //!
-//! The connection is an injectable seam ([`RealtimeConnect`]): production
-//! speaks tokio-tungstenite, tests script both directions through plain
-//! channels, keeping the protocol logic deterministic.
+//! The connection is an injectable seam ([`RealtimeConnect`]):
+//! production speaks tokio-tungstenite, tests script both directions
+//! through plain channels, keeping the protocol logic deterministic.
 //!
 //! [`AsrProvider`]: spokenrectifier_engine::AsrProvider
 //! [`AsrEvent::Partial`]: spokenrectifier_engine::provider::asr::AsrEvent::Partial
 //! [`AsrEvent::Final`]: spokenrectifier_engine::provider::asr::AsrEvent::Final
-//! [`AsrEvent::Failed`]: spokenrectifier_engine::provider::asr::AsrEvent::Failed
 
+mod frame;
+mod protocol;
 mod provider;
 
-pub use provider::AliyunAsr;
+pub use frame::{ServerFrame, decode, encode_audio, encode_full_request};
+pub use provider::VolcengineAsr;
 pub use spokenrectifier_asr::transport::{ConnectError, RealtimeChannel, RealtimeConnect};
 
 /// Synthetic 100 ms frame builders for the crate's deterministic tests —

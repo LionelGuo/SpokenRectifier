@@ -7,16 +7,17 @@
 //! the Dart side.
 //!
 //! Two engine flavors: `create_engine` wires the real default microphone
-//! with, when the `[asr]` config yields a key, the Aliyun realtime
-//! adapter streaming real transcripts (otherwise the mic+VAD provider's
-//! session semantics alone), the real rectify LLM when `[llm]` yields a
-//! key (a scripted cycling demo LLM otherwise, but never under a real
-//! ASR key — see `engine_factory`), the production inserter (clipboard
-//! paste or typing at the remembered target window), and the SQLite
-//! session history (per the `[history]` config), while
-//! `create_fake_engine` keeps the all-fake setup (scripted speech via
-//! `fake_say` / `fake_silence`, history disabled) for tests and headless
-//! demos.
+//! with, when the `[asr]` config carries credentials, the configured
+//! provider's cloud adapter streaming real transcripts — Aliyun or
+//! Volcengine per `[asr]` provider (ADR-0009; otherwise the mic+VAD
+//! provider's session semantics alone) — the real rectify LLM when
+//! `[llm]` yields a key (a scripted cycling demo LLM otherwise, but
+//! never under real ASR credentials — see `engine_factory`), the
+//! production inserter (clipboard paste or typing at the remembered
+//! target window), and the SQLite session history (per the `[history]`
+//! config), while `create_fake_engine` keeps the all-fake setup
+//! (scripted speech via `fake_say` / `fake_silence`, history disabled)
+//! for tests and headless demos.
 
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -25,12 +26,13 @@ use tokio::runtime::Runtime;
 
 use crate::frb_generated::StreamSink;
 
-use spokenrectifier_aliyun::{load_asr_config, AliyunAsr};
-use spokenrectifier_audio::{MicVadAsr, VadConfig};
+use spokenrectifier_asr::schema::{
+    load_asr_config, save_asr_connection, AliyunEdit, AsrConfig, AsrConnectionEdit,
+    AsrProviderKind, AzureEdit, TencentEdit, VolcengineEdit,
+};
 use spokenrectifier_engine::fakes::{
     AsrFeed, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedLlm,
 };
-use spokenrectifier_engine::AsrProvider;
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, RectifyLlm,
     SessionState, TokioClock,
@@ -294,10 +296,11 @@ fn token_scripts(llm_responses: &[String]) -> Vec<Vec<LlmStep>> {
 }
 
 /// Build the engine behind the bridge with the real default microphone
-/// and, when the `[asr]` config yields an API key, the Aliyun realtime
-/// adapter streaming real transcripts. Without a key the mic+VAD provider
-/// keeps the session semantics (speech activity, silence, device
-/// failure). The rectify LLM is the real OpenAI-compatible client when
+/// and, when the `[asr]` config carries credentials, the configured
+/// provider's cloud adapter streaming real transcripts (see
+/// `engine_factory::asr_provider` for the dispatch and its error
+/// rules). Without credentials the mic+VAD provider keeps the session
+/// semantics (speech activity, silence, device failure). The rectify LLM is the real OpenAI-compatible client when
 /// `[llm]` yields a key; the scripted demo LLM otherwise — but that
 /// combination is refused under a real ASR key (see `engine_factory`).
 /// Insertion is the production inserter (clipboard paste with restore, or
@@ -312,7 +315,7 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     // files from the same directories.
     let dirs = spokenrectifier_config::search_dirs();
     let config = engine_config(&dirs)?;
-    let asr = asr_provider(&dirs)?;
+    let asr = crate::engine_factory::asr_provider(&dirs)?;
     let llm: Arc<dyn RectifyLlm> = match llm_choice(&dirs)? {
         LlmChoice::Real(llm) => llm,
         LlmChoice::ScriptedDemo => ScriptedLlm::new_cycling(token_scripts(&llm_responses)),
@@ -356,21 +359,6 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
         }
     }));
     Ok(())
-}
-
-/// The ASR provider for the real engine: the Aliyun realtime adapter when
-/// the layered `[asr]` config resolves a key (an incomplete cloud config —
-/// key but no endpoint — is an error, not a silent fallback), the mic+VAD
-/// provider otherwise.
-fn asr_provider(dirs: &[std::path::PathBuf]) -> anyhow::Result<std::sync::Arc<dyn AsrProvider>> {
-    let config = load_asr_config(dirs).map_err(|err| anyhow::anyhow!("ASR {}", err.0))?;
-    match config.resolve_key() {
-        Some(_) => Ok(std::sync::Arc::new(
-            AliyunAsr::new(config, VadConfig::default())
-                .map_err(|err| anyhow::anyhow!("ASR {}", err.0))?,
-        )),
-        None => Ok(std::sync::Arc::new(MicVadAsr::new(VadConfig::default()))),
-    }
 }
 
 /// Build the engine behind the bridge with all-fake collaborators.
@@ -673,18 +661,99 @@ impl From<BridgeKeyEdit> for spokenrectifier_config::section_write::KeyEdit {
 }
 
 /// The effective `[asr]` connection as the settings pane paints it: the
-/// folded fields, the resolved endpoint (a read-only preview), and the
-/// key's placement.
+/// common segment's folded fields, every vendor sub-section (the pane
+/// renders the active one), the resolved endpoint (a read-only preview;
+/// `None` for providers without an adapter yet), and each secret's
+/// placement.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BridgeAsrConnection {
+    /// `aliyun` / `volcengine` / `tencent` / `openai` / `azure`.
+    pub provider: String,
     pub model: String,
     pub language: String,
-    pub workspace_id: Option<String>,
-    pub region: String,
     pub base_url: Option<String>,
     /// The WebSocket URL the current fields resolve to.
-    pub endpoint: String,
+    pub endpoint: Option<String>,
+    /// The common Bearer key pair (the active provider's, when its
+    /// family is the Bearer one).
     pub key: BridgeKeyStatus,
+    pub aliyun: BridgeAsrAliyun,
+    pub volcengine: BridgeAsrVolcengine,
+    pub tencent: BridgeAsrTencent,
+    pub azure: BridgeAsrAzure,
+}
+
+/// `[asr.aliyun]` for the pane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAsrAliyun {
+    pub workspace_id: Option<String>,
+    pub region: String,
+}
+
+/// `[asr.volcengine]` for the pane; the access token echoes per the
+/// diff-echo key block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAsrVolcengine {
+    pub app_id: Option<String>,
+    pub resource_id: String,
+    pub access_key: BridgeKeyStatus,
+}
+
+/// `[asr.tencent]` for the pane (adapter: ticket 25).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAsrTencent {
+    pub app_id: Option<String>,
+    pub secret_id: BridgeKeyStatus,
+    pub secret_key: BridgeKeyStatus,
+}
+
+/// `[asr.azure]` for the pane (adapter not scheduled).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAsrAzure {
+    pub region: Option<String>,
+    pub endpoint_id: Option<String>,
+}
+
+/// The editor's whole `[asr]` card, mirroring the schema's
+/// [`AsrConnectionEdit`]: common fields plus every vendor sub-section
+/// (a provider switch never clears another vendor's fields).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BridgeAsrEdit {
+    pub provider: String,
+    pub model: String,
+    pub language: String,
+    pub base_url: Option<String>,
+    pub api_key: BridgeKeyEdit,
+    pub aliyun: BridgeAsrAliyunEdit,
+    pub volcengine: BridgeAsrVolcengineEdit,
+    pub tencent: BridgeAsrTencentEdit,
+    pub azure: BridgeAsrAzureEdit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAsrAliyunEdit {
+    pub workspace_id: Option<String>,
+    pub region: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAsrVolcengineEdit {
+    pub app_id: Option<String>,
+    pub resource_id: String,
+    pub access_key: BridgeKeyEdit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAsrTencentEdit {
+    pub app_id: Option<String>,
+    pub secret_id: BridgeKeyEdit,
+    pub secret_key: BridgeKeyEdit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAsrAzureEdit {
+    pub region: Option<String>,
+    pub endpoint_id: Option<String>,
 }
 
 /// The effective `[llm]` connection as the settings pane paints it.
@@ -696,16 +765,36 @@ pub struct BridgeLlmConnection {
     pub key: BridgeKeyStatus,
 }
 
-fn asr_view(config: spokenrectifier_aliyun::AsrConfig) -> BridgeAsrConnection {
-    let endpoint = config.endpoint();
+fn asr_view(config: AsrConfig) -> BridgeAsrConnection {
+    let stored = |value: &Option<String>| match value {
+        Some(_) => BridgeKeyStatus::InLocalFile(value.clone().unwrap_or_default()),
+        None => BridgeKeyStatus::Unset,
+    };
     BridgeAsrConnection {
+        provider: config.provider.as_str().to_string(),
+        endpoint: config.endpoint(),
         key: bridge_key(config.api_key, config.api_key_env),
-        endpoint,
         model: config.model,
         language: config.language,
-        workspace_id: config.workspace_id,
-        region: config.region,
         base_url: config.base_url,
+        aliyun: BridgeAsrAliyun {
+            workspace_id: config.aliyun.workspace_id,
+            region: config.aliyun.region,
+        },
+        volcengine: BridgeAsrVolcengine {
+            app_id: config.volcengine.app_id,
+            resource_id: config.volcengine.resource_id,
+            access_key: stored(&config.volcengine.access_key),
+        },
+        tencent: BridgeAsrTencent {
+            app_id: config.tencent.app_id,
+            secret_id: stored(&config.tencent.secret_id),
+            secret_key: stored(&config.tencent.secret_key),
+        },
+        azure: BridgeAsrAzure {
+            region: config.azure.region,
+            endpoint_id: config.azure.endpoint_id,
+        },
     }
 }
 
@@ -742,27 +831,53 @@ pub struct BridgeConnection {
     pub llm: BridgeLlmConnection,
 }
 
-/// Write the editor's `[asr]` model back into the layer files (see
-/// `save_asr_connection` for the placement and preservation rules) and
-/// return the re-read view — the file's truth, not the ask.
-pub fn set_asr_connection(
-    model: String,
-    language: String,
-    workspace_id: Option<String>,
-    region: String,
-    base_url: Option<String>,
-    api_key: BridgeKeyEdit,
-) -> anyhow::Result<BridgeAsrConnection> {
+/// Write the editor's whole `[asr]` card back into the layer files (see
+/// `save_asr_connection` for the placement and preservation rules —
+/// common fields plus every vendor sub-section, every secret to the
+/// local layer only) and return the re-read view — the file's truth,
+/// not the ask.
+pub fn set_asr_connection(edit: BridgeAsrEdit) -> anyhow::Result<BridgeAsrConnection> {
+    let BridgeAsrEdit {
+        provider,
+        model,
+        language,
+        base_url,
+        api_key,
+        aliyun,
+        volcengine,
+        tencent,
+        azure,
+    } = edit;
+    let provider = AsrProviderKind::from_str_name(&provider).ok_or_else(|| {
+        anyhow!("[asr] provider \"{provider}\" is unknown: pick one of the known providers")
+    })?;
     let dirs = spokenrectifier_config::search_dirs();
-    spokenrectifier_aliyun::save_asr_connection(
+    save_asr_connection(
         &dirs,
-        &spokenrectifier_aliyun::AsrConnectionEdit {
+        &AsrConnectionEdit {
+            provider,
             model,
             language,
-            workspace_id,
-            region,
             base_url,
             api_key: api_key.into(),
+            aliyun: AliyunEdit {
+                workspace_id: aliyun.workspace_id,
+                region: aliyun.region,
+            },
+            volcengine: VolcengineEdit {
+                app_id: volcengine.app_id,
+                resource_id: volcengine.resource_id,
+                access_key: volcengine.access_key.into(),
+            },
+            tencent: TencentEdit {
+                app_id: tencent.app_id,
+                secret_id: tencent.secret_id.into(),
+                secret_key: tencent.secret_key.into(),
+            },
+            azure: AzureEdit {
+                region: azure.region,
+                endpoint_id: azure.endpoint_id,
+            },
         },
     )
     .map_err(|err| anyhow!("ASR {}", err.0))?;

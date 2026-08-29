@@ -173,17 +173,7 @@ class FakeTermsStore implements TermsStore {
 /// records the ask and returns it as the re-read truth.
 class FakeConnectionStore implements ConnectionStore {
   FakeConnectionStore({AsrConnection? asr, LlmConnection? llm})
-    : asr =
-          asr ??
-          const AsrConnection(
-            model: 'qwen3-asr-flash-realtime',
-            language: 'zh',
-            workspaceId: null,
-            region: 'cn-beijing',
-            baseUrl: null,
-            endpoint: 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
-            key: KeyInfo(status: KeyPlacement.unset),
-          ),
+    : asr = asr ?? _defaultAsr,
       llm =
           llm ??
           const LlmConnection(
@@ -193,22 +183,34 @@ class FakeConnectionStore implements ConnectionStore {
             key: KeyInfo(status: KeyPlacement.unset),
           );
 
+  static const _defaultAsr = AsrConnection(
+    provider: 'aliyun',
+    model: 'qwen3-asr-flash-realtime',
+    language: 'zh',
+    baseUrl: null,
+    endpoint:
+        'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
+    key: KeyInfo(status: KeyPlacement.unset),
+    aliyun: AsrAliyun(workspaceId: null, region: 'cn-beijing'),
+    volcengine: AsrVolcengine(
+      appId: null,
+      resourceId: 'volc.seedasr.sauc.duration',
+      accessKey: KeyInfo(status: KeyPlacement.unset),
+    ),
+    tencent: AsrTencent(
+      appId: null,
+      secretId: KeyInfo(status: KeyPlacement.unset),
+      secretKey: KeyInfo(status: KeyPlacement.unset),
+    ),
+    azure: AsrAzure(region: null, endpointId: null),
+  );
+
   AsrConnection asr;
   LlmConnection llm;
 
   final llmSaves =
       <({String vendor, String baseUrl, String model, ApiKeyEdit key})>[];
-  final asrSaves =
-      <
-        ({
-          String model,
-          String language,
-          String? workspaceId,
-          String region,
-          String? baseUrl,
-          ApiKeyEdit key,
-        })
-      >[];
+  final asrSaves = <AsrEdit>[];
 
   /// When set, the next save throws (an unwritable layer file).
   Object? failNextSave;
@@ -247,42 +249,46 @@ class FakeConnectionStore implements ConnectionStore {
   }
 
   @override
-  Future<AsrConnection> saveAsr({
-    required String model,
-    required String language,
-    required String? workspaceId,
-    required String region,
-    required String? baseUrl,
-    required ApiKeyEdit apiKey,
-  }) async {
+  Future<AsrConnection> saveAsr({required AsrEdit edit}) async {
     if (failNextSave != null) {
       final failure = failNextSave;
       failNextSave = null;
       throw failure!;
     }
-    asrSaves.add((
-      model: model,
-      language: language,
-      workspaceId: workspaceId,
-      region: region,
-      baseUrl: baseUrl,
-      key: apiKey,
-    ));
+    asrSaves.add(edit);
+    KeyInfo resolved(ApiKeyEdit ask, KeyInfo loaded) => switch (ask) {
+      ApiKeySet(:final key) => KeyInfo(
+        status: KeyPlacement.inLocalFile,
+        storedKey: key,
+      ),
+      ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
+      ApiKeyKeep() => loaded,
+    };
     asr = AsrConnection(
-      model: model,
-      language: language,
-      workspaceId: workspaceId,
-      region: region,
-      baseUrl: baseUrl,
-      endpoint: 'wss://resolved.example/api-ws/v1/realtime?model=$model',
-      key: switch (apiKey) {
-        ApiKeySet(:final key) => KeyInfo(
-          status: KeyPlacement.inLocalFile,
-          storedKey: key,
-        ),
-        ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
-        ApiKeyKeep() => asr.key,
-      },
+      provider: edit.provider,
+      model: edit.model,
+      language: edit.language,
+      baseUrl: edit.baseUrl,
+      endpoint: 'wss://resolved.example/…?model=${edit.model}',
+      key: resolved(edit.apiKey, asr.key),
+      aliyun: AsrAliyun(
+        workspaceId: edit.aliyun.workspaceId,
+        region: edit.aliyun.region,
+      ),
+      volcengine: AsrVolcengine(
+        appId: edit.volcengine.appId,
+        resourceId: edit.volcengine.resourceId,
+        accessKey: resolved(edit.volcengine.accessKey, asr.volcengine.accessKey),
+      ),
+      tencent: AsrTencent(
+        appId: edit.tencent.appId,
+        secretId: resolved(edit.tencent.secretId, asr.tencent.secretId),
+        secretKey: resolved(edit.tencent.secretKey, asr.tencent.secretKey),
+      ),
+      azure: AsrAzure(
+        region: edit.azure.region,
+        endpointId: edit.azure.endpointId,
+      ),
     );
     return asr;
   }
@@ -586,7 +592,7 @@ void main() {
     await tester.pump();
     await tester.pump(); // the connection load lands
     expect(find.text('修正模型'), findsOneWidget);
-    expect(find.text('语音识别 · 阿里云'), findsOneWidget);
+    expect(find.text('语音识别'), findsOneWidget);
 
     await tester.tap(find.text('高级'));
     await tester.pump();
@@ -1137,7 +1143,7 @@ void main() {
     // The model holds deepseek's default, so the volcengine chip may
     // switch both it and the endpoint.
     await tester.tap(
-      find.byKey(const Key('settings-conn-llm-vendor:volcengine')),
+      find.byKey(const Key('settings-conn-llm-vendors:volcengine')),
     );
     await tester.pump();
     expect(
@@ -1155,7 +1161,7 @@ void main() {
       find.byKey(const Key('settings-conn-llm-model')),
       'my-own-model',
     );
-    await tester.tap(find.byKey(const Key('settings-conn-llm-vendor:qwen')));
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:qwen')));
     await tester.pump();
     expect(
       fieldText(tester, const Key('settings-conn-llm-baseurl')),
@@ -1241,13 +1247,24 @@ void main() {
   ) async {
     final store = FakeConnectionStore(
       asr: const AsrConnection(
+        provider: 'aliyun',
         model: 'qwen3-asr-flash-realtime',
         language: 'zh',
-        workspaceId: 'llm-abc',
-        region: 'cn-beijing',
         baseUrl: null,
         endpoint: 'wss://llm-abc.cn-beijing.maas.aliyuncs.com/x',
         key: KeyInfo(status: KeyPlacement.unset),
+        aliyun: AsrAliyun(workspaceId: 'llm-abc', region: 'cn-beijing'),
+        volcengine: AsrVolcengine(
+          appId: null,
+          resourceId: 'volc.seedasr.sauc.duration',
+          accessKey: KeyInfo(status: KeyPlacement.unset),
+        ),
+        tencent: AsrTencent(
+          appId: null,
+          secretId: KeyInfo(status: KeyPlacement.unset),
+          secretKey: KeyInfo(status: KeyPlacement.unset),
+        ),
+        azure: AsrAzure(region: null, endpointId: null),
       ),
     );
     await pumpSettings(
@@ -1272,9 +1289,128 @@ void main() {
     await tester.pump();
 
     final save = store.asrSaves.single;
-    expect(save.workspaceId, isNull);
-    expect(save.region, 'cn-beijing');
-    expect(save.key, isA<ApiKeyKeep>());
+    expect(save.provider, 'aliyun');
+    expect(save.aliyun.workspaceId, isNull);
+    expect(save.aliyun.region, 'cn-beijing');
+    expect(save.apiKey, isA<ApiKeyKeep>());
+  });
+
+  testWidgets('the asr provider chip switches sub-fields and prefills the model', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // aliyun paints its own sub-section only.
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-workspace')),
+    );
+    expect(
+      find.byKey(const Key('settings-conn-asr-volc-appid')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('settings-conn-asr-unadapted')), findsNothing);
+
+    // Switching to volcengine repaints the sub-fields and prefills the
+    // model (the field holds aliyun's default, a preset value).
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-providers:volcengine')),
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:volcengine')));
+    await tester.pump();
+    expect(
+      find.byKey(const Key('settings-conn-asr-workspace')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('settings-conn-asr-volc-appid')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-conn-asr-volc-resource')),
+      findsOneWidget,
+    );
+    expect(
+      fieldText(tester, const Key('settings-conn-asr-model')),
+      'volc.seedasr.sauc.duration',
+    );
+    // The volcengine access token is its own diff-echo block; the common
+    // api_key block is gone (volcengine keeps credentials in its
+    // sub-section).
+    expect(find.byKey(const Key('settings-conn-asr-volc-key')), findsOneWidget);
+    expect(find.byKey(const Key('settings-conn-asr-key')), findsNothing);
+
+    // A customized model survives a provider switch.
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-model')),
+      'my-own-engine',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-providers:tencent')),
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:tencent')));
+    await tester.pump();
+    expect(
+      fieldText(tester, const Key('settings-conn-asr-model')),
+      'my-own-engine',
+    );
+    // The unadapted caption names the gap.
+    expect(find.byKey(const Key('settings-conn-asr-unadapted')), findsOneWidget);
+    expect(find.byKey(const Key('settings-conn-asr-tencent-id-key')), findsOneWidget);
+    expect(find.byKey(const Key('settings-conn-asr-tencent-key-key')), findsOneWidget);
+  });
+
+  testWidgets('a volcengine save carries its sub-section and keeps the others', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-providers:volcengine')),
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:volcengine')));
+    await tester.pump();
+
+    // Fill the volcengine triple; the access token is a Set.
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-volc-appid')),
+      '42',
+    );
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-volc-key')),
+      'volc-token',
+    );
+    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+
+    final save = store.asrSaves.single;
+    expect(save.provider, 'volcengine');
+    expect(save.volcengine.appId, '42');
+    expect(save.volcengine.resourceId, 'volc.seedasr.sauc.duration');
+    expect(save.volcengine.accessKey, isA<ApiKeySet>());
+    expect((save.volcengine.accessKey as ApiKeySet).key, 'volc-token');
+    // The hidden vendors' fields ride along untouched (aliyun's region,
+    // the cleared workspace id from the default view).
+    expect(save.aliyun.region, 'cn-beijing');
+    expect(save.aliyun.workspaceId, isNull);
+    expect(save.apiKey, isA<ApiKeyKeep>());
+    // The re-read view echoes the new access token back, masked.
+    expect(
+      fieldText(tester, const Key('settings-conn-asr-volc-key')),
+      'volc-token',
+    );
+    expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
   });
 
   testWidgets('a failed save surfaces the error and keeps the form', (

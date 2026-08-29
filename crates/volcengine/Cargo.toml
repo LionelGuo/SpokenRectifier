@@ -1,21 +1,21 @@
 [package]
-name = "spokenrectifier-aliyun"
-description = "Aliyun qwen3-asr-flash-realtime adapter: the DashScope realtime WebSocket dialect over the shared cloud ASR session machinery."
+name = "spokenrectifier-volcengine"
+description = "Volcengine Seed-ASR bigmodel adapter: the gzip'd binary-frame WebSocket dialect over the shared cloud ASR session machinery."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 async-trait.workspace = true
-base64 = "0.22"
+flate2 = "1"
 futures.workspace = true
 serde_json = "1"
 spokenrectifier-asr = { path = "../asr" }
 spokenrectifier-audio = { path = "../audio" }
-spokenrectifier-config = { path = "../config" }
 spokenrectifier-engine = { path = "../engine" }
 thiserror.workspace = true
 tokio.workspace = true
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }

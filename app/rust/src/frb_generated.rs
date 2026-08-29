@@ -755,24 +755,12 @@ fn wire__crate__api__set_asr_connection_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_model = <String>::sse_decode(&mut deserializer);
-            let api_language = <String>::sse_decode(&mut deserializer);
-            let api_workspace_id = <Option<String>>::sse_decode(&mut deserializer);
-            let api_region = <String>::sse_decode(&mut deserializer);
-            let api_base_url = <Option<String>>::sse_decode(&mut deserializer);
-            let api_api_key = <crate::api::BridgeKeyEdit>::sse_decode(&mut deserializer);
+            let api_edit = <crate::api::BridgeAsrEdit>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::set_asr_connection(
-                            api_model,
-                            api_language,
-                            api_workspace_id,
-                            api_region,
-                            api_base_url,
-                            api_api_key,
-                        )?;
+                        let output_ok = crate::api::set_asr_connection(api_edit)?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -1198,24 +1186,160 @@ impl SseDecode for crate::api::BridgeAdvancedConfig {
     }
 }
 
+impl SseDecode for crate::api::BridgeAsrAliyun {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_workspaceId = <Option<String>>::sse_decode(deserializer);
+        let mut var_region = <String>::sse_decode(deserializer);
+        return crate::api::BridgeAsrAliyun {
+            workspace_id: var_workspaceId,
+            region: var_region,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeAsrAliyunEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_workspaceId = <Option<String>>::sse_decode(deserializer);
+        let mut var_region = <String>::sse_decode(deserializer);
+        return crate::api::BridgeAsrAliyunEdit {
+            workspace_id: var_workspaceId,
+            region: var_region,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeAsrAzure {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_region = <Option<String>>::sse_decode(deserializer);
+        let mut var_endpointId = <Option<String>>::sse_decode(deserializer);
+        return crate::api::BridgeAsrAzure {
+            region: var_region,
+            endpoint_id: var_endpointId,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeAsrAzureEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_region = <Option<String>>::sse_decode(deserializer);
+        let mut var_endpointId = <Option<String>>::sse_decode(deserializer);
+        return crate::api::BridgeAsrAzureEdit {
+            region: var_region,
+            endpoint_id: var_endpointId,
+        };
+    }
+}
+
 impl SseDecode for crate::api::BridgeAsrConnection {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_provider = <String>::sse_decode(deserializer);
         let mut var_model = <String>::sse_decode(deserializer);
         let mut var_language = <String>::sse_decode(deserializer);
-        let mut var_workspaceId = <Option<String>>::sse_decode(deserializer);
-        let mut var_region = <String>::sse_decode(deserializer);
         let mut var_baseUrl = <Option<String>>::sse_decode(deserializer);
-        let mut var_endpoint = <String>::sse_decode(deserializer);
+        let mut var_endpoint = <Option<String>>::sse_decode(deserializer);
         let mut var_key = <crate::api::BridgeKeyStatus>::sse_decode(deserializer);
+        let mut var_aliyun = <crate::api::BridgeAsrAliyun>::sse_decode(deserializer);
+        let mut var_volcengine = <crate::api::BridgeAsrVolcengine>::sse_decode(deserializer);
+        let mut var_tencent = <crate::api::BridgeAsrTencent>::sse_decode(deserializer);
+        let mut var_azure = <crate::api::BridgeAsrAzure>::sse_decode(deserializer);
         return crate::api::BridgeAsrConnection {
+            provider: var_provider,
             model: var_model,
             language: var_language,
-            workspace_id: var_workspaceId,
-            region: var_region,
             base_url: var_baseUrl,
             endpoint: var_endpoint,
             key: var_key,
+            aliyun: var_aliyun,
+            volcengine: var_volcengine,
+            tencent: var_tencent,
+            azure: var_azure,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeAsrEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_provider = <String>::sse_decode(deserializer);
+        let mut var_model = <String>::sse_decode(deserializer);
+        let mut var_language = <String>::sse_decode(deserializer);
+        let mut var_baseUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_apiKey = <crate::api::BridgeKeyEdit>::sse_decode(deserializer);
+        let mut var_aliyun = <crate::api::BridgeAsrAliyunEdit>::sse_decode(deserializer);
+        let mut var_volcengine = <crate::api::BridgeAsrVolcengineEdit>::sse_decode(deserializer);
+        let mut var_tencent = <crate::api::BridgeAsrTencentEdit>::sse_decode(deserializer);
+        let mut var_azure = <crate::api::BridgeAsrAzureEdit>::sse_decode(deserializer);
+        return crate::api::BridgeAsrEdit {
+            provider: var_provider,
+            model: var_model,
+            language: var_language,
+            base_url: var_baseUrl,
+            api_key: var_apiKey,
+            aliyun: var_aliyun,
+            volcengine: var_volcengine,
+            tencent: var_tencent,
+            azure: var_azure,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeAsrTencent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_appId = <Option<String>>::sse_decode(deserializer);
+        let mut var_secretId = <crate::api::BridgeKeyStatus>::sse_decode(deserializer);
+        let mut var_secretKey = <crate::api::BridgeKeyStatus>::sse_decode(deserializer);
+        return crate::api::BridgeAsrTencent {
+            app_id: var_appId,
+            secret_id: var_secretId,
+            secret_key: var_secretKey,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeAsrTencentEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_appId = <Option<String>>::sse_decode(deserializer);
+        let mut var_secretId = <crate::api::BridgeKeyEdit>::sse_decode(deserializer);
+        let mut var_secretKey = <crate::api::BridgeKeyEdit>::sse_decode(deserializer);
+        return crate::api::BridgeAsrTencentEdit {
+            app_id: var_appId,
+            secret_id: var_secretId,
+            secret_key: var_secretKey,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeAsrVolcengine {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_appId = <Option<String>>::sse_decode(deserializer);
+        let mut var_resourceId = <String>::sse_decode(deserializer);
+        let mut var_accessKey = <crate::api::BridgeKeyStatus>::sse_decode(deserializer);
+        return crate::api::BridgeAsrVolcengine {
+            app_id: var_appId,
+            resource_id: var_resourceId,
+            access_key: var_accessKey,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeAsrVolcengineEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_appId = <Option<String>>::sse_decode(deserializer);
+        let mut var_resourceId = <String>::sse_decode(deserializer);
+        let mut var_accessKey = <crate::api::BridgeKeyEdit>::sse_decode(deserializer);
+        return crate::api::BridgeAsrVolcengineEdit {
+            app_id: var_appId,
+            resource_id: var_resourceId,
+            access_key: var_accessKey,
         };
     }
 }
@@ -1831,16 +1955,95 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAdvancedConfig>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrAliyun {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.workspace_id.into_into_dart().into_dart(),
+            self.region.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::BridgeAsrAliyun {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrAliyun>
+    for crate::api::BridgeAsrAliyun
+{
+    fn into_into_dart(self) -> crate::api::BridgeAsrAliyun {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrAliyunEdit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.workspace_id.into_into_dart().into_dart(),
+            self.region.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeAsrAliyunEdit
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrAliyunEdit>
+    for crate::api::BridgeAsrAliyunEdit
+{
+    fn into_into_dart(self) -> crate::api::BridgeAsrAliyunEdit {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrAzure {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.region.into_into_dart().into_dart(),
+            self.endpoint_id.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::BridgeAsrAzure {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrAzure> for crate::api::BridgeAsrAzure {
+    fn into_into_dart(self) -> crate::api::BridgeAsrAzure {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrAzureEdit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.region.into_into_dart().into_dart(),
+            self.endpoint_id.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeAsrAzureEdit
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrAzureEdit>
+    for crate::api::BridgeAsrAzureEdit
+{
+    fn into_into_dart(self) -> crate::api::BridgeAsrAzureEdit {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrConnection {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.provider.into_into_dart().into_dart(),
             self.model.into_into_dart().into_dart(),
             self.language.into_into_dart().into_dart(),
-            self.workspace_id.into_into_dart().into_dart(),
-            self.region.into_into_dart().into_dart(),
             self.base_url.into_into_dart().into_dart(),
             self.endpoint.into_into_dart().into_dart(),
             self.key.into_into_dart().into_dart(),
+            self.aliyun.into_into_dart().into_dart(),
+            self.volcengine.into_into_dart().into_dart(),
+            self.tencent.into_into_dart().into_dart(),
+            self.azure.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1853,6 +2056,114 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrConnection>
     for crate::api::BridgeAsrConnection
 {
     fn into_into_dart(self) -> crate::api::BridgeAsrConnection {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrEdit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.provider.into_into_dart().into_dart(),
+            self.model.into_into_dart().into_dart(),
+            self.language.into_into_dart().into_dart(),
+            self.base_url.into_into_dart().into_dart(),
+            self.api_key.into_into_dart().into_dart(),
+            self.aliyun.into_into_dart().into_dart(),
+            self.volcengine.into_into_dart().into_dart(),
+            self.tencent.into_into_dart().into_dart(),
+            self.azure.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::BridgeAsrEdit {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrEdit> for crate::api::BridgeAsrEdit {
+    fn into_into_dart(self) -> crate::api::BridgeAsrEdit {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrTencent {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.app_id.into_into_dart().into_dart(),
+            self.secret_id.into_into_dart().into_dart(),
+            self.secret_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::BridgeAsrTencent {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrTencent>
+    for crate::api::BridgeAsrTencent
+{
+    fn into_into_dart(self) -> crate::api::BridgeAsrTencent {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrTencentEdit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.app_id.into_into_dart().into_dart(),
+            self.secret_id.into_into_dart().into_dart(),
+            self.secret_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeAsrTencentEdit
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrTencentEdit>
+    for crate::api::BridgeAsrTencentEdit
+{
+    fn into_into_dart(self) -> crate::api::BridgeAsrTencentEdit {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrVolcengine {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.app_id.into_into_dart().into_dart(),
+            self.resource_id.into_into_dart().into_dart(),
+            self.access_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeAsrVolcengine
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrVolcengine>
+    for crate::api::BridgeAsrVolcengine
+{
+    fn into_into_dart(self) -> crate::api::BridgeAsrVolcengine {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeAsrVolcengineEdit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.app_id.into_into_dart().into_dart(),
+            self.resource_id.into_into_dart().into_dart(),
+            self.access_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeAsrVolcengineEdit
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeAsrVolcengineEdit>
+    for crate::api::BridgeAsrVolcengineEdit
+{
+    fn into_into_dart(self) -> crate::api::BridgeAsrVolcengineEdit {
         self
     }
 }
@@ -2348,16 +2659,102 @@ impl SseEncode for crate::api::BridgeAdvancedConfig {
     }
 }
 
+impl SseEncode for crate::api::BridgeAsrAliyun {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.workspace_id, serializer);
+        <String>::sse_encode(self.region, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeAsrAliyunEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.workspace_id, serializer);
+        <String>::sse_encode(self.region, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeAsrAzure {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.region, serializer);
+        <Option<String>>::sse_encode(self.endpoint_id, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeAsrAzureEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.region, serializer);
+        <Option<String>>::sse_encode(self.endpoint_id, serializer);
+    }
+}
+
 impl SseEncode for crate::api::BridgeAsrConnection {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.provider, serializer);
         <String>::sse_encode(self.model, serializer);
         <String>::sse_encode(self.language, serializer);
-        <Option<String>>::sse_encode(self.workspace_id, serializer);
-        <String>::sse_encode(self.region, serializer);
         <Option<String>>::sse_encode(self.base_url, serializer);
-        <String>::sse_encode(self.endpoint, serializer);
+        <Option<String>>::sse_encode(self.endpoint, serializer);
         <crate::api::BridgeKeyStatus>::sse_encode(self.key, serializer);
+        <crate::api::BridgeAsrAliyun>::sse_encode(self.aliyun, serializer);
+        <crate::api::BridgeAsrVolcengine>::sse_encode(self.volcengine, serializer);
+        <crate::api::BridgeAsrTencent>::sse_encode(self.tencent, serializer);
+        <crate::api::BridgeAsrAzure>::sse_encode(self.azure, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeAsrEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.provider, serializer);
+        <String>::sse_encode(self.model, serializer);
+        <String>::sse_encode(self.language, serializer);
+        <Option<String>>::sse_encode(self.base_url, serializer);
+        <crate::api::BridgeKeyEdit>::sse_encode(self.api_key, serializer);
+        <crate::api::BridgeAsrAliyunEdit>::sse_encode(self.aliyun, serializer);
+        <crate::api::BridgeAsrVolcengineEdit>::sse_encode(self.volcengine, serializer);
+        <crate::api::BridgeAsrTencentEdit>::sse_encode(self.tencent, serializer);
+        <crate::api::BridgeAsrAzureEdit>::sse_encode(self.azure, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeAsrTencent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.app_id, serializer);
+        <crate::api::BridgeKeyStatus>::sse_encode(self.secret_id, serializer);
+        <crate::api::BridgeKeyStatus>::sse_encode(self.secret_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeAsrTencentEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.app_id, serializer);
+        <crate::api::BridgeKeyEdit>::sse_encode(self.secret_id, serializer);
+        <crate::api::BridgeKeyEdit>::sse_encode(self.secret_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeAsrVolcengine {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.app_id, serializer);
+        <String>::sse_encode(self.resource_id, serializer);
+        <crate::api::BridgeKeyStatus>::sse_encode(self.access_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeAsrVolcengineEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.app_id, serializer);
+        <String>::sse_encode(self.resource_id, serializer);
+        <crate::api::BridgeKeyEdit>::sse_encode(self.access_key, serializer);
     }
 }
 

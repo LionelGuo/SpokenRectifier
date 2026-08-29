@@ -13,6 +13,7 @@ anyhow = "1"
 flutter_rust_bridge = "=2.13.0"
 serde = { version = "1", features = ["derive"] }
 spokenrectifier-aliyun = { path = "../../crates/aliyun" }
+spokenrectifier-asr = { path = "../../crates/asr" }
 spokenrectifier-audio = { path = "../../crates/audio" }
 spokenrectifier-config = { path = "../../crates/config" }
 spokenrectifier-engine = { path = "../../crates/engine" }
@@ -20,6 +21,7 @@ spokenrectifier-eval = { path = "../../crates/eval" }
 spokenrectifier-history = { path = "../../crates/history" }
 spokenrectifier-insertion = { path = "../../crates/insertion" }
 spokenrectifier-llm = { path = "../../crates/llm" }
+spokenrectifier-volcengine = { path = "../../crates/volcengine" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time", "rt-multi-thread"] }
 
 [target.'cfg(windows)'.dependencies]

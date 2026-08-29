@@ -9,15 +9,16 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `asr_provider`, `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `token_scripts`
+// These functions are ignored because they are not marked as `pub`: `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
-/// and, when the `[asr]` config yields an API key, the Aliyun realtime
-/// adapter streaming real transcripts. Without a key the mic+VAD provider
-/// keeps the session semantics (speech activity, silence, device
-/// failure). The rectify LLM is the real OpenAI-compatible client when
+/// and, when the `[asr]` config carries credentials, the configured
+/// provider's cloud adapter streaming real transcripts (see
+/// `engine_factory::asr_provider` for the dispatch and its error
+/// rules). Without credentials the mic+VAD provider keeps the session
+/// semantics (speech activity, silence, device failure). The rectify LLM is the real OpenAI-compatible client when
 /// `[llm]` yields a key; the scripted demo LLM otherwise — but that
 /// combination is refused under a real ASR key (see `engine_factory`).
 /// Insertion is the production inserter (clipboard paste with restore, or
@@ -131,24 +132,13 @@ Future<BridgeHistoryConfig> setHistoryConfig({
 Future<BridgeConnection> connectionConfig() =>
     RustLib.instance.api.crateApiConnectionConfig();
 
-/// Write the editor's `[asr]` model back into the layer files (see
-/// `save_asr_connection` for the placement and preservation rules) and
-/// return the re-read view — the file's truth, not the ask.
-Future<BridgeAsrConnection> setAsrConnection({
-  required String model,
-  required String language,
-  String? workspaceId,
-  required String region,
-  String? baseUrl,
-  required BridgeKeyEdit apiKey,
-}) => RustLib.instance.api.crateApiSetAsrConnection(
-  model: model,
-  language: language,
-  workspaceId: workspaceId,
-  region: region,
-  baseUrl: baseUrl,
-  apiKey: apiKey,
-);
+/// Write the editor's whole `[asr]` card back into the layer files (see
+/// `save_asr_connection` for the placement and preservation rules —
+/// common fields plus every vendor sub-section, every secret to the
+/// local layer only) and return the re-read view — the file's truth,
+/// not the ask.
+Future<BridgeAsrConnection> setAsrConnection({required BridgeAsrEdit edit}) =>
+    RustLib.instance.api.crateApiSetAsrConnection(edit: edit);
 
 /// Write the editor's `[llm]` model back into the layer files (see
 /// `save_llm_connection`) and return the re-read view.
@@ -304,52 +294,297 @@ class BridgeAdvancedConfig {
           insertion == other.insertion;
 }
 
-/// The effective `[asr]` connection as the settings pane paints it: the
-/// folded fields, the resolved endpoint (a read-only preview), and the
-/// key's placement.
-class BridgeAsrConnection {
-  final String model;
-  final String language;
+/// `[asr.aliyun]` for the pane.
+class BridgeAsrAliyun {
   final String? workspaceId;
   final String region;
+
+  const BridgeAsrAliyun({this.workspaceId, required this.region});
+
+  @override
+  int get hashCode => workspaceId.hashCode ^ region.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrAliyun &&
+          runtimeType == other.runtimeType &&
+          workspaceId == other.workspaceId &&
+          region == other.region;
+}
+
+class BridgeAsrAliyunEdit {
+  final String? workspaceId;
+  final String region;
+
+  const BridgeAsrAliyunEdit({this.workspaceId, required this.region});
+
+  @override
+  int get hashCode => workspaceId.hashCode ^ region.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrAliyunEdit &&
+          runtimeType == other.runtimeType &&
+          workspaceId == other.workspaceId &&
+          region == other.region;
+}
+
+/// `[asr.azure]` for the pane (adapter not scheduled).
+class BridgeAsrAzure {
+  final String? region;
+  final String? endpointId;
+
+  const BridgeAsrAzure({this.region, this.endpointId});
+
+  @override
+  int get hashCode => region.hashCode ^ endpointId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrAzure &&
+          runtimeType == other.runtimeType &&
+          region == other.region &&
+          endpointId == other.endpointId;
+}
+
+class BridgeAsrAzureEdit {
+  final String? region;
+  final String? endpointId;
+
+  const BridgeAsrAzureEdit({this.region, this.endpointId});
+
+  @override
+  int get hashCode => region.hashCode ^ endpointId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrAzureEdit &&
+          runtimeType == other.runtimeType &&
+          region == other.region &&
+          endpointId == other.endpointId;
+}
+
+/// The effective `[asr]` connection as the settings pane paints it: the
+/// common segment's folded fields, every vendor sub-section (the pane
+/// renders the active one), the resolved endpoint (a read-only preview;
+/// `None` for providers without an adapter yet), and each secret's
+/// placement.
+class BridgeAsrConnection {
+  /// `aliyun` / `volcengine` / `tencent` / `openai` / `azure`.
+  final String provider;
+  final String model;
+  final String language;
   final String? baseUrl;
 
   /// The WebSocket URL the current fields resolve to.
-  final String endpoint;
+  final String? endpoint;
+
+  /// The common Bearer key pair (the active provider's, when its
+  /// family is the Bearer one).
   final BridgeKeyStatus key;
+  final BridgeAsrAliyun aliyun;
+  final BridgeAsrVolcengine volcengine;
+  final BridgeAsrTencent tencent;
+  final BridgeAsrAzure azure;
 
   const BridgeAsrConnection({
+    required this.provider,
     required this.model,
     required this.language,
-    this.workspaceId,
-    required this.region,
     this.baseUrl,
-    required this.endpoint,
+    this.endpoint,
     required this.key,
+    required this.aliyun,
+    required this.volcengine,
+    required this.tencent,
+    required this.azure,
   });
 
   @override
   int get hashCode =>
+      provider.hashCode ^
       model.hashCode ^
       language.hashCode ^
-      workspaceId.hashCode ^
-      region.hashCode ^
       baseUrl.hashCode ^
       endpoint.hashCode ^
-      key.hashCode;
+      key.hashCode ^
+      aliyun.hashCode ^
+      volcengine.hashCode ^
+      tencent.hashCode ^
+      azure.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is BridgeAsrConnection &&
           runtimeType == other.runtimeType &&
+          provider == other.provider &&
           model == other.model &&
           language == other.language &&
-          workspaceId == other.workspaceId &&
-          region == other.region &&
           baseUrl == other.baseUrl &&
           endpoint == other.endpoint &&
-          key == other.key;
+          key == other.key &&
+          aliyun == other.aliyun &&
+          volcengine == other.volcengine &&
+          tencent == other.tencent &&
+          azure == other.azure;
+}
+
+/// The editor's whole `[asr]` card, mirroring the schema's
+/// [`AsrConnectionEdit`]: common fields plus every vendor sub-section
+/// (a provider switch never clears another vendor's fields).
+class BridgeAsrEdit {
+  final String provider;
+  final String model;
+  final String language;
+  final String? baseUrl;
+  final BridgeKeyEdit apiKey;
+  final BridgeAsrAliyunEdit aliyun;
+  final BridgeAsrVolcengineEdit volcengine;
+  final BridgeAsrTencentEdit tencent;
+  final BridgeAsrAzureEdit azure;
+
+  const BridgeAsrEdit({
+    required this.provider,
+    required this.model,
+    required this.language,
+    this.baseUrl,
+    required this.apiKey,
+    required this.aliyun,
+    required this.volcengine,
+    required this.tencent,
+    required this.azure,
+  });
+
+  @override
+  int get hashCode =>
+      provider.hashCode ^
+      model.hashCode ^
+      language.hashCode ^
+      baseUrl.hashCode ^
+      apiKey.hashCode ^
+      aliyun.hashCode ^
+      volcengine.hashCode ^
+      tencent.hashCode ^
+      azure.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrEdit &&
+          runtimeType == other.runtimeType &&
+          provider == other.provider &&
+          model == other.model &&
+          language == other.language &&
+          baseUrl == other.baseUrl &&
+          apiKey == other.apiKey &&
+          aliyun == other.aliyun &&
+          volcengine == other.volcengine &&
+          tencent == other.tencent &&
+          azure == other.azure;
+}
+
+/// `[asr.tencent]` for the pane (adapter: ticket 25).
+class BridgeAsrTencent {
+  final String? appId;
+  final BridgeKeyStatus secretId;
+  final BridgeKeyStatus secretKey;
+
+  const BridgeAsrTencent({
+    this.appId,
+    required this.secretId,
+    required this.secretKey,
+  });
+
+  @override
+  int get hashCode => appId.hashCode ^ secretId.hashCode ^ secretKey.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrTencent &&
+          runtimeType == other.runtimeType &&
+          appId == other.appId &&
+          secretId == other.secretId &&
+          secretKey == other.secretKey;
+}
+
+class BridgeAsrTencentEdit {
+  final String? appId;
+  final BridgeKeyEdit secretId;
+  final BridgeKeyEdit secretKey;
+
+  const BridgeAsrTencentEdit({
+    this.appId,
+    required this.secretId,
+    required this.secretKey,
+  });
+
+  @override
+  int get hashCode => appId.hashCode ^ secretId.hashCode ^ secretKey.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrTencentEdit &&
+          runtimeType == other.runtimeType &&
+          appId == other.appId &&
+          secretId == other.secretId &&
+          secretKey == other.secretKey;
+}
+
+/// `[asr.volcengine]` for the pane; the access token echoes per the
+/// diff-echo key block.
+class BridgeAsrVolcengine {
+  final String? appId;
+  final String resourceId;
+  final BridgeKeyStatus accessKey;
+
+  const BridgeAsrVolcengine({
+    this.appId,
+    required this.resourceId,
+    required this.accessKey,
+  });
+
+  @override
+  int get hashCode => appId.hashCode ^ resourceId.hashCode ^ accessKey.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrVolcengine &&
+          runtimeType == other.runtimeType &&
+          appId == other.appId &&
+          resourceId == other.resourceId &&
+          accessKey == other.accessKey;
+}
+
+class BridgeAsrVolcengineEdit {
+  final String? appId;
+  final String resourceId;
+  final BridgeKeyEdit accessKey;
+
+  const BridgeAsrVolcengineEdit({
+    this.appId,
+    required this.resourceId,
+    required this.accessKey,
+  });
+
+  @override
+  int get hashCode => appId.hashCode ^ resourceId.hashCode ^ accessKey.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeAsrVolcengineEdit &&
+          runtimeType == other.runtimeType &&
+          appId == other.appId &&
+          resourceId == other.resourceId &&
+          accessKey == other.accessKey;
 }
 
 @freezed

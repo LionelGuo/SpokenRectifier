@@ -120,12 +120,7 @@ abstract class RustLibApi extends BaseApi {
   Future<List<BridgeScenario>> crateApiScenarios();
 
   Future<BridgeAsrConnection> crateApiSetAsrConnection({
-    required String model,
-    required String language,
-    String? workspaceId,
-    required String region,
-    String? baseUrl,
-    required BridgeKeyEdit apiKey,
+    required BridgeAsrEdit edit,
   });
 
   Future<BridgeEngineTiming> crateApiSetEngineSettings({
@@ -729,23 +724,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<BridgeAsrConnection> crateApiSetAsrConnection({
-    required String model,
-    required String language,
-    String? workspaceId,
-    required String region,
-    String? baseUrl,
-    required BridgeKeyEdit apiKey,
+    required BridgeAsrEdit edit,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(model, serializer);
-          sse_encode_String(language, serializer);
-          sse_encode_opt_String(workspaceId, serializer);
-          sse_encode_String(region, serializer);
-          sse_encode_opt_String(baseUrl, serializer);
-          sse_encode_box_autoadd_bridge_key_edit(apiKey, serializer);
+          sse_encode_box_autoadd_bridge_asr_edit(edit, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -758,23 +743,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiSetAsrConnectionConstMeta,
-        argValues: [model, language, workspaceId, region, baseUrl, apiKey],
+        argValues: [edit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSetAsrConnectionConstMeta => const TaskConstMeta(
-    debugName: "set_asr_connection",
-    argNames: [
-      "model",
-      "language",
-      "workspaceId",
-      "region",
-      "baseUrl",
-      "apiKey",
-    ],
-  );
+  TaskConstMeta get kCrateApiSetAsrConnectionConstMeta =>
+      const TaskConstMeta(debugName: "set_asr_connection", argNames: ["edit"]);
 
   @override
   Future<BridgeEngineTiming> crateApiSetEngineSettings({
@@ -1115,6 +1091,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgeAsrEdit dco_decode_box_autoadd_bridge_asr_edit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_bridge_asr_edit(raw);
+  }
+
+  @protected
   BridgeCommand dco_decode_box_autoadd_bridge_command(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_bridge_command(raw);
@@ -1158,19 +1140,141 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgeAsrAliyun dco_decode_bridge_asr_aliyun(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return BridgeAsrAliyun(
+      workspaceId: dco_decode_opt_String(arr[0]),
+      region: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  BridgeAsrAliyunEdit dco_decode_bridge_asr_aliyun_edit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return BridgeAsrAliyunEdit(
+      workspaceId: dco_decode_opt_String(arr[0]),
+      region: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  BridgeAsrAzure dco_decode_bridge_asr_azure(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return BridgeAsrAzure(
+      region: dco_decode_opt_String(arr[0]),
+      endpointId: dco_decode_opt_String(arr[1]),
+    );
+  }
+
+  @protected
+  BridgeAsrAzureEdit dco_decode_bridge_asr_azure_edit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return BridgeAsrAzureEdit(
+      region: dco_decode_opt_String(arr[0]),
+      endpointId: dco_decode_opt_String(arr[1]),
+    );
+  }
+
+  @protected
   BridgeAsrConnection dco_decode_bridge_asr_connection(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return BridgeAsrConnection(
-      model: dco_decode_String(arr[0]),
-      language: dco_decode_String(arr[1]),
-      workspaceId: dco_decode_opt_String(arr[2]),
-      region: dco_decode_String(arr[3]),
-      baseUrl: dco_decode_opt_String(arr[4]),
-      endpoint: dco_decode_String(arr[5]),
-      key: dco_decode_bridge_key_status(arr[6]),
+      provider: dco_decode_String(arr[0]),
+      model: dco_decode_String(arr[1]),
+      language: dco_decode_String(arr[2]),
+      baseUrl: dco_decode_opt_String(arr[3]),
+      endpoint: dco_decode_opt_String(arr[4]),
+      key: dco_decode_bridge_key_status(arr[5]),
+      aliyun: dco_decode_bridge_asr_aliyun(arr[6]),
+      volcengine: dco_decode_bridge_asr_volcengine(arr[7]),
+      tencent: dco_decode_bridge_asr_tencent(arr[8]),
+      azure: dco_decode_bridge_asr_azure(arr[9]),
+    );
+  }
+
+  @protected
+  BridgeAsrEdit dco_decode_bridge_asr_edit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return BridgeAsrEdit(
+      provider: dco_decode_String(arr[0]),
+      model: dco_decode_String(arr[1]),
+      language: dco_decode_String(arr[2]),
+      baseUrl: dco_decode_opt_String(arr[3]),
+      apiKey: dco_decode_bridge_key_edit(arr[4]),
+      aliyun: dco_decode_bridge_asr_aliyun_edit(arr[5]),
+      volcengine: dco_decode_bridge_asr_volcengine_edit(arr[6]),
+      tencent: dco_decode_bridge_asr_tencent_edit(arr[7]),
+      azure: dco_decode_bridge_asr_azure_edit(arr[8]),
+    );
+  }
+
+  @protected
+  BridgeAsrTencent dco_decode_bridge_asr_tencent(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return BridgeAsrTencent(
+      appId: dco_decode_opt_String(arr[0]),
+      secretId: dco_decode_bridge_key_status(arr[1]),
+      secretKey: dco_decode_bridge_key_status(arr[2]),
+    );
+  }
+
+  @protected
+  BridgeAsrTencentEdit dco_decode_bridge_asr_tencent_edit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return BridgeAsrTencentEdit(
+      appId: dco_decode_opt_String(arr[0]),
+      secretId: dco_decode_bridge_key_edit(arr[1]),
+      secretKey: dco_decode_bridge_key_edit(arr[2]),
+    );
+  }
+
+  @protected
+  BridgeAsrVolcengine dco_decode_bridge_asr_volcengine(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return BridgeAsrVolcengine(
+      appId: dco_decode_opt_String(arr[0]),
+      resourceId: dco_decode_String(arr[1]),
+      accessKey: dco_decode_bridge_key_status(arr[2]),
+    );
+  }
+
+  @protected
+  BridgeAsrVolcengineEdit dco_decode_bridge_asr_volcengine_edit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return BridgeAsrVolcengineEdit(
+      appId: dco_decode_opt_String(arr[0]),
+      resourceId: dco_decode_String(arr[1]),
+      accessKey: dco_decode_bridge_key_edit(arr[2]),
     );
   }
 
@@ -1584,6 +1688,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgeAsrEdit sse_decode_box_autoadd_bridge_asr_edit(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_bridge_asr_edit(deserializer));
+  }
+
+  @protected
   BridgeCommand sse_decode_box_autoadd_bridge_command(
     SseDeserializer deserializer,
   ) {
@@ -1631,25 +1743,153 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgeAsrAliyun sse_decode_bridge_asr_aliyun(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_workspaceId = sse_decode_opt_String(deserializer);
+    var var_region = sse_decode_String(deserializer);
+    return BridgeAsrAliyun(workspaceId: var_workspaceId, region: var_region);
+  }
+
+  @protected
+  BridgeAsrAliyunEdit sse_decode_bridge_asr_aliyun_edit(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_workspaceId = sse_decode_opt_String(deserializer);
+    var var_region = sse_decode_String(deserializer);
+    return BridgeAsrAliyunEdit(
+      workspaceId: var_workspaceId,
+      region: var_region,
+    );
+  }
+
+  @protected
+  BridgeAsrAzure sse_decode_bridge_asr_azure(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_region = sse_decode_opt_String(deserializer);
+    var var_endpointId = sse_decode_opt_String(deserializer);
+    return BridgeAsrAzure(region: var_region, endpointId: var_endpointId);
+  }
+
+  @protected
+  BridgeAsrAzureEdit sse_decode_bridge_asr_azure_edit(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_region = sse_decode_opt_String(deserializer);
+    var var_endpointId = sse_decode_opt_String(deserializer);
+    return BridgeAsrAzureEdit(region: var_region, endpointId: var_endpointId);
+  }
+
+  @protected
   BridgeAsrConnection sse_decode_bridge_asr_connection(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_provider = sse_decode_String(deserializer);
     var var_model = sse_decode_String(deserializer);
     var var_language = sse_decode_String(deserializer);
-    var var_workspaceId = sse_decode_opt_String(deserializer);
-    var var_region = sse_decode_String(deserializer);
     var var_baseUrl = sse_decode_opt_String(deserializer);
-    var var_endpoint = sse_decode_String(deserializer);
+    var var_endpoint = sse_decode_opt_String(deserializer);
     var var_key = sse_decode_bridge_key_status(deserializer);
+    var var_aliyun = sse_decode_bridge_asr_aliyun(deserializer);
+    var var_volcengine = sse_decode_bridge_asr_volcengine(deserializer);
+    var var_tencent = sse_decode_bridge_asr_tencent(deserializer);
+    var var_azure = sse_decode_bridge_asr_azure(deserializer);
     return BridgeAsrConnection(
+      provider: var_provider,
       model: var_model,
       language: var_language,
-      workspaceId: var_workspaceId,
-      region: var_region,
       baseUrl: var_baseUrl,
       endpoint: var_endpoint,
       key: var_key,
+      aliyun: var_aliyun,
+      volcengine: var_volcengine,
+      tencent: var_tencent,
+      azure: var_azure,
+    );
+  }
+
+  @protected
+  BridgeAsrEdit sse_decode_bridge_asr_edit(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_provider = sse_decode_String(deserializer);
+    var var_model = sse_decode_String(deserializer);
+    var var_language = sse_decode_String(deserializer);
+    var var_baseUrl = sse_decode_opt_String(deserializer);
+    var var_apiKey = sse_decode_bridge_key_edit(deserializer);
+    var var_aliyun = sse_decode_bridge_asr_aliyun_edit(deserializer);
+    var var_volcengine = sse_decode_bridge_asr_volcengine_edit(deserializer);
+    var var_tencent = sse_decode_bridge_asr_tencent_edit(deserializer);
+    var var_azure = sse_decode_bridge_asr_azure_edit(deserializer);
+    return BridgeAsrEdit(
+      provider: var_provider,
+      model: var_model,
+      language: var_language,
+      baseUrl: var_baseUrl,
+      apiKey: var_apiKey,
+      aliyun: var_aliyun,
+      volcengine: var_volcengine,
+      tencent: var_tencent,
+      azure: var_azure,
+    );
+  }
+
+  @protected
+  BridgeAsrTencent sse_decode_bridge_asr_tencent(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_appId = sse_decode_opt_String(deserializer);
+    var var_secretId = sse_decode_bridge_key_status(deserializer);
+    var var_secretKey = sse_decode_bridge_key_status(deserializer);
+    return BridgeAsrTencent(
+      appId: var_appId,
+      secretId: var_secretId,
+      secretKey: var_secretKey,
+    );
+  }
+
+  @protected
+  BridgeAsrTencentEdit sse_decode_bridge_asr_tencent_edit(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_appId = sse_decode_opt_String(deserializer);
+    var var_secretId = sse_decode_bridge_key_edit(deserializer);
+    var var_secretKey = sse_decode_bridge_key_edit(deserializer);
+    return BridgeAsrTencentEdit(
+      appId: var_appId,
+      secretId: var_secretId,
+      secretKey: var_secretKey,
+    );
+  }
+
+  @protected
+  BridgeAsrVolcengine sse_decode_bridge_asr_volcengine(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_appId = sse_decode_opt_String(deserializer);
+    var var_resourceId = sse_decode_String(deserializer);
+    var var_accessKey = sse_decode_bridge_key_status(deserializer);
+    return BridgeAsrVolcengine(
+      appId: var_appId,
+      resourceId: var_resourceId,
+      accessKey: var_accessKey,
+    );
+  }
+
+  @protected
+  BridgeAsrVolcengineEdit sse_decode_bridge_asr_volcengine_edit(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_appId = sse_decode_opt_String(deserializer);
+    var var_resourceId = sse_decode_String(deserializer);
+    var var_accessKey = sse_decode_bridge_key_edit(deserializer);
+    return BridgeAsrVolcengineEdit(
+      appId: var_appId,
+      resourceId: var_resourceId,
+      accessKey: var_accessKey,
     );
   }
 
@@ -2165,6 +2405,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_bridge_asr_edit(
+    BridgeAsrEdit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bridge_asr_edit(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_bridge_command(
     BridgeCommand self,
     SseSerializer serializer,
@@ -2210,18 +2459,122 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_bridge_asr_aliyun(
+    BridgeAsrAliyun self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.workspaceId, serializer);
+    sse_encode_String(self.region, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_asr_aliyun_edit(
+    BridgeAsrAliyunEdit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.workspaceId, serializer);
+    sse_encode_String(self.region, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_asr_azure(
+    BridgeAsrAzure self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.region, serializer);
+    sse_encode_opt_String(self.endpointId, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_asr_azure_edit(
+    BridgeAsrAzureEdit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.region, serializer);
+    sse_encode_opt_String(self.endpointId, serializer);
+  }
+
+  @protected
   void sse_encode_bridge_asr_connection(
     BridgeAsrConnection self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.provider, serializer);
     sse_encode_String(self.model, serializer);
     sse_encode_String(self.language, serializer);
-    sse_encode_opt_String(self.workspaceId, serializer);
-    sse_encode_String(self.region, serializer);
     sse_encode_opt_String(self.baseUrl, serializer);
-    sse_encode_String(self.endpoint, serializer);
+    sse_encode_opt_String(self.endpoint, serializer);
     sse_encode_bridge_key_status(self.key, serializer);
+    sse_encode_bridge_asr_aliyun(self.aliyun, serializer);
+    sse_encode_bridge_asr_volcengine(self.volcengine, serializer);
+    sse_encode_bridge_asr_tencent(self.tencent, serializer);
+    sse_encode_bridge_asr_azure(self.azure, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_asr_edit(
+    BridgeAsrEdit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.provider, serializer);
+    sse_encode_String(self.model, serializer);
+    sse_encode_String(self.language, serializer);
+    sse_encode_opt_String(self.baseUrl, serializer);
+    sse_encode_bridge_key_edit(self.apiKey, serializer);
+    sse_encode_bridge_asr_aliyun_edit(self.aliyun, serializer);
+    sse_encode_bridge_asr_volcengine_edit(self.volcengine, serializer);
+    sse_encode_bridge_asr_tencent_edit(self.tencent, serializer);
+    sse_encode_bridge_asr_azure_edit(self.azure, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_asr_tencent(
+    BridgeAsrTencent self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.appId, serializer);
+    sse_encode_bridge_key_status(self.secretId, serializer);
+    sse_encode_bridge_key_status(self.secretKey, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_asr_tencent_edit(
+    BridgeAsrTencentEdit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.appId, serializer);
+    sse_encode_bridge_key_edit(self.secretId, serializer);
+    sse_encode_bridge_key_edit(self.secretKey, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_asr_volcengine(
+    BridgeAsrVolcengine self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.appId, serializer);
+    sse_encode_String(self.resourceId, serializer);
+    sse_encode_bridge_key_status(self.accessKey, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_asr_volcengine_edit(
+    BridgeAsrVolcengineEdit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.appId, serializer);
+    sse_encode_String(self.resourceId, serializer);
+    sse_encode_bridge_key_edit(self.accessKey, serializer);
   }
 
   @protected
