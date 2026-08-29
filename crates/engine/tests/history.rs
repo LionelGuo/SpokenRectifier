@@ -132,7 +132,10 @@ async fn rectify_text_runs_the_full_machine_without_a_microphone() {
     // Re-rectify a historical transcript: straight into the machine.
     ok(
         &h.engine,
-        Command::RectifyText("第一段\n不对，第二段".into()),
+        Command::RectifyText {
+            raw_transcript: "第一段\n不对，第二段".into(),
+            style_override: None,
+        },
     )
     .await;
     await_state(&mut rx, SessionState::Rectifying).await;
@@ -183,7 +186,10 @@ async fn rectify_text_is_rejected_outside_idle_and_when_empty() {
     // Empty utterance: rejected in idle.
     let err = h
         .engine
-        .execute(Command::RectifyText("".into()))
+        .execute(Command::RectifyText {
+            raw_transcript: "".into(),
+            style_override: None,
+        })
         .await
         .unwrap_err();
     assert!(err.to_string().contains("empty"), "got: {err}");
@@ -192,7 +198,10 @@ async fn rectify_text_is_rejected_outside_idle_and_when_empty() {
     ok(&h.engine, Command::StartSession).await;
     let err = h
         .engine
-        .execute(Command::RectifyText("排队的字".into()))
+        .execute(Command::RectifyText {
+            raw_transcript: "排队的字".into(),
+            style_override: None,
+        })
         .await
         .unwrap_err();
     assert!(err.to_string().contains("rejected"), "got: {err}");

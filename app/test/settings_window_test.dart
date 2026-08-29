@@ -201,8 +201,7 @@ class FakeConnectionStore implements ConnectionStore {
     model: 'qwen3-asr-flash-realtime',
     language: 'zh',
     baseUrl: null,
-    endpoint:
-        'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
+    endpoint: 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
     key: KeyInfo(status: KeyPlacement.unset),
     aliyun: AsrAliyun(workspaceId: null, region: 'cn-beijing'),
     volcengine: AsrVolcengine(
@@ -255,7 +254,10 @@ class FakeConnectionStore implements ConnectionStore {
     // survives the save untouched (ADR-0011).
     final keys = Map.of(llm.keys);
     keys[vendor] = switch (apiKey) {
-      ApiKeySet(:final key) => KeyInfo(status: KeyPlacement.inLocalFile, storedKey: key),
+      ApiKeySet(:final key) => KeyInfo(
+        status: KeyPlacement.inLocalFile,
+        storedKey: key,
+      ),
       ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
       ApiKeyKeep() => keys[vendor] ?? const KeyInfo(status: KeyPlacement.unset),
     };
@@ -276,7 +278,8 @@ class FakeConnectionStore implements ConnectionStore {
     String? baseUrl,
     String? workspaceId,
     required String region,
-  }) async => fakeAsrEndpoint(provider: provider, model: model, baseUrl: baseUrl);
+  }) async =>
+      fakeAsrEndpoint(provider: provider, model: model, baseUrl: baseUrl);
 
   @override
   Future<AsrConnection> saveAsr({required AsrEdit edit}) async {
@@ -312,7 +315,10 @@ class FakeConnectionStore implements ConnectionStore {
       volcengine: AsrVolcengine(
         appId: edit.volcengine.appId,
         resourceId: edit.volcengine.resourceId,
-        accessKey: resolved(edit.volcengine.accessKey, asr.volcengine.accessKey),
+        accessKey: resolved(
+          edit.volcengine.accessKey,
+          asr.volcengine.accessKey,
+        ),
       ),
       tencent: AsrTencent(
         appId: edit.tencent.appId,
@@ -350,6 +356,7 @@ String? fakeAsrEndpoint({
     final text = baseUrl?.trim() ?? '';
     return text.isEmpty ? fallback : text.replaceAll(RegExp(r'/+$'), '');
   }
+
   switch (provider) {
     case 'aliyun':
       return '${host('wss://dashscope.aliyuncs.com')}/api-ws/v1/realtime?model=$model';
@@ -386,8 +393,7 @@ class FakeSystemStore implements SystemStore {
   int openConfigCalls = 0;
   final engineSaves =
       <({bool passage, int paragraph, int sessionEnd, int timeout})>[];
-  final insertionSaves =
-      <({String mode, int focus, int paste, int typing})>[];
+  final insertionSaves = <({String mode, int focus, int paste, int typing})>[];
 
   /// When set, the next save throws (an unwritable layer file).
   Object? failNextSave;
@@ -466,7 +472,7 @@ class FakeSettingsChannel implements SettingsChannel {
   final libraryChanged = <({String? from, String? to})>[];
   final selections = <String?>[];
   int historyChanged = 0;
-  final rerectifies = <String>[];
+  final rerectifies = <({String raw, String? scenario})>[];
   int termsChanged = 0;
 
   void Function(ThemeMode mode)? themeHandler;
@@ -501,8 +507,10 @@ class FakeSettingsChannel implements SettingsChannel {
   Future<void> sendHistoryChanged() async => historyChanged++;
 
   @override
-  Future<void> sendHistoryRerectify(String rawTranscript) async =>
-      rerectifies.add(rawTranscript);
+  Future<void> sendHistoryRerectify(
+    String rawTranscript, {
+    String? scenario,
+  }) async => rerectifies.add((raw: rawTranscript, scenario: scenario));
 
   @override
   Future<void> sendTermsChanged() async => termsChanged++;
@@ -563,15 +571,10 @@ const _evalSummaryWithFailures = BridgeEvalSummary(
     BridgeEvalCategory(label: '残留', count: 1),
   ],
   failedCases: [
-    BridgeEvalCaseDetail(
-      id: 'manner-07',
-      failures: ['[残留] 输出仍含口头填充词'],
-    ),
+    BridgeEvalCaseDetail(id: 'manner-07', failures: ['[残留] 输出仍含口头填充词']),
     BridgeEvalCaseDetail(
       id: 'correction-02',
-      failures: [
-        '[丢失] 术语「等宽有序的失败明细卡片列」未逐字保留,机器判定文本写得足够长,恰好用来证明卡片的宽不由内容决定',
-      ],
+      failures: ['[丢失] 术语「等宽有序的失败明细卡片列」未逐字保留,机器判定文本写得足够长,恰好用来证明卡片的宽不由内容决定'],
     ),
     BridgeEvalCaseDetail(
       id: 'term-keep-15',
@@ -817,7 +820,9 @@ void main() {
     );
     await tester.tap(find.text('开始评测'));
     await tester.pump();
-    runner.emit(const BridgeEvalEvent.finished(summary: _evalSummaryWithFailures));
+    runner.emit(
+      const BridgeEvalEvent.finished(summary: _evalSummaryWithFailures),
+    );
     await tester.pump();
 
     // Every card fills the pane width minus the ListView's own padding
@@ -828,8 +833,9 @@ void main() {
     final paneWidth =
         tester.getSize(find.byType(SettingsFidelityPane)).width - panePadding;
     const ids = ['manner-07', 'correction-02', 'term-keep-15'];
-    final firstLeft =
-        tester.getTopLeft(find.byKey(Key('settings-eval-failed:${ids.first}'))).dx;
+    final firstLeft = tester
+        .getTopLeft(find.byKey(Key('settings-eval-failed:${ids.first}')))
+        .dx;
     final tops = <double>[];
     for (final id in ids) {
       final card = find.byKey(Key('settings-eval-failed:$id'));
@@ -839,15 +845,21 @@ void main() {
         reason: 'card $id must fill the pane width',
       );
       final topLeft = tester.getTopLeft(card);
-      expect(topLeft.dx, moreOrLessEquals(firstLeft, epsilon: 0.5),
-          reason: 'card $id must share the column left edge');
+      expect(
+        topLeft.dx,
+        moreOrLessEquals(firstLeft, epsilon: 0.5),
+        reason: 'card $id must share the column left edge',
+      );
       tops.add(topLeft.dy);
     }
     // Suite order — the wire order of the fixture, which is deliberately
     // non-alphabetical; painting must not re-sort.
     for (var i = 1; i < ids.length; i++) {
-      expect(tops[i], greaterThan(tops[i - 1]),
-          reason: '${ids[i]} must paint below ${ids[i - 1]}');
+      expect(
+        tops[i],
+        greaterThan(tops[i - 1]),
+        reason: '${ids[i]} must paint below ${ids[i - 1]}',
+      );
     }
 
     // The execution failure keeps carrying the engine's own message.
@@ -967,15 +979,15 @@ void main() {
       domain: SettingsDomain.history,
     );
 
-    // Both texts per row (the quick panel shows raw only).
+    // Both texts per row (the quick panel shows the rectified one only).
     expect(find.text('第二句的原话'), findsOneWidget);
     expect(
       find.byKey(const Key('settings-history-rectified:2')),
       findsOneWidget,
     );
 
-    // 复制原文 lands on the clipboard, like the quick panel's rows
-    // (same mock recipe: record the Clipboard.setData call).
+    // Both copies land on the clipboard (same mock recipe: record the
+    // Clipboard.setData call).
     String? copied;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -990,21 +1002,61 @@ void main() {
     });
     await hoverRowAction(
       tester,
-      const Key('settings-history-copy:2'),
+      const Key('settings-history-copy-raw:2'),
       Icons.copy_rounded,
     );
     await tester.pump();
     expect(copied, '第二句的原话');
-
-    // 重新修正 routes to the main window (the quick panel's controller
-    // path), never to a local session.
     await hoverRowAction(
       tester,
-      const Key('settings-history-rerectify:1'),
-      Icons.refresh_rounded,
+      const Key('settings-history-copy-rectified:2'),
+      Icons.copy_all_rounded,
     );
     await tester.pump();
-    expect(channel.rerectifies, ['第一句的原话']);
+    expect(copied, '第二句的成文');
+
+    // 指定场景重新修正: the menu lists the same library the 场景库
+    // domain paints; the pick routes to the main window with the
+    // scenario named — the session runs under it for that one session.
+    // A tall viewport builds every lazy row at once and keeps the menu
+    // it opens fully on-screen (the ticket-21 recipe).
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pump();
+    await hoverRowAction(
+      tester,
+      const Key('settings-history-rerectify-scenario:1'),
+      Icons.style_rounded,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('论文'));
+    await tester.pumpAndSettle();
+    expect(channel.rerectifies, [(raw: '第一句的原话', scenario: '论文')]);
+  });
+
+  testWidgets('an empty library disables the scenario rerectify key', (
+    tester,
+  ) async {
+    final channel = FakeSettingsChannel();
+    final store = FakeHistorySettingsStore(entries: _historyEntries);
+    await pumpSettings(
+      tester,
+      store: FakeScenarioStore(const []),
+      channel: channel,
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+
+    // The third key stays inert with the reason on its tooltip; the two
+    // copies keep working (their test above covers the path itself).
+    final button = find.byKey(
+      const Key('settings-history-rerectify-scenario:1'),
+    );
+    final popup = tester.widget<PopupMenuButton<String>>(button);
+    expect(popup.enabled, isFalse);
+    expect(popup.tooltip, '场景库为空,无法指定场景');
+    expect(channel.rerectifies, isEmpty);
   });
 
   testWidgets('a retention pick saves and reports the change', (tester) async {
@@ -1283,16 +1335,16 @@ void main() {
         vendor: 'deepseek',
         baseUrl: 'https://api.deepseek.com',
         model: 'deepseek-v4-flash',
-        key: KeyInfo(
-          status: KeyPlacement.inLocalFile,
-          storedKey: 'sk-stored',
-        ),
+        key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
         keys: {
           'deepseek': KeyInfo(
             status: KeyPlacement.inLocalFile,
             storedKey: 'sk-stored',
           ),
-          'volcengine': KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'ark-stored'),
+          'volcengine': KeyInfo(
+            status: KeyPlacement.inLocalFile,
+            storedKey: 'ark-stored',
+          ),
           'qwen': KeyInfo(status: KeyPlacement.unset),
           'openai': KeyInfo(status: KeyPlacement.unset),
         },
@@ -1306,10 +1358,7 @@ void main() {
 
     // The stored local-file key echoes into the field, masked by
     // default; the eye toggles plain text (ADR-0008 revision).
-    expect(
-      fieldText(tester, const Key('settings-conn-llm-key')),
-      'sk-stored',
-    );
+    expect(fieldText(tester, const Key('settings-conn-llm-key')), 'sk-stored');
     TextField keyField() => tester.widget<TextField>(
       find
           .descendant(
@@ -1342,7 +1391,10 @@ void main() {
         model: 'deepseek-v4-flash',
         key: KeyInfo(status: KeyPlacement.fromEnv, envName: 'DEEPSEEK_API_KEY'),
         keys: {
-          'deepseek': KeyInfo(status: KeyPlacement.fromEnv, envName: 'DEEPSEEK_API_KEY'),
+          'deepseek': KeyInfo(
+            status: KeyPlacement.fromEnv,
+            envName: 'DEEPSEEK_API_KEY',
+          ),
           'volcengine': KeyInfo(status: KeyPlacement.unset),
           'qwen': KeyInfo(status: KeyPlacement.unset),
           'openai': KeyInfo(status: KeyPlacement.unset),
@@ -1418,8 +1470,14 @@ void main() {
         model: 'deepseek-v4-flash',
         key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
         keys: {
-          'deepseek': KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
-          'volcengine': KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'ark-stored'),
+          'deepseek': KeyInfo(
+            status: KeyPlacement.inLocalFile,
+            storedKey: 'sk-stored',
+          ),
+          'volcengine': KeyInfo(
+            status: KeyPlacement.inLocalFile,
+            storedKey: 'ark-stored',
+          ),
           'qwen': KeyInfo(status: KeyPlacement.unset),
           'openai': KeyInfo(status: KeyPlacement.unset),
         },
@@ -1435,7 +1493,9 @@ void main() {
 
     // Volcengine has its own stored key: the field shows THAT, never
     // deepseek's.
-    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:volcengine')));
+    await tester.tap(
+      find.byKey(const Key('settings-conn-llm-vendors:volcengine')),
+    );
     await tester.pump();
     expect(fieldText(tester, const Key('settings-conn-llm-key')), 'ark-stored');
 
@@ -1445,12 +1505,16 @@ void main() {
     expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
 
     // Back to deepseek: its pair is where it was.
-    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:deepseek')));
+    await tester.tap(
+      find.byKey(const Key('settings-conn-llm-vendors:deepseek')),
+    );
     await tester.pump();
     expect(fieldText(tester, const Key('settings-conn-llm-key')), 'sk-stored');
   });
 
-  testWidgets('a vendor-switch save keeps every other vendor key', (tester) async {
+  testWidgets('a vendor-switch save keeps every other vendor key', (
+    tester,
+  ) async {
     final store = FakeConnectionStore(
       llm: const LlmConnection(
         vendor: 'deepseek',
@@ -1458,7 +1522,10 @@ void main() {
         model: 'deepseek-v4-flash',
         key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
         keys: {
-          'deepseek': KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
+          'deepseek': KeyInfo(
+            status: KeyPlacement.inLocalFile,
+            storedKey: 'sk-stored',
+          ),
           'volcengine': KeyInfo(status: KeyPlacement.unset),
           'qwen': KeyInfo(status: KeyPlacement.unset),
           'openai': KeyInfo(status: KeyPlacement.unset),
@@ -1471,7 +1538,9 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:volcengine')));
+    await tester.tap(
+      find.byKey(const Key('settings-conn-llm-vendors:volcengine')),
+    );
     await tester.pump();
     await tester.enterText(
       find.byKey(const Key('settings-conn-llm-key')),
@@ -1617,123 +1686,148 @@ void main() {
     expect(save.apiKey, isA<ApiKeyKeep>());
   });
 
-  testWidgets('the asr provider chip switches sub-fields and prefills the model', (
-    tester,
-  ) async {
-    final store = FakeConnectionStore();
-    await pumpSettings(
-      tester,
-      connectionStore: store,
-      domain: SettingsDomain.connection,
-    );
+  testWidgets(
+    'the asr provider chip switches sub-fields and prefills the model',
+    (tester) async {
+      final store = FakeConnectionStore();
+      await pumpSettings(
+        tester,
+        connectionStore: store,
+        domain: SettingsDomain.connection,
+      );
 
-    // aliyun paints its own sub-section only.
-    await tester.ensureVisible(
-      find.byKey(const Key('settings-conn-asr-workspace')),
-    );
-    expect(
-      find.byKey(const Key('settings-conn-asr-volc-appid')),
-      findsNothing,
-    );
-    expect(find.byKey(const Key('settings-conn-asr-unadapted')), findsNothing);
+      // aliyun paints its own sub-section only.
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-conn-asr-workspace')),
+      );
+      expect(
+        find.byKey(const Key('settings-conn-asr-volc-appid')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('settings-conn-asr-unadapted')),
+        findsNothing,
+      );
 
-    // Switching to volcengine repaints the sub-fields and prefills the
-    // model (the field holds aliyun's default, a preset value).
-    await tester.ensureVisible(
-      find.byKey(const Key('settings-conn-asr-providers:volcengine')),
-    );
-    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:volcengine')));
-    await tester.pump();
-    expect(
-      find.byKey(const Key('settings-conn-asr-workspace')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const Key('settings-conn-asr-volc-appid')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('settings-conn-asr-volc-resource')),
-      findsOneWidget,
-    );
-    expect(
-      fieldText(tester, const Key('settings-conn-asr-model')),
-      'volc.seedasr.sauc.duration',
-    );
-    // The volcengine access token is its own diff-echo block; the common
-    // api_key block is gone (volcengine keeps credentials in its
-    // sub-section).
-    expect(find.byKey(const Key('settings-conn-asr-volc-key')), findsOneWidget);
-    expect(find.byKey(const Key('settings-conn-asr-key')), findsNothing);
+      // Switching to volcengine repaints the sub-fields and prefills the
+      // model (the field holds aliyun's default, a preset value).
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-conn-asr-providers:volcengine')),
+      );
+      await tester.tap(
+        find.byKey(const Key('settings-conn-asr-providers:volcengine')),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const Key('settings-conn-asr-workspace')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('settings-conn-asr-volc-appid')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('settings-conn-asr-volc-resource')),
+        findsOneWidget,
+      );
+      expect(
+        fieldText(tester, const Key('settings-conn-asr-model')),
+        'volc.seedasr.sauc.duration',
+      );
+      // The volcengine access token is its own diff-echo block; the common
+      // api_key block is gone (volcengine keeps credentials in its
+      // sub-section).
+      expect(
+        find.byKey(const Key('settings-conn-asr-volc-key')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('settings-conn-asr-key')), findsNothing);
 
-    // A customized model survives a provider switch.
-    await tester.enterText(
-      find.byKey(const Key('settings-conn-asr-model')),
-      'my-own-engine',
-    );
-    await tester.ensureVisible(
-      find.byKey(const Key('settings-conn-asr-providers:tencent')),
-    );
-    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:tencent')));
-    await tester.pump();
-    expect(
-      fieldText(tester, const Key('settings-conn-asr-model')),
-      'my-own-engine',
-    );
-    // The unadapted caption names the gap.
-    expect(find.byKey(const Key('settings-conn-asr-unadapted')), findsOneWidget);
-    expect(find.byKey(const Key('settings-conn-asr-tencent-id-key')), findsOneWidget);
-    expect(find.byKey(const Key('settings-conn-asr-tencent-key-key')), findsOneWidget);
-  });
+      // A customized model survives a provider switch.
+      await tester.enterText(
+        find.byKey(const Key('settings-conn-asr-model')),
+        'my-own-engine',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-conn-asr-providers:tencent')),
+      );
+      await tester.tap(
+        find.byKey(const Key('settings-conn-asr-providers:tencent')),
+      );
+      await tester.pump();
+      expect(
+        fieldText(tester, const Key('settings-conn-asr-model')),
+        'my-own-engine',
+      );
+      // The unadapted caption names the gap.
+      expect(
+        find.byKey(const Key('settings-conn-asr-unadapted')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('settings-conn-asr-tencent-id-key')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('settings-conn-asr-tencent-key-key')),
+        findsOneWidget,
+      );
+    },
+  );
 
-  testWidgets('a volcengine save carries its sub-section and keeps the others', (
-    tester,
-  ) async {
-    final store = FakeConnectionStore();
-    await pumpSettings(
-      tester,
-      connectionStore: store,
-      domain: SettingsDomain.connection,
-    );
+  testWidgets(
+    'a volcengine save carries its sub-section and keeps the others',
+    (tester) async {
+      final store = FakeConnectionStore();
+      await pumpSettings(
+        tester,
+        connectionStore: store,
+        domain: SettingsDomain.connection,
+      );
 
-    await tester.ensureVisible(
-      find.byKey(const Key('settings-conn-asr-providers:volcengine')),
-    );
-    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:volcengine')));
-    await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-conn-asr-providers:volcengine')),
+      );
+      await tester.tap(
+        find.byKey(const Key('settings-conn-asr-providers:volcengine')),
+      );
+      await tester.pump();
 
-    // Fill the volcengine triple; the access token is a Set.
-    await tester.enterText(
-      find.byKey(const Key('settings-conn-asr-volc-appid')),
-      '42',
-    );
-    await tester.enterText(
-      find.byKey(const Key('settings-conn-asr-volc-key')),
-      'volc-token',
-    );
-    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-save')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
-    await tester.pump();
+      // Fill the volcengine triple; the access token is a Set.
+      await tester.enterText(
+        find.byKey(const Key('settings-conn-asr-volc-appid')),
+        '42',
+      );
+      await tester.enterText(
+        find.byKey(const Key('settings-conn-asr-volc-key')),
+        'volc-token',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-conn-asr-save')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
+      await tester.pump();
 
-    final save = store.asrSaves.single;
-    expect(save.provider, 'volcengine');
-    expect(save.volcengine.appId, '42');
-    expect(save.volcengine.resourceId, 'volc.seedasr.sauc.duration');
-    expect(save.volcengine.accessKey, isA<ApiKeySet>());
-    expect((save.volcengine.accessKey as ApiKeySet).key, 'volc-token');
-    // The hidden vendors' fields ride along untouched (aliyun's region,
-    // the cleared workspace id from the default view).
-    expect(save.aliyun.region, 'cn-beijing');
-    expect(save.aliyun.workspaceId, isNull);
-    expect(save.apiKey, isA<ApiKeyKeep>());
-    // The re-read view echoes the new access token back, masked.
-    expect(
-      fieldText(tester, const Key('settings-conn-asr-volc-key')),
-      'volc-token',
-    );
-    expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
-  });
+      final save = store.asrSaves.single;
+      expect(save.provider, 'volcengine');
+      expect(save.volcengine.appId, '42');
+      expect(save.volcengine.resourceId, 'volc.seedasr.sauc.duration');
+      expect(save.volcengine.accessKey, isA<ApiKeySet>());
+      expect((save.volcengine.accessKey as ApiKeySet).key, 'volc-token');
+      // The hidden vendors' fields ride along untouched (aliyun's region,
+      // the cleared workspace id from the default view).
+      expect(save.aliyun.region, 'cn-beijing');
+      expect(save.aliyun.workspaceId, isNull);
+      expect(save.apiKey, isA<ApiKeyKeep>());
+      // The re-read view echoes the new access token back, masked.
+      expect(
+        fieldText(tester, const Key('settings-conn-asr-volc-key')),
+        'volc-token',
+      );
+      expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
+    },
+  );
 
   testWidgets('the stored common asr key echoes; an untouched save keeps it', (
     tester,
@@ -1748,9 +1842,11 @@ void main() {
         model: 'qwen3-asr-flash-realtime',
         language: 'zh',
         baseUrl: null,
-        endpoint:
-            'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
-        key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-asr-stored'),
+        endpoint: 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
+        key: KeyInfo(
+          status: KeyPlacement.inLocalFile,
+          storedKey: 'sk-asr-stored',
+        ),
         aliyun: AsrAliyun(workspaceId: null, region: 'cn-beijing'),
         volcengine: AsrVolcengine(
           appId: null,
@@ -1826,39 +1922,42 @@ void main() {
     expect(textOf(tester, const Key('settings-conn-saved')), '语音识别已保存');
   });
 
-  testWidgets('a refused adoption keeps the save and flags the engine kept the old providers', (
-    tester,
-  ) async {
-    final store = FakeConnectionStore()..failNextApply = 'no adapter yet';
-    await pumpSettings(
-      tester,
-      connectionStore: store,
-      domain: SettingsDomain.connection,
-    );
+  testWidgets(
+    'a refused adoption keeps the save and flags the engine kept the old providers',
+    (tester) async {
+      final store = FakeConnectionStore()..failNextApply = 'no adapter yet';
+      await pumpSettings(
+        tester,
+        connectionStore: store,
+        domain: SettingsDomain.connection,
+      );
 
-    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-save')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
-    await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-conn-asr-save')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
+      await tester.pump();
 
-    // The file is saved and its note painted; the refusal is visible
-    // without masquerading as a save failure — the previous providers
-    // keep running (ADR-0010's failure-keeps-old).
-    expect(store.asrSaves, hasLength(1));
-    // The error row sits above the saved note; scroll to it and the
-    // note rides along into the viewport.
-    await scrollPaneTo(tester, const Key('settings-conn-error'));
-    await tester.pump();
-    expect(textOf(tester, const Key('settings-conn-saved')), '语音识别已保存');
-    expect(
-      textOf(tester, const Key('settings-conn-error')),
-      contains('已保存,但引擎沿用上一配置'),
-    );
-    expect(
-      textOf(tester, const Key('settings-conn-error')),
-      contains('no adapter yet'),
-    );
-  });
+      // The file is saved and its note painted; the refusal is visible
+      // without masquerading as a save failure — the previous providers
+      // keep running (ADR-0010's failure-keeps-old).
+      expect(store.asrSaves, hasLength(1));
+      // The error row sits above the saved note; scroll to it and the
+      // note rides along into the viewport.
+      await scrollPaneTo(tester, const Key('settings-conn-error'));
+      await tester.pump();
+      expect(textOf(tester, const Key('settings-conn-saved')), '语音识别已保存');
+      expect(
+        textOf(tester, const Key('settings-conn-error')),
+        contains('已保存,但引擎沿用上一配置'),
+      );
+      expect(
+        textOf(tester, const Key('settings-conn-error')),
+        contains('no adapter yet'),
+      );
+    },
+  );
 
   testWidgets('the endpoint preview recomputes live, never only on save', (
     tester,
@@ -1872,7 +1971,9 @@ void main() {
 
     // The load paints the default aliyun URL.
     expect(
-      find.textContaining('当前端点:wss://dashscope.aliyuncs.com/api-ws/v1/realtime'),
+      find.textContaining(
+        '当前端点:wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
+      ),
       findsOneWidget,
     );
 
@@ -1894,9 +1995,13 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('settings-conn-asr-providers:volcengine')),
     );
-    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:volcengine')));
+    await tester.tap(
+      find.byKey(const Key('settings-conn-asr-providers:volcengine')),
+    );
     await tester.pump();
-    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-endpoint')));
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-endpoint')),
+    );
     await tester.pump();
     expect(
       find.textContaining('当前端点:wss://proxy.example.com/api/v3/sauc/bigmodel'),
@@ -1948,10 +2053,7 @@ void main() {
       fieldText(tester, const Key('settings-advanced-paragraph-silence')),
       '1200',
     );
-    expect(
-      fieldText(tester, const Key('settings-advanced-typing-delay')),
-      '8',
-    );
+    expect(fieldText(tester, const Key('settings-advanced-typing-delay')), '8');
     // The insertion mode is a chip pair, not free text.
     expect(
       find.byKey(const Key('settings-advanced-insertion-mode:paste')),
@@ -2016,9 +2118,7 @@ void main() {
       find.byKey(const Key('settings-advanced-typing-delay')),
       '15',
     );
-    await tester.tap(
-      find.byKey(const Key('settings-advanced-insertion-save')),
-    );
+    await tester.tap(find.byKey(const Key('settings-advanced-insertion-save')));
     await tester.pump();
 
     final save = store.insertionSaves.single;

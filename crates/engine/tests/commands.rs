@@ -132,3 +132,100 @@ async fn a_blank_directive_reads_as_the_default_register() {
     await_state(&mut rx, SessionState::Preview).await;
     assert_eq!(h.llm.requests()[0].style_directive, None);
 }
+
+#[tokio::test]
+async fn a_one_time_directive_pins_the_re_rectify_session() {
+    let (h, mut rx) = harness(
+        EngineConfig::default(),
+        vec![vec![]],
+        vec![
+            vec![LlmStep::Token("一".into())],
+            vec![LlmStep::Token("二".into())],
+            vec![LlmStep::Token("三".into())],
+        ],
+    );
+
+    // A scenario stays selected, then history retrieval names a one-time
+    // directive for just this session (ticket 23's 指定场景重新修正).
+    ok(
+        &h.engine,
+        Command::SetStyleDirective(Some("选中场景的指令".into())),
+    )
+    .await;
+    ok(
+        &h.engine,
+        Command::RectifyText {
+            raw_transcript: "旧话".into(),
+            style_override: Some("一次性指令".into()),
+        },
+    )
+    .await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(
+        h.llm.requests()[0].style_directive.as_deref(),
+        Some("一次性指令")
+    );
+
+    // Rerolls keep the one-time directive — even over a selection switch
+    // made mid-session.
+    ok(
+        &h.engine,
+        Command::SetStyleDirective(Some("中途换的指令".into())),
+    )
+    .await;
+    ok(&h.engine, Command::Reroll).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(
+        h.llm.requests()[1].style_directive.as_deref(),
+        Some("一次性指令")
+    );
+
+    // The session ends; the next rectify runs under the live selection
+    // again — the override never outlives its session.
+    ok(&h.engine, Command::Cancel).await;
+    await_state(&mut rx, SessionState::Idle).await;
+    ok(
+        &h.engine,
+        Command::RectifyText {
+            raw_transcript: "又一句".into(),
+            style_override: None,
+        },
+    )
+    .await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(
+        h.llm.requests()[2].style_directive.as_deref(),
+        Some("中途换的指令")
+    );
+}
+
+#[tokio::test]
+async fn a_blank_one_time_directive_reads_as_no_override() {
+    let (h, mut rx) = harness(
+        EngineConfig::default(),
+        vec![vec![]],
+        vec![vec![LlmStep::Token("修".into())]],
+    );
+
+    // Whitespace-only override text normalizes to "no override": the
+    // request falls back to the live selection, same guard as
+    // SetStyleDirective's.
+    ok(
+        &h.engine,
+        Command::SetStyleDirective(Some("选中场景的指令".into())),
+    )
+    .await;
+    ok(
+        &h.engine,
+        Command::RectifyText {
+            raw_transcript: "旧话".into(),
+            style_override: Some("   ".into()),
+        },
+    )
+    .await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(
+        h.llm.requests()[0].style_directive.as_deref(),
+        Some("选中场景的指令")
+    );
+}

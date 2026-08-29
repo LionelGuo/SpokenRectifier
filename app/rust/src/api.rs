@@ -75,8 +75,12 @@ pub enum BridgeCommand {
         rectify_timeout_ms: u64,
     },
     /// History retrieval re-running a past utterance (see `RectifyText`).
+    /// `style_override` optionally pins a one-time scenario directive for
+    /// that session alone (ticket 23); `None` runs under the live
+    /// selection.
     RectifyText {
         raw_transcript: String,
+        style_override: Option<String>,
     },
 }
 
@@ -186,7 +190,13 @@ impl From<BridgeCommand> for Command {
                 session_end_silence_ms,
                 rectify_timeout_ms,
             }),
-            BridgeCommand::RectifyText { raw_transcript } => Command::RectifyText(raw_transcript),
+            BridgeCommand::RectifyText {
+                raw_transcript,
+                style_override,
+            } => Command::RectifyText {
+                raw_transcript,
+                style_override,
+            },
         }
     }
 }
@@ -1637,6 +1647,7 @@ mod tests {
 
         execute(BridgeCommand::RectifyText {
             raw_transcript: "历史上的原话".into(),
+            style_override: None,
         })
         .unwrap();
         block_on(wait_state(&mut rx, SessionState::Preview));

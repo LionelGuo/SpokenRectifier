@@ -109,8 +109,13 @@ class DesktopSettingsWindow {
         await _controller.loadRecentHistory();
       case 'history-rerectify':
         // History retrieval: the same entry point the quick panel's rows
-        // take — the session window takes over from here.
-        await _controller.rerectifyHistory(call.arguments as String? ?? '');
+        // take — the session window takes over from here. A scenario, when
+        // present, pins this one session to it (ticket 23).
+        final args = call.arguments as Map<Object?, Object?>?;
+        await _controller.rerectifyHistory(
+          args?['raw'] as String? ?? '',
+          scenario: args?['scenario'] as String?,
+        );
       case 'terms-changed':
         // The terms domain edited the dictionary file: the quick panel's
         // chips re-read the same bridge call (the engine re-reads per

@@ -144,8 +144,16 @@ class FakeGateway implements SpeechEngineGateway {
   }
 
   @override
-  Future<void> rectifyText(String rawTranscript) async {
-    commands.add('rectifyText:$rawTranscript');
+  Future<void> rectifyText(
+    String rawTranscript, {
+    String? styleOverride,
+  }) async {
+    // A one-time scenario decorates the recorded command with its
+    // directive, so tests can tell the two retrieval kinds apart.
+    commands.add(
+      'rectifyText:$rawTranscript'
+      '${styleOverride == null ? '' : '@$styleOverride'}',
+    );
     if (failNextRectifyText != null) {
       final failure = failNextRectifyText;
       failNextRectifyText = null;

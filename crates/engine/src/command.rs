@@ -13,8 +13,15 @@ pub enum Command {
     /// Rectify a given raw transcript without recording — history
     /// retrieval re-running a past utterance. Jumps straight into the
     /// machine (`Idle → Rectifying`); only valid while idle, and the
-    /// transcript must be non-empty.
-    RectifyText(String),
+    /// transcript must be non-empty. `style_override` optionally pins a
+    /// one-time style directive for this session alone (ticket 23's
+    /// 指定场景重新修正): rerolls keep it, the session ends with it,
+    /// and the live selection (SetStyleDirective) applies again. `None`
+    /// runs under the live selection as before.
+    RectifyText {
+        raw_transcript: String,
+        style_override: Option<String>,
+    },
     /// End the recording session and start rectifying (hotkey press again).
     StopSession,
     /// Abort the session at any point with zero output.

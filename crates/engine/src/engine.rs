@@ -125,6 +125,12 @@ struct Session {
     any_speech: bool,
     /// Raw transcript frozen when recording ended.
     frozen: Option<FrozenUtterance>,
+    /// The one-time style directive this session was re-rectified under
+    /// (ticket 23's 指定场景); `None` on mic sessions and plain
+    /// re-rectifies, which follow the live selection instead. Pinned for
+    /// the session's lifetime: rerolls keep it, and it dies with the
+    /// session.
+    style_override: Option<String>,
     /// The rectified text as it will be inserted (possibly user-edited).
     preview_text: String,
     /// Ends the ASR stream consumption; fired when recording ends.
@@ -208,7 +214,10 @@ impl Engine {
         let _gate = self.inner.command_gate.lock().await;
         match command.clone() {
             Command::StartSession => self.start_session().await,
-            Command::RectifyText(raw) => self.rectify_text(raw),
+            Command::RectifyText {
+                raw_transcript,
+                style_override,
+            } => self.rectify_text(raw_transcript, style_override),
             Command::StopSession => {
                 let state = self.inner.state_lock().state;
                 if state != SessionState::Recording {
@@ -298,18 +307,30 @@ impl Engine {
     /// transcript as the session's utterance and jump straight into the
     /// machine (`Idle → Rectifying`), no microphone involved. Reroll,
     /// preview editing, cancel, and insert all work as after a recording.
-    fn rectify_text(&self, raw_transcript: String) -> Result<(), EngineError> {
+    /// `style_override` optionally pins a one-time directive for this
+    /// session alone (see [`Command::RectifyText`]).
+    fn rectify_text(
+        &self,
+        raw_transcript: String,
+        style_override: Option<String>,
+    ) -> Result<(), EngineError> {
         let (sid, cancel, request, timings) = {
             let mut st = self.inner.state_lock();
             if st.state != SessionState::Idle {
                 return Err(EngineError::CommandRejected {
-                    command: Command::RectifyText(raw_transcript),
+                    command: Command::RectifyText {
+                        raw_transcript,
+                        style_override,
+                    },
                     state: st.state,
                 });
             }
             if raw_transcript.trim().is_empty() {
                 return Err(EngineError::EmptyUtterance);
             }
+            // Same blank guard as SetStyleDirective's: whitespace-only
+            // override text reads as no override.
+            let style_override = style_override.filter(|text| !text.trim().is_empty());
             // Newlines carry the paragraph structure the transcript was
             // frozen with; splitting restores it exactly.
             let paragraphs: Vec<String> = raw_transcript.split('\n').map(str::to_string).collect();
@@ -325,11 +346,13 @@ impl Engine {
                 raw_transcript: raw_transcript.clone(),
                 paragraphs: paragraphs.clone(),
             });
+            session.style_override = style_override;
             let cancel = CancellationToken::new();
             session.rectify_cancel = Some(cancel.clone());
             let sid = session.id;
             let terms = session.terms.clone();
             let timings = session.timings;
+            let style_directive = Inner::session_style_directive(&session, &self.inner);
             st.session = Some(session);
             self.inner
                 .transition(&mut st, sid, SessionState::Rectifying);
@@ -350,7 +373,7 @@ impl Engine {
                 RectifyRequest {
                     raw_transcript,
                     paragraphs,
-                    style_directive: self.inner.current_style_directive(),
+                    style_directive,
                     terms,
                 },
                 timings,
@@ -483,6 +506,15 @@ impl Inner {
         self.style_directive.read().unwrap().clone()
     }
 
+    /// The directive a request inside [session] runs with: the session's
+    /// one-time override if it has one, otherwise the live selection.
+    fn session_style_directive(session: &Session, inner: &Inner) -> Option<String> {
+        session
+            .style_override
+            .clone()
+            .or_else(|| inner.current_style_directive())
+    }
+
     /// Passage mode for a session about to open — the runtime-switchable
     /// value, snapshotted into the session so later switches cannot
     /// change a running session's semantics.
@@ -613,12 +645,13 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 session.rectify_cancel = Some(cancel.clone());
                 let terms = session.terms.clone();
                 let timings = session.timings;
+                let style_directive = Inner::session_style_directive(session, inner);
                 (
                     cancel,
                     RectifyRequest {
                         raw_transcript,
                         paragraphs,
-                        style_directive: inner.current_style_directive(),
+                        style_directive,
                         terms,
                     },
                     timings,
@@ -631,12 +664,13 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 session.rectify_cancel = Some(cancel.clone());
                 let terms = session.terms.clone();
                 let timings = session.timings;
+                let style_directive = Inner::session_style_directive(session, inner);
                 (
                     cancel,
                     RectifyRequest {
                         raw_transcript: frozen.raw_transcript.clone(),
                         paragraphs: frozen.paragraphs.clone(),
-                        style_directive: inner.current_style_directive(),
+                        style_directive,
                         terms,
                     },
                     timings,
@@ -676,6 +710,7 @@ impl Session {
             speech_since_mark: false,
             any_speech: false,
             frozen: None,
+            style_override: None,
             preview_text: String::new(),
             asr_cancel: CancellationToken::new(),
             rectify_cancel: None,

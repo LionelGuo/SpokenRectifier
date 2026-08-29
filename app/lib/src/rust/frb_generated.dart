@@ -1386,6 +1386,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 9:
         return BridgeCommand_RectifyText(
           rawTranscript: dco_decode_String(raw[1]),
+          styleOverride: dco_decode_opt_String(raw[2]),
         );
       default:
         throw Exception("unreachable");
@@ -2027,7 +2028,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         );
       case 9:
         var var_rawTranscript = sse_decode_String(deserializer);
-        return BridgeCommand_RectifyText(rawTranscript: var_rawTranscript);
+        var var_styleOverride = sse_decode_opt_String(deserializer);
+        return BridgeCommand_RectifyText(
+          rawTranscript: var_rawTranscript,
+          styleOverride: var_styleOverride,
+        );
       default:
         throw UnimplementedError('');
     }
@@ -2733,9 +2738,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_64(paragraphSilenceMs, serializer);
         sse_encode_u_64(sessionEndSilenceMs, serializer);
         sse_encode_u_64(rectifyTimeoutMs, serializer);
-      case BridgeCommand_RectifyText(rawTranscript: final rawTranscript):
+      case BridgeCommand_RectifyText(
+        rawTranscript: final rawTranscript,
+        styleOverride: final styleOverride,
+      ):
         sse_encode_i_32(9, serializer);
         sse_encode_String(rawTranscript, serializer);
+        sse_encode_opt_String(styleOverride, serializer);
     }
   }
 

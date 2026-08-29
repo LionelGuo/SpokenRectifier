@@ -726,7 +726,10 @@ class _HistoryRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      entry.rawTranscript.replaceAll('\n', ' '),
+                      // The rectified text is what this row is for
+                      // (ticket 23): what you see is what 复制 lands.
+                      entry.rectifiedText.replaceAll('\n', ' '),
+                      key: Key('quick-history-rectified:${entry.id}'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: SrType.caption.copyWith(color: pal.textSecondary),
@@ -736,8 +739,10 @@ class _HistoryRow extends StatelessWidget {
               ),
               // 悬停显复制/重修 (spec §4.3): the actions ride every row but
               // fade in/out under the pointer — no layout pop, and the
-              // transcript keeps a constant ellipsis width. Pointer events
-              // stay off while faded.
+              // text keeps a constant ellipsis width. Pointer events stay
+              // off while faded. Two keys (ticket 23): copy the rectified
+              // text shown above, and the plain re-rectify — the raw
+              // transcript stays a settings-window view.
               IgnorePointer(
                 ignoring: !hover,
                 child: AnimatedOpacity(
@@ -750,9 +755,9 @@ class _HistoryRow extends StatelessWidget {
                       _HistoryAction(
                         key: Key('quick-history-copy:${entry.id}'),
                         icon: Icons.copy_rounded,
-                        tooltip: '复制原始转写',
+                        tooltip: '复制修正文本',
                         onTap: () => Clipboard.setData(
-                          ClipboardData(text: entry.rawTranscript),
+                          ClipboardData(text: entry.rectifiedText),
                         ),
                       ),
                       const SizedBox(width: 10),

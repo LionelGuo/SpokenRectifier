@@ -155,34 +155,35 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('a startup refusal pins the orb and is not masked by a start click', (
-    tester,
-  ) async {
-    final gateway = FakeGateway();
-    final controller = await pumpController(tester, gateway);
+  testWidgets(
+    'a startup refusal pins the orb and is not masked by a start click',
+    (tester) async {
+      final gateway = FakeGateway();
+      final controller = await pumpController(tester, gateway);
 
-    // The engine refused to assemble (e.g. tencent with credentials):
-    // the orb rests with the error pending.
-    controller.reportStartupError('初始化失败:ASR provider "tencent"');
-    await tester.pump();
-    expect(controller.orbErrorPending, isTrue);
-    expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
+      // The engine refused to assemble (e.g. tencent with credentials):
+      // the orb rests with the error pending.
+      controller.reportStartupError('初始化失败:ASR provider "tencent"');
+      await tester.pump();
+      expect(controller.orbErrorPending, isTrue);
+      expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
 
-    // A start click against the dead engine stays idle and keeps the
-    // root cause — the generic "engine not created" must not mask it.
-    gateway.failNextStart = StateError('engine not created yet');
-    await tester.tap(find.byIcon(Icons.mic_none_rounded));
-    await tester.pump();
-    expect(controller.stage, StageKind.orb);
-    expect(controller.lastError, '初始化失败:ASR provider "tencent"');
-    expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
+      // A start click against the dead engine stays idle and keeps the
+      // root cause — the generic "engine not created" must not mask it.
+      gateway.failNextStart = StateError('engine not created yet');
+      await tester.tap(find.byIcon(Icons.mic_none_rounded));
+      await tester.pump();
+      expect(controller.stage, StageKind.orb);
+      expect(controller.lastError, '初始化失败:ASR provider "tencent"');
+      expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
 
-    // Without any error the orb rests bare (no idle badge).
-    controller.lastError = null;
-    controller.notifyListeners();
-    await tester.pump();
-    expect(find.byKey(const Key('orb-error-badge')), findsNothing);
-  });
+      // Without any error the orb rests bare (no idle badge).
+      controller.lastError = null;
+      controller.notifyListeners();
+      await tester.pump();
+      expect(find.byKey(const Key('orb-error-badge')), findsNothing);
+    },
+  );
 
   testWidgets('the quick panel carries the pending error in full', (
     tester,
@@ -917,7 +918,7 @@ void main() {
   });
 
   testWidgets(
-    'history rows copy the raw and re-rectify takes the session window',
+    'history rows show the rectified text; copy and re-rectify ride it',
     (tester) async {
       final gateway = FakeGateway();
       for (var i = 1; i <= 4; i++) {
@@ -933,12 +934,13 @@ void main() {
       final controller = await pumpController(tester, gateway);
       await pumpQuickOpen(tester, controller);
 
-      // Three rows — the fourth stays in the store, not the panel.
-      expect(find.textContaining('句原话'), findsNWidgets(3));
+      // Three rows of the rectified text (ticket 23: 所见即所复制) — the
+      // fourth stays in the store, not the panel.
+      expect(find.textContaining('句修正'), findsNWidgets(3));
 
       // The actions ride every row but stay faded out until hover
       // (悬停显复制/重修) — one animated reveal, no layout pop.
-      final row = find.text('第1句原话');
+      final row = find.text('第1句修正');
       double actionsFade() => (tester.widget(
         find.byKey(const Key('quick-history-actions:1')),
       ) as AnimatedOpacity).opacity;
@@ -951,7 +953,7 @@ void main() {
         findsOneWidget,
       );
 
-      // Copy puts the raw transcript on the clipboard.
+      // Copy puts exactly what the row shows on the clipboard.
       String? copied;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -966,7 +968,7 @@ void main() {
       });
       await tester.tap(find.byKey(const Key('quick-history-copy:1')));
       await tester.pump();
-      expect(copied, '第1句原话');
+      expect(copied, '第1句修正');
 
       // Re-rectify: the session window takes over from the panel, the
       // utterance re-runs through rectification (the fake streams it to
@@ -986,6 +988,56 @@ void main() {
     },
   );
 
+  testWidgets('a one-time scenario pins the re-rectify session, then clears', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()
+      ..scenarioLibrary.add(
+        const BridgeScenario(name: '论文', directive: '学术书面语'),
+      )
+      ..historyEntries.add(
+        BridgeHistoryEntry(
+          id: 1,
+          createdAtMs: BigInt.one,
+          rawTranscript: '旧话',
+          rectifiedText: '旧成文',
+        ),
+      );
+    final controller = await pumpController(tester, gateway);
+    await controller.loadScenarios(); // 论文 is on the pickers
+
+    // The settings window's third key routes here over the
+    // cross-window channel: the session runs under the scenario for
+    // this one session, the selection never moves (ticket 23).
+    await controller.rerectifyHistory('旧话', scenario: '论文');
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands, contains('rectifyText:旧话@学术书面语'));
+    expect(controller.oneTimeScenario, '论文');
+    expect(controller.selectedScenario, isNull);
+    expect(find.text('本次按场景 论文'), findsOneWidget);
+    expect(find.byKey(const Key('scenario-chip')), findsNothing);
+
+    // The session ends: the pin and the chip die with it, and the
+    // next plain retrieval runs under the live selection again.
+    await controller.cancelSession();
+    await tester.pump(const Duration(milliseconds: 1200));
+    expect(controller.oneTimeScenario, isNull);
+
+    await controller.rerectifyHistory('旧话');
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands.last, 'rectifyText:旧话');
+    expect(controller.oneTimeScenario, isNull);
+
+    // A name the library no longer holds reads as no scenario: the
+    // retrieval still runs, under the live selection.
+    await controller.cancelSession();
+    await tester.pump(const Duration(milliseconds: 1200));
+    await controller.rerectifyHistory('旧话', scenario: '已删除的');
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(gateway.commands.last, 'rectifyText:旧话');
+    expect(controller.oneTimeScenario, isNull);
+  });
+
   testWidgets(
     'a failed re-rectify surfaces on the panel instead of vanishing',
     (tester) async {
@@ -995,14 +1047,14 @@ void main() {
             id: 1,
             createdAtMs: BigInt.one,
             rawTranscript: '原话',
-            rectifiedText: '修正',
+            rectifiedText: '成文',
           ),
         )
         ..failNextRectifyText = StateError('engine gone');
       final controller = await pumpController(tester, gateway);
       await pumpQuickOpen(tester, controller);
 
-      await hoverOver(tester, find.text('原话'));
+      await hoverOver(tester, find.text('成文'));
       await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
       await tester.pump(const Duration(milliseconds: 350));
 

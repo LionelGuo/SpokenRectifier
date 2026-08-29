@@ -144,7 +144,7 @@ return rectifyText(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function( String rawTranscript)?  rectifyText,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function( String rawTranscript,  String? styleOverride)?  rectifyText,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -156,7 +156,7 @@ return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when
 return setStyleDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText() when rectifyText != null:
-return rectifyText(_that.rawTranscript);case _:
+return rectifyText(_that.rawTranscript,_that.styleOverride);case _:
   return orElse();
 
 }
@@ -174,7 +174,7 @@ return rectifyText(_that.rawTranscript);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function( String rawTranscript)  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function( String rawTranscript,  String? styleOverride)  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
 return startSession();case BridgeCommand_StopSession():
@@ -186,7 +186,7 @@ return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective():
 return setStyleDirective(_that.directive);case BridgeCommand_SetPassageMode():
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings():
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText():
-return rectifyText(_that.rawTranscript);}
+return rectifyText(_that.rawTranscript,_that.styleOverride);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -200,7 +200,7 @@ return rectifyText(_that.rawTranscript);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function( String rawTranscript)?  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function( String rawTranscript,  String? styleOverride)?  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -212,7 +212,7 @@ return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when
 return setStyleDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText() when rectifyText != null:
-return rectifyText(_that.rawTranscript);case _:
+return rectifyText(_that.rawTranscript,_that.styleOverride);case _:
   return null;
 
 }
@@ -652,10 +652,11 @@ as BigInt,
 
 
 class BridgeCommand_RectifyText extends BridgeCommand {
-  const BridgeCommand_RectifyText({required this.rawTranscript}): super._();
+  const BridgeCommand_RectifyText({required this.rawTranscript, this.styleOverride}): super._();
   
 
  final  String rawTranscript;
+ final  String? styleOverride;
 
 /// Create a copy of BridgeCommand
 /// with the given fields replaced by the non-null parameter values.
@@ -667,16 +668,16 @@ $BridgeCommand_RectifyTextCopyWith<BridgeCommand_RectifyText> get copyWith => _$
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_RectifyText&&(identical(other.rawTranscript, rawTranscript) || other.rawTranscript == rawTranscript));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_RectifyText&&(identical(other.rawTranscript, rawTranscript) || other.rawTranscript == rawTranscript)&&(identical(other.styleOverride, styleOverride) || other.styleOverride == styleOverride));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,rawTranscript);
+int get hashCode => Object.hash(runtimeType,rawTranscript,styleOverride);
 
 @override
 String toString() {
-  return 'BridgeCommand.rectifyText(rawTranscript: $rawTranscript)';
+  return 'BridgeCommand.rectifyText(rawTranscript: $rawTranscript, styleOverride: $styleOverride)';
 }
 
 
@@ -687,7 +688,7 @@ abstract mixin class $BridgeCommand_RectifyTextCopyWith<$Res> implements $Bridge
   factory $BridgeCommand_RectifyTextCopyWith(BridgeCommand_RectifyText value, $Res Function(BridgeCommand_RectifyText) _then) = _$BridgeCommand_RectifyTextCopyWithImpl;
 @useResult
 $Res call({
- String rawTranscript
+ String rawTranscript, String? styleOverride
 });
 
 
@@ -704,10 +705,11 @@ class _$BridgeCommand_RectifyTextCopyWithImpl<$Res>
 
 /// Create a copy of BridgeCommand
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? rawTranscript = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? rawTranscript = null,Object? styleOverride = freezed,}) {
   return _then(BridgeCommand_RectifyText(
 rawTranscript: null == rawTranscript ? _self.rawTranscript : rawTranscript // ignore: cast_nullable_to_non_nullable
-as String,
+as String,styleOverride: freezed == styleOverride ? _self.styleOverride : styleOverride // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

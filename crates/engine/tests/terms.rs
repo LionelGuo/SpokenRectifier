@@ -135,7 +135,14 @@ async fn history_re_rectify_reads_the_dictionary_fresh() {
         handle,
     );
 
-    ok(&h.engine, Command::RectifyText("再修一遍的原话".into())).await;
+    ok(
+        &h.engine,
+        Command::RectifyText {
+            raw_transcript: "再修一遍的原话".into(),
+            style_override: None,
+        },
+    )
+    .await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Preview).await;
     ok(&h.engine, Command::Cancel).await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Idle).await;
@@ -143,7 +150,14 @@ async fn history_re_rectify_reads_the_dictionary_fresh() {
     // A retrieval is its own session: it starts, so it reads the
     // dictionary as it stands now.
     *cell.lock().unwrap() = vec!["新术语".to_string()];
-    ok(&h.engine, Command::RectifyText("再修一遍的原话".into())).await;
+    ok(
+        &h.engine,
+        Command::RectifyText {
+            raw_transcript: "再修一遍的原话".into(),
+            style_override: None,
+        },
+    )
+    .await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Preview).await;
     assert_eq!(h.llm.requests()[0].terms, vec!["旧术语".to_string()]);
     assert_eq!(h.llm.requests()[1].terms, vec!["新术语".to_string()]);

@@ -658,8 +658,13 @@ sealed class BridgeCommand with _$BridgeCommand {
   }) = BridgeCommand_SetEngineTimings;
 
   /// History retrieval re-running a past utterance (see `RectifyText`).
-  const factory BridgeCommand.rectifyText({required String rawTranscript}) =
-      BridgeCommand_RectifyText;
+  /// `style_override` optionally pins a one-time scenario directive for
+  /// that session alone (ticket 23); `None` runs under the live
+  /// selection.
+  const factory BridgeCommand.rectifyText({
+    required String rawTranscript,
+    String? styleOverride,
+  }) = BridgeCommand_RectifyText;
 }
 
 /// Both connections in one read.

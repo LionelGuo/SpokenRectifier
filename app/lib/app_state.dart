@@ -30,7 +30,7 @@ abstract class SpeechEngineGateway {
   Future<void> confirmInsert();
   Future<void> reroll();
   Future<void> updatePreviewText(String text);
-  Future<void> rectifyText(String rawTranscript);
+  Future<void> rectifyText(String rawTranscript, {String? styleOverride});
   Future<List<BridgeScenario>> scenarios();
   Future<void> setStyleDirective(String? directive);
   Future<bool> passageMode();
@@ -150,6 +150,13 @@ class SpeechController extends ChangeNotifier {
   /// The selected scenario's name; null = the built-in default register.
   /// Never persisted: every launch starts on the default (ADR-0004).
   String? selectedScenario;
+
+  /// The one-time scenario the current re-rectify session runs under
+  /// (ticket 23's 指定场景重新修正): set when history retrieval names a
+  /// scenario, cleared when that session ends. The session window's chip
+  /// reads it for the 「本次按场景」 feedback; the engine holds the
+  /// actual directive override for the session's lifetime.
+  String? oneTimeScenario;
 
   bool get isRecording => phase == BridgeSessionState.recording;
 
@@ -489,10 +496,22 @@ class SpeechController extends ChangeNotifier {
   /// History retrieval: re-run a past utterance through rectification
   /// (the panel's 重新修正). The session window takes over from the
   /// panel; reroll, edit, and insert all work as after a recording.
-  Future<void> rerectifyHistory(String rawTranscript) async {
+  /// Naming a [scenario] pins it for this session alone (一次性): the
+  /// engine keeps its directive through rerolls, the selection stays
+  /// untouched, and [oneTimeScenario] feeds the session chip until the
+  /// session ends. A name that no longer resolves (the library changed
+  /// between the two windows) reads as no scenario — the session runs
+  /// under the live selection.
+  Future<void> rerectifyHistory(
+    String rawTranscript, {
+    String? scenario,
+  }) async {
+    final directive = scenario == null ? null : _directiveOf(scenario);
+    oneTimeScenario = directive == null ? null : scenario;
     try {
-      await gateway.rectifyText(rawTranscript);
+      await gateway.rectifyText(rawTranscript, styleOverride: directive);
     } catch (e) {
+      oneTimeScenario = null;
       lastError = '重新修正失败:$e';
       notifyListeners();
     }
@@ -634,6 +653,13 @@ class SpeechController extends ChangeNotifier {
         }
         if (to == BridgeSessionState.inserted) _flash(OrbFlash.inserted);
         if (to == BridgeSessionState.cancelled) _flash(OrbFlash.cancelled);
+        // The one-time scenario dies with its session (inserted and
+        // cancelled are the transient terminals every session passes
+        // through): the next rectify runs under the live selection.
+        if (to == BridgeSessionState.inserted ||
+            to == BridgeSessionState.cancelled) {
+          oneTimeScenario = null;
+        }
         if (to != BridgeSessionState.preview) {
           // [previewText] lives only mid-flight: entering rectifying starts
           // a fresh attempt (chunks accumulate from scratch), and the other

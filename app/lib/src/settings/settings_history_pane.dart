@@ -1,7 +1,8 @@
 /// The 历史 domain: full-session browsing (raw + rectified, newest
-/// first), retrieval (复制原始转写 straight to the clipboard; 重新修正
-/// routed to the main window through the cross-window channel — the
-/// same controller path the quick panel's rows take), the `[history]`
+/// first), retrieval (复制原始转写 / 复制修正文本 to the clipboard;
+/// 指定场景重新修正 routed to the main window through the cross-window
+/// channel — the same controller path the quick panel's rows take, with
+/// the picked scenario pinned for that one session), the `[history]`
 /// settings (保留期 chips, the 不留存 switch whose enable clears what
 /// exists), and the one-click clear (the same bridge call the tray
 /// makes). File is truth: every mutation re-reads the store.
@@ -14,7 +15,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../design/controls.dart' show SrButton, SrCard;
 import '../design/hover.dart';
 import '../design/tokens.dart';
-import '../rust/api.dart' show BridgeHistoryEntry;
+import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
 import '../shell/quick_panel.dart' show formatHistoryStamp;
 import 'history_store.dart';
 
@@ -23,22 +24,36 @@ import 'history_store.dart';
 /// value is always selectable.
 const _retentionPresets = [7, 30, 90, 365];
 
+/// History retrieval handed up to the main window: the utterance to
+/// re-run, plus the scenario this one session runs under when the third
+/// key named one (ticket 23).
+typedef HistoryRerectify = Future<void> Function(
+  String rawTranscript, {
+  String? scenario,
+});
+
 class SettingsHistoryPane extends StatefulWidget {
   const SettingsHistoryPane({
     super.key,
     required this.store,
+    required this.scenarios,
     required this.onHistoryChanged,
     required this.onRerectify,
   });
 
   final HistorySettingsStore store;
 
+  /// The scenario library, same source as the 场景库 domain paints — the
+  /// one-time rerectify menu lists exactly these.
+  final List<BridgeScenario> scenarios;
+
   /// Fires every time the store's shape changed (retention, keep-nothing,
   /// clear) — the main window re-reads its rows.
   final Future<void> Function() onHistoryChanged;
 
-  /// History retrieval routed to the main window's session flow.
-  final Future<void> Function(String rawTranscript) onRerectify;
+  /// History retrieval routed to the main window's session flow. The
+  /// scenario, when named, pins that one session to it (ticket 23).
+  final HistoryRerectify onRerectify;
 
   @override
   State<SettingsHistoryPane> createState() => _SettingsHistoryPaneState();
@@ -176,7 +191,11 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
             )
           else
             for (final entry in _entries)
-              _HistoryEntryRow(entry: entry, onRerectify: widget.onRerectify),
+              _HistoryEntryRow(
+                entry: entry,
+                scenarios: widget.scenarios,
+                onRerectify: widget.onRerectify,
+              ),
         ],
       ],
     );
@@ -358,10 +377,15 @@ class _RetentionChip extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _HistoryEntryRow extends StatelessWidget {
-  const _HistoryEntryRow({required this.entry, required this.onRerectify});
+  const _HistoryEntryRow({
+    required this.entry,
+    required this.scenarios,
+    required this.onRerectify,
+  });
 
   final BridgeHistoryEntry entry;
-  final Future<void> Function(String rawTranscript) onRerectify;
+  final List<BridgeScenario> scenarios;
+  final HistoryRerectify onRerectify;
 
   @override
   Widget build(BuildContext context) {
@@ -411,7 +435,11 @@ class _HistoryEntryRow extends StatelessWidget {
                   ],
                 ),
               ),
-              // 悬停显复制/重修 — the quick panel's fade recipe.
+              // 悬停显复制/重修 — the quick panel's fade recipe. Three
+              // retrieval keys (ticket 23): copy both texts, and a
+              // one-time re-rectify under a picked scenario (the menu
+              // lists the same library the 场景库 domain paints; an empty
+              // library disables the key — the tooltip says why).
               IgnorePointer(
                 ignoring: !hover,
                 child: AnimatedOpacity(
@@ -421,7 +449,7 @@ class _HistoryEntryRow extends StatelessWidget {
                   child: Row(
                     children: [
                       _EntryAction(
-                        key: Key('settings-history-copy:${entry.id}'),
+                        key: Key('settings-history-copy-raw:${entry.id}'),
                         icon: Icons.copy_rounded,
                         tooltip: '复制原始转写',
                         onTap: () => Clipboard.setData(
@@ -430,10 +458,18 @@ class _HistoryEntryRow extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       _EntryAction(
-                        key: Key('settings-history-rerectify:${entry.id}'),
-                        icon: Icons.refresh_rounded,
-                        tooltip: '重新修正',
-                        onTap: () => onRerectify(entry.rawTranscript),
+                        key: Key('settings-history-copy-rectified:${entry.id}'),
+                        icon: Icons.copy_all_rounded,
+                        tooltip: '复制修正文本',
+                        onTap: () => Clipboard.setData(
+                          ClipboardData(text: entry.rectifiedText),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      _ScenarioRerectifyAction(
+                        entry: entry,
+                        scenarios: scenarios,
+                        onRerectify: onRerectify,
                       ),
                     ],
                   ),
@@ -474,6 +510,62 @@ class _EntryAction extends StatelessWidget {
             color: hover ? pal.accentText : pal.textTertiary,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The third retrieval key: 指定场景重新修正. A menu anchored on the icon
+/// lists the library's scenarios (the same entries the 场景库 domain
+/// paints); picking one routes the utterance to the main window with
+/// that scenario pinned for the session alone. An empty library leaves
+/// the key disabled with the reason on its tooltip.
+class _ScenarioRerectifyAction extends StatelessWidget {
+  const _ScenarioRerectifyAction({
+    required this.entry,
+    required this.scenarios,
+    required this.onRerectify,
+  });
+
+  final BridgeHistoryEntry entry;
+  final List<BridgeScenario> scenarios;
+  final HistoryRerectify onRerectify;
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = srPalette(context);
+    final empty = scenarios.isEmpty;
+    return SrHover(
+      builder: (hover) => PopupMenuButton<String>(
+        key: Key('settings-history-rerectify-scenario:${entry.id}'),
+        enabled: !empty,
+        tooltip: empty ? '场景库为空,无法指定场景' : '指定场景重新修正',
+        icon: Icon(
+          Icons.style_rounded,
+          size: 15,
+          color: empty
+              ? pal.textTertiary.withValues(alpha: 0.5)
+              : (hover ? pal.accentText : pal.textTertiary),
+        ),
+        color: pal.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(SrRadius.control),
+          side: BorderSide(color: pal.hairline),
+        ),
+        constraints: const BoxConstraints(minWidth: 160),
+        onSelected: (name) => onRerectify(entry.rawTranscript, scenario: name),
+        itemBuilder: (_) => [
+          for (final scenario in scenarios)
+            PopupMenuItem(
+              key: Key('settings-history-scenario-item:${scenario.name}'),
+              value: scenario.name,
+              height: 38,
+              child: Text(
+                scenario.name,
+                style: SrType.caption.copyWith(color: pal.textPrimary),
+              ),
+            ),
+        ],
       ),
     );
   }

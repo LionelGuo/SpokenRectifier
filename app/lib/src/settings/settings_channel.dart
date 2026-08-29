@@ -43,8 +43,10 @@ abstract class SettingsChannel {
 
   /// History retrieval (重新修正) from the history domain: the main
   /// window runs the utterance through the same rectify path the quick
-  /// panel's rows use.
-  Future<void> sendHistoryRerectify(String rawTranscript);
+  /// panel's rows use. [scenario] optionally names a one-time scenario
+  /// (ticket 23): that session alone runs under it, the live selection
+  /// stays untouched.
+  Future<void> sendHistoryRerectify(String rawTranscript, {String? scenario});
 
   /// The dictionary changed on disk (the terms domain's add/rename/
   /// remove — the same file the quick panel's quick-add writes): the
@@ -104,8 +106,8 @@ class DesktopSettingsChannel implements SettingsChannel {
   Future<void> sendHistoryChanged() => _send('history-changed', null);
 
   @override
-  Future<void> sendHistoryRerectify(String rawTranscript) =>
-      _send('history-rerectify', rawTranscript);
+  Future<void> sendHistoryRerectify(String rawTranscript, {String? scenario}) =>
+      _send('history-rerectify', {'raw': rawTranscript, 'scenario': ?scenario});
 
   @override
   Future<void> sendTermsChanged() => _send('terms-changed', null);

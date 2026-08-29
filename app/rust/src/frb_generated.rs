@@ -1469,8 +1469,10 @@ impl SseDecode for crate::api::BridgeCommand {
             }
             9 => {
                 let mut var_rawTranscript = <String>::sse_decode(deserializer);
+                let mut var_styleOverride = <Option<String>>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::RectifyText {
                     raw_transcript: var_rawTranscript,
+                    style_override: var_styleOverride,
                 };
             }
             _ => {
@@ -2303,9 +2305,15 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
                 rectify_timeout_ms.into_into_dart().into_dart(),
             ]
             .into_dart(),
-            crate::api::BridgeCommand::RectifyText { raw_transcript } => {
-                [9.into_dart(), raw_transcript.into_into_dart().into_dart()].into_dart()
-            }
+            crate::api::BridgeCommand::RectifyText {
+                raw_transcript,
+                style_override,
+            } => [
+                9.into_dart(),
+                raw_transcript.into_into_dart().into_dart(),
+                style_override.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
             _ => {
                 unimplemented!("");
             }
@@ -2928,9 +2936,13 @@ impl SseEncode for crate::api::BridgeCommand {
                 <u64>::sse_encode(session_end_silence_ms, serializer);
                 <u64>::sse_encode(rectify_timeout_ms, serializer);
             }
-            crate::api::BridgeCommand::RectifyText { raw_transcript } => {
+            crate::api::BridgeCommand::RectifyText {
+                raw_transcript,
+                style_override,
+            } => {
                 <i32>::sse_encode(9, serializer);
                 <String>::sse_encode(raw_transcript, serializer);
+                <Option<String>>::sse_encode(style_override, serializer);
             }
             _ => {
                 unimplemented!("");

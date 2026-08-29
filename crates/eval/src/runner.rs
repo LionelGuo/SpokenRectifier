@@ -77,7 +77,10 @@ async fn rectify_case(
 ) -> Result<String, String> {
     let mut accumulated = String::new();
     engine
-        .execute(Command::RectifyText(transcript.to_string()))
+        .execute(Command::RectifyText {
+            raw_transcript: transcript.to_string(),
+            style_override: None,
+        })
         .await
         .map_err(|err| format!("command rejected: {err}"))?;
 

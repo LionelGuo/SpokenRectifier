@@ -272,6 +272,7 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       SettingsDomain.fidelity => SettingsFidelityPane(controller: _eval),
       SettingsDomain.history => SettingsHistoryPane(
         store: widget.historyStore,
+        scenarios: _scenarios,
         onHistoryChanged: widget.channel.sendHistoryChanged,
         onRerectify: widget.channel.sendHistoryRerectify,
       ),
