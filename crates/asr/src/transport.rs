@@ -159,7 +159,17 @@ impl<C: WireCodec> RealtimeConnect<C::Message> for TungsteniteConnect<C> {
                 .map_err(|e| match e {
                     tokio_tungstenite::tungstenite::Error::Http(resp) => {
                         let status = resp.status().as_u16();
-                        let message = format!("handshake rejected: HTTP {status}");
+                        // The rejection body carries the gateway's own
+                        // reason (e.g. "resourceId ... is not allowed") —
+                        // the status alone would hide it.
+                        let body = resp
+                            .body()
+                            .as_ref()
+                            .map(|bytes| String::from_utf8_lossy(bytes).trim().to_string())
+                            .filter(|text| !text.is_empty())
+                            .map(|text| format!(": {text}"))
+                            .unwrap_or_default();
+                        let message = format!("handshake rejected: HTTP {status}{body}");
                         if status == 401 || status == 403 {
                             ConnectError::Auth(message)
                         } else {

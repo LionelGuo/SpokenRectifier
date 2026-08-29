@@ -28,7 +28,7 @@ mod frame;
 mod protocol;
 mod provider;
 
-pub use frame::{ServerFrame, decode, encode_audio, encode_full_request};
+pub use frame::{ServerFrame, decode, encode_audio, encode_full_request, encode_last_packet};
 pub use provider::VolcengineAsr;
 pub use spokenrectifier_asr::transport::{ConnectError, RealtimeChannel, RealtimeConnect};
 
