@@ -1413,6 +1413,62 @@ void main() {
     expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
   });
 
+  testWidgets('the stored common asr key echoes; an untouched save keeps it', (
+    tester,
+  ) async {
+    // The A-round regression: the common key never echoed into the
+    // field, so every Bearer-family save diffed an empty field against
+    // the stored key, offered the clear confirm, and one confirmed
+    // save wiped the key from the local file.
+    final store = FakeConnectionStore(
+      asr: const AsrConnection(
+        provider: 'aliyun',
+        model: 'qwen3-asr-flash-realtime',
+        language: 'zh',
+        baseUrl: null,
+        endpoint:
+            'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
+        key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-asr-stored'),
+        aliyun: AsrAliyun(workspaceId: null, region: 'cn-beijing'),
+        volcengine: AsrVolcengine(
+          appId: null,
+          resourceId: 'volc.seedasr.sauc.duration',
+          accessKey: KeyInfo(status: KeyPlacement.unset),
+        ),
+        tencent: AsrTencent(
+          appId: null,
+          secretId: KeyInfo(status: KeyPlacement.unset),
+          secretKey: KeyInfo(status: KeyPlacement.unset),
+        ),
+        azure: AsrAzure(region: null, endpointId: null),
+      ),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // The stored local-file key echoes into the field, masked.
+    expect(
+      fieldText(tester, const Key('settings-conn-asr-key')),
+      'sk-asr-stored',
+    );
+
+    // Saving without touching the field is a Keep — never a spurious
+    // clear confirm against the stored key.
+    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+    final save = store.asrSaves.single;
+    expect(save.apiKey, isA<ApiKeyKeep>());
+    expect(
+      fieldText(tester, const Key('settings-conn-asr-key')),
+      'sk-asr-stored',
+    );
+  });
+
   testWidgets('a failed save surfaces the error and keeps the form', (
     tester,
   ) async {

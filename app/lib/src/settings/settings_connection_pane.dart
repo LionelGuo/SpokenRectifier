@@ -197,6 +197,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     _asrModel.text = asr.model;
     _asrLanguage.text = asr.language;
     _asrBaseUrl.text = asr.baseUrl ?? '';
+    _asrKey.text = asr.key.storedKey ?? '';
     _asrKeyInfo = asr.key;
     _asrEndpoint = asr.endpoint;
 
@@ -352,6 +353,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         _asrModel.text = saved.model;
         _asrLanguage.text = saved.language;
         _asrBaseUrl.text = saved.baseUrl ?? '';
+        _asrKey.text = saved.key.storedKey ?? '';
         _asrKeyInfo = saved.key;
         _asrEndpoint = saved.endpoint;
         _asrWorkspace.text = saved.aliyun.workspaceId ?? '';
