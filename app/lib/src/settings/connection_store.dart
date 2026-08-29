@@ -14,10 +14,14 @@
 /// the provider repaints the sub-fields but never clears another
 /// vendor's configuration.
 ///
-/// File-level and engine-independent: the engine adopts the config at
-/// its creation, so a save here applies from the next launch on (the
-/// pane says so). Injectable so widget tests run with an in-memory
-/// model and no Rust dylib.
+/// File-level, with a runtime re-adoption seam: the engine adopts the
+/// config at its creation, and every save re-adopts it at once
+/// ([ConnectionStore.applyConnections], ADR-0010) — the next session
+/// runs with the new ASR provider, the next rectify attempt with the new
+/// LLM, no restart. A refused adoption (incomplete target config,
+/// unadapted provider) throws while the files stay saved and the engine
+/// keeps the previous providers. Injectable so widget tests run with an
+/// in-memory model and no Rust dylib.
 
 library;
 
@@ -330,6 +334,14 @@ abstract class ConnectionStore {
     required String model,
     required ApiKeyEdit apiKey,
   });
+
+  /// Adopt the saved connections into the live engine at once
+  /// (ADR-0010): the next session opens with the saved ASR provider,
+  /// the next rectify attempt with the saved LLM. Throws when the
+  /// engine refuses the adoption (incomplete target config, an
+  /// unadapted provider): the files stay saved, and the previous
+  /// providers keep running — the pane shows the message.
+  Future<void> applyConnections();
 }
 
 /// The production store over the flutter_rust_bridge calls.
@@ -376,6 +388,9 @@ class RustConnectionStore implements ConnectionStore {
         apiKey: _keyToWire(apiKey),
       )
       .then(_llmFromWire);
+
+  @override
+  Future<void> applyConnections() => rust.applyConnectionConfigs();
 
   static rust.BridgeKeyEdit _keyToWire(ApiKeyEdit edit) => switch (edit) {
     ApiKeyKeep() => const rust.BridgeKeyEdit.keep(),

@@ -319,6 +319,21 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = '修正模型保存失败:$e');
+      return;
+    }
+    await _applyConnections();
+  }
+
+  /// Hand the just-saved files to the live engine (ADR-0010). A refusal
+  /// keeps everything saved and painted but flags that the engine still
+  /// runs the previous providers — the next session keeps working with
+  /// them either way.
+  Future<void> _applyConnections() async {
+    try {
+      await widget.store.applyConnections();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '已保存,但引擎沿用上一配置:$e');
     }
   }
 
@@ -405,7 +420,9 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = '语音识别保存失败:$e');
+      return;
     }
+    await _applyConnections();
   }
 
   @override
@@ -419,8 +436,8 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
             Text('模型与连接', style: SrType.title.copyWith(color: pal.textPrimary)),
             const SizedBox(width: 10),
             Text(
-              '保存后写入配置文件,下次启动生效',
-              key: const Key('settings-conn-restart-note'),
+              '保存后写入配置文件,下一场会话生效',
+              key: const Key('settings-conn-effective-note'),
               style: SrType.caption.copyWith(color: pal.textTertiary),
             ),
           ],

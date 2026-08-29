@@ -22,6 +22,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette;
+import 'package:spokenrectifier_app/src/settings/settings_connection_pane.dart'
+    show SettingsConnectionPane;
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show
         BridgeEvalCategory,
@@ -170,7 +172,9 @@ class FakeTermsStore implements TermsStore {
 }
 
 /// The connection domain's fake: the two views in memory; a save
-/// records the ask and returns it as the re-read truth.
+/// records the ask and returns it as the re-read truth; the post-save
+/// engine adoption ([applyCalls]) is recorded and can be refused
+/// ([FakeConnectionStore.failNextApply]).
 class FakeConnectionStore implements ConnectionStore {
   FakeConnectionStore({AsrConnection? asr, LlmConnection? llm})
     : asr = asr ?? _defaultAsr,
@@ -214,6 +218,12 @@ class FakeConnectionStore implements ConnectionStore {
 
   /// When set, the next save throws (an unwritable layer file).
   Object? failNextSave;
+
+  /// How many saves handed the files to the live engine afterwards.
+  int applyCalls = 0;
+
+  /// When set, the next apply throws (the engine refused the adoption).
+  Object? failNextApply;
 
   @override
   Future<({AsrConnection asr, LlmConnection llm})> load() async =>
@@ -304,6 +314,16 @@ class FakeConnectionStore implements ConnectionStore {
       ),
     );
     return asr;
+  }
+
+  @override
+  Future<void> applyConnections() async {
+    if (failNextApply != null) {
+      final failure = failNextApply;
+      failNextApply = null;
+      throw failure!;
+    }
+    applyCalls++;
   }
 }
 
@@ -583,6 +603,26 @@ String fieldText(WidgetTester tester, Key key) => tester
     )
     .controller!
     .text;
+
+/// A Text widget's painted data, by its key.
+String textOf(WidgetTester tester, Key key) =>
+    tester.widget<Text>(find.byKey(key)).data!;
+
+/// Scroll the connection pane's ListView until [key] has an element:
+/// rows outside the viewport don't exist in a lazy ListView, so a
+/// `find.byKey` on an off-screen row needs the scroll, not
+/// `ensureVisible` (which requires an element already).
+Future<void> scrollPaneTo(WidgetTester tester, Key key) =>
+    tester.dragUntilVisible(
+      find.byKey(key),
+      find
+          .descendant(
+            of: find.byType(SettingsConnectionPane),
+            matching: find.byType(ListView),
+          )
+          .first,
+      const Offset(0, 200),
+    );
 
 // ---------------------------------------------------------------------------
 // The shell
@@ -1139,7 +1179,11 @@ void main() {
     // No standalone clear button anywhere: clearing rides the save.
     expect(find.byKey(const Key('settings-conn-key-clear:llm')), findsNothing);
     expect(find.byKey(const Key('settings-conn-asr-endpoint')), findsOneWidget);
-    expect(find.byKey(const Key('settings-conn-restart-note')), findsOneWidget);
+    // The effectiveness copy: runtime adoption, not a restart (ADR-0010).
+    expect(
+      textOf(tester, const Key('settings-conn-effective-note')),
+      '保存后写入配置文件,下一场会话生效',
+    );
   });
 
   testWidgets('an env key never echoes; the status line names it', (
@@ -1501,6 +1545,75 @@ void main() {
     expect(
       fieldText(tester, const Key('settings-conn-asr-key')),
       'sk-asr-stored',
+    );
+  });
+
+  testWidgets('each save hands the files to the live engine afterwards', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // An untouched LLM save adopts the saved files at once (ADR-0010):
+    // the next session opens with them, no restart.
+    await tester.ensureVisible(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+    expect(store.applyCalls, 1);
+    // The save button's ensureVisible scrolled the header rows out of
+    // the viewport; bring the note back before asserting it.
+    await scrollPaneTo(tester, const Key('settings-conn-saved'));
+    await tester.pump();
+    expect(textOf(tester, const Key('settings-conn-saved')), '修正模型已保存');
+    expect(find.byKey(const Key('settings-conn-error')), findsNothing);
+
+    // Same for the ASR card, one adoption per save.
+    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+    expect(store.applyCalls, 2);
+    await scrollPaneTo(tester, const Key('settings-conn-saved'));
+    await tester.pump();
+    expect(textOf(tester, const Key('settings-conn-saved')), '语音识别已保存');
+  });
+
+  testWidgets('a refused adoption keeps the save and flags the engine kept the old providers', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore()..failNextApply = 'no adapter yet';
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+
+    // The file is saved and its note painted; the refusal is visible
+    // without masquerading as a save failure — the previous providers
+    // keep running (ADR-0010's failure-keeps-old).
+    expect(store.asrSaves, hasLength(1));
+    // The error row sits above the saved note; scroll to it and the
+    // note rides along into the viewport.
+    await scrollPaneTo(tester, const Key('settings-conn-error'));
+    await tester.pump();
+    expect(textOf(tester, const Key('settings-conn-saved')), '语音识别已保存');
+    expect(
+      textOf(tester, const Key('settings-conn-error')),
+      contains('已保存,但引擎沿用上一配置'),
+    );
+    expect(
+      textOf(tester, const Key('settings-conn-error')),
+      contains('no adapter yet'),
     );
   });
 
