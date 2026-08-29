@@ -118,6 +118,25 @@ class _QuickPanelState extends State<QuickPanel> {
                         0,
                       ),
                       children: [
+                        // A pending error at rest: the panel is the wide
+                        // surface the orb's tooltip cannot be (the orb
+                        // window is 96 px); the full message wraps here,
+                        // gateway body included.
+                        if (c.lastError != null) ...[
+                          Container(
+                            key: const Key('quick-error'),
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: pal.liveSoft.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              c.lastError!,
+                              style: SrType.micro.copyWith(color: pal.live),
+                            ),
+                          ),
+                        ],
                         // The scenario section stays with an empty library:
                         // the picker row hides (a lone 默认 chip has nothing
                         // to pick between) but the editor entry remains the

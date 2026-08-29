@@ -184,6 +184,30 @@ void main() {
     expect(find.byKey(const Key('orb-error-badge')), findsNothing);
   });
 
+  testWidgets('the quick panel carries the pending error in full', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    // A startup refusal (or a failed session) parks a long message —
+    // the orb tooltip clips it to the 96 px window; the panel wraps it.
+    controller.reportStartupError(
+      '初始化失败:ASR handshake rejected: HTTP 400: '
+      '{"error":"resourceId volc.seedasr.sauc.duration is not allowed"}',
+    );
+    await tester.pump();
+    controller.orbSecondary();
+    await tester.pump();
+
+    final row = find.byKey(const Key('quick-error'));
+    expect(row, findsOneWidget);
+    expect(
+      find.descendant(of: row, matching: find.textContaining('not allowed')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('live transcript streams into the session text area', (
     tester,
   ) async {
