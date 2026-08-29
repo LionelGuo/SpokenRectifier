@@ -222,7 +222,12 @@ class _SummaryCard extends StatelessWidget {
         ? (delta < 0.05 ? '与基线持平' : '超出基线 ${delta.toStringAsFixed(1)} 个百分点')
         : '落后基线 ${(-delta).toStringAsFixed(1)} 个百分点';
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      // Completed state fills the pane width: with `start`, cards that
+      // hold only text (the failed cases) shrink-wrapped their content
+      // while the summary card stretched merely by accident (its Row
+      // owns a Spacer). Stretch makes every card full-width by rule —
+      // the history domain's entry-row look (ticket 21).
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SrCard(
           child: Column(
@@ -288,7 +293,11 @@ class _SummaryCard extends StatelessWidget {
           Text('失败明细', style: SrType.caption.copyWith(color: pal.textTertiary)),
           const SizedBox(height: 8),
           for (final failed in summary.failedCases)
-            _FailedCaseCard(failed: failed),
+            Padding(
+              // Row gap outside the card, like the history rows.
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _FailedCaseCard(failed: failed),
+            ),
         ] else ...[
           const SizedBox(height: 12),
           Text(
@@ -338,6 +347,7 @@ class _FailedCaseCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrCard(
+      key: Key('settings-eval-failed:${failed.id}'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

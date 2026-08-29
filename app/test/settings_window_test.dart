@@ -24,8 +24,11 @@ import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette;
 import 'package:spokenrectifier_app/src/settings/settings_connection_pane.dart'
     show SettingsConnectionPane;
+import 'package:spokenrectifier_app/src/settings/settings_fidelity_pane.dart'
+    show SettingsFidelityPane;
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show
+        BridgeEvalCaseDetail,
         BridgeEvalCategory,
         BridgeEvalEvent,
         BridgeEvalSummary,
@@ -542,6 +545,42 @@ const _evalSummary = BridgeEvalSummary(
   failedCases: [],
 );
 
+/// A finished summary whose failed cases mix shapes — a short verdict, a
+/// long one, and an execution failure — in wire order that is
+/// deliberately not alphabetical: the pane must paint suite order (the
+/// wire order), never re-sort by id or category (ticket 21).
+const _evalSummaryWithFailures = BridgeEvalSummary(
+  total: 23,
+  passed: 20,
+  failed: 3,
+  execFailed: 1,
+  ratePercent: 87.0,
+  baselinePercent: 87.0,
+  model: 'deepseek-v4-flash',
+  categories: [
+    BridgeEvalCategory(label: '捏造', count: 0),
+    BridgeEvalCategory(label: '丢失', count: 1),
+    BridgeEvalCategory(label: '残留', count: 1),
+  ],
+  failedCases: [
+    BridgeEvalCaseDetail(
+      id: 'manner-07',
+      failures: ['[残留] 输出仍含口头填充词'],
+    ),
+    BridgeEvalCaseDetail(
+      id: 'correction-02',
+      failures: [
+        '[丢失] 术语「等宽有序的失败明细卡片列」未逐字保留,机器判定文本写得足够长,恰好用来证明卡片的宽不由内容决定',
+      ],
+    ),
+    BridgeEvalCaseDetail(
+      id: 'term-keep-15',
+      error: '引擎返回 429:rate limited',
+      failures: [],
+    ),
+  ],
+);
+
 Future<void> pumpSettings(
   WidgetTester tester, {
   FakeScenarioStore? store,
@@ -758,6 +797,96 @@ void main() {
       find.text('通过 20 / 23 · 执行失败 1 · 基线 87.0% · deepseek-v4-flash'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('failed-case cards are uniform, full-width, in suite order', (
+    tester,
+  ) async {
+    // One tall surface so the lazy ListView builds every card at once —
+    // off-screen rows have no elements to measure.
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final runner = FakeFidelityEvalRunner();
+    await pumpSettings(
+      tester,
+      evalRunner: runner,
+      domain: SettingsDomain.fidelity,
+    );
+    await tester.tap(find.text('开始评测'));
+    await tester.pump();
+    runner.emit(const BridgeEvalEvent.finished(summary: _evalSummaryWithFailures));
+    await tester.pump();
+
+    // Every card fills the pane width minus the ListView's own padding
+    // (2 × EdgeInsets.all(24)), whatever its text length — so left and
+    // right edges align across the column, the history domain's
+    // entry-row look.
+    const panePadding = 24 * 2;
+    final paneWidth =
+        tester.getSize(find.byType(SettingsFidelityPane)).width - panePadding;
+    const ids = ['manner-07', 'correction-02', 'term-keep-15'];
+    final firstLeft =
+        tester.getTopLeft(find.byKey(Key('settings-eval-failed:${ids.first}'))).dx;
+    final tops = <double>[];
+    for (final id in ids) {
+      final card = find.byKey(Key('settings-eval-failed:$id'));
+      expect(
+        tester.getSize(card).width,
+        moreOrLessEquals(paneWidth, epsilon: 0.5),
+        reason: 'card $id must fill the pane width',
+      );
+      final topLeft = tester.getTopLeft(card);
+      expect(topLeft.dx, moreOrLessEquals(firstLeft, epsilon: 0.5),
+          reason: 'card $id must share the column left edge');
+      tops.add(topLeft.dy);
+    }
+    // Suite order — the wire order of the fixture, which is deliberately
+    // non-alphabetical; painting must not re-sort.
+    for (var i = 1; i < ids.length; i++) {
+      expect(tops[i], greaterThan(tops[i - 1]),
+          reason: '${ids[i]} must paint below ${ids[i - 1]}');
+    }
+
+    // The execution failure keeps carrying the engine's own message.
+    expect(find.text('[执行失败] 引擎返回 429:rate limited'), findsOneWidget);
+  });
+
+  testWidgets('an all-pass summary keeps the empty state, no detail cards', (
+    tester,
+  ) async {
+    const allPassed = BridgeEvalSummary(
+      total: 23,
+      passed: 23,
+      failed: 0,
+      execFailed: 0,
+      ratePercent: 100.0,
+      baselinePercent: 87.0,
+      model: 'deepseek-v4-flash',
+      categories: [
+        BridgeEvalCategory(label: '捏造', count: 0),
+        BridgeEvalCategory(label: '丢失', count: 0),
+        BridgeEvalCategory(label: '残留', count: 0),
+      ],
+      failedCases: [],
+    );
+    final runner = FakeFidelityEvalRunner();
+    await pumpSettings(
+      tester,
+      evalRunner: runner,
+      domain: SettingsDomain.fidelity,
+    );
+    await tester.tap(find.text('开始评测'));
+    await tester.pump();
+    runner.emit(const BridgeEvalEvent.finished(summary: allPassed));
+    await tester.pump();
+
+    expect(find.text('100.0%'), findsOneWidget);
+    expect(find.byKey(const Key('settings-eval-category:捏造')), findsOneWidget);
+    expect(find.text('全部用例通过,无失败明细。'), findsOneWidget);
+    expect(find.text('失败明细'), findsNothing);
   });
 
   testWidgets('a failed run paints its message and offers a retry', (
