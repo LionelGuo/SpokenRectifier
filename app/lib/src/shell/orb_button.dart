@@ -25,6 +25,9 @@ import 'session_flow.dart' show StageKind;
 /// glow). Clip.none lets them paint outside the box.
 const _overshoot = 6.0;
 
+/// The resting error pin's diameter (incl. its rim).
+const _badgeSize = 12.0;
+
 class OrbButton extends StatefulWidget {
   const OrbButton({super.key, required this.controller});
 
@@ -126,6 +129,36 @@ class _OrbButtonState extends State<OrbButton> {
                         height: SrGeometry.orbBall + 2 * _overshoot,
                         child: CustomPaint(
                           painter: _LevelRing(pal: pal, level: c.micLevel),
+                        ),
+                      ),
+                    // A pending error while the orb rests: a live-color
+                    // pin on the ball's top-right edge saying only
+                    // "something needs attention"; the tooltip carries
+                    // the message (there is no panel to open — the
+                    // engine never assembled).
+                    if (c.orbErrorPending)
+                      Positioned(
+                        key: const Key('orb-error-badge'),
+                        left:
+                            SrGeometry.orbFootprint.center(Offset.zero).dx +
+                            (SrGeometry.orbBall / 2) *
+                                math.sin(math.pi / 4) -
+                            _badgeSize / 2,
+                        top:
+                            SrGeometry.orbFootprint.center(Offset.zero).dy -
+                            (SrGeometry.orbBall / 2) *
+                                math.sin(math.pi / 4) -
+                            _badgeSize / 2,
+                        width: _badgeSize,
+                        height: _badgeSize,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: pal.live,
+                            // A surface-colored rim separates the pin
+                            // from both the ball and the backdrop.
+                            border: Border.all(color: pal.surface, width: 3),
+                          ),
                         ),
                       ),
                   ],
@@ -282,11 +315,7 @@ final class _OrbLook {
 
   /// The orb rests with a pending error: the tooltip carries it.
   String tooltipFor(SpeechController c) =>
-      c.stage == StageKind.orb &&
-          c.orbFlash == OrbFlash.none &&
-          c.lastError != null
-      ? c.lastError!
-      : tooltip;
+      c.orbErrorPending ? c.lastError! : tooltip;
 
   static _OrbLook of(SpeechController c) {
     switch (c.stage) {

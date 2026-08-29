@@ -155,6 +155,35 @@ void main() {
     await windDown(tester, controller);
   });
 
+  testWidgets('a startup refusal pins the orb and is not masked by a start click', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+
+    // The engine refused to assemble (e.g. tencent with credentials):
+    // the orb rests with the error pending.
+    controller.reportStartupError('初始化失败:ASR provider "tencent"');
+    await tester.pump();
+    expect(controller.orbErrorPending, isTrue);
+    expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
+
+    // A start click against the dead engine stays idle and keeps the
+    // root cause — the generic "engine not created" must not mask it.
+    gateway.failNextStart = StateError('engine not created yet');
+    await tester.tap(find.byIcon(Icons.mic_none_rounded));
+    await tester.pump();
+    expect(controller.stage, StageKind.orb);
+    expect(controller.lastError, '初始化失败:ASR provider "tencent"');
+    expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
+
+    // Without any error the orb rests bare (no idle badge).
+    controller.lastError = null;
+    controller.notifyListeners();
+    await tester.pump();
+    expect(find.byKey(const Key('orb-error-badge')), findsNothing);
+  });
+
   testWidgets('live transcript streams into the session text area', (
     tester,
   ) async {

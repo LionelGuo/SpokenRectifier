@@ -132,6 +132,17 @@ class SpeechController extends ChangeNotifier {
   /// tooltip while idle).
   String? lastError;
 
+  /// The engine refused to assemble at launch (e.g. an ASR provider
+  /// with credentials but no adapter). Sticky for the run: every start
+  /// click then fails against a dead engine, and that generic failure
+  /// must not mask the root cause already in [lastError].
+  bool startupFailed = false;
+
+  /// The idle orb carries a pending error (badge + tooltip): a launch
+  /// refusal or a failed start the user has not yet acted past.
+  bool get orbErrorPending =>
+      stage == StageKind.orb && orbFlash == OrbFlash.none && lastError != null;
+
   /// The scenario library (场景库), loaded once at startup. Empty when the
   /// library file is missing or blank — every picker hides entirely then.
   List<BridgeScenario> scenarios = const [];
@@ -219,6 +230,7 @@ class SpeechController extends ChangeNotifier {
   }
 
   Future<void> startSession() async {
+    final startupError = startupFailed ? lastError : null;
     lastError = null;
     try {
       // Fake speech needs its session armed first; a microphone-mode engine
@@ -230,7 +242,9 @@ class SpeechController extends ChangeNotifier {
       _startScriptedSpeech();
     } catch (e) {
       // e.g. the microphone could not be opened: show it, stay idle.
-      lastError = '无法开始录音:$e';
+      // A launch refusal is the root cause — keep it over the click's
+      // generic "engine not created yet" failure.
+      lastError = startupError ?? '无法开始录音:$e';
     }
     notifyListeners();
   }
@@ -296,6 +310,7 @@ class SpeechController extends ChangeNotifier {
   /// way session errors surface, keeping the shell alive to show it.
   void reportStartupError(String message) {
     lastError = message;
+    startupFailed = true;
     notifyListeners();
   }
 
