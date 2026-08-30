@@ -209,6 +209,7 @@ fn wire__crate__api__asr_endpoint_preview_impl(
             let api_base_url = <Option<String>>::sse_decode(&mut deserializer);
             let api_workspace_id = <Option<String>>::sse_decode(&mut deserializer);
             let api_region = <String>::sse_decode(&mut deserializer);
+            let api_app_id = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -219,6 +220,7 @@ fn wire__crate__api__asr_endpoint_preview_impl(
                             api_base_url,
                             api_workspace_id,
                             api_region,
+                            api_app_id,
                         )?;
                         std::result::Result::Ok(output_ok)
                     })(),

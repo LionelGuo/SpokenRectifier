@@ -10,7 +10,7 @@
 //! message for streams the server times out when nothing arrives, and
 //! how server messages fold back onto the engine's [`AsrEvent`]s. One
 //! pump, every dialect (DashScope JSON, Volcengine's gzip'd frames,
-//! Tencent's text frames in ticket 25).
+//! Tencent's URL-signed mixed frames).
 //!
 //! A lost connection is retried a bounded number of times; frames that
 //! pass the gate while offline are buffered briefly and flushed after
@@ -51,8 +51,10 @@ pub trait WireProtocol: Send + 'static {
     type Message: Send;
 
     /// The session-opening message: whatever configures recognition for
-    /// this connection (the whole initial request).
-    fn opening(&self) -> Self::Message;
+    /// this connection (the whole initial request). `None` where the
+    /// entire configuration rides the connect URL (Tencent's signed
+    /// query) — there is nothing to say on the socket.
+    fn opening(&self) -> Option<Self::Message>;
 
     /// One gate-approved audio frame, ready for the wire.
     fn audio(&self, frame: &[i16]) -> Self::Message;
@@ -128,7 +130,9 @@ where
             .zip(protocol.keepalive().is_some().then_some(()))
             .map(|(every, ())| tokio::time::Instant::now() + every);
 
-        let _ = channel.tx.send(protocol.opening()).await;
+        if let Some(opening) = protocol.opening() {
+            let _ = channel.tx.send(opening).await;
+        }
 
         'session: loop {
             tokio::select! {
@@ -371,7 +375,9 @@ where
         };
         match attempt {
             Ok(channel) => {
-                if channel.tx.send(protocol.opening()).await.is_err() {
+                if let Some(opening) = protocol.opening()
+                    && channel.tx.send(opening).await.is_err()
+                {
                     continue; // died instantly; try again
                 }
                 let mut flushed = true;

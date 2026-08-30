@@ -21,6 +21,7 @@ spokenrectifier-eval = { path = "../../crates/eval" }
 spokenrectifier-history = { path = "../../crates/history" }
 spokenrectifier-insertion = { path = "../../crates/insertion" }
 spokenrectifier-llm = { path = "../../crates/llm" }
+spokenrectifier-tencent = { path = "../../crates/tencent" }
 spokenrectifier-volcengine = { path = "../../crates/volcengine" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time", "rt-multi-thread"] }
 

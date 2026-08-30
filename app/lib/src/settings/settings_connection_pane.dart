@@ -80,7 +80,7 @@ bool _isSomeAsrDefault(String model) =>
 
 /// The providers whose cloud adapter is built: everything else carries
 /// fields in the schema but cannot stream yet.
-const _asrAdapted = {'aliyun', 'volcengine'};
+const _asrAdapted = {'aliyun', 'volcengine', 'tencent'};
 
 /// The providers that read the common Bearer key pair (the others keep
 /// their credentials in their own sub-section).
@@ -153,6 +153,8 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   /// click, never only on save.
   void _refreshAsrEndpoint() {
     final token = ++_asrEndpointToken;
+    final appId =
+        _asrTencentAppId.text.trim().isEmpty ? null : _asrTencentAppId.text;
     widget.store
         .asrEndpoint(
           provider: _asrProvider,
@@ -160,6 +162,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
           baseUrl: _asrBaseUrl.text,
           workspaceId: _asrWorkspace.text,
           region: _asrRegion.text,
+          appId: appId,
         )
         .then((endpoint) {
           if (!mounted || token != _asrEndpointToken) return;
@@ -171,7 +174,8 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   @override
   void initState() {
     super.initState();
-    for (final controller in [_asrModel, _asrBaseUrl, _asrWorkspace, _asrRegion]) {
+    for (final controller in
+        [_asrModel, _asrBaseUrl, _asrWorkspace, _asrRegion, _asrTencentAppId]) {
       controller.addListener(_refreshAsrEndpoint);
     }
     _reload();
@@ -853,9 +857,7 @@ class _AsrCard extends StatelessWidget {
           if (!adapted) ...[
             const SizedBox(height: 6),
             Text(
-              provider == 'tencent'
-                  ? '腾讯云适配器排在后续工单;凭据就绪并重启将无法启用云端识别'
-                  : '该供应商适配器未排期;凭据就绪并重启将无法启用云端识别',
+              '该供应商适配器未排期;凭据就绪并重启将无法启用云端识别',
               key: const Key('settings-conn-asr-unadapted'),
               style: SrType.micro.copyWith(color: pal.textSecondary),
             ),
@@ -995,6 +997,14 @@ class _AsrCard extends StatelessWidget {
             field: tencentSecretKey,
             keyInfo: tencentKeyInfo,
             title: 'SecretKey(签名密钥)',
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '国内站需直连:走境外代理会报 6001,请为 asr.cloud.tencent.com 配置直连例外',
+            key: const Key('settings-conn-asr-tencent-direct'),
+            style: SrType.micro.copyWith(
+              color: srPalette(context).textSecondary,
+            ),
           ),
           const SizedBox(height: 4),
         ];

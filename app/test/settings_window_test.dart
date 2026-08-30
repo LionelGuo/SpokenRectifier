@@ -307,8 +307,13 @@ class FakeConnectionStore implements ConnectionStore {
     String? baseUrl,
     String? workspaceId,
     required String region,
-  }) async =>
-      fakeAsrEndpoint(provider: provider, model: model, baseUrl: baseUrl);
+    String? appId,
+  }) async => fakeAsrEndpoint(
+    provider: provider,
+    model: model,
+    baseUrl: baseUrl,
+    appId: appId,
+  );
 
   @override
   Future<AsrConnection> saveAsr({required AsrEdit edit}) async {
@@ -380,6 +385,7 @@ String? fakeAsrEndpoint({
   required String provider,
   required String model,
   String? baseUrl,
+  String? appId,
 }) {
   String host(String fallback) {
     final text = baseUrl?.trim() ?? '';
@@ -391,6 +397,8 @@ String? fakeAsrEndpoint({
       return '${host('wss://dashscope.aliyuncs.com')}/api-ws/v1/realtime?model=$model';
     case 'volcengine':
       return '${host('wss://openspeech.bytedance.com')}/api/v3/sauc/bigmodel';
+    case 'tencent':
+      return '${host('wss://asr.cloud.tencent.com')}/asr/v2/${appId?.trim() ?? ''}';
     default:
       return null;
   }
@@ -1893,9 +1901,14 @@ void main() {
         fieldText(tester, const Key('settings-conn-asr-model')),
         'my-own-engine',
       );
-      // The unadapted caption names the gap.
+      // Tencent is adapted: no unadapted caption, the sub-section's
+      // own fields, and the direct-connection hint ride instead.
       expect(
         find.byKey(const Key('settings-conn-asr-unadapted')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('settings-conn-asr-tencent-appid')),
         findsOneWidget,
       );
       expect(
@@ -1904,6 +1917,10 @@ void main() {
       );
       expect(
         find.byKey(const Key('settings-conn-asr-tencent-key-key')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('settings-conn-asr-tencent-direct')),
         findsOneWidget,
       );
     },
@@ -1962,6 +1979,111 @@ void main() {
       expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
     },
   );
+
+  testWidgets('a tencent save carries its triple; the direct hint paints', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-providers:tencent')),
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:tencent')));
+    await tester.pump();
+
+    // The chip prefills the engine (the field held aliyun's default).
+    expect(fieldText(tester, const Key('settings-conn-asr-model')), '16k_zh_en');
+    // The sub-section carries the proxy hint (the 6001 trap).
+    expect(
+      find.byKey(const Key('settings-conn-asr-tencent-direct')),
+      findsOneWidget,
+    );
+
+    // Fill the triple; both account credentials are Sets.
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-tencent-appid')),
+      '1250012548',
+    );
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-tencent-id-key')),
+      'AKIDz',
+    );
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-tencent-key-key')),
+      'signing-secret',
+    );
+    await tester.ensureVisible(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
+    await tester.pump();
+
+    final save = store.asrSaves.single;
+    expect(save.provider, 'tencent');
+    expect(save.model, '16k_zh_en');
+    expect(save.tencent.appId, '1250012548');
+    expect(save.tencent.secretId, isA<ApiKeySet>());
+    expect((save.tencent.secretId as ApiKeySet).key, 'AKIDz');
+    expect(save.tencent.secretKey, isA<ApiKeySet>());
+    expect((save.tencent.secretKey as ApiKeySet).key, 'signing-secret');
+    // The Bearer-family key never paints for tencent — it rides as Keep.
+    expect(save.apiKey, isA<ApiKeyKeep>());
+
+    // The re-read view echoes both secrets back, masked.
+    expect(
+      fieldText(tester, const Key('settings-conn-asr-tencent-id-key')),
+      'AKIDz',
+    );
+    expect(
+      fieldText(tester, const Key('settings-conn-asr-tencent-key-key')),
+      'signing-secret',
+    );
+  });
+
+  testWidgets('the tencent endpoint preview follows the typed app id', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-providers:tencent')),
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:tencent')));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-conn-asr-tencent-appid')),
+    );
+    await tester.pump();
+
+    // No app id yet: the path sits open after the v2 prefix.
+    expect(
+      find.textContaining('当前端点:wss://asr.cloud.tencent.com/asr/v2/'),
+      findsOneWidget,
+    );
+
+    // Typing the app id repaints immediately — no save.
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-asr-tencent-appid')),
+      '1250012548',
+    );
+    await tester.pump();
+    expect(
+      find.textContaining(
+        '当前端点:wss://asr.cloud.tencent.com/asr/v2/1250012548',
+      ),
+      findsOneWidget,
+    );
+    expect(store.asrSaves, isEmpty);
+  });
 
   testWidgets('the stored common asr key echoes; an untouched save keeps it', (
     tester,

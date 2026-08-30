@@ -55,8 +55,8 @@ impl VolcengineProtocol {
 impl WireProtocol for VolcengineProtocol {
     type Message = Vec<u8>;
 
-    fn opening(&self) -> Vec<u8> {
-        encode_full_request(&full_request_json(&self.terms))
+    fn opening(&self) -> Option<Vec<u8>> {
+        Some(encode_full_request(&full_request_json(&self.terms)))
     }
 
     fn audio(&self, frame: &[i16]) -> Vec<u8> {
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn the_full_request_pins_the_audio_shape_and_model() {
-        let frame = VolcengineProtocol::new(vec![]).opening();
+        let frame = VolcengineProtocol::new(vec![]).opening().unwrap();
         let (message_type, payload) = crate::frame::client_payload(&frame);
         assert_eq!(message_type, crate::frame::MESSAGE_FULL_CLIENT_REQUEST);
         let request: serde_json::Value = serde_json::from_slice(&payload).unwrap();
@@ -263,7 +263,7 @@ mod tests {
             .iter()
             .map(|t| t.to_string())
             .collect();
-        let frame = VolcengineProtocol::new(terms).opening();
+        let frame = VolcengineProtocol::new(terms).opening().unwrap();
         let (_, payload) = crate::frame::client_payload(&frame);
         let request: serde_json::Value = serde_json::from_slice(&payload).unwrap();
         assert_eq!(
@@ -274,7 +274,7 @@ mod tests {
         // A dictionary past the budget admits whole terms until it runs
         // out — never a partial term, never the tail.
         let many: Vec<String> = (0..30).map(|i| format!("术语编号{i}")).collect();
-        let frame = VolcengineProtocol::new(many).opening();
+        let frame = VolcengineProtocol::new(many).opening().unwrap();
         let (_, payload) = crate::frame::client_payload(&frame);
         let request: serde_json::Value = serde_json::from_slice(&payload).unwrap();
         let hotwords = request["request"]["corpus"]["context"]["hotwords"]
@@ -288,7 +288,7 @@ mod tests {
         assert!(hotwords.len() >= 12, "over-truncated: {hotwords:?}");
         // Blank terms never ride.
         let blank: Vec<String> = ["", "  "].iter().map(|t| t.to_string()).collect();
-        let frame = VolcengineProtocol::new(blank).opening();
+        let frame = VolcengineProtocol::new(blank).opening().unwrap();
         let (_, payload) = crate::frame::client_payload(&frame);
         let request: serde_json::Value = serde_json::from_slice(&payload).unwrap();
         assert!(request["request"].get("corpus").is_none());

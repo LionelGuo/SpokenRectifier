@@ -1,0 +1,23 @@
+[package]
+name = "spokenrectifier-tencent"
+description = "Tencent Cloud realtime ASR adapter: the URL-signed mixed-frame WebSocket dialect over the shared cloud ASR session machinery."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+base64 = "0.22"
+futures.workspace = true
+hmac = "0.12"
+serde_json = "1"
+sha1 = "0.10"
+spokenrectifier-asr = { path = "../asr" }
+spokenrectifier-audio = { path = "../audio" }
+spokenrectifier-engine = { path = "../engine" }
+tokio.workspace = true
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }

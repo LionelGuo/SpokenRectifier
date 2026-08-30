@@ -28,7 +28,7 @@ use crate::frb_generated::StreamSink;
 
 use spokenrectifier_asr::schema::{
     load_asr_config, save_asr_connection, AliyunConfig, AliyunEdit, AsrConfig, AsrConnectionEdit,
-    AsrProviderKind, AzureEdit, TencentEdit, VolcengineEdit,
+    AsrProviderKind, AzureEdit, TencentConfig, TencentEdit, VolcengineEdit,
 };
 use spokenrectifier_engine::fakes::{
     AsrFeed, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedLlm,
@@ -763,7 +763,8 @@ pub struct BridgeAsrVolcengine {
     pub access_key: BridgeKeyStatus,
 }
 
-/// `[asr.tencent]` for the pane (adapter: ticket 25).
+/// `[asr.tencent]` for the pane; both account credentials echo per
+/// the diff-echo key block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BridgeAsrTencent {
     pub app_id: Option<String>,
@@ -982,6 +983,7 @@ pub fn asr_endpoint_preview(
     base_url: Option<String>,
     workspace_id: Option<String>,
     region: String,
+    app_id: Option<String>,
 ) -> anyhow::Result<Option<String>> {
     let provider = AsrProviderKind::from_str_name(&provider).ok_or_else(|| {
         anyhow!("[asr] provider \"{provider}\" is unknown: pick one of the known providers")
@@ -994,6 +996,10 @@ pub fn asr_endpoint_preview(
         aliyun: AliyunConfig {
             workspace_id,
             region,
+        },
+        tencent: TencentConfig {
+            app_id,
+            ..TencentConfig::default()
         },
         ..AsrConfig::defaults()
     }
@@ -1422,6 +1428,7 @@ mod tests {
             None,
             None,
             "cn-beijing".into(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -1436,6 +1443,7 @@ mod tests {
             Some("  ".into()),
             None,
             String::new(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -1443,19 +1451,37 @@ mod tests {
             Some("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel")
         );
 
-        // The unadapted providers promise no URL.
+        // Tencent: the app id rides the URL path — with one typed, the
+        // preview is the connect base the adapter signs around; an
+        // absent one leaves the path open.
         let preview = asr_endpoint_preview(
             "tencent".into(),
             "16k_zh_en".into(),
             None,
             None,
             String::new(),
+            Some("1250012548".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            preview.as_deref(),
+            Some("wss://asr.cloud.tencent.com/asr/v2/1250012548")
+        );
+
+        // The unadapted providers promise no URL.
+        let preview = asr_endpoint_preview(
+            "openai".into(),
+            "gpt-4o-transcribe".into(),
+            None,
+            None,
+            String::new(),
+            None,
         )
         .unwrap();
         assert_eq!(preview, None);
 
         assert!(
-            asr_endpoint_preview("wat".into(), String::new(), None, None, String::new())
+            asr_endpoint_preview("wat".into(), String::new(), None, None, String::new(), None)
                 .unwrap_err()
                 .to_string()
                 .contains("provider")

@@ -129,7 +129,7 @@ impl WireProtocol for AliyunProtocol {
     /// instant hotwords exist only on the run-task inference protocol). The
     /// server keeps each corpus text short, truncating from the end silently,
     /// so a very large dictionary biases only its head.
-    fn opening(&self) -> String {
+    fn opening(&self) -> Option<String> {
         let mut transcription = serde_json::json!({ "language": self.language });
         if !self.terms.is_empty() {
             transcription["corpus"] = serde_json::json!({ "text": self.terms.join("、") });
@@ -148,6 +148,7 @@ impl WireProtocol for AliyunProtocol {
             }
         })
         .to_string()
+        .into()
     }
 
     fn audio(&self, frame: &[i16]) -> String {

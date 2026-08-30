@@ -16,6 +16,7 @@ use spokenrectifier_audio::{MicVadAsr, VadConfig};
 use spokenrectifier_engine::provider::asr::AsrProvider;
 use spokenrectifier_engine::RectifyLlm;
 use spokenrectifier_insertion::{load_insertion_config, TargetInserter};
+use spokenrectifier_tencent::TencentAsr;
 use spokenrectifier_volcengine::VolcengineAsr;
 
 /// Which rectify LLM the real engine runs with.
@@ -109,9 +110,9 @@ fn asr_key_resolves(dirs: &[PathBuf]) -> anyhow::Result<bool> {
 /// session semantics without cloud text); any credential configured
 /// means the vendor's adapter must connect or fail loudly — never a
 /// silent mic-only fallback that would read as broken recognition.
-/// Tencent/OpenAI/Azure carry credentials only in the schema for now:
-/// picking one of them with credentials set is an error naming the
-/// missing adapter.
+/// OpenAI/Azure carry credentials only in the schema for now: picking
+/// one of them with credentials set is an error naming the missing
+/// adapter.
 pub fn asr_provider(dirs: &[PathBuf]) -> anyhow::Result<Arc<dyn AsrProvider>> {
     let config = load_asr_config(dirs).map_err(|err| anyhow!("ASR {}", err.0))?;
     if !config.carries_credentials() {
@@ -125,19 +126,16 @@ pub fn asr_provider(dirs: &[PathBuf]) -> anyhow::Result<Arc<dyn AsrProvider>> {
             VolcengineAsr::new(config, VadConfig::default())
                 .map_err(|err| anyhow!("ASR {}", err.0))?,
         )),
-        AsrProviderKind::Tencent | AsrProviderKind::Openai | AsrProviderKind::Azure => {
-            let scheduled = if config.provider == AsrProviderKind::Tencent {
-                " (ticket 25)"
-            } else {
-                ""
-            };
-            Err(anyhow!(
-                "ASR [asr] provider \"{}\": no adapter yet{scheduled}; \
-                 pick aliyun or volcengine, or clear the provider's \
-                 credentials for the mic-only fallback",
-                config.provider.as_str()
-            ))
-        }
+        AsrProviderKind::Tencent => Ok(Arc::new(
+            TencentAsr::new(config, VadConfig::default())
+                .map_err(|err| anyhow!("ASR {}", err.0))?,
+        )),
+        AsrProviderKind::Openai | AsrProviderKind::Azure => Err(anyhow!(
+            "ASR [asr] provider \"{}\": no adapter yet; \
+             pick aliyun, volcengine, or tencent, or clear the provider's \
+             credentials for the mic-only fallback",
+            config.provider.as_str()
+        )),
     }
 }
 
@@ -302,13 +300,44 @@ mod tests {
     }
 
     #[test]
+    fn a_complete_tencent_triple_builds_the_real_adapter() {
+        let with_key = dir("sr-factory-asr-tencent");
+        std::fs::write(
+            with_key.join("spokenrectifier.local.toml"),
+            "[asr]\nprovider = \"tencent\"\nmodel = \"16k_zh_en\"\n\
+             [asr.tencent]\napp_id = \"1250012548\"\nsecret_id = \"id\"\nsecret_key = \"k\"\n",
+        )
+        .unwrap();
+        // Construction is offline: the adapter builds without touching
+        // the network or the microphone (the URL is signed per stream).
+        asr_provider(std::slice::from_ref(&with_key)).unwrap();
+        std::fs::remove_dir_all(with_key).unwrap();
+    }
+
+    #[test]
+    fn a_partial_tencent_triple_is_an_error_not_a_fallback() {
+        let partial = dir("sr-factory-asr-partial-tencent");
+        std::fs::write(
+            partial.join("spokenrectifier.local.toml"),
+            "[asr]\nprovider = \"tencent\"\n\
+             [asr.tencent]\nsecret_key = \"signing\"\n",
+        )
+        .unwrap();
+        let err = match asr_provider(std::slice::from_ref(&partial)) {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("a partial credential set must be an error"),
+        };
+        assert!(err.contains("app_id"), "got: {err}");
+        assert!(err.contains("secret_id"), "got: {err}");
+        assert!(err.contains("secret_key"), "got: {err}");
+        std::fs::remove_dir_all(partial).unwrap();
+    }
+
+    #[test]
     fn a_credentialed_unadapted_provider_is_an_error_naming_the_gap() {
         for (name, body) in [
-            (
-                "tencent",
-                "[asr]\nprovider = \"tencent\"\n[asr.tencent]\nsecret_key = \"s\"\n",
-            ),
             ("openai", "[asr]\nprovider = \"openai\"\napi_key = \"sk\"\n"),
+            ("azure", "[asr]\nprovider = \"azure\"\napi_key = \"sk\"\n"),
         ] {
             let unadapted = dir("sr-factory-asr-unadapted");
             std::fs::write(unadapted.join("spokenrectifier.local.toml"), body).unwrap();
@@ -346,7 +375,7 @@ mod tests {
         let unadapted = dir("sr-factory-rebuild-unadapted");
         std::fs::write(
             unadapted.join("spokenrectifier.local.toml"),
-            "[asr]\nprovider = \"tencent\"\n[asr.tencent]\nsecret_key = \"s\"\n\
+            "[asr]\nprovider = \"openai\"\napi_key = \"sk-asr\"\n\
              [llm]\napi_key = \"sk\"\n",
         )
         .unwrap();
@@ -354,7 +383,7 @@ mod tests {
             Err(err) => err.to_string(),
             Ok(_) => panic!("an unadapted provider must refuse the rebuild"),
         };
-        assert!(err.contains("tencent"), "got: {err}");
+        assert!(err.contains("openai"), "got: {err}");
         assert!(err.contains("no adapter yet"), "got: {err}");
         std::fs::remove_dir_all(unadapted).unwrap();
     }

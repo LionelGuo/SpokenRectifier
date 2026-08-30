@@ -336,6 +336,7 @@ abstract class ConnectionStore {
     String? baseUrl,
     String? workspaceId,
     required String region,
+    String? appId,
   });
 
   /// Write the editor's `[llm]` model; returns the re-read view.
@@ -377,12 +378,14 @@ class RustConnectionStore implements ConnectionStore {
     String? baseUrl,
     String? workspaceId,
     required String region,
+    String? appId,
   }) => rust.asrEndpointPreview(
     provider: provider,
     model: model,
     baseUrl: baseUrl,
     workspaceId: workspaceId,
     region: region,
+    appId: appId,
   );
 
   @override

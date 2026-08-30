@@ -93,6 +93,7 @@ abstract class RustLibApi extends BaseApi {
     String? baseUrl,
     String? workspaceId,
     required String region,
+    String? appId,
   });
 
   Future<BridgeConnection> crateApiConnectionConfig();
@@ -298,6 +299,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     String? baseUrl,
     String? workspaceId,
     required String region,
+    String? appId,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -308,6 +310,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_opt_String(baseUrl, serializer);
           sse_encode_opt_String(workspaceId, serializer);
           sse_encode_String(region, serializer);
+          sse_encode_opt_String(appId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -320,7 +323,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiAsrEndpointPreviewConstMeta,
-        argValues: [provider, model, baseUrl, workspaceId, region],
+        argValues: [provider, model, baseUrl, workspaceId, region, appId],
         apiImpl: this,
       ),
     );
@@ -328,7 +331,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiAsrEndpointPreviewConstMeta => const TaskConstMeta(
     debugName: "asr_endpoint_preview",
-    argNames: ["provider", "model", "baseUrl", "workspaceId", "region"],
+    argNames: [
+      "provider",
+      "model",
+      "baseUrl",
+      "workspaceId",
+      "region",
+      "appId",
+    ],
   );
 
   @override

@@ -170,12 +170,14 @@ Future<String?> asrEndpointPreview({
   String? baseUrl,
   String? workspaceId,
   required String region,
+  String? appId,
 }) => RustLib.instance.api.crateApiAsrEndpointPreview(
   provider: provider,
   model: model,
   baseUrl: baseUrl,
   workspaceId: workspaceId,
   region: region,
+  appId: appId,
 );
 
 /// Write the editor's `[llm]` model back into the layer files (see
@@ -544,7 +546,8 @@ class BridgeAsrEdit {
           azure == other.azure;
 }
 
-/// `[asr.tencent]` for the pane (adapter: ticket 25).
+/// `[asr.tencent]` for the pane; both account credentials echo per
+/// the diff-echo key block.
 class BridgeAsrTencent {
   final String? appId;
   final BridgeKeyStatus secretId;

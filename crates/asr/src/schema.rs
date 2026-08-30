@@ -122,7 +122,7 @@ impl VolcengineConfig {
 
 /// `[asr.tencent]`: the realtime stream's account credentials. The
 /// secret key signs every URL (HMAC-SHA1) — the most sensitive value in
-/// the whole schema, local layer only (adapter: ticket 25).
+/// the whole schema, local layer only.
 #[derive(Clone, Default, PartialEq)]
 pub struct TencentConfig {
     /// The account app id (rides the URL path).
@@ -264,11 +264,25 @@ impl AsrConfig {
                     )
                 }
             }
-            AsrProviderKind::Tencent => Err(
-                "[asr] provider \"tencent\": the adapter is not built yet (ticket 25); \
-                 pick aliyun or volcengine"
-                    .into(),
-            ),
+            AsrProviderKind::Tencent => {
+                let missing = [
+                    self.tencent.app_id.as_deref().map(str::trim),
+                    self.tencent.secret_id.as_deref().map(str::trim),
+                    self.tencent.secret_key.as_deref().map(str::trim),
+                ];
+                if missing
+                    .iter()
+                    .all(|field| field.is_some_and(|v| !v.is_empty()))
+                {
+                    Ok(ActiveCredentials::Tencent)
+                } else {
+                    Err(
+                        "[asr.tencent] needs app_id, secret_id, and secret_key together \
+                         (secret_id/secret_key only in spokenrectifier.local.toml)"
+                            .into(),
+                    )
+                }
+            }
         }
     }
 
@@ -327,7 +341,15 @@ impl AsrConfig {
                 let host = host().unwrap_or_else(|| "wss://openspeech.bytedance.com".into());
                 Some(format!("{host}/api/v3/sauc/bigmodel"))
             }
-            AsrProviderKind::Tencent | AsrProviderKind::Openai | AsrProviderKind::Azure => None,
+            // The app id rides the URL path; the query (secretid,
+            // timestamp, nonce, voice id, signature…) is per-connection
+            // and never part of the preview.
+            AsrProviderKind::Tencent => {
+                let host = host().unwrap_or_else(|| "wss://asr.cloud.tencent.com".into());
+                let app_id = self.tencent.app_id.as_deref().map(str::trim).unwrap_or("");
+                Some(format!("{host}/asr/v2/{app_id}"))
+            }
+            AsrProviderKind::Openai | AsrProviderKind::Azure => None,
         }
     }
 }
@@ -339,6 +361,8 @@ pub enum ActiveCredentials {
     CommonKey(String),
     /// The Volcengine sub-section is complete.
     Volcengine,
+    /// The Tencent sub-section is complete.
+    Tencent,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -816,11 +840,28 @@ mod tests {
     }
 
     #[test]
-    fn the_tencent_provider_is_reserved_not_wired() {
+    fn tencent_credentials_demand_the_whole_triple() {
         let mut config = AsrConfig::defaults();
         config.provider = AsrProviderKind::Tencent;
         let err = config.active_credentials().unwrap_err();
-        assert!(err.contains("ticket 25"), "got: {err}");
+        assert!(err.contains("app_id"), "got: {err}");
+        assert!(err.contains("secret_id"), "got: {err}");
+        assert!(err.contains("secret_key"), "got: {err}");
+        assert!(!config.carries_credentials());
+
+        config.tencent.secret_key = Some("signing".into());
+        assert!(
+            config.carries_credentials(),
+            "a partial set still counts as set"
+        );
+        assert!(config.active_credentials().is_err());
+
+        config.tencent.app_id = Some("1250012548".into());
+        config.tencent.secret_id = Some("AKIDz".into());
+        assert_eq!(
+            config.active_credentials().unwrap(),
+            ActiveCredentials::Tencent
+        );
     }
 
     #[test]
@@ -858,6 +899,21 @@ mod tests {
         );
 
         config.provider = AsrProviderKind::Tencent;
+        config.base_url = None;
+        config.tencent.app_id = Some("1250012548".into());
+        assert_eq!(
+            config.endpoint().as_deref(),
+            Some("wss://asr.cloud.tencent.com/asr/v2/1250012548")
+        );
+        config.base_url = Some("wss://proxy.example.com".into());
+        assert_eq!(
+            config.endpoint().as_deref(),
+            Some("wss://proxy.example.com/asr/v2/1250012548")
+        );
+
+        // The never-adapter families still promise no URL.
+        config.provider = AsrProviderKind::Openai;
+        config.base_url = None;
         assert_eq!(config.endpoint(), None);
     }
 

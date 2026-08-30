@@ -103,11 +103,12 @@ impl WireCodec for BytesWire {
 }
 
 /// Production transport: tokio-tungstenite against the vendor's
-/// WebSocket endpoint. Headers are (re)built per attempt, so a
-/// per-connection value (Volcengine's connect id) can vary across
+/// WebSocket endpoint. The URL and the headers are (re)built per
+/// attempt, so a per-connection value (Volcengine's connect id,
+/// Tencent's signed timestamp/nonce/voice id) can vary across
 /// reconnects.
 pub struct TungsteniteConnect<C: WireCodec> {
-    url: String,
+    url: Arc<dyn Fn() -> String + Send + Sync>,
     headers: Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>,
     codec: C,
 }
@@ -121,6 +122,17 @@ impl<C: WireCodec> TungsteniteConnect<C> {
     /// Headers built per connect attempt.
     pub fn with_dynamic_headers(
         url: String,
+        headers: Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>,
+        codec: C,
+    ) -> Self {
+        Self::with_dynamic_url(Arc::new(move || url.clone()), headers, codec)
+    }
+
+    /// URL and headers both rebuilt per connect attempt (Tencent signs a
+    /// fresh timestamp/nonce/voice id into every URL — an attempt may
+    /// never reuse a prior connection's signature).
+    pub fn with_dynamic_url(
+        url: Arc<dyn Fn() -> String + Send + Sync>,
         headers: Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>,
         codec: C,
     ) -> Self {
@@ -139,8 +151,8 @@ impl<C: WireCodec> RealtimeConnect<C::Message> for TungsteniteConnect<C> {
         use tokio_tungstenite::tungstenite::Message;
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-        let mut request = self
-            .url
+        let url = (self.url)();
+        let mut request = url
             .as_str()
             .into_client_request()
             .map_err(|e| ConnectError::Other(format!("bad endpoint URL: {e}")))?;

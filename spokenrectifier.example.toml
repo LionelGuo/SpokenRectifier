@@ -56,7 +56,11 @@ region = "cn-beijing"                      # or "ap-southeast-1" (scoped host on
 resource_id = "volc.seedasr.sauc.duration" # Seed-ASR 2.0 by duration;
 #                                          #  .concurrent is the by-concurrency twin
 
-[asr.tencent]                              # adapter not built yet (ticket 25)
+[asr.tencent]                              # realtime engine 16k_zh_en (zh+en);
+#                                          #  the China endpoint must be reached
+#                                          #  DIRECTLY — via an off-shore proxy
+#                                          #  it answers 6001 (add a direct-route
+#                                          #  exception for asr.cloud.tencent.com)
 # app_id = ""                              # account AppID (URL path)
 # secret_id = ""                           # local file only
 # secret_key = ""                          # signing key — local file only
