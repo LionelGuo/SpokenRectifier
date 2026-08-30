@@ -1003,14 +1003,14 @@ void main() {
     await hoverRowAction(
       tester,
       const Key('settings-history-copy-raw:2'),
-      Icons.copy_rounded,
+      Icons.format_quote_rounded,
     );
     await tester.pump();
     expect(copied, '第二句的原话');
     await hoverRowAction(
       tester,
       const Key('settings-history-copy-rectified:2'),
-      Icons.copy_all_rounded,
+      Icons.copy_rounded,
     );
     await tester.pump();
     expect(copied, '第二句的成文');

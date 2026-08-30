@@ -444,7 +444,10 @@ class _HistoryEntryRow extends StatelessWidget {
                     children: [
                       _EntryAction(
                         key: Key('settings-history-copy-raw:${entry.id}'),
-                        icon: Icons.copy_rounded,
+                        // Quote marks read as 逐字原话 — the copy glyph
+                        // belongs to the rectified text (same icon as the
+                        // quick panel's copy key; 2026-08-30 ruling).
+                        icon: Icons.format_quote_rounded,
                         tooltip: '复制原始转写',
                         onTap: () => Clipboard.setData(
                           ClipboardData(text: entry.rawTranscript),
@@ -453,7 +456,7 @@ class _HistoryEntryRow extends StatelessWidget {
                       const SizedBox(width: 10),
                       _EntryAction(
                         key: Key('settings-history-copy-rectified:${entry.id}'),
-                        icon: Icons.copy_all_rounded,
+                        icon: Icons.copy_rounded,
                         tooltip: '复制修正文本',
                         onTap: () => Clipboard.setData(
                           ClipboardData(text: entry.rectifiedText),
