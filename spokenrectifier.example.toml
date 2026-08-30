@@ -27,8 +27,8 @@ rectify_timeout_ms = 25000                  # hard cap per rectify attempt
 # (ADR-0009). `provider` picks which sub-section is live; switching it
 # never clears another vendor's configuration. With credentials present
 # the app streams real transcripts through that vendor's adapter
-# (aliyun, volcengine); without any it falls back to the mic-only
-# provider (speech state and silence semantics, no text). Tencent /
+# (aliyun, volcengine, tencent); without any it falls back to the
+# mic-only provider (speech state and silence semantics, no text).
 # OpenAI / Azure carry fields but no adapter yet.
 #
 # The ironclad, extended: any api_key, *_key, or secret_id under [asr]

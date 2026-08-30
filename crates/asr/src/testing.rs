@@ -149,3 +149,26 @@ pub async fn collect(mut stream: BoxStream<'static, AsrEvent>) -> Vec<AsrEvent> 
     }
     events
 }
+
+/// Await at least one adapter-sent message matching `pred` (the JSON
+/// dialects parse inside the predicate; the framed ones match on
+/// shape) — the observer-side waiter every adapter's wire tests need.
+pub async fn sent_matching<M>(
+    observe: &Arc<tokio::sync::Mutex<mpsc::Receiver<M>>>,
+    pred: impl Fn(&M) -> bool,
+) -> M {
+    let mut observe = observe.lock().await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while let Ok(Some(message)) = tokio::time::timeout_at(deadline, observe.recv()).await {
+        if pred(&message) {
+            return message;
+        }
+    }
+    panic!("no matching message arrived in time");
+}
+
+/// One frame's little-endian PCM bytes — how every PCM dialect here
+/// puts audio on the wire.
+pub fn pcm_le_bytes(frame: &[i16]) -> Vec<u8> {
+    frame.iter().flat_map(|s| s.to_le_bytes()).collect()
+}

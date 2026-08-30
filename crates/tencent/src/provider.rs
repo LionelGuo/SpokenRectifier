@@ -198,7 +198,8 @@ mod tests {
 
     use spokenrectifier_asr::PAD_MS;
     use spokenrectifier_asr::testing::{
-        PlanEntry, ScriptedConnect, collect, live_conn, paced_source, scripted_source,
+        PlanEntry, ScriptedConnect, collect, live_conn, paced_source, pcm_le_bytes,
+        scripted_source, sent_matching,
     };
     use spokenrectifier_asr::transport::ConnectError;
     use spokenrectifier_audio::MicEvent;
@@ -221,21 +222,6 @@ mod tests {
         )
     }
 
-    /// Await at least one adapter-sent frame matching `pred`.
-    async fn sent_matching(
-        observe: &Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<OutFrame>>>,
-        pred: impl Fn(&OutFrame) -> bool,
-    ) -> OutFrame {
-        let mut observe = observe.lock().await;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-        while let Ok(Some(frame)) = tokio::time::timeout_at(deadline, observe.recv()).await {
-            if pred(&frame) {
-                return frame;
-            }
-        }
-        panic!("no matching frame arrived in time");
-    }
-
     fn is_audio(frame: &OutFrame) -> bool {
         matches!(frame, OutFrame::Audio(_))
     }
@@ -245,10 +231,6 @@ mod tests {
             panic!("expected an audio frame, got {frame:?}");
         };
         bytes.clone()
-    }
-
-    fn frame_bytes(frame: &[i16]) -> Vec<u8> {
-        frame.iter().flat_map(|s| s.to_le_bytes()).collect()
     }
 
     fn server(json: serde_json::Value) -> Result<OutFrame, String> {
@@ -339,9 +321,9 @@ mod tests {
                 payloads.push(audio_bytes(&frame));
             }
         }
-        let mut expected: Vec<Vec<u8>> = tone(0.6, 6).iter().map(|f| frame_bytes(f)).collect();
+        let mut expected: Vec<Vec<u8>> = tone(0.6, 6).iter().map(|f| pcm_le_bytes(f)).collect();
         let pad = PAD_MS as usize / 100;
-        expected.extend(zeros(pad).iter().map(|f| frame_bytes(f)));
+        expected.extend(zeros(pad).iter().map(|f| pcm_le_bytes(f)));
         assert_eq!(payloads, expected, "gate sends speech plus pad only");
     }
 
@@ -484,16 +466,25 @@ mod tests {
 
     #[tokio::test]
     async fn a_lost_connection_reconnects_and_carries_on() {
-        // Speech throughout; the first connection dies mid-stream.
+        // Speech paced past the reconnect: this dialect has no opening
+        // message to observe on the fresh connection — its wire
+        // activity IS audio, so the script must still be speaking when
+        // connection two comes up.
         let mut sends: Vec<MicEvent> = zeros(4).into_iter().map(MicEvent::Frame).collect();
-        sends.extend(tone(0.6, 12).into_iter().map(MicEvent::Frame));
+        sends.extend(tone(0.6, 40).into_iter().map(MicEvent::Frame));
 
         let (entry1, handles1) = live_conn(None);
         let (release_tx, release_rx) = tokio::sync::mpsc::channel(1);
         let (entry2, handles2) = live_conn(Some(release_rx));
         let connect: Arc<ScriptedConnect<OutFrame>> =
             Arc::new(ScriptedConnect::<OutFrame>::new(vec![entry1, entry2]));
-        let provider = provider(connect, sends, true);
+        let provider = TencentAsr::with_parts(
+            Default::default(),
+            paced_source(sends, true, Some(Duration::from_millis(50))),
+            connect,
+            Duration::from_millis(500),
+            None,
+        );
         let stream = provider.open_stream(&[]).await.expect("open");
 
         // Kill the first connection once speech is flowing.
@@ -505,7 +496,7 @@ mod tests {
         release_tx.send(()).await.unwrap();
 
         // The fresh connection carries on: the buffered speech is
-        // flushed (audio arrives) and transcripts flow again.
+        // flushed and the still-flowing script keeps arriving.
         sent_matching(&handles2.observe, is_audio).await;
         handles2
             .feed
