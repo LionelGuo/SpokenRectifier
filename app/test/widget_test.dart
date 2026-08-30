@@ -918,9 +918,12 @@ void main() {
   });
 
   testWidgets(
-    'history rows show the rectified text; copy and re-rectify ride it',
+    'history rows show the rectified text; copy and scenario re-rectify ride it',
     (tester) async {
-      final gateway = FakeGateway();
+      final gateway = FakeGateway()
+        ..scenarioLibrary.add(
+          const BridgeScenario(name: '论文', directive: '学术书面语'),
+        );
       for (var i = 1; i <= 4; i++) {
         gateway.historyEntries.add(
           BridgeHistoryEntry(
@@ -932,6 +935,7 @@ void main() {
         );
       }
       final controller = await pumpController(tester, gateway);
+      await controller.loadScenarios(); // 论文 is on the pickers
       await pumpQuickOpen(tester, controller);
 
       // Three rows of the rectified text (ticket 23: 所见即所复制) — the
@@ -949,7 +953,7 @@ void main() {
       expect(actionsFade(), 1);
       expect(find.byKey(const Key('quick-history-copy:1')), findsOneWidget);
       expect(
-        find.byKey(const Key('quick-history-rerectify:1')),
+        find.byKey(const Key('quick-history-rerectify-scenario:1')),
         findsOneWidget,
       );
 
@@ -970,12 +974,20 @@ void main() {
       await tester.pump();
       expect(copied, '第1句修正');
 
-      // Re-rectify: the session window takes over from the panel, the
-      // utterance re-runs through rectification (the fake streams it to
-      // preview in one step; the engine's path is the same takeover).
-      await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
+      // 指定场景重新修正 opens the same menu the settings window's rows
+      // use (the acceptance ruling: no plain re-rectify here); the pick
+      // runs the utterance under that scenario for this one session,
+      // and the session window takes over from the panel.
+      await tester.tap(
+        find.byKey(const Key('quick-history-rerectify-scenario:1')),
+      );
+      await tester.pumpAndSettle();
+      // The menu item by key: the panel's scenario chip carries the same
+      // name, so a text finder would be ambiguous.
+      await tester.tap(find.byKey(const Key('quick-history-scenario-item:论文')));
       await tester.pump(const Duration(milliseconds: 350));
-      expect(gateway.commands, contains('rectifyText:第1句原话'));
+      expect(gateway.commands, contains('rectifyText:第1句原话@学术书面语'));
+      expect(controller.oneTimeScenario, '论文');
       expect(controller.phase, BridgeSessionState.preview);
       expect(controller.stage, StageKind.session);
       expect(controller.quickOpen, isFalse);
@@ -1006,18 +1018,19 @@ void main() {
     final controller = await pumpController(tester, gateway);
     await controller.loadScenarios(); // 论文 is on the pickers
 
-    // The settings window's third key routes here over the
-    // cross-window channel: the session runs under the scenario for
-    // this one session, the selection never moves (ticket 23).
+    // The 指定场景 key routes here (both surfaces — the quick panel
+    // directly, the settings window over the cross-window channel): the
+    // session runs under the scenario for this one session, the
+    // selection never moves (ticket 23).
     await controller.rerectifyHistory('旧话', scenario: '论文');
     await tester.pump(const Duration(milliseconds: 350));
     expect(gateway.commands, contains('rectifyText:旧话@学术书面语'));
     expect(controller.oneTimeScenario, '论文');
     expect(controller.selectedScenario, isNull);
-    expect(find.text('本次按场景 论文'), findsOneWidget);
-    expect(find.byKey(const Key('scenario-chip')), findsNothing);
+    // The chip paints the standard format with the session's scenario.
+    expect(find.text('场景 · 论文'), findsOneWidget);
 
-    // The session ends: the pin and the chip die with it, and the
+    // The session ends: the pin and the name die with it, and the
     // next plain retrieval runs under the live selection again.
     await controller.cancelSession();
     await tester.pump(const Duration(milliseconds: 1200));
@@ -1042,6 +1055,9 @@ void main() {
     'a failed re-rectify surfaces on the panel instead of vanishing',
     (tester) async {
       final gateway = FakeGateway()
+        ..scenarioLibrary.add(
+          const BridgeScenario(name: '论文', directive: '学术书面语'),
+        )
         ..historyEntries.add(
           BridgeHistoryEntry(
             id: 1,
@@ -1052,10 +1068,15 @@ void main() {
         )
         ..failNextRectifyText = StateError('engine gone');
       final controller = await pumpController(tester, gateway);
+      await controller.loadScenarios();
       await pumpQuickOpen(tester, controller);
 
       await hoverOver(tester, find.text('成文'));
-      await tester.tap(find.byKey(const Key('quick-history-rerectify:1')));
+      await tester.tap(
+        find.byKey(const Key('quick-history-rerectify-scenario:1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quick-history-scenario-item:论文')));
       await tester.pump(const Duration(milliseconds: 350));
 
       expect(controller.lastError, contains('重新修正失败'));

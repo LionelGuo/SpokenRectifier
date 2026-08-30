@@ -1048,14 +1048,23 @@ void main() {
       domain: SettingsDomain.history,
     );
 
-    // The third key stays inert with the reason on its tooltip; the two
-    // copies keep working (their test above covers the path itself).
-    final button = find.byKey(
-      const Key('settings-history-rerectify-scenario:1'),
+    // The third key stays inert with the reason on its tooltip; a tap
+    // opens no menu. The two copies keep working (their test above
+    // covers the path itself).
+    final tooltip = tester.widget<Tooltip>(
+      find.byKey(const Key('settings-history-rerectify-scenario:1')),
     );
-    final popup = tester.widget<PopupMenuButton<String>>(button);
-    expect(popup.enabled, isFalse);
-    expect(popup.tooltip, '场景库为空,无法指定场景');
+    expect(tooltip.message, '场景库为空,无法指定场景');
+    await hoverRowAction(
+      tester,
+      const Key('settings-history-rerectify-scenario:1'),
+      Icons.style_rounded,
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const Key('settings-history-scenario-item:论文')),
+      findsNothing,
+    );
     expect(channel.rerectifies, isEmpty);
   });
 

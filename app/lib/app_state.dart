@@ -154,8 +154,8 @@ class SpeechController extends ChangeNotifier {
   /// The one-time scenario the current re-rectify session runs under
   /// (ticket 23's 指定场景重新修正): set when history retrieval names a
   /// scenario, cleared when that session ends. The session window's chip
-  /// reads it for the 「本次按场景」 feedback; the engine holds the
-  /// actual directive override for the session's lifetime.
+  /// paints it in the standard 场景 · X format while it runs; the engine
+  /// holds the actual directive override for the session's lifetime.
   String? oneTimeScenario;
 
   bool get isRecording => phase == BridgeSessionState.recording;
@@ -494,7 +494,7 @@ class SpeechController extends ChangeNotifier {
   }
 
   /// History retrieval: re-run a past utterance through rectification
-  /// (the panel's 重新修正). The session window takes over from the
+  /// (the 指定场景重新修正 key). The session window takes over from the
   /// panel; reroll, edit, and insert all work as after a recording.
   /// Naming a [scenario] pins it for this session alone (一次性): the
   /// engine keeps its directive through rerolls, the selection stays

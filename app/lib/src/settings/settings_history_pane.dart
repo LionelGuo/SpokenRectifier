@@ -16,6 +16,8 @@ import '../design/controls.dart' show SrButton, SrCard;
 import '../design/hover.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
+import '../shell/history_retrieval.dart'
+    show HistoryRerectify, showScenarioRerectifyMenu;
 import '../shell/quick_panel.dart' show formatHistoryStamp;
 import 'history_store.dart';
 
@@ -23,14 +25,6 @@ import 'history_store.dart';
 /// the presets (hand-edited file) paints as its own chip so the current
 /// value is always selectable.
 const _retentionPresets = [7, 30, 90, 365];
-
-/// History retrieval handed up to the main window: the utterance to
-/// re-run, plus the scenario this one session runs under when the third
-/// key named one (ticket 23).
-typedef HistoryRerectify = Future<void> Function(
-  String rawTranscript, {
-  String? scenario,
-});
 
 class SettingsHistoryPane extends StatefulWidget {
   const SettingsHistoryPane({
@@ -515,11 +509,12 @@ class _EntryAction extends StatelessWidget {
   }
 }
 
-/// The third retrieval key: 指定场景重新修正. A menu anchored on the icon
-/// lists the library's scenarios (the same entries the 场景库 domain
-/// paints); picking one routes the utterance to the main window with
-/// that scenario pinned for the session alone. An empty library leaves
-/// the key disabled with the reason on its tooltip.
+/// The third retrieval key: 指定场景重新修正. The same shell as the two
+/// copy keys — icon size, alignment, spacing, hover tint — so the three
+/// read as one family; the tap opens the shared scenario menu
+/// ([showScenarioRerectifyMenu]), which lists the same entries the
+/// 场景库 domain paints. An empty library leaves the key inert with the
+/// reason on its tooltip.
 class _ScenarioRerectifyAction extends StatelessWidget {
   const _ScenarioRerectifyAction({
     required this.entry,
@@ -531,41 +526,35 @@ class _ScenarioRerectifyAction extends StatelessWidget {
   final List<BridgeScenario> scenarios;
   final HistoryRerectify onRerectify;
 
+  Future<void> _open(BuildContext context) async {
+    final name = await showScenarioRerectifyMenu(
+      context,
+      scenarios: scenarios,
+      itemKeyPrefix: 'settings-history-scenario-item',
+    );
+    if (name == null) return;
+    await onRerectify(entry.rawTranscript, scenario: name);
+  }
+
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     final empty = scenarios.isEmpty;
     return SrHover(
-      builder: (hover) => PopupMenuButton<String>(
+      builder: (hover) => Tooltip(
         key: Key('settings-history-rerectify-scenario:${entry.id}'),
-        enabled: !empty,
-        tooltip: empty ? '场景库为空,无法指定场景' : '指定场景重新修正',
-        icon: Icon(
-          Icons.style_rounded,
-          size: 15,
-          color: empty
-              ? pal.textTertiary.withValues(alpha: 0.5)
-              : (hover ? pal.accentText : pal.textTertiary),
+        message: empty ? '场景库为空,无法指定场景' : '指定场景重新修正',
+        waitDuration: SrMotion.tooltipWait,
+        child: GestureDetector(
+          onTap: empty ? null : () => _open(context),
+          child: Icon(
+            Icons.style_rounded,
+            size: 15,
+            color: empty
+                ? pal.textTertiary.withValues(alpha: 0.5)
+                : (hover ? pal.accentText : pal.textTertiary),
+          ),
         ),
-        color: pal.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(SrRadius.control),
-          side: BorderSide(color: pal.hairline),
-        ),
-        constraints: const BoxConstraints(minWidth: 160),
-        onSelected: (name) => onRerectify(entry.rawTranscript, scenario: name),
-        itemBuilder: (_) => [
-          for (final scenario in scenarios)
-            PopupMenuItem(
-              key: Key('settings-history-scenario-item:${scenario.name}'),
-              value: scenario.name,
-              height: 38,
-              child: Text(
-                scenario.name,
-                style: SrType.caption.copyWith(color: pal.textPrimary),
-              ),
-            ),
-        ],
       ),
     );
   }

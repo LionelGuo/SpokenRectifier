@@ -8,8 +8,9 @@
 /// Sections (spec §4.3): scenario quick-pick chips (the third picker —
 /// chip, tray and here all share [SpeechController.selectScenario]),
 /// quick terms (append/remove against the dictionary file, live for the
-/// next session), recent history (copy the raw transcript / re-rectify
-/// it), passage mode (engine-seamed, applies from the next session on),
+/// next session), recent history (copy the rectified text shown on the
+/// row / re-rectify it under a picked scenario), passage mode
+/// (engine-seamed, applies from the next session on),
 /// and the theme tri-state (writes the app-owned ui.toml — the
 /// read/write loop). The orb-visibility switch lives in the tray only.
 ///
@@ -26,8 +27,10 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../../app_state.dart';
 import '../design/hover.dart';
 import '../design/tokens.dart';
-import '../rust/api.dart' show BridgeHistoryEntry;
+import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
 import '../settings/settings_domain.dart';
+import 'history_retrieval.dart'
+    show HistoryRerectify, showScenarioRerectifyMenu;
 import 'window_stage.dart';
 
 class QuickPanel extends StatefulWidget {
@@ -214,6 +217,7 @@ class _QuickPanelState extends State<QuickPanel> {
                           for (final entry in c.recentHistory)
                             _HistoryRow(
                               entry: entry,
+                              scenarios: c.scenarios,
                               onRerectify: c.rerectifyHistory,
                             ),
                         const SizedBox(height: 8),
@@ -682,10 +686,20 @@ class _TermChip extends StatelessWidget {
 }
 
 class _HistoryRow extends StatelessWidget {
-  const _HistoryRow({required this.entry, required this.onRerectify});
+  const _HistoryRow({
+    required this.entry,
+    required this.scenarios,
+    required this.onRerectify,
+  });
 
   final BridgeHistoryEntry entry;
-  final ValueChanged<String> onRerectify;
+
+  /// The scenario library, for the row's 指定场景重新修正 key — the same
+  /// menu the settings window's history rows open (ticket 23: plain
+  /// re-rectify without a scenario is meaningless, so the key is the
+  /// scenario one outright).
+  final List<BridgeScenario> scenarios;
+  final HistoryRerectify onRerectify;
 
   @override
   Widget build(BuildContext context) {
@@ -741,8 +755,9 @@ class _HistoryRow extends StatelessWidget {
               // fade in/out under the pointer — no layout pop, and the
               // text keeps a constant ellipsis width. Pointer events stay
               // off while faded. Two keys (ticket 23): copy the rectified
-              // text shown above, and the plain re-rectify — the raw
-              // transcript stays a settings-window view.
+              // text shown above, and 指定场景重新修正 — the same menu the
+              // settings window's history rows open; the raw transcript
+              // stays a settings-window view.
               IgnorePointer(
                 ignoring: !hover,
                 child: AnimatedOpacity(
@@ -761,11 +776,13 @@ class _HistoryRow extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 10),
-                      _HistoryAction(
-                        key: Key('quick-history-rerectify:${entry.id}'),
-                        icon: Icons.refresh_rounded,
-                        tooltip: '重新修正',
-                        onTap: () => onRerectify(entry.rawTranscript),
+                      _HistoryScenarioAction(
+                        key: Key(
+                          'quick-history-rerectify-scenario:${entry.id}',
+                        ),
+                        entry: entry,
+                        scenarios: scenarios,
+                        onRerectify: onRerectify,
                       ),
                     ],
                   ),
@@ -805,6 +822,57 @@ class _HistoryAction extends StatelessWidget {
             size: 15,
             hover: hover,
             resting: pal.textTertiary,
+            hovered: pal.accentText,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The row's second key: 指定场景重新修正, opening the same shared
+/// scenario menu the settings window's history rows use (ticket 23).
+/// Same shell as [_HistoryAction]; an empty library leaves the key inert
+/// with the reason on its tooltip.
+class _HistoryScenarioAction extends StatelessWidget {
+  const _HistoryScenarioAction({
+    super.key,
+    required this.entry,
+    required this.scenarios,
+    required this.onRerectify,
+  });
+
+  final BridgeHistoryEntry entry;
+  final List<BridgeScenario> scenarios;
+  final HistoryRerectify onRerectify;
+
+  Future<void> _open(BuildContext context) async {
+    final name = await showScenarioRerectifyMenu(
+      context,
+      scenarios: scenarios,
+      itemKeyPrefix: 'quick-history-scenario-item',
+    );
+    if (name == null) return;
+    await onRerectify(entry.rawTranscript, scenario: name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = srPalette(context);
+    final empty = scenarios.isEmpty;
+    return SrHover(
+      builder: (hover) => Tooltip(
+        message: empty ? '场景库为空,无法指定场景' : '指定场景重新修正',
+        waitDuration: SrMotion.tooltipWait,
+        child: GestureDetector(
+          onTap: empty ? null : () => _open(context),
+          child: _HoverTintIcon(
+            icon: Icons.style_rounded,
+            size: 15,
+            hover: hover && !empty,
+            resting: empty
+                ? pal.textTertiary.withValues(alpha: 0.5)
+                : pal.textTertiary,
             hovered: pal.accentText,
           ),
         ),

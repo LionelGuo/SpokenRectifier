@@ -176,19 +176,14 @@ class _SessionPanelState extends State<SessionPanel> {
             ),
           ],
           const Spacer(),
-          // A one-time scenario session (ticket 23) announces itself on
-          // the chip — the feedback that this run, rerolls included, is
-          // pinned to that scenario while the selection stays untouched.
-          // Otherwise a picker over an empty library has nothing to pick
-          // between: the chip hides until the settings editor fills one
-          // in.
-          if (c.oneTimeScenario case final oneTime?)
+          // A picker over an empty library has nothing to pick between:
+          // the chip hides until the settings editor fills one in. A
+          // one-time scenario session (ticket 23) paints the same shape
+          // with that scenario's name — same format, no special badge.
+          if (c.scenarios.isNotEmpty)
             _ScenarioChip(
-              key: const Key('session-one-time-scenario'),
-              label: '本次按场景 $oneTime',
-            )
-          else if (c.scenarios.isNotEmpty)
-            _ScenarioChip(label: '场景 · ${c.selectedScenario ?? '默认'}'),
+              label: '场景 · ${c.oneTimeScenario ?? c.selectedScenario ?? '默认'}',
+            ),
         ],
       ),
     );
@@ -513,7 +508,7 @@ class _GhostButtonState extends State<_GhostButton> {
 /// submenu now and the quick panel from ticket 16; the chip shows what
 /// the next rectify (rerolls included) will use.
 class _ScenarioChip extends StatelessWidget {
-  const _ScenarioChip({super.key, required this.label});
+  const _ScenarioChip({required this.label});
 
   final String label;
 
@@ -521,7 +516,7 @@ class _ScenarioChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return Container(
-      key: key ?? const Key('scenario-chip'),
+      key: const Key('scenario-chip'),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: pal.accentSoft,
