@@ -16,7 +16,7 @@ pub mod fakes;
 pub mod provider;
 
 pub use clock::{Clock, TokioClock};
-pub use command::Command;
+pub use command::{Command, SessionStyle};
 pub use config::{EngineConfig, EngineTimings};
 pub use engine::{Engine, EngineDeps, EngineError};
 pub use event::{EngineEvent, EventEnvelope, SessionId, SessionState};

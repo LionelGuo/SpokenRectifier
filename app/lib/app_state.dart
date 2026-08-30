@@ -19,6 +19,8 @@ import 'package:flutter/material.dart' show ThemeMode;
 
 import 'src/design/tokens.dart' show SrMotion;
 import 'src/rust/api.dart';
+import 'src/shell/history_retrieval.dart'
+    show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;
 import 'src/shell/session_flow.dart';
 import 'ui_prefs.dart';
 
@@ -30,7 +32,10 @@ abstract class SpeechEngineGateway {
   Future<void> confirmInsert();
   Future<void> reroll();
   Future<void> updatePreviewText(String text);
-  Future<void> rectifyText(String rawTranscript, {String? styleOverride});
+  Future<void> rectifyText(
+    String rawTranscript, {
+    required BridgeSessionStyle style,
+  });
   Future<List<BridgeScenario>> scenarios();
   Future<void> setStyleDirective(String? directive);
   Future<String?> globalDirective();
@@ -153,12 +158,12 @@ class SpeechController extends ChangeNotifier {
   /// Never persisted: every launch starts on the default (ADR-0004).
   String? selectedScenario;
 
-  /// The one-time scenario the current re-rectify session runs under
-  /// (ticket 23's 指定场景重新修正): set when history retrieval names a
-  /// scenario, cleared when that session ends. The session window's chip
-  /// paints it in the standard 场景 · X format while it runs; the engine
-  /// holds the actual directive override for the session's lifetime.
-  String? oneTimeScenario;
+  /// The one-time style pick the current re-rectify session runs under
+  /// (ticket 23's 指定场景重新修正, ticket 28's 默认): the menu pick the
+  /// session opened with, cleared when that session ends. The session
+  /// window's chip paints it in the standard 场景 · X format while it
+  /// runs; the engine holds the actual pin for the session's lifetime.
+  ScenarioPick? oneTimeStyle;
 
   /// The global directive (全局指令, ticket 22) as the file reads it:
   /// null = unset. The quick panel's preview card paints it; the engine
@@ -547,22 +552,36 @@ class SpeechController extends ChangeNotifier {
   /// History retrieval: re-run a past utterance through rectification
   /// (the 指定场景重新修正 key). The session window takes over from the
   /// panel; reroll, edit, and insert all work as after a recording.
-  /// Naming a [scenario] pins it for this session alone (一次性): the
-  /// engine keeps its directive through rerolls, the selection stays
-  /// untouched, and [oneTimeScenario] feeds the session chip until the
-  /// session ends. A name that no longer resolves (the library changed
-  /// between the two windows) reads as no scenario — the session runs
-  /// under the live selection.
+  /// [style] pins this session's style pick (一次性): the engine keeps
+  /// it through rerolls, the selection stays untouched, and
+  /// [oneTimeStyle] feeds the session chip until the session ends. The
+  /// built-in 默认 pick always resolves — the session runs under the
+  /// default register whatever is selected; a named pick whose entry no
+  /// longer resolves (the library changed between the two windows)
+  /// reads as no pin — the session runs under the live selection.
   Future<void> rerectifyHistory(
     String rawTranscript, {
-    String? scenario,
+    required ScenarioPick style,
   }) async {
-    final directive = scenario == null ? null : _directiveOf(scenario);
-    oneTimeScenario = directive == null ? null : scenario;
+    final BridgeSessionStyle bridgeStyle;
+    ScenarioPick? chipPick = style;
+    switch (style) {
+      case DefaultRegisterPick():
+        bridgeStyle = BridgeSessionStyle.defaultRegister();
+      case NamedScenarioPick(:final name):
+        final directive = _directiveOf(name);
+        if (directive == null) {
+          bridgeStyle = BridgeSessionStyle.live();
+        } else {
+          bridgeStyle = BridgeSessionStyle.directive(text: directive);
+        }
+        chipPick = directive == null ? null : NamedScenarioPick(name);
+    }
+    oneTimeStyle = chipPick;
     try {
-      await gateway.rectifyText(rawTranscript, styleOverride: directive);
+      await gateway.rectifyText(rawTranscript, style: bridgeStyle);
     } catch (e) {
-      oneTimeScenario = null;
+      oneTimeStyle = null;
       lastError = '重新修正失败:$e';
       notifyListeners();
     }
@@ -704,12 +723,12 @@ class SpeechController extends ChangeNotifier {
         }
         if (to == BridgeSessionState.inserted) _flash(OrbFlash.inserted);
         if (to == BridgeSessionState.cancelled) _flash(OrbFlash.cancelled);
-        // The one-time scenario dies with its session (inserted and
+        // The one-time style pick dies with its session (inserted and
         // cancelled are the transient terminals every session passes
         // through): the next rectify runs under the live selection.
         if (to == BridgeSessionState.inserted ||
             to == BridgeSessionState.cancelled) {
-          oneTimeScenario = null;
+          oneTimeStyle = null;
         }
         if (to != BridgeSessionState.preview) {
           // [previewText] lives only mid-flight: entering rectifying starts

@@ -35,7 +35,7 @@ use spokenrectifier_engine::fakes::{
 };
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, RectifyLlm,
-    SessionState, TokioClock,
+    SessionState, SessionStyle, TokioClock,
 };
 use spokenrectifier_history::HistoryStore;
 
@@ -81,13 +81,23 @@ pub enum BridgeCommand {
         rectify_timeout_ms: u64,
     },
     /// History retrieval re-running a past utterance (see `RectifyText`).
-    /// `style_override` optionally pins a one-time scenario directive for
-    /// that session alone (ticket 23); `None` runs under the live
-    /// selection.
+    /// `style` pins the session's one-time style pick (ticket 23's named
+    /// scenarios, ticket 28's 默认); `Live` runs under the live selection.
     RectifyText {
         raw_transcript: String,
-        style_override: Option<String>,
+        style: BridgeSessionStyle,
     },
+}
+
+/// Dart-side mirror of [`SessionStyle`]: how a re-rectify session picks
+/// its style — follow the live selection, pin a scenario's directive
+/// text, or pin the built-in default register (指定场景重新修正's 默认
+/// item, ticket 28).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BridgeSessionStyle {
+    Live,
+    Directive { text: String },
+    DefaultRegister,
 }
 
 /// Dart-side mirror of one scenario (场景): a user-named style directive
@@ -201,11 +211,21 @@ impl From<BridgeCommand> for Command {
             }),
             BridgeCommand::RectifyText {
                 raw_transcript,
-                style_override,
+                style,
             } => Command::RectifyText {
                 raw_transcript,
-                style_override,
+                style: style.into(),
             },
+        }
+    }
+}
+
+impl From<BridgeSessionStyle> for SessionStyle {
+    fn from(value: BridgeSessionStyle) -> Self {
+        match value {
+            BridgeSessionStyle::Live => SessionStyle::Live,
+            BridgeSessionStyle::Directive { text } => SessionStyle::Directive(text),
+            BridgeSessionStyle::DefaultRegister => SessionStyle::DefaultRegister,
         }
     }
 }
@@ -1687,7 +1707,7 @@ mod tests {
 
         execute(BridgeCommand::RectifyText {
             raw_transcript: "历史上的原话".into(),
-            style_override: None,
+            style: BridgeSessionStyle::Live,
         })
         .unwrap();
         block_on(wait_state(&mut rx, SessionState::Preview));

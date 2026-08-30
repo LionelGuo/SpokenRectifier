@@ -150,14 +150,17 @@ class FakeGateway implements SpeechEngineGateway {
   @override
   Future<void> rectifyText(
     String rawTranscript, {
-    String? styleOverride,
+    required BridgeSessionStyle style,
   }) async {
-    // A one-time scenario decorates the recorded command with its
-    // directive, so tests can tell the two retrieval kinds apart.
-    commands.add(
-      'rectifyText:$rawTranscript'
-      '${styleOverride == null ? '' : '@$styleOverride'}',
-    );
+    // The one-time pin decorates the recorded command, so tests can
+    // tell the retrieval kinds apart (named directive / explicit 默认 /
+    // following the live selection).
+    final pin = switch (style) {
+      BridgeSessionStyle_Live() => '',
+      BridgeSessionStyle_Directive(:final text) => '@$text',
+      BridgeSessionStyle_DefaultRegister() => '@默认',
+    };
+    commands.add('rectifyText:$rawTranscript$pin');
     if (failNextRectifyText != null) {
       final failure = failNextRectifyText;
       failNextRectifyText = null;

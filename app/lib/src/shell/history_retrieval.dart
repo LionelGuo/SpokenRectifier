@@ -3,7 +3,7 @@
 /// history rows and the quick panel's secondary rows — so the two list
 /// the same library, in the same styling, with the same one-time
 /// semantics. Also home of the retrieval callback type both rows hand
-/// up to the controller.
+/// up to the controller, and of the pick type the menu returns.
 
 library;
 
@@ -12,20 +12,54 @@ import 'package:flutter/material.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeScenario;
 
+/// What the 指定场景重新修正 menu returned: the built-in 默认 item
+/// (ticket 28) or a named library scenario. Sealed, and not a plain
+/// string, so a scenario literally named 默认 stays a distinct pick
+/// from the built-in item.
+sealed class ScenarioPick {
+  const ScenarioPick();
+}
+
+/// The built-in 默认 item: this one session runs under the default
+/// register, ignoring the live selection.
+class DefaultRegisterPick extends ScenarioPick {
+  const DefaultRegisterPick();
+
+  @override
+  bool operator ==(Object other) => other is DefaultRegisterPick;
+
+  @override
+  int get hashCode => 0;
+}
+
+/// A named library scenario; the controller resolves it to its
+/// directive text.
+class NamedScenarioPick extends ScenarioPick {
+  const NamedScenarioPick(this.name);
+
+  final String name;
+
+  @override
+  bool operator ==(Object other) =>
+      other is NamedScenarioPick && other.name == name;
+
+  @override
+  int get hashCode => Object.hash(NamedScenarioPick, name);
+}
+
 /// History retrieval handed up to the main window: the utterance to
-/// re-run, plus the scenario this one session runs under when the
-/// 指定场景 key named one.
+/// re-run, plus the style pick this one session runs under.
 typedef HistoryRerectify = Future<void> Function(
   String rawTranscript, {
-  String? scenario,
+  required ScenarioPick style,
 });
 
 /// Open the scenario picker anchored at the calling button's box (the
-/// same anchoring PopupMenuButton uses). Returns the picked scenario's
-/// name, or null when the menu was dismissed. Callers hand the name to
-/// [HistoryRerectify]; the controller resolves the directive and pins
-/// the session.
-Future<String?> showScenarioRerectifyMenu(
+/// same anchoring PopupMenuButton uses). Returns the pick — the
+/// built-in 默认 item or a scenario's name — or null when the menu was
+/// dismissed. Callers hand the pick to [HistoryRerectify]; the
+/// controller resolves the directive and pins the session.
+Future<ScenarioPick?> showScenarioRerectifyMenu(
   BuildContext context, {
   required List<BridgeScenario> scenarios,
   String itemKeyPrefix = 'scenario-item',
@@ -34,7 +68,7 @@ Future<String?> showScenarioRerectifyMenu(
   final button = context.findRenderObject()! as RenderBox;
   final overlay =
       Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
-  return showMenu<String>(
+  return showMenu<ScenarioPick>(
     context: context,
     position: RelativeRect.fromRect(
       Rect.fromPoints(
@@ -53,10 +87,24 @@ Future<String?> showScenarioRerectifyMenu(
     ),
     constraints: const BoxConstraints(minWidth: 160),
     items: [
+      // 默认 first, mirroring the tray submenu's shape (ticket 28):
+      // this one session runs under the default register even with a
+      // scenario selected — and over an empty library it is the only
+      // item, keeping retrieval alive. The reserved key format can
+      // never collide with a scenario item's, the tray's trick.
+      PopupMenuItem(
+        key: Key('$itemKeyPrefix-builtin-default'),
+        value: const DefaultRegisterPick(),
+        height: 38,
+        child: Text(
+          '默认',
+          style: SrType.caption.copyWith(color: pal.textPrimary),
+        ),
+      ),
       for (final scenario in scenarios)
         PopupMenuItem(
           key: Key('$itemKeyPrefix:${scenario.name}'),
-          value: scenario.name,
+          value: NamedScenarioPick(scenario.name),
           height: 38,
           child: Text(
             scenario.name,

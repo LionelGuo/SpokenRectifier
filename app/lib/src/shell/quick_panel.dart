@@ -770,9 +770,9 @@ class _HistoryRow extends StatelessWidget {
   final BridgeHistoryEntry entry;
 
   /// The scenario library, for the row's 指定场景重新修正 key — the same
-  /// menu the settings window's history rows open (ticket 23: plain
-  /// re-rectify without a scenario is meaningless, so the key is the
-  /// scenario one outright).
+  /// menu the settings window's history rows open (ticket 23; ticket 28
+  /// adds the built-in 默认 item, so the key doubles as plain
+  /// re-rectify and stays usable over an empty library).
   final List<BridgeScenario> scenarios;
   final HistoryRerectify onRerectify;
 
@@ -906,9 +906,9 @@ class _HistoryAction extends StatelessWidget {
 }
 
 /// The row's second key: 指定场景重新修正, opening the same shared
-/// scenario menu the settings window's history rows use (ticket 23).
-/// Same shell as [_HistoryAction]; an empty library leaves the key inert
-/// with the reason on its tooltip.
+/// scenario menu the settings window's history rows use (ticket 23) —
+/// 默认 plus the library, 默认 alone over an empty library (ticket 28).
+/// Same shell as [_HistoryAction].
 class _HistoryScenarioAction extends StatelessWidget {
   const _HistoryScenarioAction({
     super.key,
@@ -922,33 +922,29 @@ class _HistoryScenarioAction extends StatelessWidget {
   final HistoryRerectify onRerectify;
 
   Future<void> _open(BuildContext context) async {
-    final name = await showScenarioRerectifyMenu(
+    final pick = await showScenarioRerectifyMenu(
       context,
       scenarios: scenarios,
       itemKeyPrefix: 'quick-history-scenario-item',
     );
-    if (name == null) return;
-    await onRerectify(entry.rawTranscript, scenario: name);
+    if (pick == null) return;
+    await onRerectify(entry.rawTranscript, style: pick);
   }
 
   @override
   Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    final empty = scenarios.isEmpty;
     return SrHover(
       builder: (hover) => Tooltip(
-        message: empty ? '场景库为空,无法指定场景' : '指定场景重新修正',
+        message: '指定场景重新修正',
         waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
-          onTap: empty ? null : () => _open(context),
+          onTap: () => _open(context),
           child: _HoverTintIcon(
             icon: Icons.style_rounded,
             size: 15,
-            hover: hover && !empty,
-            resting: empty
-                ? pal.textTertiary.withValues(alpha: 0.5)
-                : pal.textTertiary,
-            hovered: pal.accentText,
+            hover: hover,
+            resting: srPalette(context).textTertiary,
+            hovered: srPalette(context).accentText,
           ),
         ),
       ),

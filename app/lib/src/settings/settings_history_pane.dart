@@ -2,10 +2,11 @@
 /// first), retrieval (复制原始转写 / 复制修正文本 to the clipboard;
 /// 指定场景重新修正 routed to the main window through the cross-window
 /// channel — the same controller path the quick panel's rows take, with
-/// the picked scenario pinned for that one session), the `[history]`
-/// settings (保留期 chips, the 不留存 switch whose enable clears what
-/// exists), and the one-click clear (the same bridge call the tray
-/// makes). File is truth: every mutation re-reads the store.
+/// the picked style, a scenario or the built-in 默认, pinned for that
+/// one session), the `[history]` settings (保留期 chips, the 不留存
+/// switch whose enable clears what exists), and the one-click clear
+/// (the same bridge call the tray makes). File is truth: every
+/// mutation re-reads the store.
 
 library;
 
@@ -515,9 +516,9 @@ class _EntryAction extends StatelessWidget {
 /// The third retrieval key: 指定场景重新修正. The same shell as the two
 /// copy keys — icon size, alignment, spacing, hover tint — so the three
 /// read as one family; the tap opens the shared scenario menu
-/// ([showScenarioRerectifyMenu]), which lists the same entries the
-/// 场景库 domain paints. An empty library leaves the key inert with the
-/// reason on its tooltip.
+/// ([showScenarioRerectifyMenu]), which lists 默认 plus the same entries
+/// the 场景库 domain paints — over an empty library 默认 alone, keeping
+/// retrieval alive (ticket 28).
 class _ScenarioRerectifyAction extends StatelessWidget {
   const _ScenarioRerectifyAction({
     required this.entry,
@@ -530,32 +531,29 @@ class _ScenarioRerectifyAction extends StatelessWidget {
   final HistoryRerectify onRerectify;
 
   Future<void> _open(BuildContext context) async {
-    final name = await showScenarioRerectifyMenu(
+    final pick = await showScenarioRerectifyMenu(
       context,
       scenarios: scenarios,
       itemKeyPrefix: 'settings-history-scenario-item',
     );
-    if (name == null) return;
-    await onRerectify(entry.rawTranscript, scenario: name);
+    if (pick == null) return;
+    await onRerectify(entry.rawTranscript, style: pick);
   }
 
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    final empty = scenarios.isEmpty;
     return SrHover(
       builder: (hover) => Tooltip(
         key: Key('settings-history-rerectify-scenario:${entry.id}'),
-        message: empty ? '场景库为空,无法指定场景' : '指定场景重新修正',
+        message: '指定场景重新修正',
         waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
-          onTap: empty ? null : () => _open(context),
+          onTap: () => _open(context),
           child: Icon(
             Icons.style_rounded,
             size: 15,
-            color: empty
-                ? pal.textTertiary.withValues(alpha: 0.5)
-                : (hover ? pal.accentText : pal.textTertiary),
+            color: hover ? pal.accentText : pal.textTertiary,
           ),
         ),
       ),

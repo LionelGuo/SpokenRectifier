@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use common::{await_live, await_state, harness_with_history, next_matching, ok};
 use spokenrectifier_engine::fakes::{AsrStep, LlmStep};
 use spokenrectifier_engine::provider::history::{RecordedSession, SessionRecorder};
-use spokenrectifier_engine::{Command, EngineConfig, EngineEvent, SessionState};
+use spokenrectifier_engine::{Command, EngineConfig, EngineEvent, SessionState, SessionStyle};
 
 /// Collecting recorder: remembers everything it is handed.
 #[derive(Default)]
@@ -134,7 +134,7 @@ async fn rectify_text_runs_the_full_machine_without_a_microphone() {
         &h.engine,
         Command::RectifyText {
             raw_transcript: "第一段\n不对，第二段".into(),
-            style_override: None,
+            style: SessionStyle::Live,
         },
     )
     .await;
@@ -188,7 +188,7 @@ async fn rectify_text_is_rejected_outside_idle_and_when_empty() {
         .engine
         .execute(Command::RectifyText {
             raw_transcript: "".into(),
-            style_override: None,
+            style: SessionStyle::Live,
         })
         .await
         .unwrap_err();
@@ -200,7 +200,7 @@ async fn rectify_text_is_rejected_outside_idle_and_when_empty() {
         .engine
         .execute(Command::RectifyText {
             raw_transcript: "排队的字".into(),
-            style_override: None,
+            style: SessionStyle::Live,
         })
         .await
         .unwrap_err();

@@ -52,6 +52,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeKeyEdit dco_decode_box_autoadd_bridge_key_edit(dynamic raw);
 
   @protected
+  BridgeSessionStyle dco_decode_box_autoadd_bridge_session_style(dynamic raw);
+
+  @protected
   BridgeAbout dco_decode_bridge_about(dynamic raw);
 
   @protected
@@ -142,6 +145,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeSessionState dco_decode_bridge_session_state(dynamic raw);
 
   @protected
+  BridgeSessionStyle dco_decode_bridge_session_style(dynamic raw);
+
+  @protected
   double dco_decode_f_64(dynamic raw);
 
   @protected
@@ -223,6 +229,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BridgeKeyEdit sse_decode_box_autoadd_bridge_key_edit(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeSessionStyle sse_decode_box_autoadd_bridge_session_style(
     SseDeserializer deserializer,
   );
 
@@ -353,6 +364,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BridgeSessionStyle sse_decode_bridge_session_style(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
@@ -452,6 +468,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_bridge_key_edit(
     BridgeKeyEdit self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_bridge_session_style(
+    BridgeSessionStyle self,
     SseSerializer serializer,
   );
 
@@ -617,6 +639,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_bridge_session_state(
     BridgeSessionState self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_session_style(
+    BridgeSessionStyle self,
     SseSerializer serializer,
   );
 

@@ -20,7 +20,7 @@ use spokenrectifier_engine::fakes::ChannelAsr;
 use spokenrectifier_engine::provider::inserter::{InsertError, TextInserter};
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, RectifyLlm,
-    SessionState, TermSource, TokioClock,
+    SessionState, SessionStyle, TermSource, TokioClock,
 };
 
 use super::cases::EvalSuite;
@@ -79,7 +79,7 @@ async fn rectify_case(
     engine
         .execute(Command::RectifyText {
             raw_transcript: transcript.to_string(),
-            style_override: None,
+            style: SessionStyle::Live,
         })
         .await
         .map_err(|err| format!("command rejected: {err}"))?;

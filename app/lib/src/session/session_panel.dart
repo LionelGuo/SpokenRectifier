@@ -13,6 +13,8 @@ import 'package:flutter/material.dart';
 import '../../app_state.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeSessionState;
+import '../shell/history_retrieval.dart'
+    show DefaultRegisterPick, NamedScenarioPick;
 import '../shell/window_stage.dart';
 
 class SessionPanel extends StatefulWidget {
@@ -153,6 +155,15 @@ class _SessionPanelState extends State<SessionPanel> {
       _ => ('预览', pal.success, false),
     };
     final elapsed = _formatElapsed(c.recordElapsed);
+    // The 场景 chip's label: a one-time pick paints its own name — 默认
+    // included (ticket 28), so an explicit default session never
+    // masquerades as the selection — otherwise the live selection, or
+    // 默认 when nothing is selected.
+    final scenario = switch (c.oneTimeStyle) {
+      NamedScenarioPick(:final name) => name,
+      DefaultRegisterPick() => '默认',
+      null => c.selectedScenario ?? '默认',
+    };
     return Padding(
       // Corner-band row: aligns to the concentric content capsule
       // (SrSpace.cornerInset). Vertical 20 puts the 16px title's visual
@@ -178,12 +189,11 @@ class _SessionPanelState extends State<SessionPanel> {
           const Spacer(),
           // A picker over an empty library has nothing to pick between:
           // the chip hides until the settings editor fills one in. A
-          // one-time scenario session (ticket 23) paints the same shape
-          // with that scenario's name — same format, no special badge.
+          // one-time pick session (ticket 23's scenario, ticket 28's
+          // 默认) paints the same shape with that pick's name — same
+          // format, no special badge.
           if (c.scenarios.isNotEmpty)
-            _ScenarioChip(
-              label: '场景 · ${c.oneTimeScenario ?? c.selectedScenario ?? '默认'}',
-            ),
+            _ScenarioChip(label: '场景 · $scenario'),
         ],
       ),
     );

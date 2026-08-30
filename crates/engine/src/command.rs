@@ -2,6 +2,27 @@
 
 use crate::config::EngineTimings;
 
+/// How one rectify session picks its style directive (the 场景 layer):
+/// follow the live selection, or pin one of the two one-time picks
+/// history retrieval offers (指定场景重新修正's named scenarios and its
+/// built-in 默认 item).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionStyle {
+    /// No pin: every attempt of the session follows the live selection
+    /// ([`Command::SetStyleDirective`]) — mic sessions and plain
+    /// re-rectifies.
+    Live,
+    /// Pinned to a directive text for this session's lifetime: rerolls
+    /// keep it, the session ends with it, and the live selection applies
+    /// again afterwards.
+    Directive(String),
+    /// Pinned to the built-in default register for this session's
+    /// lifetime (指定场景重新修正's 默认 item): the live selection is
+    /// ignored and requests carry no style directive at all —
+    /// byte-for-byte the shape of a session with no scenario.
+    DefaultRegister,
+}
+
 /// A command into the engine. Commands are validated against the session
 /// state machine; illegal commands return
 /// [`EngineError::CommandRejected`](crate::EngineError::CommandRejected)
@@ -13,14 +34,13 @@ pub enum Command {
     /// Rectify a given raw transcript without recording — history
     /// retrieval re-running a past utterance. Jumps straight into the
     /// machine (`Idle → Rectifying`); only valid while idle, and the
-    /// transcript must be non-empty. `style_override` optionally pins a
-    /// one-time style directive for this session alone (ticket 23's
-    /// 指定场景重新修正): rerolls keep it, the session ends with it,
-    /// and the live selection (SetStyleDirective) applies again. `None`
-    /// runs under the live selection as before.
+    /// transcript must be non-empty. `style` optionally pins the
+    /// session's style pick (see [`SessionStyle`]) — rerolls keep it,
+    /// the session ends with it, and the live selection
+    /// (SetStyleDirective) applies again.
     RectifyText {
         raw_transcript: String,
-        style_override: Option<String>,
+        style: SessionStyle,
     },
     /// End the recording session and start rectifying (hotkey press again).
     StopSession,

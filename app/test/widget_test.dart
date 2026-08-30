@@ -18,6 +18,8 @@ import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeHistoryEntry, BridgeScenario, BridgeSessionState;
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
+import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'
+    show DefaultRegisterPick, NamedScenarioPick;
 import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
     show formatHistoryStamp;
 import 'package:spokenrectifier_app/src/shell/session_flow.dart' show StageKind;
@@ -1058,19 +1060,38 @@ void main() {
       expect(copied, '第1句修正');
 
       // 指定场景重新修正 opens the same menu the settings window's rows
-      // use (the acceptance ruling: no plain re-rectify here); the pick
-      // runs the utterance under that scenario for this one session,
-      // and the session window takes over from the panel.
+      // use — 默认 first, then the library (ticket 28); the pick runs
+      // the utterance under that scenario for this one session, and the
+      // session window takes over from the panel.
       await tester.tap(
         find.byKey(const Key('quick-history-rerectify-scenario:1')),
       );
       await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('quick-history-scenario-item-builtin-default')),
+        findsOneWidget,
+      );
+      // 居首: the built-in item paints above the first scenario item.
+      expect(
+        tester
+            .getTopLeft(
+              find.byKey(const Key('quick-history-scenario-item-builtin-default')),
+            )
+            .dy,
+        lessThan(
+          tester
+              .getTopLeft(
+                find.byKey(const Key('quick-history-scenario-item:论文')),
+              )
+              .dy,
+        ),
+      );
       // The menu item by key: the panel's scenario chip carries the same
       // name, so a text finder would be ambiguous.
       await tester.tap(find.byKey(const Key('quick-history-scenario-item:论文')));
       await tester.pump(const Duration(milliseconds: 350));
       expect(gateway.commands, contains('rectifyText:第1句原话@学术书面语'));
-      expect(controller.oneTimeScenario, '论文');
+      expect(controller.oneTimeStyle, const NamedScenarioPick('论文'));
       expect(controller.phase, BridgeSessionState.preview);
       expect(controller.stage, StageKind.session);
       expect(controller.quickOpen, isFalse);
@@ -1105,10 +1126,13 @@ void main() {
     // directly, the settings window over the cross-window channel): the
     // session runs under the scenario for this one session, the
     // selection never moves (ticket 23).
-    await controller.rerectifyHistory('旧话', scenario: '论文');
+    await controller.rerectifyHistory(
+      '旧话',
+      style: const NamedScenarioPick('论文'),
+    );
     await tester.pump(const Duration(milliseconds: 350));
     expect(gateway.commands, contains('rectifyText:旧话@学术书面语'));
-    expect(controller.oneTimeScenario, '论文');
+    expect(controller.oneTimeStyle, const NamedScenarioPick('论文'));
     expect(controller.selectedScenario, isNull);
     // The chip paints the standard format with the session's scenario.
     expect(find.text('场景 · 论文'), findsOneWidget);
@@ -1117,21 +1141,34 @@ void main() {
     // next plain retrieval runs under the live selection again.
     await controller.cancelSession();
     await tester.pump(const Duration(milliseconds: 1200));
-    expect(controller.oneTimeScenario, isNull);
+    expect(controller.oneTimeStyle, isNull);
 
-    await controller.rerectifyHistory('旧话');
+    // The built-in 默认 pick (ticket 28): with a scenario selected, the
+    // session still runs under the default register — the chip paints
+    // 默认 rather than masquerading as the selection, and the selection
+    // itself never moves.
+    await controller.selectScenario('论文');
+    await controller.rerectifyHistory(
+      '旧话',
+      style: const DefaultRegisterPick(),
+    );
     await tester.pump(const Duration(milliseconds: 350));
-    expect(gateway.commands.last, 'rectifyText:旧话');
-    expect(controller.oneTimeScenario, isNull);
+    expect(gateway.commands.last, 'rectifyText:旧话@默认');
+    expect(controller.oneTimeStyle, const DefaultRegisterPick());
+    expect(controller.selectedScenario, '论文');
+    expect(find.text('场景 · 默认'), findsOneWidget);
 
     // A name the library no longer holds reads as no scenario: the
     // retrieval still runs, under the live selection.
     await controller.cancelSession();
     await tester.pump(const Duration(milliseconds: 1200));
-    await controller.rerectifyHistory('旧话', scenario: '已删除的');
+    await controller.rerectifyHistory(
+      '旧话',
+      style: const NamedScenarioPick('已删除的'),
+    );
     await tester.pump(const Duration(milliseconds: 350));
     expect(gateway.commands.last, 'rectifyText:旧话');
-    expect(controller.oneTimeScenario, isNull);
+    expect(controller.oneTimeStyle, isNull);
   });
 
   testWidgets(

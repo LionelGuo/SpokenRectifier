@@ -147,7 +147,7 @@ return rectifyText(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( String? directive)?  setGlobalDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function( String rawTranscript,  String? styleOverride)?  rectifyText,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( String? directive)?  setGlobalDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function( String rawTranscript,  BridgeSessionStyle style)?  rectifyText,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -160,7 +160,7 @@ return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective(
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText() when rectifyText != null:
-return rectifyText(_that.rawTranscript,_that.styleOverride);case _:
+return rectifyText(_that.rawTranscript,_that.style);case _:
   return orElse();
 
 }
@@ -178,7 +178,7 @@ return rectifyText(_that.rawTranscript,_that.styleOverride);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( String? directive)  setGlobalDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function( String rawTranscript,  String? styleOverride)  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( String? directive)  setGlobalDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function( String rawTranscript,  BridgeSessionStyle style)  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
 return startSession();case BridgeCommand_StopSession():
@@ -191,7 +191,7 @@ return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective(
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode():
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings():
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText():
-return rectifyText(_that.rawTranscript,_that.styleOverride);}
+return rectifyText(_that.rawTranscript,_that.style);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -205,7 +205,7 @@ return rectifyText(_that.rawTranscript,_that.styleOverride);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( String? directive)?  setGlobalDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function( String rawTranscript,  String? styleOverride)?  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( String? directive)?  setGlobalDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function( String rawTranscript,  BridgeSessionStyle style)?  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -218,7 +218,7 @@ return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective(
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText() when rectifyText != null:
-return rectifyText(_that.rawTranscript,_that.styleOverride);case _:
+return rectifyText(_that.rawTranscript,_that.style);case _:
   return null;
 
 }
@@ -724,11 +724,11 @@ as BigInt,
 
 
 class BridgeCommand_RectifyText extends BridgeCommand {
-  const BridgeCommand_RectifyText({required this.rawTranscript, this.styleOverride}): super._();
+  const BridgeCommand_RectifyText({required this.rawTranscript, required this.style}): super._();
   
 
  final  String rawTranscript;
- final  String? styleOverride;
+ final  BridgeSessionStyle style;
 
 /// Create a copy of BridgeCommand
 /// with the given fields replaced by the non-null parameter values.
@@ -740,16 +740,16 @@ $BridgeCommand_RectifyTextCopyWith<BridgeCommand_RectifyText> get copyWith => _$
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_RectifyText&&(identical(other.rawTranscript, rawTranscript) || other.rawTranscript == rawTranscript)&&(identical(other.styleOverride, styleOverride) || other.styleOverride == styleOverride));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_RectifyText&&(identical(other.rawTranscript, rawTranscript) || other.rawTranscript == rawTranscript)&&(identical(other.style, style) || other.style == style));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,rawTranscript,styleOverride);
+int get hashCode => Object.hash(runtimeType,rawTranscript,style);
 
 @override
 String toString() {
-  return 'BridgeCommand.rectifyText(rawTranscript: $rawTranscript, styleOverride: $styleOverride)';
+  return 'BridgeCommand.rectifyText(rawTranscript: $rawTranscript, style: $style)';
 }
 
 
@@ -760,11 +760,11 @@ abstract mixin class $BridgeCommand_RectifyTextCopyWith<$Res> implements $Bridge
   factory $BridgeCommand_RectifyTextCopyWith(BridgeCommand_RectifyText value, $Res Function(BridgeCommand_RectifyText) _then) = _$BridgeCommand_RectifyTextCopyWithImpl;
 @useResult
 $Res call({
- String rawTranscript, String? styleOverride
+ String rawTranscript, BridgeSessionStyle style
 });
 
 
-
+$BridgeSessionStyleCopyWith<$Res> get style;
 
 }
 /// @nodoc
@@ -777,15 +777,24 @@ class _$BridgeCommand_RectifyTextCopyWithImpl<$Res>
 
 /// Create a copy of BridgeCommand
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? rawTranscript = null,Object? styleOverride = freezed,}) {
+@pragma('vm:prefer-inline') $Res call({Object? rawTranscript = null,Object? style = null,}) {
   return _then(BridgeCommand_RectifyText(
 rawTranscript: null == rawTranscript ? _self.rawTranscript : rawTranscript // ignore: cast_nullable_to_non_nullable
-as String,styleOverride: freezed == styleOverride ? _self.styleOverride : styleOverride // ignore: cast_nullable_to_non_nullable
-as String?,
+as String,style: null == style ? _self.style : style // ignore: cast_nullable_to_non_nullable
+as BridgeSessionStyle,
   ));
 }
 
-
+/// Create a copy of BridgeCommand
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$BridgeSessionStyleCopyWith<$Res> get style {
+  
+  return $BridgeSessionStyleCopyWith<$Res>(_self.style, (value) {
+    return _then(_self.copyWith(style: value));
+  });
+}
 }
 
 /// @nodoc
@@ -2621,5 +2630,301 @@ as String,
 
 
 }
+
+/// @nodoc
+mixin _$BridgeSessionStyle {
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeSessionStyle);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'BridgeSessionStyle()';
+}
+
+
+}
+
+/// @nodoc
+class $BridgeSessionStyleCopyWith<$Res>  {
+$BridgeSessionStyleCopyWith(BridgeSessionStyle _, $Res Function(BridgeSessionStyle) __);
+}
+
+
+/// Adds pattern-matching-related methods to [BridgeSessionStyle].
+extension BridgeSessionStylePatterns on BridgeSessionStyle {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeSessionStyle_Live value)?  live,TResult Function( BridgeSessionStyle_Directive value)?  directive,TResult Function( BridgeSessionStyle_DefaultRegister value)?  defaultRegister,required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case BridgeSessionStyle_Live() when live != null:
+return live(_that);case BridgeSessionStyle_Directive() when directive != null:
+return directive(_that);case BridgeSessionStyle_DefaultRegister() when defaultRegister != null:
+return defaultRegister(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeSessionStyle_Live value)  live,required TResult Function( BridgeSessionStyle_Directive value)  directive,required TResult Function( BridgeSessionStyle_DefaultRegister value)  defaultRegister,}){
+final _that = this;
+switch (_that) {
+case BridgeSessionStyle_Live():
+return live(_that);case BridgeSessionStyle_Directive():
+return directive(_that);case BridgeSessionStyle_DefaultRegister():
+return defaultRegister(_that);}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeSessionStyle_Live value)?  live,TResult? Function( BridgeSessionStyle_Directive value)?  directive,TResult? Function( BridgeSessionStyle_DefaultRegister value)?  defaultRegister,}){
+final _that = this;
+switch (_that) {
+case BridgeSessionStyle_Live() when live != null:
+return live(_that);case BridgeSessionStyle_Directive() when directive != null:
+return directive(_that);case BridgeSessionStyle_DefaultRegister() when defaultRegister != null:
+return defaultRegister(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  live,TResult Function( String text)?  directive,TResult Function()?  defaultRegister,required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case BridgeSessionStyle_Live() when live != null:
+return live();case BridgeSessionStyle_Directive() when directive != null:
+return directive(_that.text);case BridgeSessionStyle_DefaultRegister() when defaultRegister != null:
+return defaultRegister();case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  live,required TResult Function( String text)  directive,required TResult Function()  defaultRegister,}) {final _that = this;
+switch (_that) {
+case BridgeSessionStyle_Live():
+return live();case BridgeSessionStyle_Directive():
+return directive(_that.text);case BridgeSessionStyle_DefaultRegister():
+return defaultRegister();}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  live,TResult? Function( String text)?  directive,TResult? Function()?  defaultRegister,}) {final _that = this;
+switch (_that) {
+case BridgeSessionStyle_Live() when live != null:
+return live();case BridgeSessionStyle_Directive() when directive != null:
+return directive(_that.text);case BridgeSessionStyle_DefaultRegister() when defaultRegister != null:
+return defaultRegister();case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+
+
+class BridgeSessionStyle_Live extends BridgeSessionStyle {
+  const BridgeSessionStyle_Live(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeSessionStyle_Live);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'BridgeSessionStyle.live()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class BridgeSessionStyle_Directive extends BridgeSessionStyle {
+  const BridgeSessionStyle_Directive({required this.text}): super._();
+  
+
+ final  String text;
+
+/// Create a copy of BridgeSessionStyle
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BridgeSessionStyle_DirectiveCopyWith<BridgeSessionStyle_Directive> get copyWith => _$BridgeSessionStyle_DirectiveCopyWithImpl<BridgeSessionStyle_Directive>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeSessionStyle_Directive&&(identical(other.text, text) || other.text == text));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,text);
+
+@override
+String toString() {
+  return 'BridgeSessionStyle.directive(text: $text)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $BridgeSessionStyle_DirectiveCopyWith<$Res> implements $BridgeSessionStyleCopyWith<$Res> {
+  factory $BridgeSessionStyle_DirectiveCopyWith(BridgeSessionStyle_Directive value, $Res Function(BridgeSessionStyle_Directive) _then) = _$BridgeSessionStyle_DirectiveCopyWithImpl;
+@useResult
+$Res call({
+ String text
+});
+
+
+
+
+}
+/// @nodoc
+class _$BridgeSessionStyle_DirectiveCopyWithImpl<$Res>
+    implements $BridgeSessionStyle_DirectiveCopyWith<$Res> {
+  _$BridgeSessionStyle_DirectiveCopyWithImpl(this._self, this._then);
+
+  final BridgeSessionStyle_Directive _self;
+  final $Res Function(BridgeSessionStyle_Directive) _then;
+
+/// Create a copy of BridgeSessionStyle
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? text = null,}) {
+  return _then(BridgeSessionStyle_Directive(
+text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class BridgeSessionStyle_DefaultRegister extends BridgeSessionStyle {
+  const BridgeSessionStyle_DefaultRegister(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeSessionStyle_DefaultRegister);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'BridgeSessionStyle.defaultRegister()';
+}
+
+
+}
+
+
+
 
 // dart format on

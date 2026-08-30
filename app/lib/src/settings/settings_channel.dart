@@ -18,6 +18,8 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart' show MethodCall;
 import 'package:window_manager/window_manager.dart' show windowManager;
 
+import '../shell/history_retrieval.dart'
+    show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;
 import 'settings_domain.dart';
 
 /// The channel both windows address the main window by (registered there
@@ -51,7 +53,10 @@ abstract class SettingsChannel {
   /// panel's rows use. [scenario] optionally names a one-time scenario
   /// (ticket 23): that session alone runs under it, the live selection
   /// stays untouched.
-  Future<void> sendHistoryRerectify(String rawTranscript, {String? scenario});
+  Future<void> sendHistoryRerectify(
+    String rawTranscript, {
+    required ScenarioPick style,
+  });
 
   /// The dictionary changed on disk (the terms domain's add/rename/
   /// remove — the same file the quick panel's quick-add writes): the
@@ -114,8 +119,18 @@ class DesktopSettingsChannel implements SettingsChannel {
   Future<void> sendHistoryChanged() => _send('history-changed', null);
 
   @override
-  Future<void> sendHistoryRerectify(String rawTranscript, {String? scenario}) =>
-      _send('history-rerectify', {'raw': rawTranscript, 'scenario': ?scenario});
+  Future<void> sendHistoryRerectify(
+    String rawTranscript, {
+    required ScenarioPick style,
+  }) =>
+      _send('history-rerectify', {
+        'raw': rawTranscript,
+        // The pick rides as one discriminator key: a scenario's name, or
+        // the default-register flag — never both, so a name can never
+        // collide with the flag.
+        if (style is NamedScenarioPick) 'scenario': style.name,
+        if (style is DefaultRegisterPick) 'defaultRegister': true,
+      });
 
   @override
   Future<void> sendTermsChanged() => _send('terms-changed', null);

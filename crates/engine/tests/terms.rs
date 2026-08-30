@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use common::{await_live, await_state, harness_with_terms, ok};
 use spokenrectifier_engine::fakes::{AsrStep, LlmStep};
-use spokenrectifier_engine::{Command, TermSource};
+use spokenrectifier_engine::{Command, SessionStyle, TermSource};
 
 /// A settable dictionary: the test edits the file mid-run, like a user
 /// saving the terms file between sessions.
@@ -139,7 +139,7 @@ async fn history_re_rectify_reads_the_dictionary_fresh() {
         &h.engine,
         Command::RectifyText {
             raw_transcript: "再修一遍的原话".into(),
-            style_override: None,
+            style: SessionStyle::Live,
         },
     )
     .await;
@@ -154,7 +154,7 @@ async fn history_re_rectify_reads_the_dictionary_fresh() {
         &h.engine,
         Command::RectifyText {
             raw_transcript: "再修一遍的原话".into(),
-            style_override: None,
+            style: SessionStyle::Live,
         },
     )
     .await;

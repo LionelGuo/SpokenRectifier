@@ -15,7 +15,7 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 use crate::clock::Clock;
-use crate::command::Command;
+use crate::command::{Command, SessionStyle};
 use crate::config::{EngineConfig, EngineTimings};
 use crate::event::{EngineEvent, EventEnvelope, SessionId, SessionState};
 use crate::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
@@ -130,12 +130,12 @@ struct Session {
     any_speech: bool,
     /// Raw transcript frozen when recording ended.
     frozen: Option<FrozenUtterance>,
-    /// The one-time style directive this session was re-rectified under
-    /// (ticket 23's 指定场景); `None` on mic sessions and plain
-    /// re-rectifies, which follow the live selection instead. Pinned for
-    /// the session's lifetime: rerolls keep it, and it dies with the
-    /// session.
-    style_override: Option<String>,
+    /// The one-time style pick this session was re-rectified under
+    /// (ticket 23's 指定场景, ticket 28's 默认); `Live` on mic sessions
+    /// and plain re-rectifies, which follow the live selection instead.
+    /// Pinned for the session's lifetime: rerolls keep it, and it dies
+    /// with the session.
+    style: SessionStyle,
     /// The rectified text as it will be inserted (possibly user-edited).
     preview_text: String,
     /// Ends the ASR stream consumption; fired when recording ends.
@@ -230,8 +230,8 @@ impl Engine {
             Command::StartSession => self.start_session().await,
             Command::RectifyText {
                 raw_transcript,
-                style_override,
-            } => self.rectify_text(raw_transcript, style_override),
+                style,
+            } => self.rectify_text(raw_transcript, style),
             Command::StopSession => {
                 let state = self.inner.state_lock().state;
                 if state != SessionState::Recording {
@@ -327,20 +327,16 @@ impl Engine {
     /// transcript as the session's utterance and jump straight into the
     /// machine (`Idle → Rectifying`), no microphone involved. Reroll,
     /// preview editing, cancel, and insert all work as after a recording.
-    /// `style_override` optionally pins a one-time directive for this
-    /// session alone (see [`Command::RectifyText`]).
-    fn rectify_text(
-        &self,
-        raw_transcript: String,
-        style_override: Option<String>,
-    ) -> Result<(), EngineError> {
+    /// `style` optionally pins the session's one-time style pick (see
+    /// [`Command::RectifyText`]).
+    fn rectify_text(&self, raw_transcript: String, style: SessionStyle) -> Result<(), EngineError> {
         let (sid, cancel, request, timings) = {
             let mut st = self.inner.state_lock();
             if st.state != SessionState::Idle {
                 return Err(EngineError::CommandRejected {
                     command: Command::RectifyText {
                         raw_transcript,
-                        style_override,
+                        style,
                     },
                     state: st.state,
                 });
@@ -349,8 +345,14 @@ impl Engine {
                 return Err(EngineError::EmptyUtterance);
             }
             // Same blank guard as SetStyleDirective's: whitespace-only
-            // override text reads as no override.
-            let style_override = non_blank(style_override);
+            // pinned text reads as no pin.
+            let style = match style {
+                SessionStyle::Directive(text) => match non_blank(Some(text)) {
+                    Some(text) => SessionStyle::Directive(text),
+                    None => SessionStyle::Live,
+                },
+                other => other,
+            };
             // Newlines carry the paragraph structure the transcript was
             // frozen with; splitting restores it exactly.
             let paragraphs: Vec<String> = raw_transcript.split('\n').map(str::to_string).collect();
@@ -366,7 +368,7 @@ impl Engine {
                 raw_transcript: raw_transcript.clone(),
                 paragraphs: paragraphs.clone(),
             });
-            session.style_override = style_override;
+            session.style = style;
             let cancel = CancellationToken::new();
             session.rectify_cancel = Some(cancel.clone());
             let sid = session.id;
@@ -536,12 +538,15 @@ impl Inner {
     }
 
     /// The directive a request inside [session] runs with: the session's
-    /// one-time override if it has one, otherwise the live selection.
+    /// one-time pick if it has one, otherwise the live selection. A
+    /// session pinned to the default register carries no directive at
+    /// all — the same shape as a session with no scenario.
     fn session_style_directive(session: &Session, inner: &Inner) -> Option<String> {
-        session
-            .style_override
-            .clone()
-            .or_else(|| inner.current_style_directive())
+        match &session.style {
+            SessionStyle::Live => inner.current_style_directive(),
+            SessionStyle::Directive(text) => Some(text.clone()),
+            SessionStyle::DefaultRegister => None,
+        }
     }
 
     /// Passage mode for a session about to open — the runtime-switchable
@@ -743,7 +748,7 @@ impl Session {
             speech_since_mark: false,
             any_speech: false,
             frozen: None,
-            style_override: None,
+            style: SessionStyle::Live,
             preview_text: String::new(),
             asr_cancel: CancellationToken::new(),
             rectify_cancel: None,

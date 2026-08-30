@@ -19,6 +19,8 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart' show MethodCall;
 
 import '../../app_state.dart' show SpeechController;
+import '../shell/history_retrieval.dart'
+    show DefaultRegisterPick, NamedScenarioPick;
 import 'settings_channel.dart' show settingsToMainChannel;
 import 'settings_domain.dart';
 
@@ -113,12 +115,17 @@ class DesktopSettingsWindow {
         await _controller.loadRecentHistory();
       case 'history-rerectify':
         // History retrieval: the same entry point the quick panel's rows
-        // take — the session window takes over from here. A scenario, when
-        // present, pins this one session to it (ticket 23).
+        // take — the session window takes over from here. The pick rides
+        // as a scenario's name or the default-register flag (ticket 28);
+        // neither present reads as a vanished scenario, which the
+        // controller degrades to the live selection.
         final args = call.arguments as Map<Object?, Object?>?;
+        final style = args?['defaultRegister'] == true
+            ? const DefaultRegisterPick()
+            : NamedScenarioPick(args?['scenario'] as String? ?? '');
         await _controller.rerectifyHistory(
           args?['raw'] as String? ?? '',
-          scenario: args?['scenario'] as String?,
+          style: style,
         );
       case 'terms-changed':
         // The terms domain edited the dictionary file: the quick panel's

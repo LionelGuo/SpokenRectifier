@@ -37,6 +37,8 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
 import 'package:spokenrectifier_app/src/settings/connection_store.dart';
 import 'package:spokenrectifier_app/src/settings/fidelity_eval.dart';
 import 'package:spokenrectifier_app/src/settings/history_store.dart';
+import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'
+    show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;
 import 'package:spokenrectifier_app/src/settings/settings_channel.dart';
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/settings/settings_store.dart';
@@ -499,7 +501,7 @@ class FakeSettingsChannel implements SettingsChannel {
   final libraryChanged = <({String? from, String? to})>[];
   final selections = <String?>[];
   int historyChanged = 0;
-  final rerectifies = <({String raw, String? scenario})>[];
+  final rerectifies = <({String raw, ScenarioPick style})>[];
   int termsChanged = 0;
   int globalChanged = 0;
 
@@ -540,8 +542,8 @@ class FakeSettingsChannel implements SettingsChannel {
   @override
   Future<void> sendHistoryRerectify(
     String rawTranscript, {
-    String? scenario,
-  }) async => rerectifies.add((raw: rawTranscript, scenario: scenario));
+    required ScenarioPick style,
+  }) async => rerectifies.add((raw: rawTranscript, style: style));
 
   @override
   Future<void> sendTermsChanged() async => termsChanged++;
@@ -1062,8 +1064,8 @@ void main() {
     await tester.pump();
     expect(copied, '第二句的成文');
 
-    // 指定场景重新修正: the menu lists the same library the 场景库
-    // domain paints; the pick routes to the main window with the
+    // 指定场景重新修正: the menu lists 默认 plus the same library the
+    // 场景库 domain paints; the pick routes to the main window with the
     // scenario named — the session runs under it for that one session.
     // A tall viewport builds every lazy row at once and keeps the menu
     // it opens fully on-screen (the ticket-21 recipe).
@@ -1077,12 +1079,21 @@ void main() {
       Icons.style_rounded,
     );
     await tester.pumpAndSettle();
+    expect(
+      find.byKey(
+        const Key('settings-history-scenario-item-builtin-default'),
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.text('论文'));
     await tester.pumpAndSettle();
-    expect(channel.rerectifies, [(raw: '第一句的原话', scenario: '论文')]);
+    expect(
+      channel.rerectifies,
+      [(raw: '第一句的原话', style: const NamedScenarioPick('论文'))],
+    );
   });
 
-  testWidgets('an empty library disables the scenario rerectify key', (
+  testWidgets('an empty library keeps the scenario rerectify key on 默认', (
     tester,
   ) async {
     final channel = FakeSettingsChannel();
@@ -1095,24 +1106,91 @@ void main() {
       domain: SettingsDomain.history,
     );
 
-    // The third key stays inert with the reason on its tooltip; a tap
-    // opens no menu. The two copies keep working (their test above
-    // covers the path itself).
-    final tooltip = tester.widget<Tooltip>(
-      find.byKey(const Key('settings-history-rerectify-scenario:1')),
-    );
-    expect(tooltip.message, '场景库为空,无法指定场景');
+    // The key stays live over an empty library (ticket 28's ruling:
+    // retrieval must not die with the library); the menu lists 默认
+    // alone, and the pick routes to the main window as the explicit
+    // default register. A tall viewport keeps the menu fully on-screen
+    // (the ticket-21 recipe).
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pump();
     await hoverRowAction(
       tester,
       const Key('settings-history-rerectify-scenario:1'),
       Icons.style_rounded,
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(
       find.byKey(const Key('settings-history-scenario-item:论文')),
       findsNothing,
     );
-    expect(channel.rerectifies, isEmpty);
+    await tester.tap(
+      find.byKey(
+        const Key('settings-history-scenario-item-builtin-default'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      channel.rerectifies,
+      [(raw: '第一句的原话', style: const DefaultRegisterPick())],
+    );
+  });
+
+  testWidgets('a scenario literally named 默认 stays distinct from the builtin', (
+    tester,
+  ) async {
+    final channel = FakeSettingsChannel();
+    final store = FakeHistorySettingsStore(entries: _historyEntries);
+    await pumpSettings(
+      tester,
+      store: FakeScenarioStore(const [
+        BridgeScenario(name: '默认', directive: '默认场景的指令'),
+      ]),
+      channel: channel,
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+
+    // Both items coexist — the reserved key and the sealed pick keep
+    // the builtin 默认 and a same-named scenario distinct. The builtin
+    // routes the default register; the named one routes the scenario.
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pump();
+    await hoverRowAction(
+      tester,
+      const Key('settings-history-rerectify-scenario:1'),
+      Icons.style_rounded,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('默认'), findsNWidgets(2));
+    await tester.tap(
+      find.byKey(
+        const Key('settings-history-scenario-item-builtin-default'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      channel.rerectifies.last,
+      (raw: '第一句的原话', style: const DefaultRegisterPick()),
+    );
+
+    await hoverRowAction(
+      tester,
+      const Key('settings-history-rerectify-scenario:1'),
+      Icons.style_rounded,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('settings-history-scenario-item:默认')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      channel.rerectifies.last,
+      (raw: '第一句的原话', style: const NamedScenarioPick('默认')),
+    );
   });
 
   testWidgets('a retention pick saves and reports the change', (tester) async {

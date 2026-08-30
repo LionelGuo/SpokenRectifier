@@ -1544,10 +1544,10 @@ impl SseDecode for crate::api::BridgeCommand {
             }
             10 => {
                 let mut var_rawTranscript = <String>::sse_decode(deserializer);
-                let mut var_styleOverride = <Option<String>>::sse_decode(deserializer);
+                let mut var_style = <crate::api::BridgeSessionStyle>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::RectifyText {
                     raw_transcript: var_rawTranscript,
-                    style_override: var_styleOverride,
+                    style: var_style,
                 };
             }
             _ => {
@@ -1896,6 +1896,28 @@ impl SseDecode for crate::api::BridgeSessionState {
             5 => crate::api::BridgeSessionState::Cancelled,
             _ => unreachable!("Invalid variant for BridgeSessionState: {}", inner),
         };
+    }
+}
+
+impl SseDecode for crate::api::BridgeSessionStyle {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                return crate::api::BridgeSessionStyle::Live;
+            }
+            1 => {
+                let mut var_text = <String>::sse_decode(deserializer);
+                return crate::api::BridgeSessionStyle::Directive { text: var_text };
+            }
+            2 => {
+                return crate::api::BridgeSessionStyle::DefaultRegister;
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 
@@ -2387,11 +2409,11 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
             .into_dart(),
             crate::api::BridgeCommand::RectifyText {
                 raw_transcript,
-                style_override,
+                style,
             } => [
                 10.into_dart(),
                 raw_transcript.into_into_dart().into_dart(),
-                style_override.into_into_dart().into_dart(),
+                style.into_into_dart().into_dart(),
             ]
             .into_dart(),
             _ => {
@@ -2819,6 +2841,32 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeSessionState>
         self
     }
 }
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeSessionStyle {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            crate::api::BridgeSessionStyle::Live => [0.into_dart()].into_dart(),
+            crate::api::BridgeSessionStyle::Directive { text } => {
+                [1.into_dart(), text.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::BridgeSessionStyle::DefaultRegister => [2.into_dart()].into_dart(),
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeSessionStyle
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeSessionStyle>
+    for crate::api::BridgeSessionStyle
+{
+    fn into_into_dart(self) -> crate::api::BridgeSessionStyle {
+        self
+    }
+}
 
 impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -3022,11 +3070,11 @@ impl SseEncode for crate::api::BridgeCommand {
             }
             crate::api::BridgeCommand::RectifyText {
                 raw_transcript,
-                style_override,
+                style,
             } => {
                 <i32>::sse_encode(10, serializer);
                 <String>::sse_encode(raw_transcript, serializer);
-                <Option<String>>::sse_encode(style_override, serializer);
+                <crate::api::BridgeSessionStyle>::sse_encode(style, serializer);
             }
             _ => {
                 unimplemented!("");
@@ -3288,6 +3336,27 @@ impl SseEncode for crate::api::BridgeSessionState {
             },
             serializer,
         );
+    }
+}
+
+impl SseEncode for crate::api::BridgeSessionStyle {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            crate::api::BridgeSessionStyle::Live => {
+                <i32>::sse_encode(0, serializer);
+            }
+            crate::api::BridgeSessionStyle::Directive { text } => {
+                <i32>::sse_encode(1, serializer);
+                <String>::sse_encode(text, serializer);
+            }
+            crate::api::BridgeSessionStyle::DefaultRegister => {
+                <i32>::sse_encode(2, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 
