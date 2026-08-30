@@ -33,6 +33,8 @@ abstract class SpeechEngineGateway {
   Future<void> rectifyText(String rawTranscript, {String? styleOverride});
   Future<List<BridgeScenario>> scenarios();
   Future<void> setStyleDirective(String? directive);
+  Future<String?> globalDirective();
+  Future<void> setGlobalDirective(String? directive);
   Future<bool> passageMode();
   Future<void> setPassageMode(bool on);
   Future<List<String>> termsList();
@@ -157,6 +159,12 @@ class SpeechController extends ChangeNotifier {
   /// paints it in the standard 场景 · X format while it runs; the engine
   /// holds the actual directive override for the session's lifetime.
   String? oneTimeScenario;
+
+  /// The global directive (全局指令, ticket 22) as the file reads it:
+  /// null = unset. The quick panel's preview card paints it; the engine
+  /// holds its own live copy (pushed on load and on every change), so
+  /// the next rectify attempt — rerolls included — runs with it.
+  String? globalDirective;
 
   bool get isRecording => phase == BridgeSessionState.recording;
 
@@ -396,6 +404,49 @@ class SpeechController extends ChangeNotifier {
       if (scenario.name == name) return scenario.directive;
     }
     return null;
+  }
+
+  // ---- the global directive (ticket 22) -----------------------------------
+
+  /// Load the global directive at startup: paint the preview card and
+  /// push the text at the engine, so every rectify runs with it. A
+  /// failed read degrades to unset — like the scenario library, the
+  /// directive is decorative state that must never block startup.
+  Future<void> loadGlobalDirective() async {
+    try {
+      globalDirective = await gateway.globalDirective();
+    } catch (_) {
+      globalDirective = null;
+    }
+    try {
+      await gateway.setGlobalDirective(globalDirective);
+    } catch (_) {
+      // The engine push failing at startup (engine refused to assemble)
+      // surfaces through the startup error path already.
+    }
+    notifyListeners();
+  }
+
+  /// The global directive's file changed (the settings window's save):
+  /// re-read the file — it is the truth — adopt the new text, and push it
+  /// at the engine. The engine's live read makes the very next attempt
+  /// (rerolls of an open session included) run with the new value; this
+  /// controller's copy only repaints the quick panel's preview card.
+  Future<void> onGlobalDirectiveChanged() async {
+    String? fresh;
+    try {
+      fresh = await gateway.globalDirective();
+    } catch (_) {
+      return; // unreadable right now: keep painting what we had
+    }
+    globalDirective = fresh;
+    notifyListeners();
+    try {
+      await gateway.setGlobalDirective(fresh);
+    } catch (e) {
+      lastError = '全局指令更新失败:$e';
+      notifyListeners();
+    }
   }
 
   // ---- the quick panel's own state ---------------------------------------

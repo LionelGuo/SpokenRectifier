@@ -229,3 +229,105 @@ async fn a_blank_one_time_directive_reads_as_no_override() {
         Some("选中场景的指令")
     );
 }
+
+#[tokio::test]
+async fn a_global_directive_is_live_read_into_every_attempt() {
+    let (h, mut rx) = harness(
+        EngineConfig::default(),
+        vec![vec![]],
+        vec![
+            vec![LlmStep::Token("一".into())],
+            vec![LlmStep::Token("二".into())],
+            vec![LlmStep::Token("三".into())],
+        ],
+    );
+
+    // The global directive rides the first request alongside the (absent)
+    // scenario directive.
+    ok(
+        &h.engine,
+        Command::SetGlobalDirective(Some("全局第一版".into())),
+    )
+    .await;
+    ok(
+        &h.engine,
+        Command::RectifyText {
+            raw_transcript: "旧话".into(),
+            style_override: None,
+        },
+    )
+    .await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(
+        h.llm.requests()[0].global_directive.as_deref(),
+        Some("全局第一版")
+    );
+    assert_eq!(h.llm.requests()[0].style_directive, None);
+
+    // A change made mid-session (the session is still open in preview)
+    // shapes the very next attempt — a reroll included. Unlike the
+    // one-time style override, the global layer is never pinned.
+    ok(
+        &h.engine,
+        Command::SetGlobalDirective(Some("全局第二版".into())),
+    )
+    .await;
+    ok(&h.engine, Command::Reroll).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(
+        h.llm.requests()[1].global_directive.as_deref(),
+        Some("全局第二版")
+    );
+
+    // Unsetting works the same way, with the same blank guard as
+    // SetStyleDirective's.
+    ok(&h.engine, Command::Cancel).await;
+    await_state(&mut rx, SessionState::Idle).await;
+    ok(&h.engine, Command::SetGlobalDirective(Some("   ".into()))).await;
+    ok(
+        &h.engine,
+        Command::RectifyText {
+            raw_transcript: "又一句".into(),
+            style_override: None,
+        },
+    )
+    .await;
+    await_state(&mut rx, SessionState::Preview).await;
+    assert_eq!(h.llm.requests()[2].global_directive, None);
+}
+
+#[tokio::test]
+async fn a_global_directive_rides_alongside_a_scenario_or_one_time_override() {
+    let (h, mut rx) = harness(
+        EngineConfig::default(),
+        vec![vec![]],
+        vec![vec![LlmStep::Token("修".into())]],
+    );
+
+    // The two layers are independent fields on the request: a selected
+    // scenario and the global directive both ride it (their layering is
+    // the prompt's job, ADR-0006), and a one-time override pins only the
+    // scenario layer — the global one stays live.
+    ok(
+        &h.engine,
+        Command::SetStyleDirective(Some("场景指令".into())),
+    )
+    .await;
+    ok(
+        &h.engine,
+        Command::SetGlobalDirective(Some("全局指令".into())),
+    )
+    .await;
+    ok(
+        &h.engine,
+        Command::RectifyText {
+            raw_transcript: "旧话".into(),
+            style_override: Some("一次性指令".into()),
+        },
+    )
+    .await;
+    await_state(&mut rx, SessionState::Preview).await;
+    let request = &h.llm.requests()[0];
+    assert_eq!(request.style_directive.as_deref(), Some("一次性指令"));
+    assert_eq!(request.global_directive.as_deref(), Some("全局指令"));
+}

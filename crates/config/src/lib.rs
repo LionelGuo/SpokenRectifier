@@ -17,8 +17,10 @@
 //! The hotword dictionary is not a TOML section: [`terms`] loads the
 //! plain-text, one-term-per-line file beside the layer files. The
 //! scenario library is not a config layer either: [`scenarios`] loads the
-//! app-owned file of named style directives.
+//! app-owned file of named style directives, and [`global`] the app-owned
+//! companion file of the global directive.
 
+pub mod global;
 pub mod scenarios;
 pub mod section_write;
 pub mod terms;

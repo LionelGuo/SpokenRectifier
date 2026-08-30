@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -792623247;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 665126530;
 
 // Section: executor
 
@@ -470,6 +470,40 @@ fn wire__crate__api__fake_silence_impl(
         },
     )
 }
+fn wire__crate__api__global_directive_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "global_directive",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::global_directive()?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__history_clear_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -736,6 +770,41 @@ fn wire__crate__api__restore_focus_impl(
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
                         let output_ok = crate::api::restore_focus()?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__save_global_directive_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "save_global_directive",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_directive = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::save_global_directive(api_directive)?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -1454,10 +1523,16 @@ impl SseDecode for crate::api::BridgeCommand {
                 };
             }
             7 => {
+                let mut var_directive = <Option<String>>::sse_decode(deserializer);
+                return crate::api::BridgeCommand::SetGlobalDirective {
+                    directive: var_directive,
+                };
+            }
+            8 => {
                 let mut var_on_ = <bool>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::SetPassageMode { on: var_on_ };
             }
-            8 => {
+            9 => {
                 let mut var_paragraphSilenceMs = <u64>::sse_decode(deserializer);
                 let mut var_sessionEndSilenceMs = <u64>::sse_decode(deserializer);
                 let mut var_rectifyTimeoutMs = <u64>::sse_decode(deserializer);
@@ -1467,7 +1542,7 @@ impl SseDecode for crate::api::BridgeCommand {
                     rectify_timeout_ms: var_rectifyTimeoutMs,
                 };
             }
-            9 => {
+            10 => {
                 let mut var_rawTranscript = <String>::sse_decode(deserializer);
                 let mut var_styleOverride = <Option<String>>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::RectifyText {
@@ -1987,26 +2062,28 @@ fn pde_ffi_dispatcher_primary_impl(
         10 => wire__crate__api__fake_begin_session_impl(port, ptr, rust_vec_len, data_len),
         11 => wire__crate__api__fake_say_impl(port, ptr, rust_vec_len, data_len),
         12 => wire__crate__api__fake_silence_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__history_clear_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__history_config_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__history_list_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__inserted_texts_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__open_config_file_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__passage_mode_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__remove_term_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__restore_focus_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__save_scenarios_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__scenarios_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__set_asr_connection_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__set_engine_settings_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__set_history_config_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__set_insertion_timing_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__set_llm_connection_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__start_fidelity_eval_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__state_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__subscribe_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__terms_list_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__update_term_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__global_directive_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__history_clear_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__history_config_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__history_list_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__inserted_texts_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__open_config_file_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__passage_mode_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__remove_term_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__restore_focus_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__save_global_directive_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__save_scenarios_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__scenarios_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__set_asr_connection_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__set_engine_settings_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__set_history_config_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__set_insertion_timing_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__set_llm_connection_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__start_fidelity_eval_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__state_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__subscribe_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__terms_list_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__update_term_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2291,15 +2368,18 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
             crate::api::BridgeCommand::SetStyleDirective { directive } => {
                 [6.into_dart(), directive.into_into_dart().into_dart()].into_dart()
             }
+            crate::api::BridgeCommand::SetGlobalDirective { directive } => {
+                [7.into_dart(), directive.into_into_dart().into_dart()].into_dart()
+            }
             crate::api::BridgeCommand::SetPassageMode { on } => {
-                [7.into_dart(), on.into_into_dart().into_dart()].into_dart()
+                [8.into_dart(), on.into_into_dart().into_dart()].into_dart()
             }
             crate::api::BridgeCommand::SetEngineTimings {
                 paragraph_silence_ms,
                 session_end_silence_ms,
                 rectify_timeout_ms,
             } => [
-                8.into_dart(),
+                9.into_dart(),
                 paragraph_silence_ms.into_into_dart().into_dart(),
                 session_end_silence_ms.into_into_dart().into_dart(),
                 rectify_timeout_ms.into_into_dart().into_dart(),
@@ -2309,7 +2389,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
                 raw_transcript,
                 style_override,
             } => [
-                9.into_dart(),
+                10.into_dart(),
                 raw_transcript.into_into_dart().into_dart(),
                 style_override.into_into_dart().into_dart(),
             ]
@@ -2922,8 +3002,12 @@ impl SseEncode for crate::api::BridgeCommand {
                 <i32>::sse_encode(6, serializer);
                 <Option<String>>::sse_encode(directive, serializer);
             }
-            crate::api::BridgeCommand::SetPassageMode { on } => {
+            crate::api::BridgeCommand::SetGlobalDirective { directive } => {
                 <i32>::sse_encode(7, serializer);
+                <Option<String>>::sse_encode(directive, serializer);
+            }
+            crate::api::BridgeCommand::SetPassageMode { on } => {
+                <i32>::sse_encode(8, serializer);
                 <bool>::sse_encode(on, serializer);
             }
             crate::api::BridgeCommand::SetEngineTimings {
@@ -2931,7 +3015,7 @@ impl SseEncode for crate::api::BridgeCommand {
                 session_end_silence_ms,
                 rectify_timeout_ms,
             } => {
-                <i32>::sse_encode(8, serializer);
+                <i32>::sse_encode(9, serializer);
                 <u64>::sse_encode(paragraph_silence_ms, serializer);
                 <u64>::sse_encode(session_end_silence_ms, serializer);
                 <u64>::sse_encode(rectify_timeout_ms, serializer);
@@ -2940,7 +3024,7 @@ impl SseEncode for crate::api::BridgeCommand {
                 raw_transcript,
                 style_override,
             } => {
-                <i32>::sse_encode(9, serializer);
+                <i32>::sse_encode(10, serializer);
                 <String>::sse_encode(raw_transcript, serializer);
                 <Option<String>>::sse_encode(style_override, serializer);
             }

@@ -60,6 +60,12 @@ pub enum BridgeCommand {
     SetStyleDirective {
         directive: Option<String>,
     },
+    /// The global directive's text (ticket 22; the engine knows nothing
+    /// about where it is stored); `None` unsets it. A live value read at
+    /// every request assembly, never pinned per session.
+    SetGlobalDirective {
+        directive: Option<String>,
+    },
     /// Passage mode (篇章模式) as it stands now — the value the next
     /// session opens with (the engine snapshots it per session).
     SetPassageMode {
@@ -180,6 +186,9 @@ impl From<BridgeCommand> for Command {
             BridgeCommand::Reroll => Command::Reroll,
             BridgeCommand::UpdatePreviewText { text } => Command::UpdatePreviewText(text),
             BridgeCommand::SetStyleDirective { directive } => Command::SetStyleDirective(directive),
+            BridgeCommand::SetGlobalDirective { directive } => {
+                Command::SetGlobalDirective(directive)
+            }
             BridgeCommand::SetPassageMode { on } => Command::SetPassageMode(on),
             BridgeCommand::SetEngineTimings {
                 paragraph_silence_ms,
@@ -527,6 +536,30 @@ pub fn save_scenarios(scenarios: Vec<BridgeScenario>) -> anyhow::Result<()> {
         .collect();
     spokenrectifier_config::scenarios::save_scenarios(&dirs, &library)
         .map_err(|err| anyhow!("cannot save the scenario library: {err}"))
+}
+
+/// The global directive (全局指令, ticket 22): the single `directive` key
+/// from the app-owned `spokenrectifier-global.toml` — a companion file of
+/// the scenario library's, so a library rewrite cannot lose it. A
+/// missing, corrupt, or blank file reads as `None` (unset); this never
+/// errors and never writes. The shell pushes the text at the engine via
+/// `SetGlobalDirective` and repaints its preview from this same read.
+pub fn global_directive() -> anyhow::Result<Option<String>> {
+    let dirs = spokenrectifier_config::search_dirs();
+    Ok(spokenrectifier_config::global::load_global_directive(&dirs))
+}
+
+/// Save the global directive into the file the loader resolves (created
+/// in the app's settings home when none exists yet). `None` and blank
+/// text both write the canonical unset form — clearing the field and
+/// saving is the off switch. File-level and engine-independent like
+/// [`global_directive`]: the main window re-reads the file and pushes the
+/// fresh text at the engine (`SetGlobalDirective`) on the
+/// global-changed event. Only ever runs on a user action.
+pub fn save_global_directive(directive: Option<String>) -> anyhow::Result<()> {
+    let dirs = spokenrectifier_config::search_dirs();
+    spokenrectifier_config::global::save_global_directive(&dirs, directive.as_deref())
+        .map_err(|err| anyhow!("cannot save the global directive: {err}"))
 }
 
 /// Everything the fake inserter received, in order (demo introspection).
@@ -1499,6 +1532,13 @@ mod tests {
         })
         .unwrap();
         execute(BridgeCommand::SetStyleDirective { directive: None }).unwrap();
+        // The global directive rides the same seam (ticket 22), with the
+        // same any-time semantics and reset.
+        execute(BridgeCommand::SetGlobalDirective {
+            directive: Some("全部输出以简体中文书写".into()),
+        })
+        .unwrap();
+        execute(BridgeCommand::SetGlobalDirective { directive: None }).unwrap();
     }
 
     /// The passage-mode switch rides the wire any time and reads back

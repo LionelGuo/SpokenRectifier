@@ -44,6 +44,10 @@ class FakeGateway implements SpeechEngineGateway {
   /// The scenario library `scenarios()` hands back.
   final scenarioLibrary = <BridgeScenario>[];
 
+  /// The global directive `globalDirective()` hands back (null = unset);
+  /// tests mutate it to simulate a file change.
+  String? global;
+
   /// Passage mode as the engine holds it; `passageMode()` reads it and
   /// `setPassageMode` writes it.
   bool passage = true;
@@ -186,6 +190,17 @@ class FakeGateway implements SpeechEngineGateway {
       failNextSetStyleDirective = null;
       throw failure!;
     }
+  }
+
+  @override
+  Future<String?> globalDirective() async {
+    commands.add('globalDirective');
+    return global;
+  }
+
+  @override
+  Future<void> setGlobalDirective(String? directive) async {
+    commands.add('setGlobalDirective:$directive');
   }
 
   @override

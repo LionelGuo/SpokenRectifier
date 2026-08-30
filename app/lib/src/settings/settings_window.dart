@@ -47,12 +47,18 @@ class SettingsWindowApp extends StatefulWidget {
     required this.termsStore,
     required this.connectionStore,
     required this.systemStore,
+    this.globalStore = const RustGlobalDirectiveStore(),
     this.initialTheme = ThemeMode.system,
     this.initialSelection,
     this.captionTheme = applyWindowsCaptionTheme,
   });
 
   final ScenarioStore store;
+
+  /// The global directive's data seam (ticket 22) — the companion file
+  /// the scenario domain's inline card edits. Defaults to the bridge
+  /// store; injectable for widget tests.
+  final GlobalDirectiveStore globalStore;
   final SettingsChannel channel;
   final SettingsDomain initialDomain;
 
@@ -96,6 +102,10 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   List<BridgeScenario> _scenarios = const [];
   String? _selected;
   String? _error;
+
+  /// The global directive as the file reads it (null = unset) — the
+  /// inline card's seed and the dirty check's baseline (ticket 22).
+  String? _global;
 
   /// The eval run outlives the pane: switching domains must not stop it
   /// (only closing the window — this state dying with the engine — or
@@ -157,6 +167,34 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       if (!mounted) return;
       setState(() => _error = '场景库读取失败:$e');
     }
+    try {
+      final global = await widget.globalStore.load();
+      if (!mounted) return;
+      setState(() => _global = global);
+    } catch (e) {
+      // Same posture: the card seeds empty (unset) and shows the error.
+      if (!mounted) return;
+      setState(() => _error = '全局指令读取失败:$e');
+    }
+  }
+
+  /// Persist the global directive (the inline card's save), then tell
+  /// the main window — the same file-is-truth, event-after-write flow
+  /// the library editor's [_commit] follows. Local state only moves once
+  /// the file has accepted the write.
+  Future<void> _saveGlobal(String text) async {
+    final trimmed = text.trim();
+    final next = trimmed.isEmpty ? null : trimmed;
+    try {
+      await widget.globalStore.save(next);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '全局指令保存失败:$e');
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _global = next);
+    await widget.channel.sendGlobalChanged();
   }
 
   /// Persist the editor's whole model, then tell the main window. Local
@@ -265,9 +303,11 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
         scenarios: _scenarios,
         selected: _selected,
         error: _error,
+        global: _global,
         onSelect: _select,
         onAddOrUpdate: _addOrUpdate,
         onDelete: _delete,
+        onSaveGlobal: _saveGlobal,
       ),
       SettingsDomain.fidelity => SettingsFidelityPane(controller: _eval),
       SettingsDomain.history => SettingsHistoryPane(
@@ -388,18 +428,25 @@ class _ScenarioPane extends StatelessWidget {
     required this.scenarios,
     required this.selected,
     required this.error,
+    required this.global,
     required this.onSelect,
     required this.onAddOrUpdate,
     required this.onDelete,
+    required this.onSaveGlobal,
   });
 
   final List<BridgeScenario> scenarios;
   final String? selected;
   final String? error;
+
+  /// The global directive as the file reads it (null = unset) — the
+  /// inline card's seed (ticket 22).
+  final String? global;
   final Future<void> Function(String? name) onSelect;
   final Future<void> Function(BridgeScenario edited, String? originalName)
   onAddOrUpdate;
   final Future<void> Function(String name) onDelete;
+  final Future<void> Function(String text) onSaveGlobal;
 
   @override
   Widget build(BuildContext context) {
@@ -424,6 +471,10 @@ class _ScenarioPane extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 16),
+        // The global directive rides above the library list: always
+        // present, empty library or not.
+        _GlobalDirectiveCard(directive: global, onSave: onSaveGlobal),
         if (error != null) ...[
           const SizedBox(height: 12),
           Text(
@@ -466,6 +517,132 @@ class _ScenarioPane extends StatelessWidget {
     await onAddOrUpdate(
       BridgeScenario(name: name, directive: directive),
       existing?.name,
+    );
+  }
+}
+
+/// The global directive's resident inline card (ticket 22): a title, one
+/// explanatory line, a multi-line field, and an explicit save button —
+/// disabled until the text differs from the saved directive. Saving blank
+/// text is how the directive is turned off (it writes the unset form).
+class _GlobalDirectiveCard extends StatefulWidget {
+  const _GlobalDirectiveCard({required this.directive, required this.onSave});
+
+  /// The saved directive as the file reads it (null = unset).
+  final String? directive;
+  final Future<void> Function(String text) onSave;
+
+  @override
+  State<_GlobalDirectiveCard> createState() => _GlobalDirectiveCardState();
+}
+
+class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
+  late final TextEditingController _field = TextEditingController(
+    text: widget.directive ?? '',
+  );
+
+  @override
+  void didUpdateWidget(_GlobalDirectiveCard old) {
+    super.didUpdateWidget(old);
+    // A save landed (the parent's state moved): re-seed the field to the
+    // canonical trimmed text so the dirty check resets. Unrelated
+    // rebuilds (theme, selection) leave the field untouched.
+    if (widget.directive != old.directive) {
+      _field.text = widget.directive ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  bool get _dirty => _field.text.trim() != (widget.directive ?? '');
+
+  Future<void> _save() async {
+    if (!_dirty) return;
+    await widget.onSave(_field.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = srPalette(context);
+    return AnimatedContainer(
+      key: const Key('settings-global-card'),
+      duration: SrMotion.fade,
+      curve: SrMotion.curveFade,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: pal.surfaceRaised,
+        borderRadius: BorderRadius.circular(SrRadius.control + 4),
+        border: Border.all(color: pal.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                '全局指令',
+                style: SrType.body.copyWith(
+                  color: pal.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '在所有修正中恒常生效;与场景指令冲突时以场景为准',
+                  style: SrType.caption.copyWith(color: pal.textTertiary),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            key: const Key('settings-global-field'),
+            controller: _field,
+            minLines: 2,
+            maxLines: 5,
+            // The card's own change detection replaces a controller
+            // listener: every keystroke rebuilds this widget and the
+            // button's enable state follows.
+            onChanged: (_) => setState(() {}),
+            style: SrType.body.copyWith(color: pal.textPrimary),
+            cursorColor: pal.accent,
+            decoration: InputDecoration(
+              isCollapsed: true,
+              border: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              filled: true,
+              fillColor: pal.surfaceOverlay,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 9,
+              ),
+              hintText: '例:全部输出以简体中文书写,语气克制',
+              hintStyle: SrType.body.copyWith(color: pal.textTertiary),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              // The save key lights up only when there is something to
+              // save: enabled (accent) while dirty, a quiet outlined
+              // button at rest — disabled means no-op, never hidden.
+              SrButton(
+                key: const Key('settings-global-save'),
+                primary: _dirty,
+                label: '保存',
+                onTap: _dirty ? _save : null,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

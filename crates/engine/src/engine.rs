@@ -59,6 +59,11 @@ struct Inner {
     /// built-in default register). Read fresh when each rectify request
     /// is built, so a switch any time shapes the next attempt.
     style_directive: RwLock<Option<String>>,
+    /// The global directive's text (ticket 22; `None` = unset). A live
+    /// value like the style selection — read fresh when each request is
+    /// built, never pinned per session: a change mid-session shapes the
+    /// next attempt, rerolls included.
+    global_directive: RwLock<Option<String>>,
     /// Passage mode as it stands now, seeded from the config at
     /// construction and switched at runtime (quick panel). Snapshotted
     /// when each session opens, so a switch applies from the next
@@ -145,12 +150,21 @@ struct FrozenUtterance {
     paragraphs: Vec<String>,
 }
 
+/// The directive seam's blank guard: whitespace-only text reads as no
+/// directive. Shared by the live selection, the live global directive,
+/// and a session's one-time override — the loaders already normalize,
+/// this guards the engine seam itself.
+fn non_blank(directive: Option<String>) -> Option<String> {
+    directive.filter(|text| !text.trim().is_empty())
+}
+
 impl Engine {
     pub fn new(config: EngineConfig, deps: EngineDeps) -> Self {
         let (events, _) = broadcast::channel(1024);
         Self {
             inner: Arc::new(Inner {
                 style_directive: RwLock::new(None),
+                global_directive: RwLock::new(None),
                 passage_mode: RwLock::new(config.passage_mode),
                 timings: RwLock::new(config.timings()),
                 asr: RwLock::new(deps.asr),
@@ -248,8 +262,14 @@ impl Engine {
                 // register. (Scenario entries with blank directives are
                 // already filtered by the library loader; this guards the
                 // engine seam itself.)
-                *self.inner.style_directive.write().unwrap() =
-                    directive.filter(|text| !text.trim().is_empty());
+                *self.inner.style_directive.write().unwrap() = non_blank(directive);
+                Ok(())
+            }
+            Command::SetGlobalDirective(directive) => {
+                // Same blank guard as SetStyleDirective's, for the same
+                // reason: the storage loader already normalizes, this
+                // guards the engine seam itself.
+                *self.inner.global_directive.write().unwrap() = non_blank(directive);
                 Ok(())
             }
             Command::SetPassageMode(on) => {
@@ -330,7 +350,7 @@ impl Engine {
             }
             // Same blank guard as SetStyleDirective's: whitespace-only
             // override text reads as no override.
-            let style_override = style_override.filter(|text| !text.trim().is_empty());
+            let style_override = non_blank(style_override);
             // Newlines carry the paragraph structure the transcript was
             // frozen with; splitting restores it exactly.
             let paragraphs: Vec<String> = raw_transcript.split('\n').map(str::to_string).collect();
@@ -353,6 +373,7 @@ impl Engine {
             let terms = session.terms.clone();
             let timings = session.timings;
             let style_directive = Inner::session_style_directive(&session, &self.inner);
+            let global_directive = self.inner.current_global_directive();
             st.session = Some(session);
             self.inner
                 .transition(&mut st, sid, SessionState::Rectifying);
@@ -374,6 +395,7 @@ impl Engine {
                     raw_transcript,
                     paragraphs,
                     style_directive,
+                    global_directive,
                     terms,
                 },
                 timings,
@@ -504,6 +526,13 @@ impl Inner {
     /// attempt (first stop, reroll, and history re-rectify alike).
     fn current_style_directive(&self) -> Option<String> {
         self.style_directive.read().unwrap().clone()
+    }
+
+    /// The global directive every rectify request stamps — same live-read
+    /// rule: never snapshotted into a session, so a change any time
+    /// shapes the next attempt.
+    fn current_global_directive(&self) -> Option<String> {
+        self.global_directive.read().unwrap().clone()
     }
 
     /// The directive a request inside [session] runs with: the session's
@@ -646,12 +675,14 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 let terms = session.terms.clone();
                 let timings = session.timings;
                 let style_directive = Inner::session_style_directive(session, inner);
+                let global_directive = inner.current_global_directive();
                 (
                     cancel,
                     RectifyRequest {
                         raw_transcript,
                         paragraphs,
                         style_directive,
+                        global_directive,
                         terms,
                     },
                     timings,
@@ -665,12 +696,14 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 let terms = session.terms.clone();
                 let timings = session.timings;
                 let style_directive = Inner::session_style_directive(session, inner);
+                let global_directive = inner.current_global_directive();
                 (
                     cancel,
                     RectifyRequest {
                         raw_transcript: frozen.raw_transcript.clone(),
                         paragraphs: frozen.paragraphs.clone(),
                         style_directive,
+                        global_directive,
                         terms,
                     },
                     timings,

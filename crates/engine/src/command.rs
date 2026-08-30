@@ -39,6 +39,12 @@ pub enum Command {
     /// scenario names). `None` returns to the built-in default register.
     /// Valid any time.
     SetStyleDirective(Option<String>),
+    /// Set the global directive's text (ticket 22; the engine knows
+    /// nothing about where it is stored). `None` unsets it. Unlike the
+    /// one-time style override, the global directive is a live value read
+    /// when each request is built: a change any time shapes the next
+    /// attempt, rerolls of an open session included. Valid any time.
+    SetGlobalDirective(Option<String>),
     /// Toggle passage mode (篇章模式) at runtime: silence only marks
     /// paragraphs vs. a long silence auto-ends the session. Snapshotted
     /// when a session opens, so a switch applies from the next session

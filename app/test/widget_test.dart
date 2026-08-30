@@ -880,6 +880,89 @@ void main() {
     expect(gateway.commands, contains('setStyleDirective:null'));
   });
 
+  // -- the global directive's preview row (ticket 22) ----------------------
+
+  testWidgets(
+    'loadGlobalDirective pushes the engine and paints the preview row',
+    (tester) async {
+      final gateway = FakeGateway()..global = '全部输出用简体中文书写';
+      final controller = await pumpController(tester, gateway);
+      await pumpQuickOpen(tester, controller);
+
+      // Unset until loaded: the panel carries no trace of the row.
+      expect(find.byKey(const Key('quick-global-preview')), findsNothing);
+
+      await controller.loadGlobalDirective();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      // The file's text went to the engine (every rectify runs with it)
+      // and the row paints one truncated line of it.
+      expect(gateway.commands, contains('globalDirective'));
+      expect(gateway.commands, contains('setGlobalDirective:全部输出用简体中文书写'));
+      expect(
+        find.byKey(const Key('quick-global-preview')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('the preview row shows with an empty library, hides while unset', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()..global = '恒常生效的指令';
+    final controller = await pumpController(tester, gateway);
+    await controller.loadGlobalDirective();
+    await pumpQuickOpen(tester, controller);
+
+    // An empty library hides the picker chips but not the global row: the
+    // directive is not one scenario among others.
+    expect(find.byKey(const Key('quick-scenario-default')), findsNothing);
+    expect(find.byKey(const Key('quick-global-preview')), findsOneWidget);
+
+    // Unset: the whole row goes away — the panel is as before.
+    gateway.global = null;
+    await controller.onGlobalDirectiveChanged();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byKey(const Key('quick-global-preview')), findsNothing);
+  });
+
+  testWidgets('the preview row jump lands on the scenario domain', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()..global = '恒常生效的指令';
+    final opened = <SettingsDomain>[];
+    final controller = await pumpController(
+      tester,
+      gateway,
+      onOpenSettings: opened.add,
+    );
+    await controller.loadGlobalDirective();
+    await pumpQuickOpen(tester, controller);
+
+    await tester.tap(find.byKey(const Key('quick-global-open')));
+    await tester.pump();
+    expect(opened, [SettingsDomain.scenarios]);
+  });
+
+  testWidgets(
+    'a global-changed reaction re-reads the file and re-pushes the engine',
+    (tester) async {
+      final gateway = FakeGateway()..global = '第一版指令';
+      final controller = await pumpController(tester, gateway);
+      await controller.loadGlobalDirective();
+      expect(gateway.commands, contains('setGlobalDirective:第一版指令'));
+
+      // The settings window saved a new text: the reaction re-reads the
+      // file (the truth) and pushes the fresh value — the engine's live
+      // read applies it to the very next attempt, rerolls included.
+      gateway.global = '第二版指令';
+      await controller.onGlobalDirectiveChanged();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(controller.globalDirective, '第二版指令');
+      expect(gateway.commands, contains('setGlobalDirective:第二版指令'));
+    },
+  );
+
   testWidgets('quick terms add via Enter and the button, remove via the chip', (
     tester,
   ) async {

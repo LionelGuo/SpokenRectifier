@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -792623247;
+  int get rustContentHash => 665126530;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -109,6 +109,8 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiFakeSilence({required BigInt elapsedMs});
 
+  Future<String?> crateApiGlobalDirective();
+
   Future<void> crateApiHistoryClear();
 
   Future<BridgeHistoryConfig> crateApiHistoryConfig();
@@ -124,6 +126,8 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiRemoveTerm({required String term});
 
   Future<void> crateApiRestoreFocus();
+
+  Future<void> crateApiSaveGlobalDirective({String? directive});
 
   Future<void> crateApiSaveScenarios({required List<BridgeScenario> scenarios});
 
@@ -526,7 +530,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "fake_silence", argNames: ["elapsedMs"]);
 
   @override
-  Future<void> crateApiHistoryClear() {
+  Future<String?> crateApiGlobalDirective() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -535,6 +539,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             generalizedFrbRustBinding,
             serializer,
             funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiGlobalDirectiveConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGlobalDirectiveConstMeta =>
+      const TaskConstMeta(debugName: "global_directive", argNames: []);
+
+  @override
+  Future<void> crateApiHistoryClear() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
             port: port_,
           );
         },
@@ -561,7 +592,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -588,7 +619,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 16,
             port: port_,
           );
         },
@@ -615,7 +646,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -642,7 +673,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -669,7 +700,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -697,7 +728,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -724,7 +755,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -743,6 +774,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "restore_focus", argNames: []);
 
   @override
+  Future<void> crateApiSaveGlobalDirective({String? directive}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_opt_String(directive, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 22,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSaveGlobalDirectiveConstMeta,
+        argValues: [directive],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSaveGlobalDirectiveConstMeta =>
+      const TaskConstMeta(
+        debugName: "save_global_directive",
+        argNames: ["directive"],
+      );
+
+  @override
   Future<void> crateApiSaveScenarios({
     required List<BridgeScenario> scenarios,
   }) {
@@ -754,7 +816,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 23,
             port: port_,
           );
         },
@@ -781,7 +843,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 24,
             port: port_,
           );
         },
@@ -811,7 +873,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 25,
             port: port_,
           );
         },
@@ -847,7 +909,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 26,
             port: port_,
           );
         },
@@ -891,7 +953,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 27,
             port: port_,
           );
         },
@@ -929,7 +991,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 28,
             port: port_,
           );
         },
@@ -967,7 +1029,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 29,
             port: port_,
           );
         },
@@ -999,7 +1061,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 28,
+              funcId: 30,
               port: port_,
             );
           },
@@ -1028,7 +1090,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1058,7 +1120,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 30,
+              funcId: 32,
               port: port_,
             );
           },
@@ -1087,7 +1149,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1116,7 +1178,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 34,
             port: port_,
           );
         },
@@ -1376,14 +1438,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           directive: dco_decode_opt_String(raw[1]),
         );
       case 7:
-        return BridgeCommand_SetPassageMode(on_: dco_decode_bool(raw[1]));
+        return BridgeCommand_SetGlobalDirective(
+          directive: dco_decode_opt_String(raw[1]),
+        );
       case 8:
+        return BridgeCommand_SetPassageMode(on_: dco_decode_bool(raw[1]));
+      case 9:
         return BridgeCommand_SetEngineTimings(
           paragraphSilenceMs: dco_decode_u_64(raw[1]),
           sessionEndSilenceMs: dco_decode_u_64(raw[2]),
           rectifyTimeoutMs: dco_decode_u_64(raw[3]),
         );
-      case 9:
+      case 10:
         return BridgeCommand_RectifyText(
           rawTranscript: dco_decode_String(raw[1]),
           styleOverride: dco_decode_opt_String(raw[2]),
@@ -2015,9 +2081,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_directive = sse_decode_opt_String(deserializer);
         return BridgeCommand_SetStyleDirective(directive: var_directive);
       case 7:
+        var var_directive = sse_decode_opt_String(deserializer);
+        return BridgeCommand_SetGlobalDirective(directive: var_directive);
+      case 8:
         var var_on_ = sse_decode_bool(deserializer);
         return BridgeCommand_SetPassageMode(on_: var_on_);
-      case 8:
+      case 9:
         var var_paragraphSilenceMs = sse_decode_u_64(deserializer);
         var var_sessionEndSilenceMs = sse_decode_u_64(deserializer);
         var var_rectifyTimeoutMs = sse_decode_u_64(deserializer);
@@ -2026,7 +2095,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sessionEndSilenceMs: var_sessionEndSilenceMs,
           rectifyTimeoutMs: var_rectifyTimeoutMs,
         );
-      case 9:
+      case 10:
         var var_rawTranscript = sse_decode_String(deserializer);
         var var_styleOverride = sse_decode_opt_String(deserializer);
         return BridgeCommand_RectifyText(
@@ -2726,15 +2795,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case BridgeCommand_SetStyleDirective(directive: final directive):
         sse_encode_i_32(6, serializer);
         sse_encode_opt_String(directive, serializer);
-      case BridgeCommand_SetPassageMode(on_: final on_):
+      case BridgeCommand_SetGlobalDirective(directive: final directive):
         sse_encode_i_32(7, serializer);
+        sse_encode_opt_String(directive, serializer);
+      case BridgeCommand_SetPassageMode(on_: final on_):
+        sse_encode_i_32(8, serializer);
         sse_encode_bool(on_, serializer);
       case BridgeCommand_SetEngineTimings(
         paragraphSilenceMs: final paragraphSilenceMs,
         sessionEndSilenceMs: final sessionEndSilenceMs,
         rectifyTimeoutMs: final rectifyTimeoutMs,
       ):
-        sse_encode_i_32(8, serializer);
+        sse_encode_i_32(9, serializer);
         sse_encode_u_64(paragraphSilenceMs, serializer);
         sse_encode_u_64(sessionEndSilenceMs, serializer);
         sse_encode_u_64(rectifyTimeoutMs, serializer);
@@ -2742,7 +2814,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         rawTranscript: final rawTranscript,
         styleOverride: final styleOverride,
       ):
-        sse_encode_i_32(9, serializer);
+        sse_encode_i_32(10, serializer);
         sse_encode_String(rawTranscript, serializer);
         sse_encode_opt_String(styleOverride, serializer);
     }

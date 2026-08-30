@@ -145,6 +145,16 @@ class _QuickPanelState extends State<QuickPanel> {
                         // to pick between) but the editor entry remains the
                         // creation path into the settings window.
                         _sectionLabel(pal, '场景'),
+                        // The global directive's preview row (ticket 22):
+                        // shown only while one is set — with an empty
+                        // library too, it is not a picker among scenarios.
+                        if (c.globalDirective != null) ...[
+                          _GlobalPreviewRow(
+                            directive: c.globalDirective!,
+                            onOpen: _openSettings,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         if (c.scenarios.isNotEmpty) ...[
                           Wrap(
                             spacing: 8,
@@ -379,6 +389,71 @@ TextStyle _chipText(SrPalette pal, {required bool selected}) =>
       color: selected ? pal.accentText : pal.textSecondary,
       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
     );
+
+/// The global directive's preview row (ticket 22): what is currently in
+/// force, one truncated line (the tooltip names it, the full text does
+/// not fit), with the settings jump on its right — the same mechanism
+/// the 编辑场景… entry uses, landing on the scenario domain where the
+/// directive's inline card lives. Hidden entirely while unset.
+class _GlobalPreviewRow extends StatelessWidget {
+  const _GlobalPreviewRow({required this.directive, required this.onOpen});
+
+  final String directive;
+  final ValueChanged<SettingsDomain> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = srPalette(context);
+    return SrHover(
+      builder: (hover) => AnimatedContainer(
+        duration: SrMotion.fade,
+        curve: SrMotion.curveFade,
+        height: _termRowHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
+          borderRadius: BorderRadius.circular(SrRadius.control),
+          border: Border.all(color: pal.hairline),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.public_rounded, size: 14, color: pal.textTertiary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Tooltip(
+                message: '全局指令',
+                waitDuration: SrMotion.tooltipWait,
+                child: Text(
+                  directive,
+                  key: const Key('quick-global-preview'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: SrType.caption.copyWith(color: pal.textSecondary),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              key: const Key('quick-global-open'),
+              onTap: () => onOpen(SettingsDomain.scenarios),
+              child: Tooltip(
+                message: '编辑全局指令',
+                waitDuration: SrMotion.tooltipWait,
+                child: _HoverTintIcon(
+                  icon: Icons.settings_outlined,
+                  size: 15,
+                  hover: hover,
+                  resting: pal.textTertiary,
+                  hovered: pal.accentText,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// A full-width management entry (编辑场景… / 全部历史与管理… /
 /// 全面配置…): a ghost row, outlined at rest like the term add button,

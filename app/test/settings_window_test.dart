@@ -77,6 +77,33 @@ class FakeScenarioStore implements ScenarioStore {
   }
 }
 
+/// The global directive's fake (ticket 22): the value in memory, one
+/// snapshot per save.
+class FakeGlobalDirectiveStore implements GlobalDirectiveStore {
+  FakeGlobalDirectiveStore([this.directive]);
+
+  String? directive;
+
+  final saves = <String?>[];
+
+  /// When set, the next save throws.
+  Object? failNextSave;
+
+  @override
+  Future<String?> load() async => directive;
+
+  @override
+  Future<void> save(String? value) async {
+    if (failNextSave != null) {
+      final failure = failNextSave;
+      failNextSave = null;
+      throw failure!;
+    }
+    saves.add(value);
+    directive = value;
+  }
+}
+
 /// The history domain's fake: config + entries in memory, mirroring the
 /// keep-nothing semantics (saving it empties what a list would show).
 class FakeHistorySettingsStore implements HistorySettingsStore {
@@ -474,6 +501,7 @@ class FakeSettingsChannel implements SettingsChannel {
   int historyChanged = 0;
   final rerectifies = <({String raw, String? scenario})>[];
   int termsChanged = 0;
+  int globalChanged = 0;
 
   void Function(ThemeMode mode)? themeHandler;
   void Function(String? name)? selectionHandler;
@@ -499,6 +527,9 @@ class FakeSettingsChannel implements SettingsChannel {
     String? renamedFrom,
     String? renamedTo,
   }) async => libraryChanged.add((from: renamedFrom, to: renamedTo));
+
+  @override
+  Future<void> sendGlobalChanged() async => globalChanged++;
 
   @override
   Future<void> sendScenarioSelected(String? name) async => selections.add(name);
@@ -588,6 +619,7 @@ Future<void> pumpSettings(
   WidgetTester tester, {
   FakeScenarioStore? store,
   FakeSettingsChannel? channel,
+  FakeGlobalDirectiveStore? globalStore,
   FakeHistorySettingsStore? historyStore,
   FakeFidelityEvalRunner? evalRunner,
   FakeTermsStore? termsStore,
@@ -602,6 +634,7 @@ Future<void> pumpSettings(
     SettingsWindowApp(
       store: store ?? FakeScenarioStore(_seeded),
       channel: channel ?? FakeSettingsChannel(),
+      globalStore: globalStore ?? FakeGlobalDirectiveStore(),
       initialDomain: domain,
       initialTheme: initialTheme,
       initialSelection: selected,
@@ -653,6 +686,11 @@ String fieldText(WidgetTester tester, Key key) => tester
     )
     .controller!
     .text;
+
+/// The global directive card's field text (the key sits on the TextField
+/// itself there, not on an ancestor wrapper).
+String globalFieldText(WidgetTester tester) =>
+    tester.widget<TextField>(find.byKey(const Key('settings-global-field'))).controller!.text;
 
 /// A Text widget's painted data, by its key.
 String textOf(WidgetTester tester, Key key) =>
@@ -750,6 +788,15 @@ void main() {
   // -----------------------------------------------------------------------
   // The fidelity-eval domain (保真评测)
   // -----------------------------------------------------------------------
+
+  testWidgets('the eval entry notes no scenario or global directive applies', (
+    tester,
+  ) async {
+    await pumpSettings(tester, domain: SettingsDomain.fidelity);
+    // The isolation is by construction (the runner's own engine instance
+    // never receives a directive); the copy states the contract.
+    expect(find.textContaining('不套用场景或全局指令'), findsOneWidget);
+  });
 
   testWidgets('a run walks idle → running → finished with the summary', (
     tester,
@@ -2312,6 +2359,98 @@ void main() {
     expect(find.byKey(const Key('settings-scenario-card:聊天')), findsOneWidget);
     expect(find.byKey(const Key('settings-scenario-error')), findsOneWidget);
     expect(channel.libraryChanged, isEmpty);
+  });
+
+  // -----------------------------------------------------------------------
+  // The global directive's inline card (ticket 22)
+  // -----------------------------------------------------------------------
+
+  testWidgets(
+    'the global card saves on demand only, trimmed, and notifies the window',
+    (tester) async {
+      final store = FakeGlobalDirectiveStore('全部输出用简体中文书写');
+      final channel = FakeSettingsChannel();
+      await pumpSettings(tester, globalStore: store, channel: channel);
+
+      // The card is resident at the top of the pane, seeded from the file.
+      expect(find.byKey(const Key('settings-global-card')), findsOneWidget);
+      expect(globalFieldText(tester), '全部输出用简体中文书写');
+
+      // No change, no save: the explicit button is the only write path.
+      await tester.tap(find.byKey(const Key('settings-global-save')));
+      await tester.pump();
+      expect(store.saves, isEmpty);
+      expect(channel.globalChanged, 0);
+
+      // An edit saves the trimmed text and tells the main window.
+      await tester.enterText(
+        find.byKey(const Key('settings-global-field')),
+        '  语气克制,不用流行语  ',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-global-save')));
+      await tester.pump();
+      expect(store.saves, ['语气克制,不用流行语']);
+      expect(channel.globalChanged, 1);
+
+      // The save reset the baseline: a re-tap without edits writes nothing.
+      await tester.tap(find.byKey(const Key('settings-global-save')));
+      await tester.pump();
+      expect(store.saves, ['语气克制,不用流行语']);
+      expect(channel.globalChanged, 1);
+    },
+  );
+
+  testWidgets('saving blank text unsets the directive', (tester) async {
+    final store = FakeGlobalDirectiveStore('旧的全局指令');
+    final channel = FakeSettingsChannel();
+    await pumpSettings(tester, globalStore: store, channel: channel);
+
+    // Clearing the field and saving is the off switch — no separate
+    // clear action, no refusal for empty text.
+    await tester.enterText(find.byKey(const Key('settings-global-field')), '   ');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-global-save')));
+    await tester.pump();
+    expect(store.saves, [null]);
+    expect(store.directive, isNull);
+    expect(channel.globalChanged, 1);
+  });
+
+  testWidgets('a failed global save surfaces the error and keeps the file', (
+    tester,
+  ) async {
+    final store = FakeGlobalDirectiveStore('旧的全局指令')
+      ..failNextSave = StateError('disk');
+    final channel = FakeSettingsChannel();
+    await pumpSettings(tester, globalStore: store, channel: channel);
+
+    await tester.enterText(
+      find.byKey(const Key('settings-global-field')),
+      '新的全局指令',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-global-save')));
+    await tester.pump();
+
+    // The file refused the write: the error shows, no event went out, and
+    // the card keeps the unsaved text for a retry.
+    expect(find.byKey(const Key('settings-scenario-error')), findsOneWidget);
+    expect(channel.globalChanged, 0);
+    expect(store.directive, '旧的全局指令');
+    expect(globalFieldText(tester), '新的全局指令');
+  });
+
+  testWidgets('the global card stays with an empty library', (tester) async {
+    await pumpSettings(
+      tester,
+      store: FakeScenarioStore(),
+      globalStore: FakeGlobalDirectiveStore('恒常生效的指令'),
+    );
+
+    // Empty library or not, the card is resident above the empty state.
+    expect(find.byKey(const Key('settings-global-card')), findsOneWidget);
+    expect(find.byKey(const Key('settings-scenario-empty')), findsOneWidget);
   });
 
   // -----------------------------------------------------------------------

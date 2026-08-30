@@ -71,7 +71,7 @@ class _IdleCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            '走真实 LLM(约 1 分钟、约 2 万 token);全程不插入文本、不写入历史、不读本机词表。',
+            '走真实 LLM(约 1 分钟、约 2 万 token);全程不插入文本、不写入历史、不读本机词表,也不套用场景或全局指令。',
             style: SrType.caption.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 20),

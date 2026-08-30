@@ -11,13 +11,22 @@ use spokenrectifier_llm::{Intensity, compose_prompt};
 // scenario would carry).
 const DIRECTIVE: &str = "输出将直接用作 AI 提示词:保留全部技术细节与指令语义,信息密度优先,可按逻辑分点、分行组织,行内代码用反引号";
 
+// A representative global directive (ticket 22).
+const GLOBAL: &str = "全部输出以简体中文书写,语气克制,不用网络流行语。";
+
 // NOTE: this helper is deliberately duplicated in examples/gen_golden.rs;
 // the golden assertions below fail loudly if the two ever drift.
-fn request(style_directive: Option<&str>, terms: &[&str], paragraphs: &[&str]) -> RectifyRequest {
+fn request(
+    style_directive: Option<&str>,
+    global_directive: Option<&str>,
+    terms: &[&str],
+    paragraphs: &[&str],
+) -> RectifyRequest {
     RectifyRequest {
         raw_transcript: paragraphs.join("\n"),
         paragraphs: paragraphs.iter().map(|p| p.to_string()).collect(),
         style_directive: style_directive.map(str::to_string),
+        global_directive: global_directive.map(str::to_string),
         terms: terms.iter().map(|t| t.to_string()).collect(),
     }
 }
@@ -25,7 +34,7 @@ fn request(style_directive: Option<&str>, terms: &[&str], paragraphs: &[&str]) -
 #[test]
 fn light_touch_default_register_system_prompt_is_golden() {
     let prompt = compose_prompt(
-        &request(None, &[], &["嗯,明天三点开会"]),
+        &request(None, None, &[], &["嗯,明天三点开会"]),
         Intensity::LightTouch,
     );
     assert_eq!(
@@ -38,7 +47,12 @@ fn light_touch_default_register_system_prompt_is_golden() {
 #[test]
 fn full_rectify_default_register_system_prompt_is_golden() {
     let prompt = compose_prompt(
-        &request(None, &["Kubernetes", "QRS 波群"], &["第一段话", "第二段话"]),
+        &request(
+            None,
+            None,
+            &["Kubernetes", "QRS 波群"],
+            &["第一段话", "第二段话"],
+        ),
         Intensity::Full,
     );
     assert_eq!(
@@ -53,6 +67,7 @@ fn full_rectify_with_a_directive_system_prompt_is_golden() {
     let prompt = compose_prompt(
         &request(
             Some(DIRECTIVE),
+            None,
             &["Kubernetes", "QRS 波群"],
             &["第一段话", "第二段话"],
         ),
@@ -63,4 +78,40 @@ fn full_rectify_with_a_directive_system_prompt_is_golden() {
         include_str!("golden/full-directive-system.txt")
     );
     assert_eq!(prompt.user, include_str!("golden/full-directive-user.txt"));
+}
+
+#[test]
+fn a_global_directive_alone_keeps_the_default_register_and_is_golden() {
+    let prompt = compose_prompt(
+        &request(
+            None,
+            Some(GLOBAL),
+            &["Kubernetes", "QRS 波群"],
+            &["第一段话", "第二段话"],
+        ),
+        Intensity::Full,
+    );
+    assert_eq!(prompt.system, include_str!("golden/full-global-system.txt"));
+    assert_eq!(prompt.user, include_str!("golden/full-global-user.txt"));
+}
+
+#[test]
+fn a_global_directive_under_a_scenario_directive_is_golden() {
+    let prompt = compose_prompt(
+        &request(
+            Some(DIRECTIVE),
+            Some(GLOBAL),
+            &["Kubernetes", "QRS 波群"],
+            &["第一段话", "第二段话"],
+        ),
+        Intensity::Full,
+    );
+    assert_eq!(
+        prompt.system,
+        include_str!("golden/full-global-directive-system.txt")
+    );
+    assert_eq!(
+        prompt.user,
+        include_str!("golden/full-global-directive-user.txt")
+    );
 }

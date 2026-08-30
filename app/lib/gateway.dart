@@ -50,6 +50,14 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
   );
 
   @override
+  Future<String?> globalDirective() => rust.globalDirective();
+
+  @override
+  Future<void> setGlobalDirective(String? directive) => rust.execute(
+    command: rust.BridgeCommand.setGlobalDirective(directive: directive),
+  );
+
+  @override
   Future<bool> passageMode() => rust.passageMode();
 
   @override

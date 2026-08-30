@@ -75,6 +75,26 @@ const DIRECTIVE_PRECEDENCE: &str = "(优先级:本指令高于其他一切语体
 const DIRECTIVE_REMINDER: &str =
     "【语体指令】(必须逐字执行;高于一切拼写与格式保留规则,仅保真铁律例外)";
 
+/// The header riding the global directive (ticket 22): the same
+/// enforcement framing as a scenario's — a bare directive line is
+/// followed only intermittently, so it reads as an order, not a
+/// suggestion.
+const GLOBAL_ENFORCEMENT: &str = "(用户设定的全局指令,必须严格执行)";
+
+/// The precedence line right under the global directive. It outranks
+/// every FORM rule like a scenario's does, but sits one step BELOW the
+/// scenario directive: only the fidelity rule and a scenario outrank it,
+/// and a conflict follows the scenario (ADR-0006's
+/// 铁律 > 场景 > 全局 > 其他形式规则).
+const GLOBAL_PRECEDENCE: &str = "(优先级:本指令高于其他一切语体、格式与拼写形态规则;仅【保真铁律】与场景指令高于本指令——与场景指令冲突时,以场景指令为准)";
+
+/// The user-message reminder for the global directive — same recency
+/// rationale as [`DIRECTIVE_REMINDER`]. With both directives active the
+/// global reminder comes FIRST and the scenario's stays last: recency
+/// goes to the stronger, matching the precedence order.
+const GLOBAL_REMINDER: &str =
+    "【全局指令】(必须执行;高于一切拼写与格式保留规则,仅保真铁律与场景指令例外)";
+
 fn intensity_directive(intensity: Intensity) -> &'static str {
     match intensity {
         Intensity::LightTouch => INTENSITY_LIGHT_TOUCH,
@@ -100,6 +120,15 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
         intensity_directive(intensity).into(),
         String::new(),
     ];
+    // The global directive's own block, one step above 【目标语体】 in the
+    // precedence order — absent entirely when unset, so the prompt stays
+    // byte-identical to the pre-global composition.
+    if let Some(text) = &request.global_directive {
+        system_sections.push(format!(
+            "【全局指令】{GLOBAL_ENFORCEMENT}\n{text}\n{GLOBAL_PRECEDENCE}"
+        ));
+        system_sections.push(String::new());
+    }
     match &request.style_directive {
         None => system_sections.push(format!("【目标语体】{DEFAULT_REGISTER}")),
         Some(text) => system_sections.push(format!(
@@ -120,6 +149,9 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
             "\n\n【术语参考】(逐字保留,以如下拼写为准)\n{list}"
         ));
     }
+    if let Some(text) = &request.global_directive {
+        user.push_str(&format!("\n\n{GLOBAL_REMINDER}\n{text}"));
+    }
     if let Some(text) = &request.style_directive {
         user.push_str(&format!("\n\n{DIRECTIVE_REMINDER}\n{text}"));
     }
@@ -131,18 +163,23 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
 mod tests {
     use super::*;
 
-    fn request(style_directive: Option<&str>, terms: Vec<&str>) -> RectifyRequest {
+    fn request(
+        style_directive: Option<&str>,
+        global_directive: Option<&str>,
+        terms: Vec<&str>,
+    ) -> RectifyRequest {
         RectifyRequest {
             raw_transcript: "嗯你好世界".into(),
             paragraphs: vec!["嗯你好世界".into()],
             style_directive: style_directive.map(String::from),
+            global_directive: global_directive.map(String::from),
             terms: terms.into_iter().map(String::from).collect(),
         }
     }
 
     #[test]
     fn system_prompt_carries_the_fidelity_rule_and_all_transforms() {
-        let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
+        let prompt = compose_prompt(&request(None, None, vec![]), Intensity::Full);
         for fragment in [
             "保真优先于信息密度",
             "不得捏造转写中没有的信息",
@@ -158,7 +195,7 @@ mod tests {
 
     #[test]
     fn light_touch_forbids_reordering_and_rewording() {
-        let prompt = compose_prompt(&request(None, vec![]), Intensity::LightTouch);
+        let prompt = compose_prompt(&request(None, None, vec![]), Intensity::LightTouch);
         let intensity = INTENSITY_LIGHT_TOUCH;
         assert!(intensity.contains("禁止改变句序"));
         assert!(intensity.contains("禁止改写措辞风格"));
@@ -168,14 +205,14 @@ mod tests {
 
     #[test]
     fn full_rectify_allows_reorganization() {
-        let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
+        let prompt = compose_prompt(&request(None, None, vec![]), Intensity::Full);
         assert!(INTENSITY_FULL.contains("允许篇章级逻辑重组"));
         assert!(prompt.system.contains("全量修正"));
     }
 
     #[test]
     fn no_directive_means_the_default_register_without_the_directive_guard() {
-        let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
+        let prompt = compose_prompt(&request(None, None, vec![]), Intensity::Full);
         assert!(prompt.system.contains("通用书面语"));
         // The built-in register is engine-owned and consistent with the
         // rules; the enforcement framing is the user-directive guard.
@@ -188,7 +225,7 @@ mod tests {
     #[test]
     fn a_directive_rides_the_system_prompt_verbatim_with_enforcement_and_precedence() {
         let directive = "输出将直接用作 AI 提示词:可按逻辑分点、分行组织";
-        let prompt = compose_prompt(&request(Some(directive), vec![]), Intensity::Full);
+        let prompt = compose_prompt(&request(Some(directive), None, vec![]), Intensity::Full);
         // The user's directive replaces the default register, framed as an
         // order, with the precedence line right under it.
         assert!(!prompt.system.contains("通用书面语"));
@@ -207,7 +244,7 @@ mod tests {
     #[test]
     fn a_directive_is_repeated_at_the_end_of_the_user_message_after_the_terms() {
         let directive = "All English words are in uppercase letters.";
-        let mut req = request(Some(directive), vec![]);
+        let mut req = request(Some(directive), None, vec![]);
         req.paragraphs = vec!["第一段".into(), "第二段".into()];
         req.terms = vec!["RESTful".into(), "URL".into()];
         let prompt = compose_prompt(&req, Intensity::Full);
@@ -229,7 +266,7 @@ mod tests {
 
     #[test]
     fn user_message_joins_paragraphs_and_renders_terms() {
-        let mut req = request(None, vec!["Kubernetes", "QRS 波群"]);
+        let mut req = request(None, None, vec!["Kubernetes", "QRS 波群"]);
         req.paragraphs = vec!["第一段".into(), "第二段".into()];
         let prompt = compose_prompt(&req, Intensity::Full);
         assert!(prompt.user.contains("第一段\n\n第二段"));
@@ -240,7 +277,87 @@ mod tests {
 
     #[test]
     fn no_terms_section_without_terms() {
-        let prompt = compose_prompt(&request(None, vec![]), Intensity::Full);
+        let prompt = compose_prompt(&request(None, None, vec![]), Intensity::Full);
         assert!(!prompt.user.contains("术语参考"));
+    }
+
+    // -- the global directive's own layer (ticket 22) -----------------------
+
+    const GLOBAL: &str = "全部输出以简体中文书写,语气克制。";
+
+    #[test]
+    fn no_global_directive_leaves_no_trace_of_its_block() {
+        let prompt = compose_prompt(&request(None, None, vec![]), Intensity::Full);
+        assert!(!prompt.system.contains("【全局指令】"));
+        assert!(!prompt.system.contains(GLOBAL_ENFORCEMENT));
+        assert!(!prompt.system.contains(GLOBAL_PRECEDENCE));
+        assert!(!prompt.user.contains(GLOBAL_REMINDER));
+        // The golden files freeze the byte-identity with the pre-global
+        // composition; this documents the same contract at unit level.
+    }
+
+    #[test]
+    fn a_global_directive_blocks_above_the_style_directive_with_its_own_precedence() {
+        let prompt = compose_prompt(
+            &request(Some("以 Markdown 分条输出"), Some(GLOBAL), vec![]),
+            Intensity::Full,
+        );
+        let global_at = prompt.system.find(GLOBAL).expect("global present");
+        let global_precedence_at = prompt
+            .system
+            .find(GLOBAL_PRECEDENCE)
+            .expect("global precedence");
+        let fidelity_at = prompt.system.find("【保真铁律】").expect("fidelity rule");
+        // The style block's anchor: "【目标语体】" also appears inside the
+        // verbatim-preservation rule above, so anchor on the framing only
+        // the style block carries.
+        let style_at = prompt
+            .system
+            .find(DIRECTIVE_ENFORCEMENT)
+            .expect("style directive");
+        // Its own block, framed and ordered: fidelity < global < global
+        // precedence < the scenario's block below it.
+        assert!(prompt.system.contains(GLOBAL_ENFORCEMENT));
+        assert!(fidelity_at < global_at);
+        assert!(global_at < global_precedence_at);
+        assert!(global_precedence_at < style_at);
+    }
+
+    #[test]
+    fn a_global_directive_adds_to_the_default_register_it_does_not_replace_it() {
+        let prompt = compose_prompt(&request(None, Some(GLOBAL), vec![]), Intensity::Full);
+        // No scenario: 【目标语体】 keeps the built-in register — the global
+        // directive is purely additive.
+        assert!(prompt.system.contains("【目标语体】通用书面语"));
+    }
+
+    #[test]
+    fn dual_reminders_close_the_user_message_global_first_scenario_last() {
+        let style = "以 Markdown 分条输出";
+        let prompt = compose_prompt(
+            &request(Some(style), Some(GLOBAL), vec!["RESTful"]),
+            Intensity::Full,
+        );
+        // Recency goes to the stronger: the scenario's reminder is the
+        // final word, the global's rides just above it.
+        assert!(prompt.user.ends_with(&format!(
+            "{GLOBAL_REMINDER}\n{GLOBAL}\n\n{DIRECTIVE_REMINDER}\n{style}"
+        )));
+        let global_reminder_at = prompt.user.find(GLOBAL_REMINDER).expect("global reminder");
+        let directive_reminder_at = prompt
+            .user
+            .find(DIRECTIVE_REMINDER)
+            .expect("style reminder");
+        assert!(global_reminder_at < directive_reminder_at);
+    }
+
+    #[test]
+    fn a_global_directive_alone_closes_the_user_message() {
+        let prompt = compose_prompt(&request(None, Some(GLOBAL), vec![]), Intensity::Full);
+        assert!(
+            prompt
+                .user
+                .ends_with(&format!("{GLOBAL_REMINDER}\n{GLOBAL}"))
+        );
     }
 }

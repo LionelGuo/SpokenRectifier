@@ -127,6 +127,9 @@ Future<void> main(List<String> args) async {
   // Paint the scenario pickers from the library file (empty library =
   // pickers hidden; selection always starts on the default register).
   await controller.loadScenarios();
+  // The global directive rides every rectify (ticket 22): read the file,
+  // push the text at the engine, paint the quick panel's preview card.
+  await controller.loadGlobalDirective();
   // The quick panel's passage-mode toggle paints the engine's current
   // value (config-seeded; never persisted).
   await controller.loadPassageMode();

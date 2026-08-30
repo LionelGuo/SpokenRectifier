@@ -101,6 +101,10 @@ class DesktopSettingsWindow {
           renamedFrom: args?['renamedFrom'] as String?,
           renamedTo: args?['renamedTo'] as String?,
         );
+      case 'global-changed':
+        // The global directive's file changed: re-read it through the
+        // controller and push the fresh text at the engine (ticket 22).
+        await _controller.onGlobalDirectiveChanged();
       case 'scenario-selected':
         await _controller.selectScenario(call.arguments as String?);
       case 'history-changed':

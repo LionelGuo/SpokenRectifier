@@ -33,6 +33,11 @@ abstract class SettingsChannel {
   /// selection across identifies itself (old name, new name).
   Future<void> sendScenariosChanged({String? renamedFrom, String? renamedTo});
 
+  /// The global directive changed on disk (ticket 22): the main window
+  /// re-reads the file and pushes the fresh text at the engine — an
+  /// event, never mirrored state.
+  Future<void> sendGlobalChanged();
+
   /// The user picked a scenario in the editor (null = default register).
   Future<void> sendScenarioSelected(String? name);
 
@@ -97,6 +102,9 @@ class DesktopSettingsChannel implements SettingsChannel {
         'renamedFrom': ?renamedFrom,
         'renamedTo': ?renamedTo,
       });
+
+  @override
+  Future<void> sendGlobalChanged() => _send('global-changed', null);
 
   @override
   Future<void> sendScenarioSelected(String? name) =>

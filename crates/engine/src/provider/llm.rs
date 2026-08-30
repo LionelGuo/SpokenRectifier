@@ -23,6 +23,11 @@ pub struct RectifyRequest {
     /// text crosses the engine seam — scenario names and lists live in
     /// the shell.
     pub style_directive: Option<String>,
+    /// The global directive's text, verbatim; `None` = no global
+    /// directive. Layered under the scenario's directive by the prompt
+    /// (ADR-0006: conflicts follow the scenario). Read fresh when each
+    /// request is built — never pinned per session.
+    pub global_directive: Option<String>,
     /// Domain terms from the hotword dictionary, verbatim-preserved in the
     /// rectified text. Filled by the hotword pipeline; the rectify prompt
     /// renders them as a reference list.

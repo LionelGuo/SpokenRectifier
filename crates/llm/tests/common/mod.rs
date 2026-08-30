@@ -31,6 +31,7 @@ pub fn request(text: &str) -> RectifyRequest {
         raw_transcript: text.into(),
         paragraphs: vec![text.into()],
         style_directive: None,
+        global_directive: None,
         terms: vec![],
     }
 }

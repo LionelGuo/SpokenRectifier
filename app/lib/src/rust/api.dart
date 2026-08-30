@@ -90,6 +90,25 @@ Future<List<BridgeScenario>> scenarios() =>
 Future<void> saveScenarios({required List<BridgeScenario> scenarios}) =>
     RustLib.instance.api.crateApiSaveScenarios(scenarios: scenarios);
 
+/// The global directive (全局指令, ticket 22): the single `directive` key
+/// from the app-owned `spokenrectifier-global.toml` — a companion file of
+/// the scenario library's, so a library rewrite cannot lose it. A
+/// missing, corrupt, or blank file reads as `None` (unset); this never
+/// errors and never writes. The shell pushes the text at the engine via
+/// `SetGlobalDirective` and repaints its preview from this same read.
+Future<String?> globalDirective() =>
+    RustLib.instance.api.crateApiGlobalDirective();
+
+/// Save the global directive into the file the loader resolves (created
+/// in the app's settings home when none exists yet). `None` and blank
+/// text both write the canonical unset form — clearing the field and
+/// saving is the off switch. File-level and engine-independent like
+/// [`global_directive`]: the main window re-reads the file and pushes the
+/// fresh text at the engine (`SetGlobalDirective`) on the
+/// global-changed event. Only ever runs on a user action.
+Future<void> saveGlobalDirective({String? directive}) =>
+    RustLib.instance.api.crateApiSaveGlobalDirective(directive: directive);
+
 /// Everything the fake inserter received, in order (demo introspection).
 /// The production inserter does not record; insertion outcomes arrive on
 /// the event stream instead (`TextInserted` / `Error`).
@@ -641,6 +660,12 @@ sealed class BridgeCommand with _$BridgeCommand {
   /// scenario names.
   const factory BridgeCommand.setStyleDirective({String? directive}) =
       BridgeCommand_SetStyleDirective;
+
+  /// The global directive's text (ticket 22; the engine knows nothing
+  /// about where it is stored); `None` unsets it. A live value read at
+  /// every request assembly, never pinned per session.
+  const factory BridgeCommand.setGlobalDirective({String? directive}) =
+      BridgeCommand_SetGlobalDirective;
 
   /// Passage mode (篇章模式) as it stands now — the value the next
   /// session opens with (the engine snapshots it per session).
