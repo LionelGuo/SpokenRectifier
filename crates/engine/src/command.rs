@@ -44,6 +44,16 @@ pub enum Command {
     },
     /// End the recording session and start rectifying (hotkey press again).
     StopSession,
+    /// Pin a placeholder (钉入) at the current position of the spoken
+    /// segment. Valid only while recording: the sentinel `‡N‡` appears in
+    /// the live transcript at once and rides the same join into the frozen
+    /// transcript and the rectify request. Numbers run from 1 in pin order
+    /// within the session — never reused, never carried across sessions.
+    /// A pin is not speech: it never re-arms the paragraph rules, and a
+    /// pin-only session survives the recording-end discard only through
+    /// its non-empty frozen transcript. Rejected with no state change
+    /// outside recording.
+    PinPlaceholder,
     /// Abort the session at any point with zero output.
     Cancel,
     /// Insert the (possibly edited) rectified text at the cursor. Valid in

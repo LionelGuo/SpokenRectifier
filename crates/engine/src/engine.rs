@@ -120,6 +120,11 @@ struct Session {
     current_paragraph: String,
     /// Interim speech not yet finalized.
     partial: String,
+    /// Placeholders pinned so far, in pin order; the number is the index
+    /// plus 1. Held outside the three transcript strings and spliced in
+    /// at render time, so later speech never disturbs a pin and the
+    /// freeze reuses the live join instead of recomputing positions.
+    pins: Vec<Pin>,
     /// Whether the current silence run already emitted a paragraph mark.
     paragraph_marked_current_silence: bool,
     /// Speech happened since the last paragraph mark (VAD activity or
@@ -148,6 +153,36 @@ struct Session {
 struct FrozenUtterance {
     raw_transcript: String,
     paragraphs: Vec<String>,
+}
+
+/// A pinned placeholder (钉入): the sentinel `‡N‡` held at a fixed point
+/// of the transcript. The number is the identity — from 1, in pin order,
+/// per session; never changed, never reused, never carried across
+/// sessions.
+struct Pin {
+    number: usize,
+    anchor: PinAnchor,
+}
+
+impl Pin {
+    /// The placeholder's textual form: `‡N‡`, ASCII digits, no padding —
+    /// the same bytes in the live transcript, the frozen transcript, and
+    /// the rectify request.
+    fn sentinel(&self) -> String {
+        format!("‡{}‡", self.number)
+    }
+}
+
+/// Where a pin sits: virtual paragraph `paragraph` (the closed paragraphs,
+/// then the current paragraph as the last index) at byte `offset` within
+/// it. The anchor cannot go stale: closed paragraphs are immutable, the
+/// current paragraph only ever appends (keeping its content when it
+/// closes), and the interim partial is never pinned into — the pin lands
+/// after the finalized text, and a draft in flight continues after it.
+#[derive(Debug)]
+struct PinAnchor {
+    paragraph: usize,
+    offset: usize,
 }
 
 /// The directive seam's blank guard: whitespace-only text reads as no
@@ -243,6 +278,7 @@ impl Engine {
                 begin_rectify(&self.inner);
                 Ok(())
             }
+            Command::PinPlaceholder => self.pin_placeholder(),
             Command::Cancel => self.cancel_session(),
             Command::ConfirmInsert => self.confirm_insert().await,
             Command::Reroll => {
@@ -412,6 +448,27 @@ impl Engine {
             cancel,
             timings,
         ));
+        Ok(())
+    }
+
+    /// Pin a placeholder at the current end of the spoken segment. The
+    /// whole mutation runs under the state lock and surfaces as one
+    /// `LiveTranscriptUpdated` — no new event shape, so the shell needs
+    /// nothing new to show it.
+    fn pin_placeholder(&self) -> Result<(), EngineError> {
+        let mut st = self.inner.state_lock();
+        if st.state != SessionState::Recording {
+            return Err(EngineError::CommandRejected {
+                command: Command::PinPlaceholder,
+                state: st.state,
+            });
+        }
+        let sid = current_sid(&st);
+        let session = st.session.as_mut().expect("active session");
+        session.pin();
+        let text = session.live_text();
+        self.inner
+            .emit(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text });
         Ok(())
     }
 
@@ -655,12 +712,18 @@ fn begin_rectify(inner: &Arc<Inner>) {
         let (cancel, request, timings) = match state {
             SessionState::Recording => {
                 session.asr_cancel.cancel();
-                let mut paragraphs = std::mem::take(&mut session.paragraphs);
                 // Speech still in flight when recording ended: the user
                 // said it, so the fidelity rule keeps it in the transcript.
+                // The freeze splices pins through the same join the live
+                // transcript uses — position is never computed twice — and
+                // a pin-only current line counts as content, which is what
+                // keeps a pin-only session alive below.
                 session.current_paragraph.push_str(&session.partial);
                 session.partial.clear();
-                let current = std::mem::take(&mut session.current_paragraph);
+                let mut paragraphs = session.rendered_paragraphs();
+                let current = paragraphs
+                    .pop()
+                    .expect("the current line is always rendered");
                 if !current.is_empty() {
                     paragraphs.push(current);
                 }
@@ -744,6 +807,7 @@ impl Session {
             paragraphs: Vec::new(),
             current_paragraph: String::new(),
             partial: String::new(),
+            pins: Vec::new(),
             paragraph_marked_current_silence: false,
             speech_since_mark: false,
             any_speech: false,
@@ -755,18 +819,86 @@ impl Session {
         }
     }
 
-    /// Cumulative live transcript: closed paragraphs, then the current
-    /// paragraph with any interim partial appended on the same line.
+    /// Cumulative live transcript: the paragraph lines with pins spliced
+    /// in, the current line carrying any interim partial appended after
+    /// the finalized text. An empty current line is dropped as before —
+    /// pins make it non-empty.
     fn live_text(&self) -> String {
-        let current = format!("{}{}", self.current_paragraph, self.partial);
-        let mut text = self.paragraphs.join("\n");
-        if !current.is_empty() {
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            text.push_str(&current);
+        let mut lines = self.rendered_paragraphs();
+        let current = lines
+            .last_mut()
+            .expect("the current line is always rendered");
+        current.push_str(&self.partial);
+        if current.is_empty() {
+            lines.pop();
         }
-        text
+        lines.join("\n")
+    }
+
+    /// The transcript's paragraph lines with every pin spliced in: the
+    /// closed paragraphs in order, then the current paragraph as the
+    /// virtual last line — included even when textless, because a
+    /// pin-only line is content. The one join behind both the live
+    /// transcript and the freeze, so the frozen paragraphs are never a
+    /// second computation of position.
+    fn rendered_paragraphs(&self) -> Vec<String> {
+        let mut lines: Vec<String> = self
+            .paragraphs
+            .iter()
+            .enumerate()
+            .map(|(index, text)| self.splice_pins(index, text))
+            .collect();
+        lines.push(self.splice_pins(self.paragraphs.len(), &self.current_paragraph));
+        lines
+    }
+
+    /// One paragraph with the pins anchored in it spliced in at their
+    /// offsets. Pins only ever anchor at the then-current end, so
+    /// sorting by offset is a no-op that merely makes the order explicit.
+    fn splice_pins(&self, index: usize, text: &str) -> String {
+        let mut anchored: Vec<&Pin> = self
+            .pins
+            .iter()
+            .filter(|pin| pin.anchor.paragraph == index)
+            .collect();
+        if anchored.is_empty() {
+            return text.to_string();
+        }
+        anchored.sort_by_key(|pin| pin.anchor.offset);
+        let mut spliced = String::with_capacity(text.len());
+        let mut prev = 0;
+        for pin in anchored {
+            spliced.push_str(&text[prev..pin.anchor.offset]);
+            spliced.push_str(&pin.sentinel());
+            prev = pin.anchor.offset;
+        }
+        spliced.push_str(&text[prev..]);
+        spliced
+    }
+
+    /// Pin a placeholder at the current end of the transcript. The anchor
+    /// rides the paragraph structure, so the splice point stays put while
+    /// later speech keeps folding in after the pin. A pin is not speech:
+    /// the paragraph and discard rules never see it.
+    fn pin(&mut self) {
+        let anchor = if self.current_paragraph.is_empty() && !self.paragraphs.is_empty() {
+            // Nothing new said since the last mark: the shown transcript
+            // ends with the last closed paragraph, and so does the pin.
+            PinAnchor {
+                paragraph: self.paragraphs.len() - 1,
+                offset: self.paragraphs.last().expect("checked non-empty").len(),
+            }
+        } else {
+            // End of the current paragraph — offset 0 when it is empty:
+            // the pin opens the paragraph, and speech said afterwards
+            // lands after it.
+            PinAnchor {
+                paragraph: self.paragraphs.len(),
+                offset: self.current_paragraph.len(),
+            }
+        };
+        let number = self.pins.len() + 1;
+        self.pins.push(Pin { number, anchor });
     }
 
     /// Speech happened (transcript or VAD activity): re-arm the paragraph

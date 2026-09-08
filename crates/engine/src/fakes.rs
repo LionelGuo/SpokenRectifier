@@ -122,6 +122,12 @@ impl AsrFeed {
     pub async fn silence(&self, elapsed_ms: u64) {
         let _ = self.tx.send(AsrEvent::Silence { elapsed_ms }).await;
     }
+
+    /// Feed one interim frame only — no final behind it. For proving a
+    /// later partial frame does not disturb state pinned between frames.
+    pub async fn partial(&self, text: &str) {
+        let _ = self.tx.send(AsrEvent::Partial { text: text.into() }).await;
+    }
 }
 
 /// Creates sessions for [`ChannelAsr`] before the engine opens them.
