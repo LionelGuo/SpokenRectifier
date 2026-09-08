@@ -13,6 +13,7 @@ pub mod config;
 pub mod engine;
 pub mod event;
 pub mod fakes;
+pub mod prefill;
 pub mod provider;
 
 pub use clock::{Clock, TokioClock};

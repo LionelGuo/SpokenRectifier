@@ -11,7 +11,7 @@ part 'api.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config carries credentials, the configured
@@ -908,6 +908,12 @@ sealed class BridgeEvent with _$BridgeEvent {
       BridgeEvent_SpeechActivityChanged;
   const factory BridgeEvent.rectifiedTextChunk({required String delta}) =
       BridgeEvent_RectifiedTextChunk;
+
+  /// The pin session's prefill table (ticket 18), arriving between
+  /// the last chunk and the Preview state change.
+  const factory BridgeEvent.previewPrefills({
+    required List<BridgePrefillRow> prefills,
+  }) = BridgeEvent_PreviewPrefills;
   const factory BridgeEvent.previewTextUpdated({required String text}) =
       BridgeEvent_PreviewTextUpdated;
   const factory BridgeEvent.textInserted({required String text}) =
@@ -1114,6 +1120,28 @@ class BridgeLlmVendorKey {
           runtimeType == other.runtimeType &&
           vendor == other.vendor &&
           key == other.key;
+}
+
+/// Dart-side mirror of one prefill-table row (【预填】 block row,
+/// ticket 18): the slot's number and the model's initial value for it,
+/// exactly as written — the shell's body-scan extraction decides which
+/// identities exist and looks the rest up empty.
+class BridgePrefillRow {
+  final int number;
+  final String value;
+
+  const BridgePrefillRow({required this.number, required this.value});
+
+  @override
+  int get hashCode => number.hashCode ^ value.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgePrefillRow &&
+          runtimeType == other.runtimeType &&
+          number == other.number &&
+          value == other.value;
 }
 
 /// Dart-side mirror of one scenario (场景): a user-named style directive

@@ -1,5 +1,7 @@
 //! Events emitted by the engine, and the session state machine states.
 
+use crate::prefill::PrefillRow;
+
 /// Identifier of a recording session. Monotonic per engine instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId(pub u64);
@@ -62,8 +64,18 @@ pub enum EngineEvent {
     /// The user started / stopped speaking per VAD. Only flows while
     /// recording; the shell mirrors it into the orb's speaking state.
     SpeechActivityChanged { speaking: bool },
-    /// An incremental piece of the rectified text.
+    /// An incremental piece of the rectified text. For a pin session,
+    /// body text only — the 【预填】 block never streams (ticket 18).
     RectifiedTextChunk { delta: String },
+    /// The prefill table (【预填】 block) split off a pin session's
+    /// rectify response, delivered once per attempt as it enters
+    /// Preview: after the last `RectifiedTextChunk`, before the Preview
+    /// state change. Rows ride exactly as the model wrote them — the
+    /// shell's body-scan extraction decides which identities exist, so
+    /// a row for a number the body lacks is simply never looked up, and
+    /// a body sentinel with no row prefills empty. Never emitted for a
+    /// pin-less session.
+    PreviewPrefills { prefills: Vec<PrefillRow> },
     /// The preview text changed because of user edits.
     PreviewTextUpdated { text: String },
     /// The rectified text was handed to the inserter and accepted.

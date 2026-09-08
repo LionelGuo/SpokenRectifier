@@ -1598,10 +1598,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 4:
         return BridgeEvent_RectifiedTextChunk(delta: dco_decode_String(raw[1]));
       case 5:
-        return BridgeEvent_PreviewTextUpdated(text: dco_decode_String(raw[1]));
+        return BridgeEvent_PreviewPrefills(
+          prefills: dco_decode_list_bridge_prefill_row(raw[1]),
+        );
       case 6:
-        return BridgeEvent_TextInserted(text: dco_decode_String(raw[1]));
+        return BridgeEvent_PreviewTextUpdated(text: dco_decode_String(raw[1]));
       case 7:
+        return BridgeEvent_TextInserted(text: dco_decode_String(raw[1]));
+      case 8:
         return BridgeEvent_Error(message: dco_decode_String(raw[1]));
       default:
         throw Exception("unreachable");
@@ -1720,6 +1724,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgePrefillRow dco_decode_bridge_prefill_row(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return BridgePrefillRow(
+      number: dco_decode_u_32(arr[0]),
+      value: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
   BridgeScenario dco_decode_bridge_scenario(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1804,6 +1820,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return (raw as List<dynamic>)
         .map(dco_decode_bridge_llm_vendor_key)
         .toList();
+  }
+
+  @protected
+  List<BridgePrefillRow> dco_decode_list_bridge_prefill_row(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_bridge_prefill_row).toList();
   }
 
   @protected
@@ -2291,12 +2313,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_delta = sse_decode_String(deserializer);
         return BridgeEvent_RectifiedTextChunk(delta: var_delta);
       case 5:
-        var var_text = sse_decode_String(deserializer);
-        return BridgeEvent_PreviewTextUpdated(text: var_text);
+        var var_prefills = sse_decode_list_bridge_prefill_row(deserializer);
+        return BridgeEvent_PreviewPrefills(prefills: var_prefills);
       case 6:
         var var_text = sse_decode_String(deserializer);
-        return BridgeEvent_TextInserted(text: var_text);
+        return BridgeEvent_PreviewTextUpdated(text: var_text);
       case 7:
+        var var_text = sse_decode_String(deserializer);
+        return BridgeEvent_TextInserted(text: var_text);
+      case 8:
         var var_message = sse_decode_String(deserializer);
         return BridgeEvent_Error(message: var_message);
       default:
@@ -2435,6 +2460,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgePrefillRow sse_decode_bridge_prefill_row(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_number = sse_decode_u_32(deserializer);
+    var var_value = sse_decode_String(deserializer);
+    return BridgePrefillRow(number: var_number, value: var_value);
+  }
+
+  @protected
   BridgeScenario sse_decode_bridge_scenario(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
@@ -2553,6 +2586,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <BridgeLlmVendorKey>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_bridge_llm_vendor_key(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<BridgePrefillRow> sse_decode_list_bridge_prefill_row(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <BridgePrefillRow>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_bridge_prefill_row(deserializer));
     }
     return ans_;
   }
@@ -3012,14 +3059,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case BridgeEvent_RectifiedTextChunk(delta: final delta):
         sse_encode_i_32(4, serializer);
         sse_encode_String(delta, serializer);
-      case BridgeEvent_PreviewTextUpdated(text: final text):
+      case BridgeEvent_PreviewPrefills(prefills: final prefills):
         sse_encode_i_32(5, serializer);
-        sse_encode_String(text, serializer);
-      case BridgeEvent_TextInserted(text: final text):
+        sse_encode_list_bridge_prefill_row(prefills, serializer);
+      case BridgeEvent_PreviewTextUpdated(text: final text):
         sse_encode_i_32(6, serializer);
         sse_encode_String(text, serializer);
-      case BridgeEvent_Error(message: final message):
+      case BridgeEvent_TextInserted(text: final text):
         sse_encode_i_32(7, serializer);
+        sse_encode_String(text, serializer);
+      case BridgeEvent_Error(message: final message):
+        sse_encode_i_32(8, serializer);
         sse_encode_String(message, serializer);
     }
   }
@@ -3126,6 +3176,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.vendor, serializer);
     sse_encode_bridge_key_status(self.key, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_prefill_row(
+    BridgePrefillRow self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.number, serializer);
+    sse_encode_String(self.value, serializer);
   }
 
   @protected
@@ -3236,6 +3296,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_bridge_llm_vendor_key(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_bridge_prefill_row(
+    List<BridgePrefillRow> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_bridge_prefill_row(item, serializer);
     }
   }
 

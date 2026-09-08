@@ -1721,14 +1721,21 @@ impl SseDecode for crate::api::BridgeEvent {
                 return crate::api::BridgeEvent::RectifiedTextChunk { delta: var_delta };
             }
             5 => {
-                let mut var_text = <String>::sse_decode(deserializer);
-                return crate::api::BridgeEvent::PreviewTextUpdated { text: var_text };
+                let mut var_prefills =
+                    <Vec<crate::api::BridgePrefillRow>>::sse_decode(deserializer);
+                return crate::api::BridgeEvent::PreviewPrefills {
+                    prefills: var_prefills,
+                };
             }
             6 => {
                 let mut var_text = <String>::sse_decode(deserializer);
-                return crate::api::BridgeEvent::TextInserted { text: var_text };
+                return crate::api::BridgeEvent::PreviewTextUpdated { text: var_text };
             }
             7 => {
+                let mut var_text = <String>::sse_decode(deserializer);
+                return crate::api::BridgeEvent::TextInserted { text: var_text };
+            }
+            8 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::Error {
                     message: var_message,
@@ -1876,6 +1883,18 @@ impl SseDecode for crate::api::BridgeLlmVendorKey {
     }
 }
 
+impl SseDecode for crate::api::BridgePrefillRow {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_number = <u32>::sse_decode(deserializer);
+        let mut var_value = <String>::sse_decode(deserializer);
+        return crate::api::BridgePrefillRow {
+            number: var_number,
+            value: var_value,
+        };
+    }
+}
+
 impl SseDecode for crate::api::BridgeScenario {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -2002,6 +2021,18 @@ impl SseDecode for Vec<crate::api::BridgeLlmVendorKey> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::BridgeLlmVendorKey>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::BridgePrefillRow> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::BridgePrefillRow>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -2604,14 +2635,17 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeEvent {
             crate::api::BridgeEvent::RectifiedTextChunk { delta } => {
                 [4.into_dart(), delta.into_into_dart().into_dart()].into_dart()
             }
-            crate::api::BridgeEvent::PreviewTextUpdated { text } => {
-                [5.into_dart(), text.into_into_dart().into_dart()].into_dart()
+            crate::api::BridgeEvent::PreviewPrefills { prefills } => {
+                [5.into_dart(), prefills.into_into_dart().into_dart()].into_dart()
             }
-            crate::api::BridgeEvent::TextInserted { text } => {
+            crate::api::BridgeEvent::PreviewTextUpdated { text } => {
                 [6.into_dart(), text.into_into_dart().into_dart()].into_dart()
             }
+            crate::api::BridgeEvent::TextInserted { text } => {
+                [7.into_dart(), text.into_into_dart().into_dart()].into_dart()
+            }
             crate::api::BridgeEvent::Error { message } => {
-                [7.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [8.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
             _ => {
                 unimplemented!("");
@@ -2803,6 +2837,24 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeLlmVendorKey>
     for crate::api::BridgeLlmVendorKey
 {
     fn into_into_dart(self) -> crate::api::BridgeLlmVendorKey {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgePrefillRow {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.number.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::BridgePrefillRow {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgePrefillRow>
+    for crate::api::BridgePrefillRow
+{
+    fn into_into_dart(self) -> crate::api::BridgePrefillRow {
         self
     }
 }
@@ -3201,16 +3253,20 @@ impl SseEncode for crate::api::BridgeEvent {
                 <i32>::sse_encode(4, serializer);
                 <String>::sse_encode(delta, serializer);
             }
-            crate::api::BridgeEvent::PreviewTextUpdated { text } => {
+            crate::api::BridgeEvent::PreviewPrefills { prefills } => {
                 <i32>::sse_encode(5, serializer);
-                <String>::sse_encode(text, serializer);
+                <Vec<crate::api::BridgePrefillRow>>::sse_encode(prefills, serializer);
             }
-            crate::api::BridgeEvent::TextInserted { text } => {
+            crate::api::BridgeEvent::PreviewTextUpdated { text } => {
                 <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(text, serializer);
             }
-            crate::api::BridgeEvent::Error { message } => {
+            crate::api::BridgeEvent::TextInserted { text } => {
                 <i32>::sse_encode(7, serializer);
+                <String>::sse_encode(text, serializer);
+            }
+            crate::api::BridgeEvent::Error { message } => {
+                <i32>::sse_encode(8, serializer);
                 <String>::sse_encode(message, serializer);
             }
             _ => {
@@ -3317,6 +3373,14 @@ impl SseEncode for crate::api::BridgeLlmVendorKey {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.vendor, serializer);
         <crate::api::BridgeKeyStatus>::sse_encode(self.key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgePrefillRow {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.number, serializer);
+        <String>::sse_encode(self.value, serializer);
     }
 }
 
@@ -3436,6 +3500,16 @@ impl SseEncode for Vec<crate::api::BridgeLlmVendorKey> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::BridgeLlmVendorKey>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::BridgePrefillRow> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::BridgePrefillRow>::sse_encode(item, serializer);
         }
     }
 }

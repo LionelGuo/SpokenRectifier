@@ -363,6 +363,15 @@ class SpeechController extends ChangeNotifier {
   /// else it is empty. Confirm what you see.
   String previewText = '';
 
+  /// The pin session's prefill table (ticket 18), delivered by the engine
+  /// between the last rectified chunk and the Preview state change: each
+  /// row is a slot's number and the model's initial value for it, exactly
+  /// as written. Lives mid-flight like [previewText] — a reroll re-delivers
+  /// the new round's table before re-entering preview, and pin-less
+  /// sessions never receive the event at all. The preview editing surface
+  /// (ticket 22) is the consumer.
+  List<BridgePrefillRow> prefillTable = const [];
+
   /// Debounce for pushing preview edits to the engine: edits are adopted
   /// into [previewText] at once, only the engine push waits.
   Timer? _previewPushDebounce;
@@ -809,6 +818,9 @@ class SpeechController extends ChangeNotifier {
           _previewPushDebounce?.cancel();
           _previewPushDebounce = null;
           previewText = '';
+          // The prefill table dies with the round it belonged to; a reroll
+          // delivers the fresh table ahead of the preview state change.
+          prefillTable = const [];
         }
       case BridgeEvent_LiveTranscriptUpdated(:final text):
         liveText = text;
@@ -818,6 +830,10 @@ class SpeechController extends ChangeNotifier {
         this.speaking = speaking;
       case BridgeEvent_RectifiedTextChunk(:final delta):
         previewText += delta;
+      case BridgeEvent_PreviewPrefills(:final prefills):
+        // The round's table lands ahead of the Preview state change, so
+        // the preview it enters with is already complete (ticket 18).
+        prefillTable = prefills;
       case BridgeEvent_PreviewTextUpdated():
         // Echo of the controller's own push: previewText already holds the
         // value, so this drives nothing (idempotent no-op).

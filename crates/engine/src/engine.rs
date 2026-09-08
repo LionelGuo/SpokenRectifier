@@ -18,6 +18,7 @@ use crate::clock::Clock;
 use crate::command::{Command, SessionStyle};
 use crate::config::{EngineConfig, EngineTimings};
 use crate::event::{EngineEvent, EventEnvelope, SessionId, SessionState};
+use crate::prefill;
 use crate::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
 use crate::provider::history::{RecordedSession, SessionRecorder};
 use crate::provider::inserter::TextInserter;
@@ -685,7 +686,9 @@ impl Inner {
             EngineEvent::LiveTranscriptUpdated { .. }
             | EngineEvent::ParagraphMarked
             | EngineEvent::SpeechActivityChanged { .. } => st.state == SessionState::Recording,
-            EngineEvent::RectifiedTextChunk { .. } => st.state == SessionState::Rectifying,
+            EngineEvent::RectifiedTextChunk { .. } | EngineEvent::PreviewPrefills { .. } => {
+                st.state == SessionState::Rectifying
+            }
             EngineEvent::PreviewTextUpdated { .. } => st.state == SessionState::Preview,
             _ => true,
         };
@@ -1110,6 +1113,9 @@ async fn rectify_task(
 ) {
     let cap = std::time::Duration::from_millis(timings.rectify_timeout_ms);
     let deadline = tokio::time::Instant::now() + cap;
+    // Read before the request moves into the LLM call: the sentinel
+    // census decides whether this response gets split at all.
+    let pins_present = prefill::has_placeholders(&request.raw_transcript);
     let stream: RectifyTokenStream = tokio::select! {
         biased;
         _ = cancel.cancelled() => return,
@@ -1126,7 +1132,11 @@ async fn rectify_task(
         }
     };
     let mut stream = Box::pin(stream);
-    let mut accumulated = String::new();
+    // A pin request's response ends in a 【预填】 block the surface must
+    // never see: the splitter streams body text only and hands the block
+    // over as the preview's prefill table. Pin-less requests keep the
+    // exact pre-placeholder path — same chunks, same bytes (ticket 18).
+    let mut splitter = prefill::ResponseSplitter::new(pins_present);
     loop {
         tokio::select! {
             biased;
@@ -1138,12 +1148,19 @@ async fn rectify_task(
             item = stream.next() => {
                 match item {
                     Some(Ok(delta)) => {
-                        accumulated.push_str(&delta);
+                        let out = splitter.push(&delta);
+                        if out.is_empty() {
+                            // Fully held back (could still be the block's
+                            // separator): nothing streams; a cancel or
+                            // supersede is caught on the next producing
+                            // delta or at the stream's end.
+                            continue;
+                        }
                         let mut st = inner.state_lock();
                         if st.state != SessionState::Rectifying || !session_matches(&st, sid) {
                             return;
                         }
-                        inner.emit_stream_event(&mut st, sid, EngineEvent::RectifiedTextChunk { delta });
+                        inner.emit_stream_event(&mut st, sid, EngineEvent::RectifiedTextChunk { delta: out });
                     }
                     Some(Err(err)) => {
                         inner.abort_rectifying(sid, format!("rectify stream failed: {}", err.0));
@@ -1154,8 +1171,18 @@ async fn rectify_task(
                         if st.state != SessionState::Rectifying || !session_matches(&st, sid) {
                             return;
                         }
-                        let session = st.session.as_mut().expect("active session");
-                        session.preview_text = accumulated;
+                        let (body, prefills) = splitter.finish();
+                        st.session
+                            .as_mut()
+                            .expect("active session")
+                            .preview_text = body;
+                        if let Some(prefills) = prefills {
+                            // Ahead of the Preview state change, so the
+                            // shell paints the entering preview with the
+                            // table already in hand; empty when the model
+                            // sent no parseable block.
+                            inner.emit_stream_event(&mut st, sid, EngineEvent::PreviewPrefills { prefills });
+                        }
                         inner.transition(&mut st, sid, SessionState::Preview);
                         return;
                     }

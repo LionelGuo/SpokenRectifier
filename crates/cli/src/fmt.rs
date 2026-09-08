@@ -16,6 +16,13 @@ pub fn fmt_event(event: &EngineEvent) -> String {
             }
         }
         EngineEvent::RectifiedTextChunk { delta } => format!("chunk {delta:?}"),
+        EngineEvent::PreviewPrefills { prefills } => format!(
+            "prefills {:?}",
+            prefills
+                .iter()
+                .map(|row| format!("#{}={:?}", row.number, row.value))
+                .collect::<Vec<_>>()
+        ),
         EngineEvent::PreviewTextUpdated { text } => format!("preview -> {text:?}"),
         EngineEvent::TextInserted { text } => format!("inserted {text:?}"),
         EngineEvent::Error { message } => format!("error {message:?}"),

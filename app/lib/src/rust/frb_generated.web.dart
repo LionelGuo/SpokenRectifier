@@ -141,6 +141,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeLlmVendorKey dco_decode_bridge_llm_vendor_key(dynamic raw);
 
   @protected
+  BridgePrefillRow dco_decode_bridge_prefill_row(dynamic raw);
+
+  @protected
   BridgeScenario dco_decode_bridge_scenario(dynamic raw);
 
   @protected
@@ -174,6 +177,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BridgeLlmVendorKey> dco_decode_list_bridge_llm_vendor_key(dynamic raw);
+
+  @protected
+  List<BridgePrefillRow> dco_decode_list_bridge_prefill_row(dynamic raw);
 
   @protected
   List<BridgeScenario> dco_decode_list_bridge_scenario(dynamic raw);
@@ -358,6 +364,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BridgePrefillRow sse_decode_bridge_prefill_row(SseDeserializer deserializer);
+
+  @protected
   BridgeScenario sse_decode_bridge_scenario(SseDeserializer deserializer);
 
   @protected
@@ -399,6 +408,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BridgeLlmVendorKey> sse_decode_list_bridge_llm_vendor_key(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<BridgePrefillRow> sse_decode_list_bridge_prefill_row(
     SseDeserializer deserializer,
   );
 
@@ -633,6 +647,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_bridge_prefill_row(
+    BridgePrefillRow self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bridge_scenario(
     BridgeScenario self,
     SseSerializer serializer,
@@ -683,6 +703,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_bridge_llm_vendor_key(
     List<BridgeLlmVendorKey> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_bridge_prefill_row(
+    List<BridgePrefillRow> self,
     SseSerializer serializer,
   );
 

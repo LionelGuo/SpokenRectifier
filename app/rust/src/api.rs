@@ -150,6 +150,11 @@ pub enum BridgeEvent {
     RectifiedTextChunk {
         delta: String,
     },
+    /// The pin session's prefill table (ticket 18), arriving between
+    /// the last chunk and the Preview state change.
+    PreviewPrefills {
+        prefills: Vec<BridgePrefillRow>,
+    },
     PreviewTextUpdated {
         text: String,
     },
@@ -159,6 +164,25 @@ pub enum BridgeEvent {
     Error {
         message: String,
     },
+}
+
+/// Dart-side mirror of one prefill-table row (【预填】 block row,
+/// ticket 18): the slot's number and the model's initial value for it,
+/// exactly as written — the shell's body-scan extraction decides which
+/// identities exist and looks the rest up empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgePrefillRow {
+    pub number: u32,
+    pub value: String,
+}
+
+impl From<spokenrectifier_engine::prefill::PrefillRow> for BridgePrefillRow {
+    fn from(value: spokenrectifier_engine::prefill::PrefillRow) -> Self {
+        BridgePrefillRow {
+            number: value.number,
+            value: value.value,
+        }
+    }
 }
 
 /// Dart-side mirror of [`EventEnvelope`].
@@ -264,6 +288,9 @@ impl From<EngineEvent> for BridgeEvent {
                 BridgeEvent::SpeechActivityChanged { speaking }
             }
             EngineEvent::RectifiedTextChunk { delta } => BridgeEvent::RectifiedTextChunk { delta },
+            EngineEvent::PreviewPrefills { prefills } => BridgeEvent::PreviewPrefills {
+                prefills: prefills.into_iter().map(BridgePrefillRow::from).collect(),
+            },
             EngineEvent::PreviewTextUpdated { text } => BridgeEvent::PreviewTextUpdated { text },
             EngineEvent::TextInserted { text } => BridgeEvent::TextInserted { text },
             EngineEvent::Error { message } => BridgeEvent::Error { message },
@@ -1594,13 +1621,12 @@ mod tests {
         fake_begin_session().unwrap();
         execute(BridgeCommand::StartSession).unwrap();
         execute(BridgeCommand::PinPlaceholder).unwrap();
-        block_on(wait_for(
-            &mut rx,
-            |event| matches!(
+        block_on(wait_for(&mut rx, |event| {
+            matches!(
                 event,
                 EngineEvent::LiveTranscriptUpdated { text } if text.contains('‡')
-            ),
-        ));
+            )
+        }));
 
         // The pin-only session survives the recording end and inserts.
         execute(BridgeCommand::StopSession).unwrap();
@@ -1814,6 +1840,12 @@ mod tests {
             EngineEvent::RectifiedTextChunk {
                 delta: "好".into()
             },
+            EngineEvent::PreviewPrefills {
+                prefills: vec![spokenrectifier_engine::prefill::PrefillRow {
+                    number: 1,
+                    value: "张三".into(),
+                }],
+            },
             EngineEvent::PreviewTextUpdated {
                 text: "好的".into(),
             },
@@ -1849,6 +1881,35 @@ mod tests {
             mapped,
             BridgeEvent::RectifiedTextChunk {
                 delta: "字".into()
+            }
+        );
+        // The prefill table's rows map field by field (ticket 18).
+        let mapped: BridgeEvent = EngineEvent::PreviewPrefills {
+            prefills: vec![
+                spokenrectifier_engine::prefill::PrefillRow {
+                    number: 1,
+                    value: "张三".into(),
+                },
+                spokenrectifier_engine::prefill::PrefillRow {
+                    number: 10,
+                    value: String::new(),
+                },
+            ],
+        }
+        .into();
+        assert_eq!(
+            mapped,
+            BridgeEvent::PreviewPrefills {
+                prefills: vec![
+                    BridgePrefillRow {
+                        number: 1,
+                        value: "张三".into()
+                    },
+                    BridgePrefillRow {
+                        number: 10,
+                        value: String::new()
+                    },
+                ]
             }
         );
         let envelope = EventEnvelope {
