@@ -1545,6 +1545,9 @@ impl SseDecode for crate::api::BridgeCommand {
                 };
             }
             10 => {
+                return crate::api::BridgeCommand::PinPlaceholder;
+            }
+            11 => {
                 let mut var_rawTranscript = <String>::sse_decode(deserializer);
                 let mut var_style = <crate::api::BridgeSessionStyle>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::RectifyText {
@@ -2409,11 +2412,12 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
                 rectify_timeout_ms.into_into_dart().into_dart(),
             ]
             .into_dart(),
+            crate::api::BridgeCommand::PinPlaceholder => [10.into_dart()].into_dart(),
             crate::api::BridgeCommand::RectifyText {
                 raw_transcript,
                 style,
             } => [
-                10.into_dart(),
+                11.into_dart(),
                 raw_transcript.into_into_dart().into_dart(),
                 style.into_into_dart().into_dart(),
             ]
@@ -3070,11 +3074,14 @@ impl SseEncode for crate::api::BridgeCommand {
                 <u64>::sse_encode(session_end_silence_ms, serializer);
                 <u64>::sse_encode(rectify_timeout_ms, serializer);
             }
+            crate::api::BridgeCommand::PinPlaceholder => {
+                <i32>::sse_encode(10, serializer);
+            }
             crate::api::BridgeCommand::RectifyText {
                 raw_transcript,
                 style,
             } => {
-                <i32>::sse_encode(10, serializer);
+                <i32>::sse_encode(11, serializer);
                 <String>::sse_encode(raw_transcript, serializer);
                 <crate::api::BridgeSessionStyle>::sse_encode(style, serializer);
             }

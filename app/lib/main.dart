@@ -120,6 +120,7 @@ Future<void> main(List<String> args) async {
   final controller = SpeechController(
     gateway: RustSpeechEngineGateway(),
     themeMode: loadUiThemeMode(uiPrefsSearchDirs()),
+    pinHotkey: HotkeyManagerPinHotkeyRegistrar(),
   );
   if (startupError != null) {
     controller.reportStartupError(startupError);
@@ -216,6 +217,36 @@ Future<void> _installHotkey(SpeechController controller) async {
     ),
     keyDownHandler: (_) => controller.hotkeyToggle(),
   );
+}
+
+/// The pin chord (Alt+B, no Control, ticket 21). Registered on entering
+/// listening and handed back the moment it ends — the same global
+/// registration mechanism as the step key above, but phase-bound: an
+/// idle press belongs to whatever app owns Alt+B (bookmark menus,
+/// undo), so the chord exists only while a session is recording.
+class HotkeyManagerPinHotkeyRegistrar implements PinHotkeyRegistrar {
+  // Not const: HotKey's constructor builds a non-const default set.
+  static final _pinHotKey = HotKey(
+    key: PhysicalKeyboardKey.keyB,
+    modifiers: [HotKeyModifier.alt],
+  );
+
+  VoidCallback? _onPin;
+
+  @override
+  Future<void> register(VoidCallback onPin) async {
+    _onPin = onPin;
+    await HotKeyManager.instance.register(
+      _pinHotKey,
+      keyDownHandler: (_) => _onPin?.call(),
+    );
+  }
+
+  @override
+  Future<void> unregister() async {
+    _onPin = null;
+    await HotKeyManager.instance.unregister(_pinHotKey);
+  }
 }
 
 /// Hosts the tray listener; window morphing lives in the stage host.

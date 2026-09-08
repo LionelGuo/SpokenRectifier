@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import '../../app_state.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeSessionState;
+import 'pin_capsule.dart' show sentinelSpans;
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
 import '../shell/window_stage.dart';
@@ -81,6 +82,10 @@ class _SessionPanelState extends State<SessionPanel> {
   void _onChanged() {
     if (!mounted) return;
     _syncText();
+    // The read-only stream view (listening / rectifying) has no editable
+    // of its own listening to the text controller: repaint it here. The
+    // preview's TextField repaints itself through the controller.
+    if (!_isPreview) setState(() {});
     if (!_wasPreview && _isPreview) {
       // The stream completed: the field becomes editable this instant.
       _wasPreview = true;
@@ -200,7 +205,11 @@ class _SessionPanelState extends State<SessionPanel> {
   }
 
   Widget _textArea(BuildContext context, SrPalette pal) {
-    final empty = _text.text.isEmpty && c.phase == BridgeSessionState.recording;
+    final recording = c.phase == BridgeSessionState.recording;
+    final empty = _text.text.isEmpty && recording;
+    final streamStyle = SrType.bodyLarge.copyWith(
+      color: recording ? pal.textSecondary : pal.textPrimary,
+    );
     return Padding(
       // Straight-edge body content: contentInset (below the corner band).
       padding: const EdgeInsets.fromLTRB(
@@ -216,33 +225,47 @@ class _SessionPanelState extends State<SessionPanel> {
               '开始说话…',
               style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
             ),
-          TextField(
-            key: const Key('session-text'),
-            controller: _text,
-            focusNode: _focus,
-            scrollController: _scroll,
-            readOnly: !_isPreview,
-            maxLines: null,
-            expands: true,
-            textAlignVertical: TextAlignVertical.top,
-            showCursor: true,
-            cursorColor: c.phase == BridgeSessionState.recording
-                ? pal.live
-                : pal.accent,
-            cursorWidth: 2.5,
-            cursorRadius: const Radius.circular(2),
-            style: SrType.bodyLarge.copyWith(
-              color: c.phase == BridgeSessionState.recording
-                  ? pal.textSecondary
-                  : pal.textPrimary,
+          if (_isPreview)
+            TextField(
+              key: const Key('session-text'),
+              controller: _text,
+              focusNode: _focus,
+              scrollController: _scroll,
+              readOnly: !_isPreview,
+              maxLines: null,
+              expands: true,
+              textAlignVertical: TextAlignVertical.top,
+              showCursor: true,
+              cursorColor: c.phase == BridgeSessionState.recording
+                  ? pal.live
+                  : pal.accent,
+              cursorWidth: 2.5,
+              cursorRadius: const Radius.circular(2),
+              style: SrType.bodyLarge.copyWith(
+                color: c.phase == BridgeSessionState.recording
+                    ? pal.textSecondary
+                    : pal.textPrimary,
+              ),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: '',
+              ),
+              onChanged: _onEdited,
+            )
+          else
+            // The read-only stream surface (listening / rectifying):
+            // sentinels render as capsules — the bare `‡N‡` never shows
+            // on the main surface (ticket 21). Rectifying reads the same
+            // projection, so sentinels appearing mid-stream collapse into
+            // capsules the moment their shape completes.
+            SingleChildScrollView(
+              controller: _scroll,
+              child: Text.rich(
+                key: const Key('session-stream'),
+                TextSpan(style: streamStyle, children: sentinelSpans(_text.text)),
+              ),
             ),
-            decoration: const InputDecoration(
-              isDense: true,
-              border: InputBorder.none,
-              hintText: '',
-            ),
-            onChanged: _onEdited,
-          ),
         ],
       ),
     );

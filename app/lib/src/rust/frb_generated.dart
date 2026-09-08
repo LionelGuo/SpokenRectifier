@@ -1466,6 +1466,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           rectifyTimeoutMs: dco_decode_u_64(raw[3]),
         );
       case 10:
+        return BridgeCommand_PinPlaceholder();
+      case 11:
         return BridgeCommand_RectifyText(
           rawTranscript: dco_decode_String(raw[1]),
           style: dco_decode_box_autoadd_bridge_session_style(raw[2]),
@@ -2135,6 +2137,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           rectifyTimeoutMs: var_rectifyTimeoutMs,
         );
       case 10:
+        return BridgeCommand_PinPlaceholder();
+      case 11:
         var var_rawTranscript = sse_decode_String(deserializer);
         var var_style = sse_decode_box_autoadd_bridge_session_style(
           deserializer,
@@ -2880,11 +2884,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_64(paragraphSilenceMs, serializer);
         sse_encode_u_64(sessionEndSilenceMs, serializer);
         sse_encode_u_64(rectifyTimeoutMs, serializer);
+      case BridgeCommand_PinPlaceholder():
+        sse_encode_i_32(10, serializer);
       case BridgeCommand_RectifyText(
         rawTranscript: final rawTranscript,
         style: final style,
       ):
-        sse_encode_i_32(10, serializer);
+        sse_encode_i_32(11, serializer);
         sse_encode_String(rawTranscript, serializer);
         sse_encode_box_autoadd_bridge_session_style(style, serializer);
     }

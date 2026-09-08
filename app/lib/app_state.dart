@@ -32,6 +32,7 @@ abstract class SpeechEngineGateway {
   Future<void> confirmInsert();
   Future<void> reroll();
   Future<void> updatePreviewText(String text);
+  Future<void> pinPlaceholder();
   Future<void> rectifyText(
     String rawTranscript, {
     required BridgeSessionStyle style,
@@ -60,6 +61,24 @@ abstract class SpeechEngineGateway {
 /// back to idle.
 enum OrbFlash { none, inserted, cancelled }
 
+/// The pin hotkey's platform registration seam (ticket 21): Alt+B's
+/// global registration, bound to the listening phase — registered the
+/// moment a session enters recording, handed back to the system the
+/// moment listening ends, so an idle press belongs to whatever app owns
+/// Alt+B (Firefox's bookmark menu and friends). The production
+/// implementation wraps hotkey_manager (main.dart); tests inject a
+/// recorder. One registrar serves one engine process, like the Esc
+/// guard.
+abstract class PinHotkeyRegistrar {
+  /// Take the chord globally; [onPin] fires on each press while
+  /// registered. Idempotent per session (register is only called on
+  /// entering recording).
+  Future<void> register(VoidCallback onPin);
+
+  /// Hand the chord back to the system at once.
+  Future<void> unregister();
+}
+
 /// Mirrors the engine's event stream into UI state and drives the scripted
 /// speech while recording. The Rust-backed gateway lives in `gateway.dart`.
 class SpeechController extends ChangeNotifier {
@@ -68,6 +87,7 @@ class SpeechController extends ChangeNotifier {
     this.scriptedPhrases = const [],
     this.speechInterval = const Duration(milliseconds: 900),
     this.themeMode = ThemeMode.system,
+    this.pinHotkey,
     List<String>? uiPrefsDirs,
   }) : uiPrefsDirs = uiPrefsDirs ?? uiPrefsSearchDirs() {
     // onError: a subscribe against a not-yet-created engine emits a stream
@@ -82,6 +102,12 @@ class SpeechController extends ChangeNotifier {
   final SpeechEngineGateway gateway;
   final List<String> scriptedPhrases;
   final Duration speechInterval;
+
+  /// The pin hotkey (Alt+B) registration seam; null = no hotkey (tests
+  /// that do not exercise the pin, and any host without the platform
+  /// plugin). The lifecycle is bound to the listening phase right here:
+  /// register on entering recording, unregister the moment it ends.
+  final PinHotkeyRegistrar? pinHotkey;
 
   StreamSubscription<BridgeEventEnvelope>? _subscription;
   Timer? _speechTimer;
@@ -210,6 +236,44 @@ class SpeechController extends ChangeNotifier {
   /// The hotkey press — same step as the orb's left click, minus the
   /// panel-close role (a session start force-closes the quick panel).
   Future<void> hotkeyToggle() => dispatchInput(SessionInput.primary);
+
+  /// The pin hotkey's press (Alt+B, ticket 21): pin a placeholder at
+  /// the current end of the spoken segment. The chord is registered
+  /// exactly while listening, so this only ever fires there — the phase
+  /// guard covers the unregister race (a press that arrived while the
+  /// key handback was still in flight). A rejection past the guard is
+  /// dropped silently: the session is over, there is no slot to pin
+  /// into, and no half state exists to report.
+  Future<void> pinAction() async {
+    if (phase != BridgeSessionState.recording) return;
+    try {
+      await gateway.pinPlaceholder();
+    } catch (_) {
+      // The pin raced the session's end; the honest outcome is a drop.
+    }
+  }
+
+  /// Take the pin chord for this session. A failed registration (the
+  /// chord already taken system-wide) surfaces like any engine failure:
+  /// the session runs on, pins are just unreachable.
+  Future<void> _armPinHotkey() async {
+    final hotkey = pinHotkey;
+    if (hotkey == null) return;
+    try {
+      await hotkey.register(pinAction);
+    } catch (e) {
+      lastError = '钉入热键注册失败:$e';
+      notifyListeners();
+    }
+  }
+
+  /// Hand the pin chord back to the system the moment listening ends
+  /// (结束聆听立刻还键) — recording -> anything disarms, cancel
+  /// included. A failed handback is dropped: nothing is actionable
+  /// there, and the next session's arm retries.
+  void _disarmPinHotkey() {
+    unawaited(pinHotkey?.unregister().catchError((Object _) {}));
+  }
 
   /// Right click — quick panel, idle only (会话期无右键). The lists the
   /// panel paints refresh as it opens; the shell shows what it has and
@@ -698,7 +762,7 @@ class SpeechController extends ChangeNotifier {
 
   void _onEnvelope(BridgeEventEnvelope envelope) {
     switch (envelope.event) {
-      case BridgeEvent_SessionStateChanged(:final to):
+      case BridgeEvent_SessionStateChanged(:final from, :final to):
         phase = to;
         if (to == BridgeSessionState.recording) {
           liveText = '';
@@ -706,9 +770,16 @@ class SpeechController extends ChangeNotifier {
           speaking = false;
           recordStartedAt = DateTime.now();
           _startMicBreath();
+          unawaited(_armPinHotkey());
         } else {
           recordStartedAt = null;
           _stopMicBreath();
+          // Listening ended by any path — stop session or cancel alike:
+          // the chord goes back to the system at once (its Alt+B roles
+          // elsewhere — bookmark menus, undo — stay ours-free at idle).
+          if (from == BridgeSessionState.recording) {
+            _disarmPinHotkey();
+          }
         }
         // An active session takes over from the quick panel — recording
         // (hotkey/orb) and rectifying alike: the history re-rectify path

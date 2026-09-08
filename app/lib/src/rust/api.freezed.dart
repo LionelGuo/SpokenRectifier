@@ -56,7 +56,7 @@ extension BridgeCommandPatterns on BridgeCommand {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeCommand_StartSession value)?  startSession,TResult Function( BridgeCommand_StopSession value)?  stopSession,TResult Function( BridgeCommand_Cancel value)?  cancel,TResult Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult Function( BridgeCommand_Reroll value)?  reroll,TResult Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult Function( BridgeCommand_SetStyleDirective value)?  setStyleDirective,TResult Function( BridgeCommand_SetGlobalDirective value)?  setGlobalDirective,TResult Function( BridgeCommand_SetPassageMode value)?  setPassageMode,TResult Function( BridgeCommand_SetEngineTimings value)?  setEngineTimings,TResult Function( BridgeCommand_RectifyText value)?  rectifyText,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeCommand_StartSession value)?  startSession,TResult Function( BridgeCommand_StopSession value)?  stopSession,TResult Function( BridgeCommand_Cancel value)?  cancel,TResult Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult Function( BridgeCommand_Reroll value)?  reroll,TResult Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult Function( BridgeCommand_SetStyleDirective value)?  setStyleDirective,TResult Function( BridgeCommand_SetGlobalDirective value)?  setGlobalDirective,TResult Function( BridgeCommand_SetPassageMode value)?  setPassageMode,TResult Function( BridgeCommand_SetEngineTimings value)?  setEngineTimings,TResult Function( BridgeCommand_PinPlaceholder value)?  pinPlaceholder,TResult Function( BridgeCommand_RectifyText value)?  rectifyText,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
@@ -69,7 +69,8 @@ return updatePreviewText(_that);case BridgeCommand_SetStyleDirective() when setS
 return setStyleDirective(_that);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
 return setGlobalDirective(_that);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
-return setEngineTimings(_that);case BridgeCommand_RectifyText() when rectifyText != null:
+return setEngineTimings(_that);case BridgeCommand_PinPlaceholder() when pinPlaceholder != null:
+return pinPlaceholder(_that);case BridgeCommand_RectifyText() when rectifyText != null:
 return rectifyText(_that);case _:
   return orElse();
 
@@ -88,7 +89,7 @@ return rectifyText(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeCommand_StartSession value)  startSession,required TResult Function( BridgeCommand_StopSession value)  stopSession,required TResult Function( BridgeCommand_Cancel value)  cancel,required TResult Function( BridgeCommand_ConfirmInsert value)  confirmInsert,required TResult Function( BridgeCommand_Reroll value)  reroll,required TResult Function( BridgeCommand_UpdatePreviewText value)  updatePreviewText,required TResult Function( BridgeCommand_SetStyleDirective value)  setStyleDirective,required TResult Function( BridgeCommand_SetGlobalDirective value)  setGlobalDirective,required TResult Function( BridgeCommand_SetPassageMode value)  setPassageMode,required TResult Function( BridgeCommand_SetEngineTimings value)  setEngineTimings,required TResult Function( BridgeCommand_RectifyText value)  rectifyText,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeCommand_StartSession value)  startSession,required TResult Function( BridgeCommand_StopSession value)  stopSession,required TResult Function( BridgeCommand_Cancel value)  cancel,required TResult Function( BridgeCommand_ConfirmInsert value)  confirmInsert,required TResult Function( BridgeCommand_Reroll value)  reroll,required TResult Function( BridgeCommand_UpdatePreviewText value)  updatePreviewText,required TResult Function( BridgeCommand_SetStyleDirective value)  setStyleDirective,required TResult Function( BridgeCommand_SetGlobalDirective value)  setGlobalDirective,required TResult Function( BridgeCommand_SetPassageMode value)  setPassageMode,required TResult Function( BridgeCommand_SetEngineTimings value)  setEngineTimings,required TResult Function( BridgeCommand_PinPlaceholder value)  pinPlaceholder,required TResult Function( BridgeCommand_RectifyText value)  rectifyText,}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
@@ -101,7 +102,8 @@ return updatePreviewText(_that);case BridgeCommand_SetStyleDirective():
 return setStyleDirective(_that);case BridgeCommand_SetGlobalDirective():
 return setGlobalDirective(_that);case BridgeCommand_SetPassageMode():
 return setPassageMode(_that);case BridgeCommand_SetEngineTimings():
-return setEngineTimings(_that);case BridgeCommand_RectifyText():
+return setEngineTimings(_that);case BridgeCommand_PinPlaceholder():
+return pinPlaceholder(_that);case BridgeCommand_RectifyText():
 return rectifyText(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
@@ -116,7 +118,7 @@ return rectifyText(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeCommand_StartSession value)?  startSession,TResult? Function( BridgeCommand_StopSession value)?  stopSession,TResult? Function( BridgeCommand_Cancel value)?  cancel,TResult? Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult? Function( BridgeCommand_Reroll value)?  reroll,TResult? Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult? Function( BridgeCommand_SetStyleDirective value)?  setStyleDirective,TResult? Function( BridgeCommand_SetGlobalDirective value)?  setGlobalDirective,TResult? Function( BridgeCommand_SetPassageMode value)?  setPassageMode,TResult? Function( BridgeCommand_SetEngineTimings value)?  setEngineTimings,TResult? Function( BridgeCommand_RectifyText value)?  rectifyText,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeCommand_StartSession value)?  startSession,TResult? Function( BridgeCommand_StopSession value)?  stopSession,TResult? Function( BridgeCommand_Cancel value)?  cancel,TResult? Function( BridgeCommand_ConfirmInsert value)?  confirmInsert,TResult? Function( BridgeCommand_Reroll value)?  reroll,TResult? Function( BridgeCommand_UpdatePreviewText value)?  updatePreviewText,TResult? Function( BridgeCommand_SetStyleDirective value)?  setStyleDirective,TResult? Function( BridgeCommand_SetGlobalDirective value)?  setGlobalDirective,TResult? Function( BridgeCommand_SetPassageMode value)?  setPassageMode,TResult? Function( BridgeCommand_SetEngineTimings value)?  setEngineTimings,TResult? Function( BridgeCommand_PinPlaceholder value)?  pinPlaceholder,TResult? Function( BridgeCommand_RectifyText value)?  rectifyText,}){
 final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
@@ -129,7 +131,8 @@ return updatePreviewText(_that);case BridgeCommand_SetStyleDirective() when setS
 return setStyleDirective(_that);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
 return setGlobalDirective(_that);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
-return setEngineTimings(_that);case BridgeCommand_RectifyText() when rectifyText != null:
+return setEngineTimings(_that);case BridgeCommand_PinPlaceholder() when pinPlaceholder != null:
+return pinPlaceholder(_that);case BridgeCommand_RectifyText() when rectifyText != null:
 return rectifyText(_that);case _:
   return null;
 
@@ -147,7 +150,7 @@ return rectifyText(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( String? directive)?  setGlobalDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function( String rawTranscript,  BridgeSessionStyle style)?  rectifyText,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( String? directive)?  setGlobalDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function()?  pinPlaceholder,TResult Function( String rawTranscript,  BridgeSessionStyle style)?  rectifyText,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -159,7 +162,8 @@ return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when
 return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
-return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText() when rectifyText != null:
+return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_PinPlaceholder() when pinPlaceholder != null:
+return pinPlaceholder();case BridgeCommand_RectifyText() when rectifyText != null:
 return rectifyText(_that.rawTranscript,_that.style);case _:
   return orElse();
 
@@ -178,7 +182,7 @@ return rectifyText(_that.rawTranscript,_that.style);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( String? directive)  setGlobalDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function( String rawTranscript,  BridgeSessionStyle style)  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( String? directive)  setGlobalDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function()  pinPlaceholder,required TResult Function( String rawTranscript,  BridgeSessionStyle style)  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
 return startSession();case BridgeCommand_StopSession():
@@ -190,7 +194,8 @@ return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective():
 return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective():
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode():
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings():
-return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText():
+return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_PinPlaceholder():
+return pinPlaceholder();case BridgeCommand_RectifyText():
 return rectifyText(_that.rawTranscript,_that.style);}
 }
 /// A variant of `when` that fallback to returning `null`
@@ -205,7 +210,7 @@ return rectifyText(_that.rawTranscript,_that.style);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( String? directive)?  setGlobalDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function( String rawTranscript,  BridgeSessionStyle style)?  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( String? directive)?  setGlobalDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function()?  pinPlaceholder,TResult? Function( String rawTranscript,  BridgeSessionStyle style)?  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -217,7 +222,8 @@ return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when
 return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
-return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_RectifyText() when rectifyText != null:
+return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_PinPlaceholder() when pinPlaceholder != null:
+return pinPlaceholder();case BridgeCommand_RectifyText() when rectifyText != null:
 return rectifyText(_that.rawTranscript,_that.style);case _:
   return null;
 
@@ -719,6 +725,38 @@ as BigInt,
 
 
 }
+
+/// @nodoc
+
+
+class BridgeCommand_PinPlaceholder extends BridgeCommand {
+  const BridgeCommand_PinPlaceholder(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_PinPlaceholder);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'BridgeCommand.pinPlaceholder()';
+}
+
+
+}
+
+
+
 
 /// @nodoc
 

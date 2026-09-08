@@ -685,6 +685,12 @@ sealed class BridgeCommand with _$BridgeCommand {
     required BigInt rectifyTimeoutMs,
   }) = BridgeCommand_SetEngineTimings;
 
+  /// Pin a placeholder (钉入) at the current end of the spoken segment
+  /// — the Alt+B press while listening. Only valid while recording
+  /// (rejected otherwise); the sentinel `‡N‡` appears in the live
+  /// transcript at once via the usual `LiveTranscriptUpdated`.
+  const factory BridgeCommand.pinPlaceholder() = BridgeCommand_PinPlaceholder;
+
   /// History retrieval re-running a past utterance (see `RectifyText`).
   /// `style` pins the session's one-time style pick (ticket 23's named
   /// scenarios, ticket 28's 默认); `Live` runs under the live selection.

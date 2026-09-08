@@ -100,6 +100,7 @@ class FakeGateway implements SpeechEngineGateway {
       failNextStart = null;
       throw failure!;
     }
+    _pins = 0;
     _transition(BridgeSessionState.recording);
   }
 
@@ -145,6 +146,21 @@ class FakeGateway implements SpeechEngineGateway {
   Future<void> updatePreviewText(String text) async {
     commands.add('updatePreviewText:$text');
     emit(BridgeEvent.previewTextUpdated(text: text));
+  }
+
+  /// Sentinels minted so far this recording (the engine's per-session
+  /// counter, mirrored for the pin path).
+  int _pins = 0;
+
+  @override
+  Future<void> pinPlaceholder() async {
+    commands.add('pinPlaceholder');
+    // The engine rejects a pin outside recording with no state change.
+    if (_state != BridgeSessionState.recording) {
+      throw StateError('rejected: pinPlaceholder outside recording');
+    }
+    _pins += 1;
+    emit(BridgeEvent.liveTranscriptUpdated(text: '$_liveText‡$_pins‡'));
   }
 
   @override

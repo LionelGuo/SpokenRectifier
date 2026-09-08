@@ -80,6 +80,11 @@ pub enum BridgeCommand {
         session_end_silence_ms: u64,
         rectify_timeout_ms: u64,
     },
+    /// Pin a placeholder (钉入) at the current end of the spoken segment
+    /// — the Alt+B press while listening. Only valid while recording
+    /// (rejected otherwise); the sentinel `‡N‡` appears in the live
+    /// transcript at once via the usual `LiveTranscriptUpdated`.
+    PinPlaceholder,
     /// History retrieval re-running a past utterance (see `RectifyText`).
     /// `style` pins the session's one-time style pick (ticket 23's named
     /// scenarios, ticket 28's 默认); `Live` runs under the live selection.
@@ -191,6 +196,7 @@ impl From<BridgeCommand> for Command {
         match value {
             BridgeCommand::StartSession => Command::StartSession,
             BridgeCommand::StopSession => Command::StopSession,
+            BridgeCommand::PinPlaceholder => Command::PinPlaceholder,
             BridgeCommand::Cancel => Command::Cancel,
             BridgeCommand::ConfirmInsert => Command::ConfirmInsert,
             BridgeCommand::Reroll => Command::Reroll,
@@ -1565,6 +1571,42 @@ mod tests {
         let err = execute(BridgeCommand::StopSession).unwrap_err().to_string();
         assert!(err.contains("rejected"), "got: {err}");
         assert_eq!(state().unwrap(), BridgeSessionState::Idle);
+    }
+
+    /// The pin command rides the wire with the engine's semantics
+    /// (ticket 21's bridge seam; the engine's own behavior is locked by
+    /// the engine tests): rejected outside recording, and inside it the
+    /// sentinel surfaces through the live transcript event at once —
+    /// a pin-only session rides the whole machine to insertion.
+    #[test]
+    fn pin_placeholder_rides_the_wire() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup();
+        let mut rx = global().unwrap().engine.subscribe();
+
+        // Outside listening the wire reports the engine's rejection.
+        let err = execute(BridgeCommand::PinPlaceholder)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("rejected"), "got: {err}");
+
+        // While listening: the sentinel appears in the live transcript.
+        fake_begin_session().unwrap();
+        execute(BridgeCommand::StartSession).unwrap();
+        execute(BridgeCommand::PinPlaceholder).unwrap();
+        block_on(wait_for(
+            &mut rx,
+            |event| matches!(
+                event,
+                EngineEvent::LiveTranscriptUpdated { text } if text.contains('‡')
+            ),
+        ));
+
+        // The pin-only session survives the recording end and inserts.
+        execute(BridgeCommand::StopSession).unwrap();
+        block_on(wait_state(&mut rx, SessionState::Preview));
+        execute(BridgeCommand::ConfirmInsert).unwrap();
+        block_on(wait_state(&mut rx, SessionState::Idle));
     }
 
     /// A style directive rides the wire any time (no state machine role):

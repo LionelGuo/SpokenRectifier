@@ -33,6 +33,10 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
       rust.execute(command: rust.BridgeCommand.updatePreviewText(text: text));
 
   @override
+  Future<void> pinPlaceholder() =>
+      rust.execute(command: rust.BridgeCommand.pinPlaceholder());
+
+  @override
   Future<void> rectifyText(
     String rawTranscript, {
     required rust.BridgeSessionStyle style,
