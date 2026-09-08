@@ -128,6 +128,13 @@ impl AsrFeed {
     pub async fn partial(&self, text: &str) {
         let _ = self.tx.send(AsrEvent::Partial { text: text.into() }).await;
     }
+
+    /// Feed one finalized frame only — no interim frame before it. For
+    /// proving how an in-flight pin's snapshot constraint resolves against
+    /// a Final that arrives on its own (an empty one included).
+    pub async fn final_frame(&self, text: &str) {
+        let _ = self.tx.send(AsrEvent::Final { text: text.into() }).await;
+    }
 }
 
 /// Creates sessions for [`ChannelAsr`] before the engine opens them.

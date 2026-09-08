@@ -125,6 +125,11 @@ struct Session {
     /// at render time, so later speech never disturbs a pin and the
     /// freeze reuses the live join instead of recomputing positions.
     pins: Vec<Pin>,
+    /// The snapshot constraint an in-flight pin opened: `Some` while the
+    /// sentence a pin split is still awaiting its first non-empty Final.
+    /// Transcript frames may only extend the frozen prefix, and a
+    /// paragraph mark cannot split the pinned row. See [`InFlight`].
+    in_flight: Option<InFlight>,
     /// Whether the current silence run already emitted a paragraph mark.
     paragraph_marked_current_silence: bool,
     /// Speech happened since the last paragraph mark (VAD activity or
@@ -177,12 +182,29 @@ impl Pin {
 /// then the current paragraph as the last index) at byte `offset` within
 /// it. The anchor cannot go stale: closed paragraphs are immutable, the
 /// current paragraph only ever appends (keeping its content when it
-/// closes), and the interim partial is never pinned into — the pin lands
-/// after the finalized text, and a draft in flight continues after it.
+/// closes), and the interim partial is never pinned into — a draft in
+/// flight at the press is frozen onto the finalized side first (ticket
+/// 16), so the pin still lands after finalized text.
 #[derive(Debug)]
 struct PinAnchor {
     paragraph: usize,
     offset: usize,
+}
+
+/// The constraint an in-flight pin opens (ticket 16): the press froze the
+/// draft spoken so far into the finalized side as the pin's left — dead to
+/// the recognizer's later rewrites — and until this sentence's first
+/// non-empty Final arrives, transcript frames may only extend the text
+/// after the pin on top of the frozen prefix. The snapshot is cumulative
+/// across pins stacked in the same sentence: each later press freezes the
+/// tail it collected, growing the prefix the recognizer must still start
+/// with.
+struct InFlight {
+    /// The frozen speech-side prefix, in bytes: exactly what this sentence
+    /// has committed to the current paragraph. Prefix checks and strips
+    /// are byte-exact against it, and it never contains a sentinel (pins
+    /// live outside the transcript strings).
+    snapshot: String,
 }
 
 /// The directive seam's blank guard: whitespace-only text reads as no
@@ -808,6 +830,7 @@ impl Session {
             current_paragraph: String::new(),
             partial: String::new(),
             pins: Vec::new(),
+            in_flight: None,
             paragraph_marked_current_silence: false,
             speech_since_mark: false,
             any_speech: false,
@@ -880,7 +903,23 @@ impl Session {
     /// rides the paragraph structure, so the splice point stays put while
     /// later speech keeps folding in after the pin. A pin is not speech:
     /// the paragraph and discard rules never see it.
+    ///
+    /// A draft in flight at the press becomes this pin's frozen left
+    /// (ticket 16): the draft commits to the finalized side — the words on
+    /// screen stay on screen — and the sentence's first non-empty Final is
+    /// awaited under a snapshot constraint, so it cannot append the same
+    /// words a second time. Pressing again under an open constraint
+    /// stacks: the later pin freezes the tail collected so far, growing
+    /// the snapshot by it.
     fn pin(&mut self) {
+        if !self.partial.is_empty() {
+            let draft = std::mem::take(&mut self.partial);
+            self.current_paragraph.push_str(&draft);
+            match &mut self.in_flight {
+                Some(constraint) => constraint.snapshot.push_str(&draft),
+                None => self.in_flight = Some(InFlight { snapshot: draft }),
+            }
+        }
         let anchor = if self.current_paragraph.is_empty() && !self.paragraphs.is_empty() {
             // Nothing new said since the last mark: the shown transcript
             // ends with the last closed paragraph, and so does the pin.
@@ -891,7 +930,9 @@ impl Session {
         } else {
             // End of the current paragraph — offset 0 when it is empty:
             // the pin opens the paragraph, and speech said afterwards
-            // lands after it.
+            // lands after it. An in-flight press never reaches here with
+            // an empty current paragraph: the draft it just committed
+            // opens the row.
             PinAnchor {
                 paragraph: self.paragraphs.len(),
                 offset: self.current_paragraph.len(),
@@ -899,6 +940,56 @@ impl Session {
         };
         let number = self.pins.len() + 1;
         self.pins.push(Pin { number, anchor });
+    }
+
+    /// Fold one interim frame into the partial. Under an open snapshot
+    /// constraint the frame may only extend the frozen prefix: its
+    /// remainder past the snapshot becomes the new tail. A frame that
+    /// rewrites the frozen words — Volcano's no-utterance full-session
+    /// restatement among them — is dropped whole: the tail keeps its last
+    /// frame, and the constraint stands until the sentence's first
+    /// non-empty Final decides it. Returns whether the transcript changed.
+    fn fold_partial(&mut self, text: String) -> bool {
+        match self.in_flight.as_ref() {
+            Some(constraint) if !text.starts_with(&constraint.snapshot) => false,
+            Some(constraint) => {
+                self.partial = text[constraint.snapshot.len()..].to_string();
+                true
+            }
+            None => {
+                self.partial = text;
+                true
+            }
+        }
+    }
+
+    /// Fold one finalized frame into the current paragraph. Under an open
+    /// snapshot constraint this is the sentence's first non-empty Final,
+    /// and it ends the constraint: matching the snapshot appends only the
+    /// remainder past it (the pin's settled right); not matching appends
+    /// the whole text after the pin as new finalized speech — the frozen
+    /// left stays dead either way. An empty Final is ignored while the
+    /// constraint stands: nothing was finalized, so the tail survives and
+    /// only a non-empty Final may decide. Outside a constraint the fold is
+    /// today's. Returns whether the transcript changed.
+    fn fold_final(&mut self, text: String) -> bool {
+        if let Some(constraint) = self.in_flight.take() {
+            if text.is_empty() {
+                self.in_flight = Some(constraint);
+                return false;
+            }
+            let settled = if text.starts_with(&constraint.snapshot) {
+                &text[constraint.snapshot.len()..]
+            } else {
+                text.as_str()
+            };
+            self.partial.clear();
+            self.current_paragraph.push_str(settled);
+            return true;
+        }
+        self.partial.clear();
+        self.current_paragraph.push_str(&text);
+        true
     }
 
     /// Speech happened (transcript or VAD activity): re-arm the paragraph
@@ -934,17 +1025,18 @@ async fn consume_asr(
                 let session = st.session.as_mut().expect("active session");
                 match event {
                     AsrEvent::Partial { text } => {
-                        session.partial = text;
-                        session.note_speech();
-                        let live = session.live_text();
-                        inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
+                        if session.fold_partial(text) {
+                            session.note_speech();
+                            let live = session.live_text();
+                            inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
+                        }
                     }
                     AsrEvent::Final { text } => {
-                        session.partial.clear();
-                        session.current_paragraph.push_str(&text);
-                        session.note_speech();
-                        let live = session.live_text();
-                        inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
+                        if session.fold_final(text) {
+                            session.note_speech();
+                            let live = session.live_text();
+                            inner.emit_stream_event(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text: live });
+                        }
                     }
                     AsrEvent::Silence { elapsed_ms } => {
                         if session.passage_mode {
@@ -953,9 +1045,15 @@ async fn consume_asr(
                             // marks nothing. Transcript text is not required
                             // — until the real ASR adapter lands, VAD speech
                             // bursts alone carry the paragraph structure.
+                            // While a pin's snapshot constraint is open, the
+                            // pinned row must not split — the sentence is
+                            // still resolving around the pin — so the mark
+                            // waits. Rows closed before the pin stay closed
+                            // either way; nothing here reopens them.
                             if elapsed_ms >= session.timings.paragraph_silence_ms
                                 && session.speech_since_mark
                                 && !session.paragraph_marked_current_silence
+                                && session.in_flight.is_none()
                             {
                                 session.paragraph_marked_current_silence = true;
                                 session.speech_since_mark = false;

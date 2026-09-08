@@ -2,70 +2,16 @@
 //! transcript, the freeze, and the rectify request. Speech is fed through
 //! the channel ASR so commands interleave with transcript events exactly
 //! where each test wants them — the scripted ASR would drain its whole
-//! script before any command lands.
+//! script before any command lands. The in-flight path (a press while a
+//! draft is unpinned and in flight) lives in `pin_in_flight.rs`.
 
 mod common;
 
-use std::sync::Arc;
-
-use tokio::sync::broadcast;
-
-use common::{await_live, await_state, expect_quiet, next_matching, ok};
-use spokenrectifier_engine::fakes::{
-    AsrFeed, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedLlm,
-};
+use common::{await_live, await_state, chan_harness, drain_said, expect_quiet, next_matching, ok};
+use spokenrectifier_engine::fakes::LlmStep;
 use spokenrectifier_engine::{
-    Command, Engine, EngineConfig, EngineDeps, EngineError, EngineEvent, EventEnvelope,
-    SessionState,
+    Command, Engine, EngineConfig, EngineError, EngineEvent, SessionState,
 };
-
-/// Channel-driven harness: one fake ASR session queued up front (more via
-/// [`ChanHarness::begin_session`]), the rest of the fakes as in `common`.
-struct ChanHarness {
-    engine: Engine,
-    scripter: ChannelScripter,
-    feed: AsrFeed,
-    llm: Arc<ScriptedLlm>,
-}
-
-fn chan_harness(config: EngineConfig, llm_scripts: Vec<Vec<LlmStep>>) -> ChanHarness {
-    let (asr, scripter) = ChannelAsr::new();
-    let llm = ScriptedLlm::new(llm_scripts);
-    let inserter = FakeInserter::new();
-    let engine = Engine::new(
-        config,
-        EngineDeps {
-            asr,
-            llm: llm.clone(),
-            inserter,
-            history: None,
-            terms: None,
-            clock: FakeClock::new(1_000),
-        },
-    );
-    let feed = scripter.begin_session();
-    ChanHarness {
-        engine,
-        scripter,
-        feed,
-        llm,
-    }
-}
-
-impl ChanHarness {
-    /// Queue the next fake ASR session and hand back its feed.
-    fn begin_session(&self) -> AsrFeed {
-        self.scripter.begin_session()
-    }
-}
-
-/// Drain a fed phrase's two live frames (interim + final) so a following
-/// command is deterministic: a pin issued after the first frame would
-/// land before the phrase's final text, not after it.
-async fn drain_said(rx: &mut broadcast::Receiver<EventEnvelope>, text: &str) {
-    await_live(rx, text).await;
-    await_live(rx, text).await;
-}
 
 /// Assert the pin command is rejected with the given state and that the
 /// state survived untouched.

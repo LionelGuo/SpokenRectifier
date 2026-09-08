@@ -11,7 +11,8 @@ use tokio::sync::broadcast;
 use tokio::time::timeout;
 
 use spokenrectifier_engine::fakes::{
-    AsrStep, FakeClock, FakeInserter, LlmStep, ScriptedAsr, ScriptedLlm,
+    AsrFeed, AsrStep, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedAsr,
+    ScriptedLlm,
 };
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EventEnvelope, SessionRecorder, SessionState,
@@ -134,6 +135,58 @@ pub async fn await_live(rx: &mut broadcast::Receiver<EventEnvelope>, text: &str)
         )
     })
     .await;
+}
+
+/// Drain a fed phrase's two live frames (interim + final) so a following
+/// command is deterministic: a pin issued after the first frame would
+/// land before the phrase's final text, not after it.
+pub async fn drain_said(rx: &mut broadcast::Receiver<EventEnvelope>, text: &str) {
+    await_live(rx, text).await;
+    await_live(rx, text).await;
+}
+
+/// Channel-driven harness: one fake ASR session queued up front (more via
+/// [`ChanHarness::begin_session`]), the rest of the fakes as in
+/// [`harness`]. For tests that must interleave commands with transcript
+/// events at exact points — the scripted ASR drains its whole script
+/// before any command lands.
+pub struct ChanHarness {
+    pub engine: Engine,
+    pub scripter: ChannelScripter,
+    pub feed: AsrFeed,
+    pub llm: Arc<ScriptedLlm>,
+}
+
+/// Build a [`ChanHarness`] and queue its first fake ASR session.
+pub fn chan_harness(config: EngineConfig, llm_scripts: Vec<Vec<LlmStep>>) -> ChanHarness {
+    let (asr, scripter) = ChannelAsr::new();
+    let llm = ScriptedLlm::new(llm_scripts);
+    let inserter = FakeInserter::new();
+    let engine = Engine::new(
+        config,
+        EngineDeps {
+            asr,
+            llm: llm.clone(),
+            inserter,
+            history: None,
+            terms: None,
+            clock: FakeClock::new(1_000),
+        },
+    );
+    let feed = scripter.begin_session();
+    ChanHarness {
+        engine,
+        scripter,
+        feed,
+        llm,
+    }
+}
+
+impl ChanHarness {
+    /// Queue the next fake ASR session and hand back its feed.
+    pub fn begin_session(&self) -> AsrFeed {
+        self.scripter.begin_session()
+    }
 }
 
 /// Assert that no further event arrives within `ms` (lets spawned tasks
