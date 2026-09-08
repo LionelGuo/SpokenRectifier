@@ -1,8 +1,9 @@
 /// The session panel: one continuous surface evolving live transcript ->
 /// streaming rectify -> preview (修正≡预览同形, only the affordances
-/// differ). The text region is a single TextField for the whole ride:
-/// read-only while streaming, editable the moment the stream completes —
-/// what you see is what gets inserted.
+/// differ). The text region is the self-drawn slot surface family
+/// (ticket 22): read-only capsules while streaming, the editable
+/// fill-capsule document the moment the stream completes — what you see
+/// is what gets inserted.
 
 library;
 
@@ -12,8 +13,10 @@ import 'package:flutter/material.dart';
 
 import '../../app_state.dart';
 import '../design/tokens.dart';
+import '../preview/slot_document.dart';
+import '../preview/slot_editor.dart';
+import '../preview/slot_surface.dart';
 import '../rust/api.dart' show BridgeSessionState;
-import 'pin_capsule.dart' show sentinelSpans;
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
 import '../shell/window_stage.dart';
@@ -33,7 +36,6 @@ class SessionPanel extends StatefulWidget {
 }
 
 class _SessionPanelState extends State<SessionPanel> {
-  final _text = TextEditingController();
   final _focus = FocusNode();
   final _scroll = ScrollController();
   Timer? _tick;
@@ -42,6 +44,18 @@ class _SessionPanelState extends State<SessionPanel> {
 
   bool get _isPreview => c.phase == BridgeSessionState.preview;
   bool _wasPreview = false;
+
+  /// The preview round's slot document and editor (ticket 22). One
+  /// document lives for one preview session: the value map survives
+  /// rerolls within it (值挂钉不挂轮, 13 号票) and dies when the phase
+  /// leaves the active session states. Null outside a preview session —
+  /// the stream branches need no model.
+  SlotDocument? _doc;
+  SlotEditor? _editor;
+
+  /// Bumped on every preview entry; remounts the editing surface so each
+  /// round starts with fresh IME and composing state.
+  int _round = 0;
 
   /// Whether the 对照原文 comparison block is expanded (panel-local UI
   /// state; nothing else reads it).
@@ -54,8 +68,8 @@ class _SessionPanelState extends State<SessionPanel> {
   void initState() {
     super.initState();
     c.addListener(_onChanged);
-    _syncText();
     _wasPreview = c.phase == BridgeSessionState.preview;
+    if (_wasPreview) _enterPreview();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (c.phase == BridgeSessionState.recording && mounted) setState(() {});
     });
@@ -73,7 +87,6 @@ class _SessionPanelState extends State<SessionPanel> {
   void dispose() {
     c.removeListener(_onChanged);
     _tick?.cancel();
-    _text.dispose();
     _focus.dispose();
     _scroll.dispose();
     super.dispose();
@@ -81,57 +94,63 @@ class _SessionPanelState extends State<SessionPanel> {
 
   void _onChanged() {
     if (!mounted) return;
-    _syncText();
-    // The read-only stream view (listening / rectifying) has no editable
-    // of its own listening to the text controller: repaint it here. The
-    // preview's TextField repaints itself through the controller.
-    if (!_isPreview) setState(() {});
     if (!_wasPreview && _isPreview) {
-      // The stream completed: the field becomes editable this instant.
-      _wasPreview = true;
-      _focus.requestFocus();
-    } else if (!_isPreview) {
+      _enterPreview();
+    } else if (_wasPreview && !_isPreview) {
       _wasPreview = false;
+      // The session's terminal states (inserted / cancelled / idle) end
+      // the preview session: the value map and the undo stacks die with
+      // it (会话结束栈与值 map 一起消亡, 14 号票). Rectifying — a reroll
+      // in flight — keeps them for the retention rules.
+      switch (c.phase) {
+        case BridgeSessionState.inserted ||
+            BridgeSessionState.cancelled ||
+            BridgeSessionState.idle:
+          _doc = null;
+          _editor = null;
+        default:
+          break;
+      }
     }
+    setState(() {});
   }
 
-  /// Keeps the single text region in step with the streams without
-  /// moving the caret while the user edits. Preview edits are adopted
-  /// into [SpeechController.previewText] the moment they happen, so the
-  /// value-difference check never rewrites under the caret.
-  void _syncText() {
-    final streamText = c.phase == BridgeSessionState.recording
-        ? c.liveText
-        : c.previewText;
-    if (_text.text == streamText) return;
-    _text.value = TextEditingValue(
-      text: streamText,
-      selection: TextSelection.collapsed(offset: streamText.length),
-    );
+  /// A round of rectified text has arrived: mint the identities, adopt
+  /// the prefills as initial values, raise the undo barrier (19 号票),
+  /// hand the keyboard to the editing surface, and adopt the substituted
+  /// text as the on-screen preview — what any confirm path would insert.
+  void _enterPreview() {
+    _wasPreview = true;
+    final prefill = {for (final row in c.prefillTable) row.number: row.value};
+    if (_doc == null) {
+      _doc = SlotDocument();
+      _editor = SlotEditor(_doc!);
+    }
+    _editor!.arrive(c.previewText, prefill);
+    _round += 1;
+    // The focus request must wait for the editing surface to mount: the
+    // node is detached at this listener's moment (the branch builds this
+    // frame), and a request against a detached node is dropped.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      if (mounted && c.phase == BridgeSessionState.preview) {
+        _focus.requestFocus();
       }
     });
+    // Adopt the substituted text as the on-screen preview — but only
+    // push when it differs from what the engine just streamed: a
+    // pin-less round substitutes to itself, and the push would only arm
+    // a pointless debounce (无钉会话零影响).
+    final substituted = _doc!.substitute();
+    if (substituted != c.previewText) {
+      c.editPreviewText(substituted);
+    }
   }
 
-  /// Chat-input style Enter: a bare Enter in a non-composing field
-  /// arrives as an appended newline — strip it and confirm (same
-  /// semantics as ticket 14). While the IME composes, Enter commits the
-  /// composition instead and must not confirm.
-  void _onEdited(String value) {
-    final composing = _text.value.composing;
-    if (value.endsWith('\n') && composing == TextRange.empty) {
-      final stripped = value.substring(0, value.length - 1);
-      _text.value = TextEditingValue(
-        text: stripped,
-        selection: TextSelection.collapsed(offset: stripped.length),
-      );
-      c.editPreviewText(stripped);
-      c.enterAction();
-      return;
-    }
-    c.editPreviewText(value);
+  /// The editing surface reports a model change: adopt the substituted
+  /// text (the debounced engine push rides the controller's own path).
+  void _onSlotChanged(String substituted) {
+    c.editPreviewText(substituted);
+    setState(() {});
   }
 
   @override
@@ -197,8 +216,7 @@ class _SessionPanelState extends State<SessionPanel> {
           // one-time pick session (ticket 23's scenario, ticket 28's
           // 默认) paints the same shape with that pick's name — same
           // format, no special badge.
-          if (c.scenarios.isNotEmpty)
-            _ScenarioChip(label: '场景 · $scenario'),
+          if (c.scenarios.isNotEmpty) _ScenarioChip(label: '场景 · $scenario'),
         ],
       ),
     );
@@ -206,10 +224,8 @@ class _SessionPanelState extends State<SessionPanel> {
 
   Widget _textArea(BuildContext context, SrPalette pal) {
     final recording = c.phase == BridgeSessionState.recording;
-    final empty = _text.text.isEmpty && recording;
-    final streamStyle = SrType.bodyLarge.copyWith(
-      color: recording ? pal.textSecondary : pal.textPrimary,
-    );
+    final editor = _editor;
+    final previewing = _isPreview && editor != null;
     return Padding(
       // Straight-edge body content: contentInset (below the corner band).
       padding: const EdgeInsets.fromLTRB(
@@ -220,38 +236,26 @@ class _SessionPanelState extends State<SessionPanel> {
       ),
       child: Stack(
         children: [
-          if (empty)
+          if (recording && c.liveText.isEmpty)
             Text(
               '开始说话…',
               style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
             ),
-          if (_isPreview)
-            TextField(
-              key: const Key('session-text'),
-              controller: _text,
-              focusNode: _focus,
-              scrollController: _scroll,
-              readOnly: !_isPreview,
-              maxLines: null,
-              expands: true,
-              textAlignVertical: TextAlignVertical.top,
-              showCursor: true,
-              cursorColor: c.phase == BridgeSessionState.recording
-                  ? pal.live
-                  : pal.accent,
-              cursorWidth: 2.5,
-              cursorRadius: const Radius.circular(2),
-              style: SrType.bodyLarge.copyWith(
-                color: c.phase == BridgeSessionState.recording
-                    ? pal.textSecondary
-                    : pal.textPrimary,
+          if (previewing)
+            // The editable preview (ticket 22): the self-drawn fill
+            // capsule surface over the slot document. Each round bumps
+            // the reset token; edits adopt their substituted text at once.
+            SingleChildScrollView(
+              controller: _scroll,
+              child: SlotSurface(
+                key: const Key('session-text'),
+                mode: SlotSurfaceMode.preview,
+                editor: editor,
+                focusNode: _focus,
+                scrollController: _scroll,
+                resetToken: _round,
+                onChanged: _onSlotChanged,
               ),
-              decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: '',
-              ),
-              onChanged: _onEdited,
             )
           else
             // The read-only stream surface (listening / rectifying):
@@ -259,12 +263,14 @@ class _SessionPanelState extends State<SessionPanel> {
             // on the main surface (ticket 21). Rectifying reads the same
             // projection, so sentinels appearing mid-stream collapse into
             // capsules the moment their shape completes.
-            SingleChildScrollView(
-              controller: _scroll,
-              child: Text.rich(
-                key: const Key('session-stream'),
-                TextSpan(style: streamStyle, children: sentinelSpans(_text.text)),
+            SlotSurface(
+              key: const Key('session-stream'),
+              mode: SlotSurfaceMode.stream,
+              text: recording ? c.liveText : c.previewText,
+              streamStyle: SrType.bodyLarge.copyWith(
+                color: recording ? pal.textSecondary : pal.textPrimary,
               ),
+              scrollController: _scroll,
             ),
         ],
       ),

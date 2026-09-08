@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
+import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeHistoryEntry, BridgeScenario, BridgeSessionState;
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
@@ -30,11 +31,26 @@ import 'package:spokenrectifier_app/ui_prefs.dart';
 
 import 'fake_gateway.dart';
 
-/// The session field's editable core (the Key sits on the TextField).
-Finder findSessionField() => find.descendant(
-  of: find.byKey(const Key('session-text')),
-  matching: find.byType(EditableText),
-);
+/// The session field's editable core: the self-drawn slot surface
+/// (ticket 22). The Key sits on the SlotSurface itself.
+SlotSurfaceState sessionSurface(WidgetTester tester) =>
+    tester.state(find.byKey(const Key('session-text'))) as SlotSurfaceState;
+
+/// Types [text] into the session surface exactly the way the platform
+/// delivers it: an editing-value update against the surface's own IME
+/// shadow (never a key event — printable keys feed the text input).
+Future<void> typeAtCaret(WidgetTester tester, String text) async {
+  final surface = sessionSurface(tester);
+  final value = surface.currentTextEditingValue!;
+  final caret = value.selection.baseOffset;
+  tester.testTextInput.updateEditingValue(
+    TextEditingValue(
+      text: value.text.replaceRange(caret, caret, text),
+      selection: TextSelection.collapsed(offset: caret + text.length),
+    ),
+  );
+  await tester.pump();
+}
 
 /// A stage window that records every bounds jump, so tests can assert
 /// the choreography (one atomic setBounds per transition, anchor corner
@@ -298,7 +314,7 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('stop streams chunks into preview, Enter confirms, back to orb', (
+  testWidgets('stop streams chunks into preview; confirm via the hotkey', (
     tester,
   ) async {
     final gateway = FakeGateway();
@@ -311,16 +327,20 @@ void main() {
 
     await pumpToPreview(tester, controller, gateway, chunks: ['修正', '后的文本']);
 
-    // The session field holds the joined chunks, editable in preview.
-    final field = tester.widget<EditableText>(findSessionField());
-    expect(field.controller.text, '修正后的文本');
-    expect(field.readOnly, isFalse);
+    // The session surface holds the joined chunks, editable in preview.
+    expect(sessionSurface(tester).flatBaseText, '修正后的文本');
     // Preview entry re-guarantees the keyboard after the expand focus.
     expect(window.focuses, greaterThanOrEqualTo(2));
 
-    // Enter (the field holds focus in preview; chat-input semantics)
-    // confirms what is on screen.
+    // Enter in the surface is a newline now, not a confirm (槽内 Enter
+    // 是换行,08 号票 — the field's chat-input confirm is retired).
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.phase, BridgeSessionState.preview);
+    expect(gateway.commands, isNot(contains('confirmInsert')));
+
+    // The hotkey (the table's primary) confirms what is on screen.
+    await controller.hotkeyToggle();
     await tester.pump(const Duration(milliseconds: 350));
 
     expect(gateway.commands, contains('confirmInsert'));
@@ -412,13 +432,10 @@ void main() {
     await pumpToRecording(tester, controller);
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'stage-keyboard');
 
-    // Preview hands the keyboard to the editable field (its own re-claim
-    // on entry): edits, IME, and Enter live there.
+    // Preview hands the keyboard to the editing surface (its own
+    // re-claim on entry): edits, IME, and Enter live there.
     await pumpToPreview(tester, controller, gateway);
-    expect(
-      tester.widget<EditableText>(findSessionField()).focusNode.hasFocus,
-      isTrue,
-    );
+    expect(sessionSurface(tester).widget.focusNode!.hasFocus, isTrue);
 
     // Reroll returns to rectifying: the field is read-only again, the
     // stage node takes the keyboard back.
@@ -487,8 +504,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
 
     expect(controller.previewText, '第二版');
-    final field = tester.widget<EditableText>(findSessionField());
-    expect(field.controller.text, '第二版');
+    expect(sessionSurface(tester).flatBaseText, '第二版');
     await windDown(tester, controller);
   });
 
@@ -499,16 +515,22 @@ void main() {
     final controller = await pumpController(tester, gateway);
     await pumpToPreview(tester, controller, gateway, chunks: ['初稿']);
 
-    await tester.enterText(find.byKey(const Key('session-text')), '改过的初稿');
+    // Move to the end (arrive parks the caret at the body's start), then
+    // type the way the platform delivers it.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    for (final _ in '初稿'.split('')) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    }
+    await typeAtCaret(tester, '改过的');
     expect(
       gateway.commands.where((c) => c.startsWith('updatePreviewText')),
       isEmpty,
     );
     await tester.pump(const Duration(milliseconds: 400));
     expect(gateway.commands.where((c) => c.startsWith('updatePreviewText')), [
-      'updatePreviewText:改过的初稿',
+      'updatePreviewText:初稿改过的',
     ]);
-    expect(controller.previewText, '改过的初稿');
+    expect(controller.previewText, '初稿改过的');
     await windDown(tester, controller);
   });
 
@@ -521,7 +543,7 @@ void main() {
 
     // Edit, then immediately reroll before the debounce fires: once
     // rectifying starts, that edit is stale and must not be pushed.
-    await tester.enterText(find.byKey(const Key('session-text')), '改了一半');
+    await typeAtCaret(tester, '改了一半');
     await controller.reroll();
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -532,28 +554,6 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('Enter within the debounce window inserts the edited text', (
-    tester,
-  ) async {
-    final gateway = FakeGateway();
-    final controller = await pumpController(tester, gateway);
-    await pumpToPreview(tester, controller, gateway, chunks: ['初稿']);
-
-    // Edit and press Enter immediately — well inside the 350 ms debounce.
-    await tester.enterText(find.byKey(const Key('session-text')), '改完的终稿');
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump(const Duration(milliseconds: 350));
-
-    // The edit reached the engine before the confirm, not after it.
-    final commands = gateway.commands;
-    final editAt = commands.indexOf('updatePreviewText:改完的终稿');
-    final confirmAt = commands.indexOf('confirmInsert');
-    expect(editAt, greaterThanOrEqualTo(0));
-    expect(confirmAt, greaterThan(editAt));
-    expect(controller.phase, BridgeSessionState.idle);
-    await windDown(tester, controller);
-  });
-
   testWidgets('the hotkey within the edit debounce inserts what is on screen', (
     tester,
   ) async {
@@ -561,15 +561,16 @@ void main() {
     final controller = await pumpController(tester, gateway);
     await pumpToPreview(tester, controller, gateway, chunks: ['初稿']);
 
-    // Edit, then the hotkey fires immediately — inside the 350 ms
-    // debounce window. The confirm must flush the on-screen text to the
-    // engine first, not insert the pre-edit snapshot.
-    await tester.enterText(find.byKey(const Key('session-text')), '改完的终稿');
+    // Type (the caret parks at the body's start on arrival), then the
+    // hotkey fires immediately — inside the 350 ms debounce window. The
+    // confirm must flush the on-screen text to the engine first, not
+    // insert the pre-edit snapshot.
+    await typeAtCaret(tester, '改完的终稿');
     await controller.hotkeyToggle();
     await tester.pump(const Duration(milliseconds: 350));
 
     final commands = gateway.commands;
-    final editAt = commands.indexOf('updatePreviewText:改完的终稿');
+    final editAt = commands.indexOf('updatePreviewText:改完的终稿初稿');
     final confirmAt = commands.indexOf('confirmInsert');
     expect(editAt, greaterThanOrEqualTo(0));
     expect(confirmAt, greaterThan(editAt));
