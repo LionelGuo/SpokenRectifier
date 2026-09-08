@@ -68,13 +68,13 @@ final _sentinel = RegExp(r'‡[0-9]+‡');
 /// never emits those, but the scan is shape-driven and special-cases
 /// nothing.
 List<PlaceholderSpan> scanSentinels(String text) => [
-      for (final match in _sentinel.allMatches(text))
-        PlaceholderSpan(
-          id: int.parse(match[0]!.substring(1, match[0]!.length - 1)),
-          start: match.start,
-          end: match.end,
-        ),
-    ];
+  for (final match in _sentinel.allMatches(text))
+    PlaceholderSpan(
+      id: int.parse(match[0]!.substring(1, match[0]!.length - 1)),
+      start: match.start,
+      end: match.end,
+    ),
+];
 
 /// The preview-stage fill-slot document: skeleton + identity → current
 /// value, the round lifecycle (extraction, retention, the stack
@@ -123,9 +123,9 @@ class SlotDocument {
   /// span like any other; a same-shape with an unminted number is
   /// ordinary text and no slot — post-arrival edits mint nothing.
   List<PlaceholderSpan> get fillSlots => [
-        for (final span in scanSentinels(_skeleton))
-          if (_values.containsKey(span.id)) span,
-      ];
+    for (final span in scanSentinels(_skeleton))
+      if (_values.containsKey(span.id)) span,
+  ];
 
   /// The current value of slot [id] — what confirm substitutes. Empty
   /// string is a real state (an emptied slot, 掏空); unminted numbers
@@ -187,9 +187,7 @@ class SlotDocument {
   /// round they were made in (骨架编辑照旧全丢). Both undo stacks clear:
   /// regeneration is the barrier, no gate, no prompt (14 号票).
   void arrive(String rectifiedText, Map<int, String> prefill) {
-    _visible = {
-      for (final span in scanSentinels(rectifiedText)) span.id,
-    };
+    _visible = {for (final span in scanSentinels(rectifiedText)) span.id};
     for (final id in _visible) {
       final fresh = prefill[id] ?? '';
       // Unminted (null == null) and unmodified both adopt the fresh
@@ -202,19 +200,38 @@ class SlotDocument {
     _redo.clear();
   }
 
+  /// One undoable edit touching any combination of skeleton and values
+  /// as a single atomic step — ticket 20's cursor operations go through
+  /// here, so one keystroke is one undo step even when it deletes body
+  /// text and value text together. Same rules as the two coarse forms:
+  /// unminted ids in [values] are ignored (身份不增不减), and an edit
+  /// that would change nothing pushes no snapshot.
+  void edit({String? skeleton, Map<int, String>? values}) {
+    final changesNothing =
+        (skeleton == null || skeleton == _skeleton) &&
+        (values == null ||
+            values.entries.every(
+              (e) => !_values.containsKey(e.key) || _values[e.key] == e.value,
+            ));
+    if (changesNothing) return;
+    _change(() {
+      if (skeleton != null) _skeleton = skeleton;
+      if (values != null) {
+        for (final e in values.entries) {
+          if (_values.containsKey(e.key)) _values[e.key] = e.value;
+        }
+      }
+    });
+  }
+
   /// Edit a slot's value — typing inside the capsule, as tickets 20/22
   /// drive it. Unminted numbers are a no-op: identity never grows
   /// through edits (身份不增不减).
-  void editValue(int id, String value) {
-    if (!_values.containsKey(id)) return;
-    _change(() => _values[id] = value);
-  }
+  void editValue(int id, String value) => edit(values: {id: value});
 
   /// Replace the skeleton wholesale — the coarse form of a body edit;
-  /// ticket 20's cursor-level ops apply through the same machinery.
-  void editSkeleton(String skeleton) {
-    _change(() => _skeleton = skeleton);
-  }
+  /// ticket 20's cursor ops apply the fine-grained form through [edit].
+  void editSkeleton(String skeleton) => edit(skeleton: skeleton);
 
   /// Whether an edit of this round can step back / forward again.
   bool get canUndo => _undo.isNotEmpty;
@@ -260,8 +277,7 @@ class SlotDocument {
 }
 
 class _Snapshot {
-  _Snapshot(this.skeleton, Map<int, String> values)
-      : values = Map.of(values);
+  _Snapshot(this.skeleton, Map<int, String> values) : values = Map.of(values);
 
   final String skeleton;
   final Map<int, String> values;
