@@ -40,16 +40,25 @@ class PinNumberCapsule extends StatelessWidget {
       // the family's capsule shape instead of clipping.
       constraints: const BoxConstraints(minWidth: size),
       padding: const EdgeInsets.symmetric(horizontal: 5),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
         // The flat family: fill only — no border, no shadow.
         color: pal.accentSoft,
         borderRadius: BorderRadius.circular(size / 2),
       ),
-      child: Text(
-        '$id',
-        // Plain small digits — not bold, not accented beyond family tint.
-        style: SrType.micro.copyWith(color: pal.accentText, height: 1),
+      // Deliberately NO Container.alignment: inline (WidgetSpan) the width
+      // constraints are bounded — the paragraph width — and the Align a
+      // Container builds with a null widthFactor sizes itself to
+      // maxWidth, swallowing whole lines. Center with explicit factors
+      // shrink-wraps to the digits; the tight height above still forces
+      // the 18px chip and centers them vertically.
+      child: Center(
+        widthFactor: 1,
+        heightFactor: 1,
+        child: Text(
+          '$id',
+          // Plain small digits — not bold, not accented beyond family tint.
+          style: SrType.micro.copyWith(color: pal.accentText, height: 1),
+        ),
       ),
     );
   }
