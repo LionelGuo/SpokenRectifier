@@ -40,6 +40,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show File, FileMode;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -167,11 +168,27 @@ class SlotSurfaceState extends State<SlotSurface>
 
   bool get _isPreview => widget.mode == SlotSurfaceMode.preview;
 
+  // -- DEBUG-22kb: acceptance-round instrumentation ------------------------
+  // Logs every key event, connection transition, and incoming editing
+  // update to a fixed file. Tagged; remove after the round.
+  void _dbg(String line) {
+    debugPrint('[DEBUG-22kb] $line');
+    try {
+      final f = File('C:/Users/lione/Code/SpokenRectifier/.scratch/debug-22.log');
+      f.createSync(recursive: true);
+      f.writeAsStringSync(
+        '${DateTime.now().toIso8601String()} $line\n',
+        mode: FileMode.append,
+      );
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
     if (_isPreview) {
       widget.focusNode?.addListener(_onFocusChanged);
+      _dbg('initState focused=${widget.focusNode?.hasFocus}');
       if (widget.focusNode?.hasFocus ?? false) _openConnection();
     }
   }
@@ -194,6 +211,7 @@ class SlotSurfaceState extends State<SlotSurface>
     if (widget.resetToken != oldWidget.resetToken) {
       // A new preview round: the editor arrived fresh; drop everything
       // ephemeral and re-sync the platform.
+      _dbg('resetToken ${oldWidget.resetToken}->${widget.resetToken}');
       _composing = '';
       _clearTooltip();
       _hoverId = null;
@@ -395,6 +413,19 @@ class SlotSurfaceState extends State<SlotSurface>
     final keyboard = HardwareKeyboard.instance;
     final ctrl = keyboard.isControlPressed;
     final shift = keyboard.isShiftPressed;
+    final result = _onKeyDown(key, ctrl, shift);
+    _dbg(
+      'key ${event.runtimeType} ${key.keyLabel.isEmpty ? key.debugName : key.keyLabel}'
+      ' ctrl=$ctrl shift=$shift composing="$_composing" -> $result',
+    );
+    return result;
+  }
+
+  KeyEventResult _onKeyDown(
+    LogicalKeyboardKey key,
+    bool ctrl,
+    bool shift,
+  ) {
 
     // While composing, the IME owns the keyboard: every editing key is
     // consumed without model action (the composition commits via
@@ -762,8 +793,10 @@ class SlotSurfaceState extends State<SlotSurface>
 
   void _onFocusChanged() {
     if (widget.focusNode?.hasFocus ?? false) {
+      _dbg('focus gained');
       _openConnection();
     } else {
+      _dbg('focus lost, closing connection');
       _connection?.close();
       _connection = null;
     }
@@ -772,6 +805,10 @@ class SlotSurfaceState extends State<SlotSurface>
   void _openConnection() {
     _connection?.close();
     _shadow = _buildShadow();
+    _dbg(
+      'openConnection shadow="${_shadow.text}" '
+      'sel=${_shadow.selection.baseOffset}/${_shadow.selection.extentOffset}',
+    );
     _connection = TextInput.attach(
       this,
       const TextInputConfiguration(
@@ -840,6 +877,12 @@ class SlotSurfaceState extends State<SlotSurface>
     final newComposing = composingRange.isValid && !composingRange.isCollapsed
         ? value.text.substring(composingRange.start, composingRange.end)
         : '';
+    _dbg(
+      'updateEditingValue text="${value.text}" '
+      'sel=${value.selection.baseOffset}/${value.selection.extentOffset} '
+      'composing=${composingRange.start}..${composingRange.end} '
+      '| shadow="${_shadow.text}" _composing="$_composing"',
+    );
 
     // Everything outside the composing runs must be the projection plus
     // committed insertions; diff the two bases to find them.
@@ -876,6 +919,7 @@ class SlotSurfaceState extends State<SlotSurface>
       suffix++;
     }
     final inserted = newBase.substring(prefix, newBase.length - suffix);
+    _dbg('diff prefix=$prefix suffix=$suffix inserted="$inserted"');
 
     if (inserted.isNotEmpty) {
       // A commit or a plain keystroke: one atomic model insert (one undo
@@ -894,6 +938,7 @@ class SlotSurfaceState extends State<SlotSurface>
 
   @override
   void performAction(TextInputAction action) {
+    _dbg('performAction $action');
     // Newlines arrive as model inserts (the key handler) or committed
     // text (the Windows plugin adds '\n' to the editing state before
     // this action); there is nothing to do here. Multiline fields never
@@ -902,6 +947,7 @@ class SlotSurfaceState extends State<SlotSurface>
 
   @override
   void connectionClosed() {
+    _dbg('connectionClosed focused=${widget.focusNode?.hasFocus}');
     _connection = null;
     if (widget.focusNode?.hasFocus ?? false) _openConnection();
   }
