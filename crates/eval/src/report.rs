@@ -35,14 +35,15 @@ impl CaseOutcome {
     }
 }
 
-/// Every category the summary line tallies, in display order. The five
+/// Every category the summary line tallies, in display order. The six
 /// assertion categories plus execution failures.
-const CATEGORIES: [FailureCategory; 5] = [
+const CATEGORIES: [FailureCategory; 6] = [
     FailureCategory::Fabricated,
     FailureCategory::Lost,
     FailureCategory::OverRectified,
     FailureCategory::PreservationFailed,
     FailureCategory::Residual,
+    FailureCategory::AbsorbFailed,
 ];
 
 /// The pass rate the recorded baseline earned (BASELINE.md beside the
@@ -219,7 +220,11 @@ mod tests {
         };
         let report = build_report(&meta(), &[outcome]);
         assert!(report.contains("用例 1 · 通过 0 · 失败 1 · 通过率 0.0%"));
-        assert!(report.contains("失败分类:捏造 0 丢失 1 过度改写 0 保留失败 1 残留 0 执行失败 0"));
+        assert!(
+            report.contains(
+                "失败分类:捏造 0 丢失 1 过度改写 0 保留失败 1 残留 0 吸收失败 0 执行失败 0"
+            )
+        );
         assert!(report.contains("### correction-date"));
         assert!(report.contains("- [丢失] 关键意思缺失:分页设计 / 分页"));
         assert!(report.contains("- [保留失败] 未逐字保留:302会议室"));
@@ -307,7 +312,14 @@ mod tests {
             .collect();
         assert_eq!(
             rendered,
-            vec!["捏造 1", "丢失 2", "过度改写 0", "保留失败 0", "残留 0"]
+            vec![
+                "捏造 1",
+                "丢失 2",
+                "过度改写 0",
+                "保留失败 0",
+                "残留 0",
+                "吸收失败 0"
+            ]
         );
     }
 }

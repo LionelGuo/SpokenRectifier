@@ -2613,6 +2613,7 @@ dependencies = [
  "async-trait",
  "serde",
  "spokenrectifier-engine",
+ "spokenrectifier-llm",
  "tokio",
  "toml",
 ]

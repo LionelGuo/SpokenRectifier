@@ -11,3 +11,9 @@ serde = { version = "1", features = ["derive"] }
 spokenrectifier-engine = { path = "../engine" }
 tokio.workspace = true
 toml = "0.8"
+
+[dev-dependencies]
+# The suite-validity tests compose each bundled case's prompt to pin the
+# placeholder injection branch (无钉零痕迹, 有钉带专条) — runtime never
+# touches the llm crate.
+spokenrectifier-llm = { path = "../llm" }

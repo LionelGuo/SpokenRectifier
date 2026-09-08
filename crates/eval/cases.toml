@@ -1,4 +1,4 @@
-# 保真评测集 — the fidelity eval suite (工单 10).
+# 保真评测集 — the fidelity eval suite (工单 10;占位符族工单 24).
 #
 # One file, zero ceremony: append a `[[case]]` to add coverage. The
 # runner (`cargo run -p sr-replay --bin sr-eval`) feeds each transcript
@@ -13,11 +13,25 @@
 #   max_once  at most one occurrence          → 残留 (repetition collapse)
 #   order     tokens as an in-order subsequence → 过度改写 (light-touch
 #             no-rewording guard; short cases only)
+#   absorbed  must NOT appear in the body — the placeholder clause
+#             absorbed it into a prefill (被吸走的不留正文) → 吸收失败
+#   prefill   [{pin,any}] the slot's 【预填】 value must contain one
+#             alternative; "" demands an empty value (拿不准不吸)
+#             → 吸收失败
+#
+# Any transcript carrying ‡N‡ additionally asserts the derived
+# placeholder contract, no list needed: every sentinel byte-exact and
+# exactly as many times as pinned (少号→保留失败, 多号/捏造哨兵→捏造,
+# a rewritten shape like ‡01‡ fails both ways) and never decorated
+# on both sides (不包裹→保留失败). The 【预填】 block is split off the
+# body first (engine semantics), so body probes never see prefill
+# values and prefill expectations never read body text.
 #
 # Coverage families (the id prefix): correction-, supplement-, stutter-,
-# mixed-, terms-, numeral-, short-. Length discipline: short- cases stay
-# ≤ 15 chars (light-touch), everything else ≥ 60 (full rectify), so the
-# configurable threshold (default 40) cannot silently flip a case.
+# mixed-, terms-, numeral-, short-, placeholder-. Length discipline:
+# short- cases stay ≤ 15 chars (light-touch), everything else ≥ 60
+# (full rectify), so the configurable threshold (default 40) cannot
+# silently flip a case.
 #
 # The terms fixture rides EVERY case's prompt (a fixed dictionary, so a
 # developer's local spokenrectifier-terms.txt cannot leak into a run).
@@ -195,3 +209,49 @@ id = "short-question"
 transcript = "这个是啥意思啊"
 convey = [["意思"]]
 order = ["啥"]
+
+# -- 占位符 ---------------------------------------------------------------
+
+# 空指称吸收:口位词整块吸进预填,正文不再重复这个指称。
+[[case]]
+id = "placeholder-absorb-file"
+transcript = "嗯我想让你打开这个文件‡1‡,就是先看一眼里面的配置项,数据库连接那块重点看一下,超时时间是不是太短了,顺便把缓存的大小也记一下,回头我们一起过一遍,先别动里面的东西"
+absorbed = ["这个文件"]
+prefill = [{ pin = 1, any = ["这个文件", "该文件", "此文件"] }]
+convey = [["配置"], ["数据库"], ["超时"], ["缓存"]]
+purge = ["嗯"]
+
+# 专名吸收:ASR 常听不准、用时才想起的名字,吸进预填、正文不重复。
+[[case]]
+id = "placeholder-absorb-name"
+transcript = "那个下午的评审会材料,嗯,记得发给张三‡1‡,用邮件发一份PDF过去,主题写清楚项目名,别用简称,抄送一份给项目组,让大家留个底,发之前再检查一遍有没有漏页"
+absorbed = ["张三"]
+prefill = [{ pin = 1, any = ["张三"] }]
+convey = [["评审会", "评审"], ["邮件"], ["PDF"], ["抄送"], ["项目组"]]
+purge = ["嗯", "那个"]
+fabricate = ["李四", "王五"]
+
+# 更正改预填:合并后的所指进预填,被替代的名字从正文消失,槽还在。
+[[case]]
+id = "placeholder-absorb-correction"
+transcript = "嗯上线之前那个通知,先发给小王‡1‡,哦不对,说错了,是发给李四,内容就是明天早上十点封网,时间别改,发完在群里说一声,让大家心里有数,值班表也同步更新一下"
+prefill = [{ pin = 1, any = ["李四"] }]
+purge = ["小王", "不对", "说错了", "哦"]
+convey = [["封网"], ["十点", "10点"], ["群里"], ["值班表"]]
+fabricate = ["张三"]
+
+# 拿不准不吸:定语留在正文、槽空,绝不捏造预填。
+[[case]]
+id = "placeholder-absorb-uncertain"
+transcript = "这个项目目前还在评审阶段,项目里的‡1‡你先别填,等定稿以后再说,现在填了也要改,评审的意见周五出,出来以后我们再对一遍口径,统一了再往下走,先不要自己拍板"
+prefill = [{ pin = 1, any = [""] }]
+preserve = ["项目"]
+convey = [["评审"], ["定稿"], ["周五"], ["口径"]]
+
+# 多钉存活:两枚哨兵穿过全量修正与数字规范化,不少号、不多号、不包裹。
+[[case]]
+id = "placeholder-multi"
+transcript = "嗯这次的迁移分三步,第一步先做备份,备份到‡1‡,第二步切流量,灰度从百分之十起,不对,改成百分之二十起,观察两天再扩大,第三步清理旧库,旧库的连接串单独记在‡2‡,照着清单删,别误删新库"
+convey = [["备份"], ["灰度"], ["20%", "百分之二十"], ["观察"], ["旧库"], ["连接串"], ["新库"]]
+purge = ["嗯", "不对", "百分之十"]
+fabricate = ["30%", "50%"]
