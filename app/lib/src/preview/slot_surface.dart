@@ -22,8 +22,11 @@
 ///   visible characters only (身份不出预览).
 /// - **IME**: the surface is its own [TextInputClient]. Composing
 ///   (pre-edit) text is an overlay spliced into the paragraph and the
-///   platform shadow, never the slot model; a commit lands as one atomic
-///   [SlotEditor.insert] — one undo step per composition, not per
+///   platform shadow — over the live selection, because the engine
+///   deletes the selection and composes at its start
+///   (text_input_model.cc) — never the slot model; a commit lands as one
+///   atomic [SlotEditor.insert] that replaces that selection — one undo
+///   step per composition, not per
 ///   keystroke. Platform specifics: on Windows the framework handles the
 ///   editing keys, so this surface consumes them and mutates the model
 ///   itself; printable text arrives via updateEditingValue only (never
@@ -242,36 +245,68 @@ class SlotSurfaceState extends State<SlotSurface>
   SlotProjection get _projection => SlotProjection(_editor.doc);
 
   /// The flat text the paragraph lays out: the projection with the
-  /// composing run spliced at the caret.
+  /// composing run spliced over the selection (or at the caret, when
+  /// collapsed) — byte-for-byte the platform's text, because the engine
+  /// deletes the selection and composes at its start
+  /// (text_input_model.cc).
   String get _paragraphText {
     final base = _projection.base;
     if (_composing.isEmpty) return base;
-    final at = _caretBaseFlat;
-    return base.substring(0, at) + _composing + base.substring(at);
+    final start = _composingCoverStartFlat;
+    return base.replaceRange(start, _composingCoverEndFlat, _composing);
   }
 
-  int get _composingPaintStart => _caretBaseFlat;
+  int get _composingPaintStart => _composingCoverStartFlat;
 
-  int get _composingPaintEnd => _caretBaseFlat + _composing.length;
+  int get _composingPaintEnd => _composingPaintStart + _composing.length;
+
+  /// The flat range the composing run covers: the selection's, while one
+  /// is live (that is where the engine composes), else the caret's
+  /// collapsed position.
+  int get _composingCoverStartFlat {
+    final edges = _editor.selectionEdges;
+    if (edges == null) return _caretBaseFlat;
+    return math.min(
+      _projection.cursorToFlat(edges.$1),
+      _projection.cursorToFlat(edges.$2),
+    );
+  }
+
+  int get _composingCoverEndFlat {
+    final edges = _editor.selectionEdges;
+    if (edges == null) return _caretBaseFlat;
+    return math.max(
+      _projection.cursorToFlat(edges.$1),
+      _projection.cursorToFlat(edges.$2),
+    );
+  }
 
   /// The caret's base-space flat position (composing splices at it).
   int get _caretBaseFlat => _projection.cursorToFlat(_editor.caret);
 
   /// A base-space offset moved past the composing run — paint space.
-  int _paintOf(int baseOffset) =>
-      baseOffset >= _composingPaintStart && _composing.isNotEmpty
-      ? baseOffset + _composing.length
-      : baseOffset;
+  int _paintOf(int baseOffset) {
+    if (_composing.isEmpty) return baseOffset;
+    final start = _composingCoverStartFlat;
+    if (baseOffset <= start) return baseOffset;
+    if (baseOffset >= _composingCoverEndFlat) {
+      return baseOffset + _composing.length -
+          (_composingCoverEndFlat - start);
+    }
+    return start;
+  }
 
   /// A paint-space offset folded back to base space; inside the composing
-  /// run itself maps to the run's start (the model caret).
+  /// run itself maps to the covered range's start (the model caret).
   int _baseOf(int paintOffset) {
     if (_composing.isEmpty) return paintOffset;
-    if (paintOffset <= _composingPaintStart) return paintOffset;
+    final start = _composingCoverStartFlat;
+    if (paintOffset <= start) return paintOffset;
     if (paintOffset >= _composingPaintEnd) {
-      return paintOffset - _composing.length;
+      return paintOffset - _composing.length +
+          (_composingCoverEndFlat - start);
     }
-    return _composingPaintStart;
+    return start;
   }
 
   /// The caret's paint-space flat position: while composing, the system
@@ -346,18 +381,20 @@ class SlotSurfaceState extends State<SlotSurface>
 
   /// The paragraph's span tree: body runs as plain text, each capsule as
   /// its chip placeholder (WidgetSpan) followed by its value as plain
-  /// text, the composing run underlined at the caret.
+  /// text, the composing run underlined over the selection it replaces.
   List<InlineSpan> _spanTree(SrPalette pal) {
     final projection = _projection;
     final base = projection.base;
-    final composingAt = _caretBaseFlat;
+    final composing = _composing.isNotEmpty;
+    final coverStart = _composingCoverStartFlat;
+    final coverEnd = _composingCoverEndFlat;
 
     // Base segments: (start, end) runs broken at every chip boundary and
-    // at the composing splice point.
+    // at the composing splice range's edges.
     final breaks = <int>{
       0,
       base.length,
-      composingAt,
+      if (composing) ...[coverStart, coverEnd],
       for (final slot in projection.slots) ...[slot.chipAt, slot.chipAt + 1],
     };
     final segments = <(int, int)>[];
@@ -368,23 +405,24 @@ class SlotSurfaceState extends State<SlotSurface>
       }
     }
 
+    final underline = TextStyle(
+      decoration: TextDecoration.underline,
+      decorationColor: pal.accent,
+      decorationThickness: 1.5,
+    );
     final children = <InlineSpan>[];
+    var composingPending = composing;
     for (final (start, end) in segments) {
       if (start == end) continue;
-      // The composing run splices ahead of whatever segment starts at the
-      // caret — even when that segment is the chip (the caret rests at
-      // the capsule's outside-left dock).
-      if (start == composingAt && _composing.isNotEmpty) {
-        children.add(
-          TextSpan(
-            text: _composing,
-            style: TextStyle(
-              decoration: TextDecoration.underline,
-              decorationColor: pal.accent,
-              decorationThickness: 1.5,
-            ),
-          ),
-        );
+      // The composing run splices ahead of the first segment at or past
+      // its start — even when that segment is the chip (the caret rests
+      // at the capsule's outside-left dock).
+      if (composingPending && start >= coverStart) {
+        children.add(TextSpan(text: _composing, style: underline));
+        composingPending = false;
+      }
+      if (composing && start >= coverStart && end <= coverEnd) {
+        continue; // covered by the composing run
       }
       final isChip = projection.slots.any(
         (s) => s.chipAt == start && end == s.chipAt + 1,
@@ -400,6 +438,9 @@ class SlotSurfaceState extends State<SlotSurface>
         continue;
       }
       children.add(TextSpan(text: base.substring(start, end)));
+    }
+    if (composingPending) {
+      children.add(TextSpan(text: _composing, style: underline));
     }
     return children;
   }
@@ -821,8 +862,11 @@ class SlotSurfaceState extends State<SlotSurface>
     return segments;
   }
 
-  /// The selection's paint-space range, or null when collapsed.
+  /// The selection's paint-space range, or null when collapsed — and
+  /// while composing: the overlay covers the selection, and the platform
+  /// holds none (the model keeps it for the commit to replace).
   TextSelection? get _selectionPaintRange {
+    if (_composing.isNotEmpty) return null;
     final edges = _editor.selectionEdges;
     if (edges == null) return null;
     final a = _paintOf(_projection.cursorToFlat(edges.$1));
@@ -907,11 +951,15 @@ class SlotSurfaceState extends State<SlotSurface>
 
   /// The shadow value: what the platform model holds — the paragraph text
   /// (composing included) with the editor's selection at paint offsets.
+  /// While composing, the selection rides the composing run's end, the
+  /// platform's own convention (text_input_model.cc).
   TextEditingValue _buildShadow() {
     final edges = _editor.selectionEdges;
     final int base;
     final int extent;
-    if (edges == null) {
+    if (_composing.isNotEmpty) {
+      base = extent = _composingPaintEnd;
+    } else if (edges == null) {
       base = extent = _caretPaintFlat;
     } else {
       base = _paintOf(_projection.cursorToFlat(edges.$1));
@@ -956,12 +1004,10 @@ class SlotSurfaceState extends State<SlotSurface>
     final newComposing = composingRange.isValid && !composingRange.isCollapsed
         ? value.text.substring(composingRange.start, composingRange.end)
         : '';
+    final previousComposing = _shadow.composing;
+    final hadComposing =
+        previousComposing.isValid && !previousComposing.isCollapsed;
 
-    // Everything outside the composing runs must be the projection plus
-    // committed insertions; diff the two bases to find them.
-    final newBase = newComposing.isEmpty
-        ? value.text
-        : value.text.replaceRange(composingRange.start, composingRange.end, '');
     if (_shadow.text.isEmpty) {
       // No shadow was ever pushed (a race with the connection): adopt the
       // platform state without touching the model.
@@ -970,13 +1016,19 @@ class SlotSurfaceState extends State<SlotSurface>
       setState(() {});
       return;
     }
-    final oldBase = _composing.isEmpty
-        ? _shadow.text
-        : _shadow.text.replaceRange(
-            _composingPaintStart,
-            _composingPaintEnd,
-            '',
-          );
+
+    // Everything outside the composing windows must be the projection
+    // plus committed insertions; diff the two bases to find them. Each
+    // side's window is stripped at the PLATFORM's own indices: the
+    // engine composes over the selection at its start
+    // (text_input_model.cc deletes the selection on the first compose
+    // change), a position none of our own state describes.
+    final newBase = newComposing.isEmpty
+        ? value.text
+        : value.text.replaceRange(composingRange.start, composingRange.end, '');
+    final oldBase = hadComposing
+        ? _shadow.text.replaceRange(previousComposing.start, previousComposing.end, '')
+        : _shadow.text;
 
     var prefix = 0;
     while (prefix < oldBase.length &&
@@ -995,10 +1047,14 @@ class SlotSurfaceState extends State<SlotSurface>
 
     if (inserted.isNotEmpty) {
       // A commit or a plain keystroke: one atomic model insert (one undo
-      // step, 值与骨架同栈). The insert lands at the editor's caret /
-      // selection — the platform's selection mirrors ours.
+      // step, 值与骨架同栈). Over a composition the editor's still-live
+      // selection is what was being composed over — inserting replaces
+      // it, which lands the replacement the IME committed.
       _editor.insert(inserted);
     }
+    // A shrunk middle with nothing inserted is the compose-start deletion
+    // of the selection: the model keeps it and the composing overlay
+    // covers it until the commit (or the cancel) arrives.
     _composing = newComposing;
     _shadow = value;
 
@@ -1069,6 +1125,12 @@ class SlotSurfaceState extends State<SlotSurface>
   /// The projection's base text (no composing run) — what the tests read
   /// as the surface's content.
   String get flatBaseText => _projection.base;
+
+  /// The text the paragraph actually lays out — the projection with the
+  /// composing run spliced over the selection. While composing over a
+  /// selection this must equal the platform's text: the engine deletes
+  /// the selection and composes at its start (text_input_model.cc).
+  String get paintedTextForTest => _paragraphText;
 
   /// The composing overlay currently in flight.
   String get composingText => _composing;

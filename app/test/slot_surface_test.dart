@@ -170,6 +170,105 @@ void main() {
     await windDown(tester, h.controller);
   });
 
+  testWidgets(
+    'a Chinese IME composition over the selected value replaces it (the Windows engine sequence)', (
+      tester,
+    ) async {
+      final h = await pumpSlotPreview(tester);
+      await tester.tapAt(h.capsuleRect(1).center);
+      await tester.pump();
+      // 张三 is fully selected; the shadow carries the selection at flat
+      // 3..5 of 发给￼张三一下.
+      final shadow = h.surface.currentTextEditingValue!;
+      expect(shadow.selection.baseOffset, 3);
+      expect(shadow.selection.extentOffset, 5);
+
+      // Replay the engine's exact updateEditingState payloads for typing
+      // pinyin "zhang" over that selection (text_input_plugin.cc /
+      // text_input_model.cc): begin collapses the composing range at the
+      // selection start without touching the text...
+      h.tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '发给￼张三一下',
+          selection: TextSelection(baseOffset: 3, extentOffset: 5),
+          composing: TextRange(start: 3, end: 3),
+        ),
+      );
+      await h.tester.pump();
+      // ...then the first compose change: the engine DELETED the selection
+      // and inserted the composing run at the selection start.
+      h.tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '发给￼zhang一下',
+          selection: TextSelection.collapsed(offset: 8),
+          composing: TextRange(start: 3, end: 8),
+        ),
+      );
+      await h.tester.pump();
+      // Mid-composition: the model keeps its selection (the overlay covers
+      // it) and the painted paragraph equals the platform text.
+      expect(h.surface.flatBaseText, '发给￼张三一下');
+      expect(h.surface.composingText, 'zhang');
+      expect(h.surface.paintedTextForTest, '发给￼zhang一下');
+
+      // Space commits 张: the commit itself sends no update (the plugin
+      // defers to the end event); the end event carries the final state.
+      h.tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '发给￼张一下',
+          selection: TextSelection.collapsed(offset: 4),
+          composing: TextRange(start: 0, end: 0),
+        ),
+      );
+      await h.tester.pump();
+
+      expect(h.surface.composingText, '');
+      expect(h.surface.editor.doc.valueOf(1), '张');
+      expect(h.surface.flatBaseText, '发给￼张一下');
+      expect(h.controller.previewText, '发给张一下');
+      await windDown(tester, h.controller);
+    },
+  );
+
+  testWidgets(
+    'an IME commit over a value at the end of the body lands (no out-of-range composing strip)', (
+      tester,
+    ) async {
+      // The same engine sequence with the capsule last in the body: the
+      // composing window our old code computed ran past the platform
+      // text's end and the handler died on every commit (真机「卡住很
+      // 久、替换不落地」的路径).
+      final h = await pumpSlotPreview(tester, body: '发给‡1‡');
+      await tester.tapAt(h.capsuleRect(1).center);
+      await h.tester.pump();
+      expect(h.surface.flatBaseText, '发给￼张三');
+
+      h.tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '发给￼zhang',
+          selection: TextSelection.collapsed(offset: 8),
+          composing: TextRange(start: 3, end: 8),
+        ),
+      );
+      await h.tester.pump();
+      expect(h.surface.composingText, 'zhang');
+
+      h.tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '发给￼张',
+          selection: TextSelection.collapsed(offset: 4),
+          composing: TextRange(start: 0, end: 0),
+        ),
+      );
+      await h.tester.pump();
+
+      expect(h.surface.composingText, '');
+      expect(h.surface.editor.doc.valueOf(1), '张');
+      expect(h.surface.flatBaseText, '发给￼张');
+      await windDown(tester, h.controller);
+    },
+  );
+
   testWidgets('typing into an empty capsule fills its value', (tester) async {
     final h = await pumpSlotPreview(tester, prefill: '');
     await tester.tapAt(h.capsuleRect(1).center);
