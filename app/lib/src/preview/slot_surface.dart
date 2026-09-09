@@ -678,17 +678,22 @@ class SlotSurfaceState extends State<SlotSurface>
     if (hit == null) return;
     final (cursor, capsuleId) = hit;
     if (capsuleId != null) {
-      // Tap on the pill: the edit state; a non-empty value starts
-      // selected for fastest replacement (点预填非空胶囊默认全选).
+      // Tap on the pill: the edit state. ENTERING a capsule starts its
+      // value selected for fastest replacement (点预填非空胶囊默认全选
+      // — the first tap only); tapping the capsule already under the
+      // caret drops the selection and places the caret at the tapped
+      // position, so a slot can be edited in place, not only replaced
+      // wholesale (2026-09-09 user ruling).
       final slot = _projection.slots.firstWhere((s) => s.id == capsuleId);
       final valueLength = _editor.doc.valueOf(capsuleId).length;
-      if (valueLength > 0) {
+      final entering = _activeId != capsuleId;
+      if (entering && valueLength > 0) {
         _editor.select(
           SlotCursor.inside(at: slot.bodyStart, offset: 0),
           SlotCursor.inside(at: slot.bodyStart, offset: valueLength),
         );
       } else {
-        _editor.place(SlotCursor.inside(at: slot.bodyStart, offset: 0));
+        _editor.place(cursor);
       }
     } else {
       _editor.place(cursor);

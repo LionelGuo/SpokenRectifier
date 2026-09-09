@@ -269,6 +269,52 @@ void main() {
     },
   );
 
+  testWidgets(
+    'only the first tap on a capsule selects all; the next tap places the caret', (
+      tester,
+    ) async {
+      final h = await pumpSlotPreview(tester);
+      // Entering the capsule: 张三 starts selected (the replace path).
+      await tester.tapAt(h.capsuleRect(1).center);
+      await tester.pump();
+      final edges = h.surface.editor.selectionEdges!;
+      expect(edges.$1, const SlotCursor.inside(at: 2, offset: 0));
+      expect(edges.$2, const SlotCursor.inside(at: 2, offset: 2));
+
+      // Tapping the capsule already under the caret drops the selection
+      // and puts the caret at the tapped position instead of re-selecting
+      // (2026-09-09 ruling: slots must be editable in place). Tap exactly
+      // at a stop's caret rect, derived from the caret parked there.
+      final origin = tester.getRect(
+        find.byKey(const Key('session-text')),
+      ).topLeft;
+      for (final target in [
+        const SlotCursor.inside(at: 2, offset: 2),
+        const SlotCursor.inside(at: 2, offset: 0),
+      ]) {
+        h.surface.editor.place(target);
+        await tester.pump();
+        final point = h.surface.caretRect()!.center + origin;
+        await tester.tapAt(point);
+        await tester.pump();
+        expect(h.surface.editor.selectionEdges, isNull);
+        expect(h.surface.editor.caret, target);
+        expect(h.surface.activeSlotId, 1);
+      }
+
+      // Leaving and coming back re-arms the wholesale replace.
+      h.surface.editor.place(h.surface.editor.stops.last);
+      await tester.pump();
+      await tester.tapAt(h.capsuleRect(1).center);
+      await tester.pump();
+      expect(h.surface.editor.selectionEdges?.$2, const SlotCursor.inside(
+        at: 2,
+        offset: 2,
+      ));
+      await windDown(tester, h.controller);
+    },
+  );
+
   testWidgets('typing into an empty capsule fills its value', (tester) async {
     final h = await pumpSlotPreview(tester, prefill: '');
     await tester.tapAt(h.capsuleRect(1).center);
