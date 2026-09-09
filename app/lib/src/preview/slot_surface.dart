@@ -1041,7 +1041,10 @@ class SlotSurfaceState extends State<SlotSurface>
   /// the column's edge exactly like ordinary text — no parking, no
   /// clearance; only the capsule's NATURAL ends (the chip's left cap,
   /// the value's own end) keep the pill's rounded caps (截断直角、文字
-  /// 贴边; D3 反馈五终裁). A single-line capsule is one complete pill.
+  /// 贴边; D3 反馈五终裁) — and the value's own end needs value glyphs
+  /// ON that last line: the empty tail line a trailing '\n' leaves is a
+  /// cut continuation, square. A single-line capsule is one complete
+  /// pill.
   /// A capsule spanning several lines reads as one band across the
   /// column — the first segment runs to the column's right edge, interior
   /// lines take the full width, the last is flush left past its content
@@ -1088,7 +1091,11 @@ class SlotSurfaceState extends State<SlotSurface>
         // text after the capsule flows on beside it — and swallows the
         // reservation's breathing tail when nothing follows (行尾不
         // 留空位). Every end but the first's left (the chip cap) and the
-        // last's right (the value's own end) is a CUT: square.
+        // last's right (the value's own end) is a CUT: square. The last
+        // band's cap exists only when value glyphs END that line — a
+        // trailing '\n' leaves an empty tail line whose end is a cut
+        // continuation, square (an empty stub has no natural end of its
+        // own; 反馈七 — the scaled-radius cap read as a sliced-off arc).
         final lastBand = covered.last;
         var lastRight = 0.0;
         for (final box in valueBoxes) {
@@ -1128,7 +1135,7 @@ class SlotSurfaceState extends State<SlotSurface>
                 center + capsuleHeight / 2,
               ),
               leftRounded: i == 0,
-              rightRounded: i == covered.length - 1,
+              rightRounded: i == covered.length - 1 && lastRight > 0,
             ),
           );
         }
