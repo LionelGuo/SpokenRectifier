@@ -1794,9 +1794,14 @@ class _BackgroundPainter extends CustomPainter {
   final SrPalette pal;
 
   /// Paints [paint]'s shape, then — when the band has a cut end —
-  /// confines it with the cut-fade mask: the flat colour first, the
-  /// alpha gradient over it through dstIn, all inside one saveLayer so
-  /// the erase touches only this band.
+  /// confines it with the cut-fade mask: the flat colour first inside a
+  /// saveLayer, then the alpha gradient over the WHOLE layer rectangle
+  /// through dstIn. The mask is a plain rect inflated past every edge of
+  /// the band's ink — a mask sharing the shape's own boundary multiplies
+  /// its AA against the ink's (a stroked band lost the outer half of
+  /// its outline along the whole run on hardware), while the rect's
+  /// α=1 plateau reaches every pixel of the band untouched and only the
+  /// horizontal ramp toward the cut modulates it.
   void _paintFadedBand(
     Canvas canvas,
     CapsuleBand band,
@@ -1808,10 +1813,11 @@ class _BackgroundPainter extends CustomPainter {
       canvas.drawRRect(shape, paint);
       return;
     }
-    canvas.saveLayer(shape.outerRect, Paint());
+    final layer = shape.outerRect.inflate(1);
+    canvas.saveLayer(layer, Paint());
     canvas.drawRRect(shape, paint);
-    canvas.drawRRect(
-      shape,
+    canvas.drawRect(
+      layer,
       Paint()
         ..blendMode = BlendMode.dstIn
         ..shader = mask,
