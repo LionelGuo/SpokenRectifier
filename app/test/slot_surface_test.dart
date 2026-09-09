@@ -693,4 +693,50 @@ void main() {
     );
     expect(rects[1]!.height, SrCapsule.liveSize);
   });
+
+  testWidgets(
+    'a multi-line capsule bands the column: first flush right, middle full width, last flush left', (
+    tester,
+  ) async {
+    // A value with an empty line covers three paragraph lines — content,
+    // the empty line, content (回车与空行都算行, and the empty one is
+    // invisible to every box query).
+    final h = await pumpSlotPreview(tester, prefill: '张三\n\n李四');
+    final paragraph = previewParagraph(tester);
+    final column = paragraph.constraints.maxWidth;
+    final rects = h.surface.capsuleSegmentsForTest()[1]!;
+    expect(rects.length, 3, reason: 'the empty middle line keeps its band');
+    // First: from the chip to the column's right edge (首行抵右).
+    expect(rects[0].left, greaterThan(0));
+    expect(rects[0].right, closeTo(column, 0.5));
+    // Middle: the empty line spans the whole column (中行全宽).
+    expect(rects[1].left, closeTo(0, 0.5));
+    expect(rects[1].right, closeTo(column, 0.5));
+    // Last: flush left, past its content's ink by the parking pad (末行
+    // 贴左) — the body text after the capsule flows on beside it.
+    expect(rects[2].left, closeTo(0, 0.5));
+    final flat = h.surface.flatBaseText;
+    final liStart = flat.indexOf('李四');
+    final liRight = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: liStart, extentOffset: liStart + 2),
+        )
+        .last
+        .right;
+    expect(rects[2].right, closeTo(liRight + SrCapsule.valuePad, 0.5));
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('a trailing newline leaves a flush-left band for the caret', (
+    tester,
+  ) async {
+    final h = await pumpSlotPreview(tester, prefill: '张三\n');
+    final rects = h.surface.capsuleSegmentsForTest()[1]!;
+    expect(rects.length, 2);
+    expect(rects[1].left, closeTo(0, 0.5));
+    // No content on the last line: the pill there is the parking space
+    // alone, where the caret sits after the trailing 回车.
+    expect(rects[1].right, closeTo(SrCapsule.valuePad, 0.5));
+    await windDown(tester, h.controller);
+  });
 }

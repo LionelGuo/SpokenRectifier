@@ -45,6 +45,10 @@
 /// horizontal margins reserved in layout (the chip's leading spacer and
 /// the per-slot reservation placeholder), and the empty capsule one
 /// character narrower than a single character fills it (删空只缩短不消失).
+/// A capsule spanning several lines reads as one band across the column:
+/// the first segment runs to the column's right edge, interior lines take
+/// the full width, the last is flush left past its content — empty value
+/// lines included (首行抵右、中行全宽、末行贴左; 23 号验收轮 D3).
 
 library;
 
@@ -926,37 +930,81 @@ class SlotSurfaceState extends State<SlotSurface>
   // -- geometry for painters and hit tests ---------------------------------
 
   /// The pill rectangles per capsule identity, in paragraph-local
-  /// coordinates: each wrapped line contributes one rounded segment,
-  /// grown by the right padding on the last one, and every segment is
-  /// centered on its line's ink box — not on the covered run's own
-  /// boxes — so a capsule wrapping several lines stays visually straight
-  /// however its content distributes across them (居中按所在行墨迹盒,
-  /// 08 号票).
+  /// coordinates: one rounded segment per covered line, each centered on
+  /// its line's ink box (居中按所在行墨迹盒, 08 号票). A single-line
+  /// capsule hugs its content; a capsule spanning several lines reads as
+  /// one band across the column — the first segment runs to the column's
+  /// right edge, interior lines take the full width, the last is flush
+  /// left past its content (首行抵右、中行全宽、末行贴左; 23 号验收轮
+  /// D3) — so short wrapped lines cannot scatter ragged pill ends through
+  /// the paragraph. Empty value lines (回车/空行) keep their own
+  /// full-width segment.
   Map<int, List<Rect>> _capsuleSegments() {
     final paragraph = _paragraph;
     if (paragraph == null) return const {};
     final projection = _projection;
     final lines = _lineInkBoxes(paragraph);
+    // The wrap width the layout itself used — the theoretical right edge
+    // a full line of text reaches.
+    final columnRight = paragraph.constraints.maxWidth;
     final segments = <int, List<Rect>>{};
     for (final slot in projection.slots) {
-      final boxes = <TextBox>[
-        ...paragraph.getBoxesForSelection(
-          TextSelection(
-            baseOffset: _paintOf(slot.chipAt),
-            extentOffset: _paintOf(slot.chipAt) + 1,
-          ),
+      final chipBoxes = paragraph.getBoxesForSelection(
+        TextSelection(
+          baseOffset: _paintOf(slot.chipAt),
+          extentOffset: _paintOf(slot.chipAt) + 1,
         ),
-        ...paragraph.getBoxesForSelection(
-          TextSelection(
-            baseOffset: _paintOf(slot.valueStart),
-            extentOffset: _paintOf(slot.valueEnd),
-          ),
+      );
+      final valueBoxes = paragraph.getBoxesForSelection(
+        TextSelection(
+          baseOffset: _paintOf(slot.valueStart),
+          extentOffset: _paintOf(slot.valueEnd),
         ),
+      );
+      final boxes = <Rect>[
+        for (final box in chipBoxes) box.toRect(),
+        for (final box in valueBoxes) box.toRect(),
       ]..sort((a, b) => a.left.compareTo(b.left));
       if (boxes.isEmpty) continue;
-      // Group the covered boxes into per-line runs: a box overlaps its
-      // own line's boxes vertically and never the neighbour line's.
-      final runs = <List<TextBox>>[];
+      final covered = _coveredLines(paragraph, slot);
+      if (covered.length > 1 &&
+          columnRight.isFinite &&
+          chipBoxes.isNotEmpty) {
+        // Multi-line: one segment per covered line, flush to the column.
+        // The last segment keeps the content-bounded right edge — the
+        // body text after the capsule flows on beside it.
+        final lastBand = covered.last;
+        var lastRight = 0.0;
+        for (final box in valueBoxes) {
+          if (box.top < lastBand.top + lastBand.height - 1 &&
+              box.bottom > lastBand.top + 1) {
+            lastRight = math.max(lastRight, box.right);
+          }
+        }
+        final rects = <Rect>[];
+        for (var i = 0; i < covered.length; i++) {
+          final band = covered[i];
+          final center = _inkCenter(lines, band.top + band.height / 2);
+          final left = i == 0 ? chipBoxes.first.left + capsuleSidePad : 0.0;
+          final right = i == covered.length - 1
+              ? lastRight + pillRightPad
+              : columnRight;
+          rects.add(
+            Rect.fromLTRB(
+              left,
+              center - capsuleHeight / 2,
+              right,
+              center + capsuleHeight / 2,
+            ),
+          );
+        }
+        segments[slot.id] = rects;
+        continue;
+      }
+      // Single line: the pill hugs its content. Group the covered boxes
+      // into per-line runs (one, here): a box overlaps its own line's
+      // boxes vertically and never the neighbour line's.
+      final runs = <List<Rect>>[];
       for (final box in boxes) {
         final run = runs.isEmpty ? null : runs.last;
         final sameLine =
@@ -984,7 +1032,7 @@ class SlotSurfaceState extends State<SlotSurface>
         // projection holds past the value (its first valuePad is the
         // parking space; its tail is the side breathing room).
         if (i == 0) left += capsuleSidePad;
-        final center = _inkCenter(lines, runs[i].first.toRect().center.dy);
+        final center = _inkCenter(lines, runs[i].first.center.dy);
         rects.add(
           Rect.fromLTRB(
             left,
@@ -997,6 +1045,36 @@ class SlotSurfaceState extends State<SlotSurface>
       segments[slot.id] = rects;
     }
     return segments;
+  }
+
+  /// The paragraph lines a capsule covers, top to bottom, as caret bands
+  /// (the caret's top and full line height at a position on the line). A
+  /// line with no glyphs — an empty value line between 回车s, or the one
+  /// a trailing 回车 leaves — is real to the caret but invisible to every
+  /// box query, so the lines are discovered by parking the caret at each
+  /// flat position from the chip through the reservation placeholder
+  /// (which rides the value's last line, so a trailing 回车's line is
+  /// found too).
+  List<({double top, double height})> _coveredLines(
+    RenderParagraph paragraph,
+    ProjectedSlot slot,
+  ) {
+    final bands = <({double top, double height})>[];
+    for (var f = _paintOf(slot.chipAt); f <= _paintOf(slot.valueEnd); f++) {
+      final position = TextPosition(offset: f);
+      final top = paragraph.getOffsetForCaret(position, Rect.zero).dy;
+      final height = paragraph.getFullHeightForCaret(position);
+      var seen = false;
+      for (final band in bands) {
+        if ((band.top - top).abs() < 0.75) {
+          seen = true;
+          break;
+        }
+      }
+      if (!seen) bands.add((top: top, height: height));
+    }
+    bands.sort((a, b) => a.top.compareTo(b.top));
+    return bands;
   }
 
   /// The paragraph's line ink boxes, top to bottom: the TEXT glyphs only
@@ -1458,14 +1536,23 @@ class _BackgroundPainter extends CustomPainter {
         );
       }
     }
-    // The active capsule's stroke, fading in and out (点按 = 选中编辑态).
+    // The active capsule's stroke, fading in and out (点按 = 选中编辑态),
+    // tracing the fill's own shape — outer corners rounded, interior
+    // joins square.
     final active = state._activeId;
     if (active != null && state._activeFade.value > 0) {
-      for (final rect in segments[active] ?? const <Rect>[]) {
+      final list = segments[active] ?? const <Rect>[];
+      final radius = SlotSurfaceState.capsuleHeight / 2;
+      for (var i = 0; i < list.length; i++) {
+        final first = i == 0;
+        final last = i == list.length - 1;
         canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            rect.inflate(0.5),
-            Radius.circular(SlotSurfaceState.capsuleHeight / 2),
+          RRect.fromRectAndCorners(
+            list[i].inflate(0.5),
+            topLeft: first ? Radius.circular(radius) : Radius.zero,
+            bottomLeft: first ? Radius.circular(radius) : Radius.zero,
+            topRight: last ? Radius.circular(radius) : Radius.zero,
+            bottomRight: last ? Radius.circular(radius) : Radius.zero,
           ),
           Paint()
             ..style = PaintingStyle.stroke
