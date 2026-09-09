@@ -76,6 +76,7 @@ class SlotSurface extends StatefulWidget {
     this.scrollController,
     this.resetToken = 0,
     this.onChanged,
+    this.onSurfaceReady,
   });
 
   final SlotSurfaceMode mode;
@@ -106,6 +107,14 @@ class SlotSurface extends StatefulWidget {
   /// preview text.
   final ValueChanged<String>? onChanged;
 
+  /// Fired once from initState with the fresh state (preview mode only):
+  /// the panel's handle for driving the surface from outside the text
+  /// area — the footer's 待填 ▸ jump (ticket 23). The surface remounts
+  /// on every preview entry (the branch alternates with the stream
+  /// face), so the handle refreshes each round. The handler runs during
+  /// initState and must not call setState.
+  final ValueChanged<SlotSurfaceState>? onSurfaceReady;
+
   /// The preview round this mount serves (preview mode only): a new
   /// round bumps it and the surface resets its ephemeral state — the
   /// IME connection, the composing overlay, the hover — without
@@ -120,27 +129,28 @@ class SlotSurface extends StatefulWidget {
 class SlotSurfaceState extends State<SlotSurface>
     with TickerProviderStateMixin
     implements TextInputClient {
-  // -- component constants (chip/pill geometry; not design tokens, the
-  //    capsule family's own numbers like PinNumberCapsule.size) ----------
+  // -- component constants (the capsule family's numbers live in the
+  //    design table — SrCapsule, mirrored into the prototype tokens; the
+  //    local names keep the use sites and the tests stable) --------------
 
   /// Capsule height: the pill's diameter at the caps; also the caret's
   /// uniform height and the ceiling for the selection boxes.
-  static const double capsuleHeight = 22.0;
+  static const double capsuleHeight = SrCapsule.height;
 
   /// The number chip's cap circle diameter (the left cap).
-  static const double chipCircle = 22.0;
+  static const double chipCircle = SrCapsule.chipCircle;
 
   /// Breathing room between the chip and the value's first character.
-  static const double chipGap = 4.0;
+  static const double chipGap = SrCapsule.chipGap;
 
   /// The pill's right padding — also the empty capsule's cursor parking
   /// space (空胶囊右侧留空位作光标落点;08 号票).
-  static const double pillRightPad = 6.0;
+  static const double pillRightPad = SrCapsule.valuePad;
 
   /// Selection boxes never reach the capsule's full height.
-  static const double selectionHeight = 20.0;
+  static const double selectionHeight = SrCapsule.selectionHeight;
 
-  static const double caretWidth = 2.5;
+  static const double caretWidth = SrCapsule.caretWidth;
 
   final GlobalKey _paragraphKey = GlobalKey();
 
@@ -193,6 +203,7 @@ class SlotSurfaceState extends State<SlotSurface>
     super.initState();
     if (_isPreview) {
       widget.focusNode?.addListener(_onFocusChanged);
+      widget.onSurfaceReady?.call(this);
       // Opening waits for didChangeDependencies: the view id the engine
       // demands is only resolvable there.
     }
@@ -741,6 +752,58 @@ class SlotSurfaceState extends State<SlotSurface>
     setState(() {});
   }
 
+  // -- external driving (the footer's 待填 ▸, ticket 23) -------------------
+
+  /// The visible capsules whose value is empty, in body order — the
+  /// pending list the panel counts and the jump cycles through. An
+  /// emptied mis-pin counts exactly like a never-filled slot (掏空也是
+  /// 空值).
+  List<ProjectedSlot> get _emptySlots => [
+    for (final slot in _projection.slots)
+      if (_editor.doc.valueOf(slot.id).isEmpty) slot,
+  ];
+
+  /// Jump the caret into the next empty capsule: the first at or after
+  /// the caret's position in body order, wrapping to the first, skipping
+  /// the one the caret already sits in — so repeated clicks walk the
+  /// empty slots one at a time, round and round (点击循环跳空槽落光标;
+  /// 08 号票). Focuses the surface, homes the IME and reveals the caret.
+  /// Returns false when no visible capsule is empty.
+  bool jumpToNextEmptySlot() {
+    final empties = _emptySlots;
+    if (empties.isEmpty) return false;
+    final caret = _editor.caret;
+    var target = empties.first;
+    for (final slot in empties) {
+      final atOrAfter =
+          slot.bodyStart > caret.at ||
+          (slot.bodyStart == caret.at && !caret.inside);
+      if (atOrAfter) {
+        target = slot;
+        break;
+      }
+    }
+    _editor.place(SlotCursor.inside(at: target.bodyStart, offset: 0));
+    widget.focusNode?.requestFocus();
+    // Caret-only plumbing: the model did not change, so there is nothing
+    // to substitute or push — just the visual and platform state that
+    // follows the caret.
+    _syncShadow();
+    _blink.value = 0;
+    final newActive = _activeId;
+    if (newActive != _activeFadeTarget) {
+      _activeFadeTarget = newActive;
+      if (newActive != null) {
+        _activeFade.forward();
+      } else {
+        _activeFade.reverse();
+      }
+    }
+    _revealCaret();
+    setState(() {});
+    return true;
+  }
+
   void _clearTooltip() {
     _tooltipTimer?.cancel();
     _tooltipTimer = null;
@@ -803,11 +866,16 @@ class SlotSurfaceState extends State<SlotSurface>
 
   /// The pill rectangles per capsule identity, in paragraph-local
   /// coordinates: each wrapped line contributes one rounded segment,
-  /// grown by the right padding on the last one.
+  /// grown by the right padding on the last one, and every segment is
+  /// centered on its line's ink box — not on the covered run's own
+  /// boxes — so a capsule wrapping several lines stays visually straight
+  /// however its content distributes across them (居中按所在行墨迹盒,
+  /// 08 号票).
   Map<int, List<Rect>> _capsuleSegments() {
     final paragraph = _paragraph;
     if (paragraph == null) return const {};
     final projection = _projection;
+    final lines = _lineInkBoxes(paragraph);
     final segments = <int, List<Rect>>{};
     for (final slot in projection.slots) {
       final boxes = <TextBox>[
@@ -824,47 +892,88 @@ class SlotSurfaceState extends State<SlotSurface>
           ),
         ),
       ]..sort((a, b) => a.left.compareTo(b.left));
-      final merged = <Rect>[];
+      if (boxes.isEmpty) continue;
+      // Group the covered boxes into per-line runs: a box overlaps its
+      // own line's boxes vertically and never the neighbour line's.
+      final runs = <List<TextBox>>[];
       for (final box in boxes) {
-        final boxCenter = box.toRect().center.dy;
-        final rect = Rect.fromLTRB(
-          box.left,
-          boxCenter - capsuleHeight / 2,
-          box.right,
-          boxCenter + capsuleHeight / 2,
-        );
+        final run = runs.isEmpty ? null : runs.last;
         final sameLine =
-            merged.isNotEmpty &&
-            (rect.center.dy - merged.last.center.dy).abs() < 3;
-        if (sameLine && rect.left - merged.last.right < 1.5) {
-          final last = merged.removeLast();
-          merged.add(
-            Rect.fromLTRB(
-              last.left,
-              (last.top + rect.top) / 2,
-              math.max(last.right, rect.right),
-              (last.bottom + rect.bottom) / 2,
-            ),
-          );
+            run != null &&
+            box.top < run.first.bottom + 1 &&
+            box.bottom > run.first.top - 1;
+        if (sameLine) {
+          run.add(box);
         } else {
-          merged.add(rect);
+          runs.add([box]);
         }
       }
-      if (merged.isEmpty) continue;
-      final last = merged.removeLast();
-      merged.add(
-        last.expandToInclude(
+      final rects = <Rect>[];
+      for (var i = 0; i < runs.length; i++) {
+        var left = runs[i].first.left;
+        var right = runs[i].first.right;
+        for (final box in runs[i]) {
+          left = math.min(left, box.left);
+          right = math.max(right, box.right);
+        }
+        final center = _inkCenter(lines, runs[i].first.toRect().center.dy);
+        rects.add(
           Rect.fromLTRB(
-            last.left,
-            last.top,
-            last.right + pillRightPad,
-            last.bottom,
+            left,
+            center - capsuleHeight / 2,
+            right + (i == runs.length - 1 ? pillRightPad : 0),
+            center + capsuleHeight / 2,
           ),
-        ),
-      );
-      segments[slot.id] = merged;
+        );
+      }
+      segments[slot.id] = rects;
     }
     return segments;
+  }
+
+  /// The paragraph's line ink boxes, top to bottom: every glyph box
+  /// unions into its line's ink extent — the line's own geometry, the
+  /// font's leading excluded, the capsule chips included. Pills,
+  /// selection boxes and the caret all center on these: one vertical
+  /// anchor for the whole surface, computed rather than locked to pixels
+  /// (胶囊对所在行上下间距绝对相等, 不锁像素;08 号票).
+  List<Rect> _lineInkBoxes(RenderParagraph paragraph) {
+    final text = _paragraphText;
+    final boxes = paragraph.getBoxesForSelection(
+      TextSelection(baseOffset: 0, extentOffset: text.length),
+    );
+    if (boxes.isEmpty) return const [];
+    final sorted = boxes.toList()..sort((a, b) => a.top.compareTo(b.top));
+    final lines = <Rect>[];
+    for (final box in sorted) {
+      final rect = box.toRect();
+      if (lines.isNotEmpty && rect.top < lines.last.bottom) {
+        final last = lines.removeLast();
+        lines.add(
+          Rect.fromLTRB(
+            math.min(last.left, rect.left),
+            last.top,
+            math.max(last.right, rect.right),
+            math.max(last.bottom, rect.bottom),
+          ),
+        );
+      } else {
+        lines.add(rect);
+      }
+    }
+    return lines;
+  }
+
+  /// The ink-box center of the line [dy] falls on — the vertical anchor
+  /// every span drawing shares. The caller's own [dy] when no line
+  /// claims it (a stale probe).
+  double _inkCenter(List<Rect> lines, double dy) {
+    for (final line in lines) {
+      if (dy >= line.top - 0.5 && dy <= line.bottom + 0.5) {
+        return line.center.dy;
+      }
+    }
+    return dy;
   }
 
   /// The selection's paint-space range, or null when collapsed — and
@@ -880,21 +989,21 @@ class SlotSurfaceState extends State<SlotSurface>
   }
 
   /// The caret rectangle in paragraph-local coordinates (uniform capsule
-  /// height, centered on its line).
+  /// height, centered on its line's ink box — the same anchor the pills
+  /// and selection use).
   Rect? caretRect() {
     final paragraph = _paragraph;
     if (paragraph == null) return null;
-    final offset = paragraph.getOffsetForCaret(
-      TextPosition(offset: _caretPaintFlat),
-      Rect.zero,
+    final position = TextPosition(offset: _caretPaintFlat);
+    final offset = paragraph.getOffsetForCaret(position, Rect.zero);
+    final line = paragraph.getFullHeightForCaret(position);
+    final center = _inkCenter(
+      _lineInkBoxes(paragraph),
+      offset.dy + line / 2,
     );
-    final line = paragraph.getFullHeightForCaret(
-      TextPosition(offset: _caretPaintFlat),
-    );
-    final lineCenter = offset.dy + line / 2;
     return Rect.fromLTWH(
       offset.dx,
-      lineCenter - capsuleHeight / 2,
+      center - capsuleHeight / 2,
       caretWidth,
       capsuleHeight,
     );
@@ -1210,18 +1319,20 @@ class _BackgroundPainter extends CustomPainter {
         );
       }
     }
-    // Selection over the pills, clamped below the capsule height.
+    // Selection over the pills, clamped below the capsule height and
+    // centered on each line's ink box (the pills' own anchor).
     final selection = state._selectionPaintRange;
     if (selection != null) {
       final paragraph = state._paragraph;
       if (paragraph != null) {
+        final lines = state._lineInkBoxes(paragraph);
         for (final box in paragraph.getBoxesForSelection(
           TextSelection(
             baseOffset: selection.baseOffset,
             extentOffset: selection.extentOffset,
           ),
         )) {
-          final center = box.toRect().center.dy;
+          final center = state._inkCenter(lines, box.toRect().center.dy);
           final rect = Rect.fromLTRB(
             box.left,
             center - SlotSurfaceState.selectionHeight / 2,

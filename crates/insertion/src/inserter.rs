@@ -154,9 +154,11 @@ impl TargetInserter {
 impl TextInserter for TargetInserter {
     async fn insert(&self, text: &str) -> Result<(), InsertError> {
         if text.is_empty() {
-            return Err(InsertError(
-                "nothing to insert: the preview text is empty".into(),
-            ));
+            // An all-emptied confirmation is a completed insert of
+            // nothing (空串也贴): the session finishes and history records
+            // the empty text, and the OS is left untouched — no clipboard
+            // churn, no keystroke, no focus steal for zero content.
+            return Ok(());
         }
         let config = self.config_snapshot();
         match config.mode {
@@ -511,10 +513,12 @@ mod tests {
     // -- both modes ----------------------------------------------------------
 
     #[tokio::test]
-    async fn empty_text_is_rejected_without_touching_the_os() {
+    async fn empty_text_completes_without_touching_the_os() {
+        // 空串也贴: an all-emptied confirmation is success, not a refusal
+        // that strands the user in the preview — but "pasting nothing"
+        // touches nothing on the way out.
         let fake = Arc::new(FakeOs::new());
-        let err = insert(&fake, InsertionMode::Paste, "").await.unwrap_err();
-        assert!(err.0.contains("nothing to insert"), "got: {}", err.0);
+        insert(&fake, InsertionMode::Paste, "").await.unwrap();
         assert!(fake.calls().is_empty());
     }
 

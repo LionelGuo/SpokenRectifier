@@ -17,7 +17,12 @@ import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgeHistoryEntry, BridgeScenario, BridgeSessionState;
+    show
+        BridgeEvent,
+        BridgeHistoryEntry,
+        BridgePrefillRow,
+        BridgeScenario,
+        BridgeSessionState;
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
@@ -577,6 +582,68 @@ void main() {
     expect(controller.phase, BridgeSessionState.idle);
     await windDown(tester, controller);
   });
+
+  testWidgets(
+    'confirming within a slot-edit debounce flushes the substituted text', (
+    tester,
+  ) async {
+      // A pinned session (ticket 23): the slot's prefill substitutes at
+      // entry, a value edit inside the debounce window substitutes too,
+      // and the confirm flushes exactly that — the sentinel never rides
+      // to the engine on any path.
+      final gateway = FakeGateway();
+      final controller = await pumpController(tester, gateway);
+      await pumpToRecording(tester, controller);
+      await gateway.pinPlaceholder();
+      await tester.pump();
+      await controller.stopSession();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      gateway.emit(
+        const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡一下'),
+      );
+      gateway.emit(
+        const BridgeEvent.previewPrefills(
+          prefills: [BridgePrefillRow(number: 1, value: '张三')],
+        ),
+      );
+      gateway.emit(
+        const BridgeEvent.sessionStateChanged(
+          from: BridgeSessionState.rectifying,
+          to: BridgeSessionState.preview,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      // Entry adopted the substitution right away (无钉零影响的反面:
+      // 有钉即推).
+      expect(gateway.commands, contains('updatePreviewText:发给张三一下'));
+
+      // Step into the capsule (arrive parks the caret at the body's
+      // start; the walk is outside-0 → outside-1 → the capsule's
+      // outside-left dock → the value's first dock) and type — still
+      // inside the debounce window when the confirm fires.
+      for (final _ in '123'.split('')) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      }
+      await typeAtCaret(tester, '李');
+      await controller.hotkeyToggle();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      final commands = gateway.commands;
+      final editAt = commands.lastIndexOf('updatePreviewText:发给李张三一下');
+      final confirmAt = commands.indexOf('confirmInsert');
+      expect(editAt, greaterThanOrEqualTo(0));
+      expect(confirmAt, greaterThan(editAt));
+      expect(
+        commands
+            .where((c) => c.startsWith('updatePreviewText'))
+            .every((c) => !c.contains('‡')),
+        isTrue,
+        reason: 'the engine only ever sees the substituted text',
+      );
+      expect(controller.phase, BridgeSessionState.idle);
+      await windDown(tester, controller);
+    });
 
   testWidgets(
     'the raw transcript comparison expands under the rectified text',

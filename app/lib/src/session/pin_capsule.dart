@@ -27,8 +27,9 @@ class PinNumberCapsule extends StatelessWidget {
   final int id;
 
   /// Capsule height: 18 keeps the chip inside bodyLarge's 24px line box
-  /// with equal breathing room top and bottom (行上下间距绝对相等).
-  static const double size = 18;
+  /// with equal breathing room top and bottom (行上下间距绝对相等). The
+  /// number lives in the design table (SrCapsule.liveSize).
+  static const double size = SrCapsule.liveSize;
 
   @override
   Widget build(BuildContext context) {

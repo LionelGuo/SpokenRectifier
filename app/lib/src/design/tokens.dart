@@ -282,3 +282,38 @@ abstract final class SrGeometry {
   /// (orb footprint half). Panel anchor buttons sit at this offset.
   static const anchorInset = 48.0;
 }
+
+// ---------------------------------------------------------------------------
+// Capsule family (placeholder capsules)
+// ---------------------------------------------------------------------------
+
+/// The placeholder capsule family's own geometry — one table for both
+/// faces: the stream 号圆 (listening / rectifying, ticket 21) and the
+/// preview fill capsule (ticket 22). The pill's vertical placement is
+/// NOT a number here: every capsule, selection box and the caret center
+/// on their line's ink box (胶囊对所在行上下间距绝对相等, 08 号票) —
+/// geometry the surface computes, never a locked pixel.
+abstract final class SrCapsule {
+  /// The 号圆's height/diameter (the stream face's round chip).
+  static const double liveSize = 18.0;
+
+  /// The fill capsule's pill height — also the caret's uniform height
+  /// and the ceiling the selection clamps under.
+  static const double height = 22.0;
+
+  /// The number chip's cap circle diameter (the fill capsule's left cap).
+  static const double chipCircle = 22.0;
+
+  /// Breathing room between the chip and the value's first character.
+  static const double chipGap = 4.0;
+
+  /// The pill's right padding — also the empty capsule's cursor parking
+  /// space (空胶囊右侧留空位作光标落点; 08 号票).
+  static const double valuePad = 6.0;
+
+  /// Selection boxes never reach the capsule's full height.
+  static const double selectionHeight = 20.0;
+
+  /// The caret's stroke width.
+  static const double caretWidth = 2.5;
+}

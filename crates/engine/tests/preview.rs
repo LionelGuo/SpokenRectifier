@@ -2,8 +2,14 @@
 
 mod common;
 
-use common::{await_live, await_state, collect_summary, expect_quiet, harness, next_matching, ok};
+use std::sync::{Arc, Mutex};
+
+use common::{
+    await_live, await_state, collect_summary, expect_quiet, harness, harness_with_history,
+    next_matching, ok,
+};
 use spokenrectifier_engine::fakes::{AsrStep, LlmStep};
+use spokenrectifier_engine::provider::history::{RecordedSession, SessionRecorder};
 use spokenrectifier_engine::{Command, EngineConfig, EngineEvent, SessionState};
 
 #[tokio::test]
@@ -115,4 +121,58 @@ async fn failed_insertion_keeps_preview_alive() {
     ok(&h.engine, Command::ConfirmInsert).await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(h.inserter.inserted_texts(), vec!["修"]);
+}
+
+/// Collecting recorder for the history assertions (the same fake as the
+/// history port's tests, kept local to this module).
+#[derive(Default)]
+struct Sink {
+    sessions: Mutex<Vec<RecordedSession>>,
+}
+
+impl SessionRecorder for Sink {
+    fn record(&self, session: RecordedSession) {
+        self.sessions.lock().unwrap().push(session);
+    }
+}
+
+impl Sink {
+    fn entries(&self) -> Vec<RecordedSession> {
+        self.sessions.lock().unwrap().clone()
+    }
+}
+
+#[tokio::test]
+async fn an_all_emptied_confirmation_inserts_empty_and_keeps_the_sentinels_raw() {
+    // 整段掏空后确认也照插(空串也贴,不设闸不提示): the emptied
+    // substitution is what the inserter receives and what history keeps
+    // as the rectified text, while the raw transcript still carries its
+    // sentinels — a future re-run extracts the fill slots from it again.
+    let sink = Arc::new(Sink::default());
+    let (h, mut rx) = harness_with_history(
+        EngineConfig::default(),
+        vec![vec![AsrStep::Say("发给‡1‡吧".into())]],
+        vec![vec![LlmStep::Token("发给‡1‡。".into())]],
+        Some(sink.clone()),
+    );
+
+    ok(&h.engine, Command::StartSession).await;
+    await_live(&mut rx, "发给‡1‡吧").await;
+    ok(&h.engine, Command::StopSession).await;
+    await_state(&mut rx, SessionState::Preview).await;
+
+    // The shell's substitution of an all-emptied document is the empty
+    // string; the confirm path neither gates nor prompts.
+    ok(&h.engine, Command::UpdatePreviewText(String::new())).await;
+    ok(&h.engine, Command::ConfirmInsert).await;
+    await_state(&mut rx, SessionState::Idle).await;
+
+    assert_eq!(h.inserter.inserted_texts(), vec![""]);
+    assert_eq!(
+        sink.entries(),
+        vec![RecordedSession {
+            raw_transcript: "发给‡1‡吧".into(),
+            rectified_text: String::new(),
+        }]
+    );
 }

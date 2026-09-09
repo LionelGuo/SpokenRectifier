@@ -75,12 +75,14 @@ class SlotPreviewHarness {
   }
 }
 
-/// Pumps a pinned session through to the preview: one slot (`‡1‡`) with
-/// [prefill] as its initial value inside the given [body].
+/// Pumps a pinned session through to the preview: the given [body]'s
+/// sentinels mint their slots, prefilled from [prefillRows] (or the
+/// single `‡1‡` [prefill] when the body is the default one).
 Future<SlotPreviewHarness> pumpSlotPreview(
   WidgetTester tester, {
   String body = '发给‡1‡一下',
   String prefill = '张三',
+  List<BridgePrefillRow>? prefillRows,
 }) async {
   final gateway = FakeGateway();
   final controller = SpeechController(gateway: gateway, scriptedPhrases: const []);
@@ -97,7 +99,8 @@ Future<SlotPreviewHarness> pumpSlotPreview(
   gateway.emit(BridgeEvent.rectifiedTextChunk(delta: body));
   gateway.emit(
     BridgeEvent.previewPrefills(
-      prefills: [BridgePrefillRow(number: 1, value: prefill)],
+      prefills:
+          prefillRows ?? [BridgePrefillRow(number: 1, value: prefill)],
     ),
   );
   gateway.emit(
@@ -552,6 +555,80 @@ void main() {
     expect(flat(), lessThanOrEqualTo(4), reason: 'the first line ends here');
     await h.key(LogicalKeyboardKey.arrowDown);
     expect(flat(), greaterThanOrEqualTo(5), reason: 'the second line starts here');
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets(
+    'the 待填 jump cycles the empty slots, skipping filled ones and wrapping', (
+    tester,
+  ) async {
+    // Three slots, 1 and 3 empty, 2 prefilled: the cycle walks 1 → 3 →
+    // 1 (wrapping), never landing on 2, and stops being possible once
+    // every slot holds a value (无空槽即隐藏 — the chip side is the
+    // footer test below).
+    final h = await pumpSlotPreview(
+      tester,
+      body: '发给‡1‡,再给‡2‡,后给‡3‡',
+      prefillRows: const [
+        BridgePrefillRow(number: 1, value: ''),
+        BridgePrefillRow(number: 2, value: '值'),
+        BridgePrefillRow(number: 3, value: ''),
+      ],
+    );
+    final editor = h.surface.editor;
+    // 发给(2) ‡1‡ at 2; ,再给(3) ‡2‡ at 8; ,后给(3) ‡3‡ at 14.
+    expect(editor.caret, const SlotCursor.outside(0));
+
+    expect(h.surface.jumpToNextEmptySlot(), isTrue);
+    expect(editor.caret, const SlotCursor.inside(at: 2, offset: 0));
+    expect(h.surface.jumpToNextEmptySlot(), isTrue);
+    expect(editor.caret, const SlotCursor.inside(at: 14, offset: 0));
+    // From inside 3 the cycle wraps to 1.
+    expect(h.surface.jumpToNextEmptySlot(), isTrue);
+    expect(editor.caret, const SlotCursor.inside(at: 2, offset: 0));
+
+    // Fill both (the caret already sits in 1; typing fills it), then
+    // the jump reports nothing left.
+    await h.type('名');
+    expect(h.surface.jumpToNextEmptySlot(), isTrue);
+    expect(editor.caret, const SlotCursor.inside(at: 14, offset: 0));
+    await h.type('称');
+    expect(h.surface.jumpToNextEmptySlot(), isFalse);
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets(
+    'the footer counts the empty slots, hides when none, and its tap jumps', (
+    tester,
+  ) async {
+    // One session, watched live: a prefilled slot hides the chip
+    // (nothing pending); emptying it (掏空) brings the count up; the
+    // tap lands the caret inside the empty capsule; filling it retires
+    // the chip again.
+    final h = await pumpSlotPreview(tester, prefill: '张三');
+    expect(find.byKey(const Key('session-pending-fill')), findsNothing);
+
+    // Enter the capsule (tap = select-all for a prefilled value) and
+    // delete the selection: the slot empties, the chip appears with the
+    // count.
+    await tester.tapAt(h.capsuleRect(1).center);
+    await h.key(LogicalKeyboardKey.backspace);
+    expect(find.byKey(const Key('session-pending-fill')), findsOneWidget);
+    expect(find.text('待填 1 ▸'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('session-pending-fill')));
+    await tester.pump();
+    expect(
+      h.surface.editor.caret,
+      const SlotCursor.inside(at: 2, offset: 0),
+      reason: '发给(2) puts ‡1‡ at body offset 2; the only empty slot '
+          'wraps back to itself from inside',
+    );
+
+    // Filling the last empty slot retires the chip.
+    await h.type('名');
+    await tester.pump();
+    expect(find.byKey(const Key('session-pending-fill')), findsNothing);
     await windDown(tester, h.controller);
   });
 }

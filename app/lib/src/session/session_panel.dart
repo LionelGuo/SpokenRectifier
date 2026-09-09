@@ -53,6 +53,12 @@ class _SessionPanelState extends State<SessionPanel> {
   SlotDocument? _doc;
   SlotEditor? _editor;
 
+  /// The live editing surface's state handle (handed over through
+  /// [SlotSurface.onSurfaceReady] on each preview entry): the footer's
+  /// 待填 ▸ drives its jump through this. Null outside a preview round —
+  /// the surface unmounts with the branch.
+  SlotSurfaceState? _surface;
+
   /// Bumped on every preview entry; remounts the editing surface so each
   /// round starts with fresh IME and composing state.
   int _round = 0;
@@ -108,6 +114,7 @@ class _SessionPanelState extends State<SessionPanel> {
             BridgeSessionState.idle:
           _doc = null;
           _editor = null;
+          _surface = null;
         default:
           break;
       }
@@ -153,6 +160,22 @@ class _SessionPanelState extends State<SessionPanel> {
     setState(() {});
   }
 
+  /// The preview round's still-empty slots (待填 N, 08 号票): the
+  /// identities this round carries whose current value holds no
+  /// character — an emptied mis-pin counts exactly like a never-filled
+  /// one. Zero (or no preview) hides the footer chip entirely.
+  int get _pendingFillCount {
+    final doc = _doc;
+    if (doc == null || !_isPreview) return 0;
+    return doc.visibleIdentities
+        .where((id) => doc.valueOf(id).isEmpty)
+        .length;
+  }
+
+  /// The footer chip's click: cycle the caret into the next empty
+  /// capsule (the surface owns the cycle order and the reveal).
+  void _jumpToNextEmpty() => _surface?.jumpToNextEmptySlot();
+
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
@@ -196,15 +219,15 @@ class _SessionPanelState extends State<SessionPanel> {
         SrSpace.cornerInset,
         20,
         SrSpace.cornerInset,
-        12,
+        SrSpace.md,
       ),
       child: Row(
         children: [
           _PhaseDot(color: dotColor, live: live),
-          const SizedBox(width: 8),
+          const SizedBox(width: SrSpace.sm),
           Text(label, style: SrType.body.copyWith(color: pal.textPrimary)),
           if (c.phase == BridgeSessionState.recording) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: SrSpace.sm),
             Text(
               elapsed,
               style: SrType.micro.copyWith(color: pal.textTertiary),
@@ -230,9 +253,9 @@ class _SessionPanelState extends State<SessionPanel> {
       // Straight-edge body content: contentInset (below the corner band).
       padding: const EdgeInsets.fromLTRB(
         SrSpace.contentInset,
-        12,
+        SrSpace.md,
         SrSpace.contentInset,
-        8,
+        SrSpace.sm,
       ),
       child: Stack(
         children: [
@@ -255,6 +278,7 @@ class _SessionPanelState extends State<SessionPanel> {
                 scrollController: _scroll,
                 resetToken: _round,
                 onChanged: _onSlotChanged,
+                onSurfaceReady: (state) => _surface = state,
               ),
             )
           else
@@ -286,7 +310,7 @@ class _SessionPanelState extends State<SessionPanel> {
         SrSpace.contentInset,
         0,
         SrSpace.contentInset,
-        8,
+        SrSpace.sm,
       ),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -297,7 +321,7 @@ class _SessionPanelState extends State<SessionPanel> {
       child: Row(
         children: [
           Icon(Icons.error_outline_rounded, size: 15, color: pal.live),
-          const SizedBox(width: 8),
+          const SizedBox(width: SrSpace.sm),
           Expanded(
             // Wrapped, not single-line: error diagnoses live in the tail
             // a clipped line would eat.
@@ -323,9 +347,9 @@ class _SessionPanelState extends State<SessionPanel> {
                 SrSpace.contentInset,
                 0,
                 SrSpace.contentInset,
-                8,
+                SrSpace.sm,
               ),
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(SrSpace.md),
               decoration: BoxDecoration(
                 color: pal.surfaceRaised,
                 borderRadius: BorderRadius.circular(SrRadius.control),
@@ -340,7 +364,7 @@ class _SessionPanelState extends State<SessionPanel> {
                     '原始转写',
                     style: SrType.micro.copyWith(color: pal.textTertiary),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: SrSpace.xs),
                   Flexible(
                     child: SingleChildScrollView(
                       child: Text(
@@ -360,18 +384,33 @@ class _SessionPanelState extends State<SessionPanel> {
   }
 
   Widget _footer(BuildContext context, SrPalette pal) {
+    final pending = _pendingFillCount;
     return Padding(
       // Corner-band row (bottom-left arc): cornerInset horizontal; the
       // vertical 20 keeps the buttons' visual bottom inside the capsule.
       padding: const EdgeInsets.fromLTRB(
         SrSpace.cornerInset,
-        4,
+        SrSpace.xs,
         SrSpace.cornerInset,
         20,
       ),
       child: Row(
         children: [
           if (_isPreview) ...[
+            // 待填 N ▸: a silent count of the round's empty slots —
+            // hidden when there is nothing left to fill — whose click
+            // cycles the caret through them (08 号票, ticket 23).
+            if (pending > 0) ...[
+              _GhostButton(
+                key: const Key('session-pending-fill'),
+                pal: pal,
+                icon: Icons.edit_note_rounded,
+                label: '待填 $pending ▸',
+                onTap: _jumpToNextEmpty,
+                tinted: true,
+              ),
+              const SizedBox(width: SrSpace.sm),
+            ],
             _GhostButton(
               key: const Key('session-raw-toggle'),
               pal: pal,
@@ -466,7 +505,9 @@ class _PhaseDotState extends State<_PhaseDot>
   }
 }
 
-/// Ghost (secondary) button.
+/// Ghost (secondary) button. The [tinted] variant swaps the neutral
+/// surface for the accent family — an actionable status (the footer's
+/// 待填 ▸) that still speaks the same capsule shape.
 class _GhostButton extends StatefulWidget {
   const _GhostButton({
     super.key,
@@ -475,6 +516,7 @@ class _GhostButton extends StatefulWidget {
     required this.label,
     required this.onTap,
     this.kbd,
+    this.tinted = false,
   });
 
   final SrPalette pal;
@@ -482,6 +524,7 @@ class _GhostButton extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
   final String? kbd;
+  final bool tinted;
 
   @override
   State<_GhostButton> createState() => _GhostButtonState();
@@ -493,6 +536,7 @@ class _GhostButtonState extends State<_GhostButton> {
   @override
   Widget build(BuildContext context) {
     final pal = widget.pal;
+    final tinted = widget.tinted;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -502,20 +546,34 @@ class _GhostButtonState extends State<_GhostButton> {
           duration: SrMotion.fast,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: _hover ? pal.surfaceOverlay : pal.surfaceRaised,
+            color: tinted ? pal.accentSoft : (_hover
+                ? pal.surfaceOverlay
+                : pal.surfaceRaised),
             // Capsule: the footer buttons live in the corner band — pill
             // ends echo the concentric corner arc.
             borderRadius: BorderRadius.circular(SrRadius.capsule),
-            border: Border.all(color: pal.hairline),
+            border: Border.all(
+              color: tinted
+                  ? pal.accent.withValues(alpha: _hover ? 0.7 : 0.35)
+                  : pal.hairline,
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(widget.icon, size: 14, color: pal.textSecondary),
+              Icon(
+                widget.icon,
+                size: 14,
+                color: tinted
+                    ? (_hover ? pal.accent : pal.accentText)
+                    : pal.textSecondary,
+              ),
               const SizedBox(width: 6),
               Text(
                 widget.label,
-                style: SrType.caption.copyWith(color: pal.textSecondary),
+                style: SrType.caption.copyWith(
+                  color: tinted ? pal.accentText : pal.textSecondary,
+                ),
               ),
               if (widget.kbd != null) ...[
                 const SizedBox(width: 6),
