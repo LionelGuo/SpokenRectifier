@@ -970,9 +970,10 @@ void main() {
   test('a cut end dissolves its ink; a complete pill stays flat', () {
     // 截断端渐隐 (D3 反馈八): the square ends the wrap and the hard
     // newlines leave never read as drawn edges — the fill and the stroke
-    // dissolve to nothing approaching them. The complete pill keeps its
-    // flat colour.
-    const ink = Color(0xFF3B82F6);
+    // dissolve to nothing approaching them, through an alpha MASK over
+    // the flat colour (the renderer squares translucent gradient stops,
+    // so the tint never rides inside the gradient). The complete pill
+    // keeps its flat colour.
     const complete = CapsuleBand(
       rect: Rect.fromLTWH(0, 0, 120, 23),
       leftRounded: true,
@@ -995,9 +996,9 @@ void main() {
       leftRounded: false,
       rightRounded: true,
     );
-    expect(complete.cutFadeShader(complete.rect, ink), isNull);
-    expect(cutRight.cutFadeShader(cutRight.rect, ink), isNotNull);
-    expect(cutBoth.cutFadeShader(cutBoth.rect, ink), isNotNull);
-    expect(stub.cutFadeShader(stub.rect, ink), isNotNull);
+    expect(complete.cutFadeMask(complete.rect), isNull);
+    expect(cutRight.cutFadeMask(cutRight.rect), isNotNull);
+    expect(cutBoth.cutFadeMask(cutBoth.rect), isNotNull);
+    expect(stub.cutFadeMask(stub.rect), isNotNull);
   });
 }

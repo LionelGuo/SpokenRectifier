@@ -1693,13 +1693,19 @@ class CapsuleBand {
         bottomRight: rightRounded ? cap : Radius.zero,
       );
 
-  /// A horizontal gradient holding [color] solid and dissolving it to
-  /// nothing across the run approaching each CUT end, so the square edge
-  /// never reads as a drawn edge (截断端渐隐). The run is the cap's
-  /// radius, clamped to a third of [bounds] so a narrow band (an empty
-  /// tail line's stub) keeps some ink. Null when no end is cut: a
-  /// complete pill paints its flat colour as-is.
-  Shader? cutFadeShader(Rect bounds, Color color) {
+  /// A horizontal ALPHA mask holding opaque and dissolving to nothing
+  /// across the run approaching each CUT end, so the square edge never
+  /// reads as a drawn edge (截断端渐隐). The band's real colour never
+  /// rides inside the gradient: translucent gradient stops come out of
+  /// the renderer at their alpha SQUARED (D3 反馈八复验: a tinted
+  /// gradient washed the whole pill to α², nearly invisible), so the
+  /// mask is white-to-transparent — squared to itself at the stops —
+  /// and is applied over the flat paint through BlendMode.dstIn inside
+  /// a saveLayer. The run is the cap's radius, clamped to a third of
+  /// [bounds] so a narrow band (an empty tail line's stub) keeps some
+  /// ink. Null when no end is cut: a complete pill paints its flat
+  /// colour as-is.
+  Shader? cutFadeMask(Rect bounds) {
     final fadeLeft = !leftRounded;
     final fadeRight = !rightRounded;
     if (!fadeLeft && !fadeRight) return null;
@@ -1709,12 +1715,13 @@ class CapsuleBand {
     );
     if (run <= 0) return null;
     final f = run / bounds.width;
-    final gone = color.withValues(alpha: 0);
+    const opaque = Color(0xFFFFFFFF);
+    const gone = Color(0x00FFFFFF);
     if (fadeLeft && fadeRight) {
       return LinearGradient(
         begin: Alignment.centerLeft,
         end: Alignment.centerRight,
-        colors: [gone, color, color, gone],
+        colors: [gone, opaque, opaque, gone],
         stops: [0, f, 1 - f, 1],
       ).createShader(bounds);
     }
@@ -1722,14 +1729,14 @@ class CapsuleBand {
       return LinearGradient(
         begin: Alignment.centerLeft,
         end: Alignment.centerRight,
-        colors: [gone, color, color],
+        colors: [gone, opaque, opaque],
         stops: [0, f, 1],
       ).createShader(bounds);
     }
     return LinearGradient(
       begin: Alignment.centerLeft,
       end: Alignment.centerRight,
-      colors: [color, color, gone],
+      colors: [opaque, opaque, gone],
       stops: [0, 1 - f, 1],
     ).createShader(bounds);
   }
@@ -1786,6 +1793,32 @@ class _BackgroundPainter extends CustomPainter {
   final SlotSurfaceState state;
   final SrPalette pal;
 
+  /// Paints [paint]'s shape, then — when the band has a cut end —
+  /// confines it with the cut-fade mask: the flat colour first, the
+  /// alpha gradient over it through dstIn, all inside one saveLayer so
+  /// the erase touches only this band.
+  void _paintFadedBand(
+    Canvas canvas,
+    CapsuleBand band,
+    RRect shape,
+    Paint paint,
+  ) {
+    final mask = band.cutFadeMask(shape.outerRect);
+    if (mask == null) {
+      canvas.drawRRect(shape, paint);
+      return;
+    }
+    canvas.saveLayer(shape.outerRect, Paint());
+    canvas.drawRRect(shape, paint);
+    canvas.drawRRect(
+      shape,
+      Paint()
+        ..blendMode = BlendMode.dstIn
+        ..shader = mask,
+    );
+    canvas.restore();
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final bandsById = state._capsuleBands();
@@ -1796,9 +1829,12 @@ class _BackgroundPainter extends CustomPainter {
     final pillRadius = Radius.circular(SlotSurfaceState.capsuleHeight / 2);
     for (final entry in bandsById.entries) {
       for (final band in entry.value) {
-        final fill = Paint()..color = pal.accentSoft;
-        fill.shader = band.cutFadeShader(band.rect, pal.accentSoft);
-        canvas.drawRRect(band.shape(pillRadius), fill);
+        _paintFadedBand(
+          canvas,
+          band,
+          band.shape(pillRadius),
+          Paint()..color = pal.accentSoft,
+        );
       }
     }
     // The active capsule's stroke, fading in and out (点按 = 选中编辑态),
@@ -1809,15 +1845,17 @@ class _BackgroundPainter extends CustomPainter {
         final shape = band.shape(pillRadius, inflate: 0.5);
         // The stroke dissolves toward a cut end with its fill, so the
         // outline never draws the edge the fill just hid.
-        final ink = pal.accent.withValues(
-          alpha: 0.8 * state._activeFade.value,
+        _paintFadedBand(
+          canvas,
+          band,
+          shape,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2
+            ..color = pal.accent.withValues(
+              alpha: 0.8 * state._activeFade.value,
+            ),
         );
-        final stroke = Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2
-          ..color = ink;
-        stroke.shader = band.cutFadeShader(shape.outerRect, ink);
-        canvas.drawRRect(shape, stroke);
       }
     }
     // Selection over the pills, clamped below the capsule height and
