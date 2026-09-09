@@ -54,7 +54,9 @@
 /// column's edge exactly like ordinary text — no parking, no clearance;
 /// only the capsule's NATURAL ends (the chip's left cap, the value's own
 /// end) keep the pill's rounded caps (截断直角、文字贴边; D3 反馈五终
-/// 裁, superseding the earlier complete-pill rule). At a line's edge the
+/// 裁, superseding the earlier complete-pill rule) — and a cut end's ink
+/// dissolves to nothing approaching it, so the square edge never reads
+/// as a drawn edge (截断端渐隐; D3 反馈八). At a line's edge the
 /// pill runs flush: the text-contact clearance is dropped when the
 /// capsule starts a line, and the reservation's breathing tail is
 /// swallowed when nothing follows on the line (行首/行尾不留空位).
@@ -1041,10 +1043,11 @@ class SlotSurfaceState extends State<SlotSurface>
   /// the column's edge exactly like ordinary text — no parking, no
   /// clearance; only the capsule's NATURAL ends (the chip's left cap,
   /// the value's own end) keep the pill's rounded caps (截断直角、文字
-  /// 贴边; D3 反馈五终裁) — the last band's right edge never sits closer
-  /// than its own cap radius, so the cap is always one continuous
-  /// semicircle even on an empty tail line. A single-line capsule is
-  /// one complete pill.
+  /// 贴边; D3 反馈五终裁); a cut end's fill and stroke dissolve to
+  /// nothing approaching it (截断端渐隐). The last band's right edge
+  /// never sits closer than its own cap radius, so the cap is always one
+  /// continuous semicircle even on an empty tail line. A single-line
+  /// capsule is one complete pill.
   /// A capsule spanning several lines reads as one band across the
   /// column — the first segment runs to the column's right edge, interior
   /// lines take the full width, the last is flush left past its content
@@ -1661,8 +1664,10 @@ List<Rect> textLineInkBoxes(
 /// One rendered capsule line: the band's rectangle and which of its ends
 /// carry the pill's rounded cap. A capsule's NATURAL ends — the chip's
 /// left cap and the value's own end — stay rounded; an end the wrapper or
-/// a newline CUT is square, and the text beside it sits flush against the
-/// column's edge like ordinary text (截断直角、文字贴边; D3 反馈五终裁).
+/// a newline CUT is square, the text beside it sits flush against the
+/// column's edge like ordinary text (截断直角、文字贴边; D3 反馈五终裁),
+/// and the ink dissolves approaching it, so the square edge never reads
+/// as a drawn edge (截断端渐隐; D3 反馈八).
 class CapsuleBand {
   const CapsuleBand({
     required this.rect,
@@ -1687,6 +1692,47 @@ class CapsuleBand {
         topRight: rightRounded ? cap : Radius.zero,
         bottomRight: rightRounded ? cap : Radius.zero,
       );
+
+  /// A horizontal gradient holding [color] solid and dissolving it to
+  /// nothing across the run approaching each CUT end, so the square edge
+  /// never reads as a drawn edge (截断端渐隐). The run is the cap's
+  /// radius, clamped to a third of [bounds] so a narrow band (an empty
+  /// tail line's stub) keeps some ink. Null when no end is cut: a
+  /// complete pill paints its flat colour as-is.
+  Shader? cutFadeShader(Rect bounds, Color color) {
+    final fadeLeft = !leftRounded;
+    final fadeRight = !rightRounded;
+    if (!fadeLeft && !fadeRight) return null;
+    final run = math.min(
+      SlotSurfaceState.capsuleHeight / 2,
+      bounds.width / 3,
+    );
+    if (run <= 0) return null;
+    final f = run / bounds.width;
+    final gone = color.withValues(alpha: 0);
+    if (fadeLeft && fadeRight) {
+      return LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [gone, color, color, gone],
+        stops: [0, f, 1 - f, 1],
+      ).createShader(bounds);
+    }
+    if (fadeLeft) {
+      return LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [gone, color, color],
+        stops: [0, f, 1],
+      ).createShader(bounds);
+    }
+    return LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [color, color, gone],
+      stops: [0, 1 - f, 1],
+    ).createShader(bounds);
+  }
 }
 
 /// Paints the stream face's number circles (listening / rectifying):
@@ -1745,14 +1791,14 @@ class _BackgroundPainter extends CustomPainter {
     final bandsById = state._capsuleBands();
     // Pills first: the selection may tint over them, never under. Every
     // covered line is its own band — rounded caps on the capsule's
-    // natural ends, square edges where the wrapper cut it (截断直角).
+    // natural ends, square edges where the wrapper cut it (截断直角),
+    // their ink dissolving away as it approaches the cut (截断端渐隐).
     final pillRadius = Radius.circular(SlotSurfaceState.capsuleHeight / 2);
     for (final entry in bandsById.entries) {
       for (final band in entry.value) {
-        canvas.drawRRect(
-          band.shape(pillRadius),
-          Paint()..color = pal.accentSoft,
-        );
+        final fill = Paint()..color = pal.accentSoft;
+        fill.shader = band.cutFadeShader(band.rect, pal.accentSoft);
+        canvas.drawRRect(band.shape(pillRadius), fill);
       }
     }
     // The active capsule's stroke, fading in and out (点按 = 选中编辑态),
@@ -1760,15 +1806,18 @@ class _BackgroundPainter extends CustomPainter {
     final active = state._activeId;
     if (active != null && state._activeFade.value > 0) {
       for (final band in bandsById[active] ?? const <CapsuleBand>[]) {
-        canvas.drawRRect(
-          band.shape(pillRadius, inflate: 0.5),
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2
-            ..color = pal.accent.withValues(
-              alpha: 0.8 * state._activeFade.value,
-            ),
+        final shape = band.shape(pillRadius, inflate: 0.5);
+        // The stroke dissolves toward a cut end with its fill, so the
+        // outline never draws the edge the fill just hid.
+        final ink = pal.accent.withValues(
+          alpha: 0.8 * state._activeFade.value,
         );
+        final stroke = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = ink;
+        stroke.shader = band.cutFadeShader(shape.outerRect, ink);
+        canvas.drawRRect(shape, stroke);
       }
     }
     // Selection over the pills, clamped below the capsule height and

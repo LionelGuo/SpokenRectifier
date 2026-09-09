@@ -966,4 +966,38 @@ void main() {
     );
     await windDown(tester, h.controller);
   });
+
+  test('a cut end dissolves its ink; a complete pill stays flat', () {
+    // 截断端渐隐 (D3 反馈八): the square ends the wrap and the hard
+    // newlines leave never read as drawn edges — the fill and the stroke
+    // dissolve to nothing approaching them. The complete pill keeps its
+    // flat colour.
+    const ink = Color(0xFF3B82F6);
+    const complete = CapsuleBand(
+      rect: Rect.fromLTWH(0, 0, 120, 23),
+      leftRounded: true,
+      rightRounded: true,
+    );
+    const cutRight = CapsuleBand(
+      rect: Rect.fromLTWH(0, 0, 120, 23),
+      leftRounded: true,
+      rightRounded: false,
+    );
+    const cutBoth = CapsuleBand(
+      rect: Rect.fromLTWH(0, 0, 300, 23),
+      leftRounded: false,
+      rightRounded: false,
+    );
+    // The empty tail line's stub: 11.5px wide, cut on the left — the fade
+    // run clamps to a third of the band instead of dissolving it whole.
+    const stub = CapsuleBand(
+      rect: Rect.fromLTWH(0, 0, 11.5, 23),
+      leftRounded: false,
+      rightRounded: true,
+    );
+    expect(complete.cutFadeShader(complete.rect, ink), isNull);
+    expect(cutRight.cutFadeShader(cutRight.rect, ink), isNotNull);
+    expect(cutBoth.cutFadeShader(cutBoth.rect, ink), isNotNull);
+    expect(stub.cutFadeShader(stub.rect, ink), isNotNull);
+  });
 }
