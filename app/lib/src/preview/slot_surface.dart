@@ -52,7 +52,11 @@
 /// covered line renders as its own band, and consecutive bands MEET at
 /// the midline between their lines — the capsule's height is a hair
 /// under the line pitch, and the daylight that gap left at every wrap
-/// read as the curve breaking apart (反馈十四). An end the wrapper or a newline
+/// read as the curve breaking apart (反馈十四) — except a covered line
+/// the capsule's own boxes do not hold, which joins the capsule only
+/// when the value hard-continues onto it: a line holding nothing but
+/// the wrapped reservation placeholder renders no band at all (one
+/// complete pill on the glyph line). An end the wrapper or a newline
 /// CUT renders square, and the text beside a cut sits flush against the
 /// column's edge exactly like ordinary text — no parking, no clearance;
 /// only the capsule's NATURAL ends (the chip's left cap, the value's own
@@ -1188,7 +1192,17 @@ class SlotSurfaceState extends State<SlotSurface>
         for (final box in valueBoxes) box.toRect(),
       ]..sort((a, b) => a.left.compareTo(b.left));
       if (boxes.isEmpty) continue;
-      final covered = _coveredLines(paragraph, slot);
+      var covered = _coveredLines(paragraph, slot);
+      // 反馈十四: a covered tail line holding neither the chip nor any
+      // value glyph — claimed by the wrap-boundary caret probe at the
+      // reservation's own offset — belongs to the capsule only when the
+      // value hard-continues onto it. Otherwise the capsule is one
+      // complete pill on its glyph line.
+      covered = truncateCoveredLines(
+        covered,
+        boxes,
+        _editor.doc.valueOf(slot.id).endsWith('\n'),
+      );
       if (covered.length > 1 &&
           columnRight.isFinite &&
           chipBoxes.isNotEmpty) {
@@ -1856,6 +1870,37 @@ class SlotSurfaceState extends State<SlotSurface>
 // ---------------------------------------------------------------------------
 // shared line geometry
 // ---------------------------------------------------------------------------
+
+/// A capsule's covered lines, with a tail line that holds NEITHER the
+/// chip nor any value glyph dropped — unless the value hard-continues
+/// onto it (it ends with a newline: a trailing 回车's empty line is the
+/// caret's real parking line and keeps its band, 反馈七). The tail-less
+/// case is the soft-wrap artifact: every value glyph fit on the capsule's
+/// line and only the invisible reservation placeholder wrapped; the
+/// covered-lines probe — which asks the caret AT the reservation's own
+/// offset, downstream — claimed the next line on engines that report the
+/// wrap boundary on the far side, and the capsule rendered a spurious
+/// empty stub below a complete pill: a fragment hanging by a thread
+/// (真机, 反馈十四). With the tail dropped the capsule is one complete
+/// pill on its glyph line.
+List<({double top, double height})> truncateCoveredLines(
+  List<({double top, double height})> covered,
+  List<Rect> boxes,
+  bool valueEndsWithNewline,
+) {
+  if (valueEndsWithNewline || covered.length <= 1) return covered;
+  var lastHeld = 0;
+  for (final box in boxes) {
+    for (var i = 0; i < covered.length; i++) {
+      if (box.top < covered[i].top + covered[i].height - 1 &&
+          box.bottom > covered[i].top + 1) {
+        if (i > lastHeld) lastHeld = i;
+      }
+    }
+  }
+  if (lastHeld == covered.length - 1) return covered;
+  return covered.sublist(0, lastHeld + 1);
+}
 
 /// A paragraph's line ink boxes over the TEXT glyphs only, top to bottom:
 /// the selection ranges BETWEEN [placeholders] (flat offsets of the inline

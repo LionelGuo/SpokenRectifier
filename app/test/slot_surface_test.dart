@@ -871,6 +871,54 @@ void main() {
     await windDown(tester, h.controller);
   });
 
+  test('a covered tail line with no box joins only a hard value tail', () {
+    // 反馈十四, the soft-wrap artifact (真机: a lone capsule, 39 a's, a
+    // floating D on the next line): every value glyph fit on the
+    // capsule's line and only the invisible reservation placeholder
+    // wrapped; the covered-lines probe — which asks the caret AT the
+    // reservation's own wrap-boundary offset, downstream — claimed the
+    // next line on engines that report the boundary on the far side, and
+    // the capsule rendered a spurious empty stub under a complete pill.
+    // The rule is a pure function (the artifact itself is engine
+    // affinity behaviour flutter_tester does not reproduce): a covered
+    // TAIL line holding neither the chip nor any value glyph is dropped
+    // unless the value hard-continues onto it.
+    const line = (top: 0.0, height: 25.5);
+    const next = (top: 25.5, height: 25.5);
+    final lineBox = Rect.fromLTWH(0, 5, 40, 15);
+    // All boxes on the first line, an empty tail line claimed by the
+    // probe: dropped — the capsule is one complete pill on its line.
+    expect(truncateCoveredLines([line, next], [lineBox], false), [line]);
+    // The value ends with 回车: the empty tail line is the caret's real
+    // parking line and keeps its band (反馈七's stub).
+    expect(truncateCoveredLines([line, next], [lineBox], true), [line, next]);
+    // A genuine wrap (a value glyph on the next line) is no artifact:
+    // every covered line is held, nothing to drop.
+    expect(
+      truncateCoveredLines(
+        [line, next],
+        [lineBox, Rect.fromLTWH(0, 30, 15, 15)],
+        false,
+      ),
+      [line, next],
+    );
+    // Interior empty lines survive the tail rule (a blank line inside a
+    // value keeps its full-width band even when the value goes on): only
+    // lines AFTER the last held one drop.
+    const third = (top: 51.0, height: 25.5);
+    expect(
+      truncateCoveredLines(
+        [line, next, third],
+        [
+          lineBox,
+          Rect.fromLTWH(0, 56, 15, 15), // glyphs on the third line
+        ],
+        false,
+      ),
+      [line, next, third],
+    );
+  });
+
   testWidgets('a trailing newline leaves a flush-left band for the caret', (
     tester,
   ) async {
