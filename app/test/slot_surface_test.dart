@@ -739,4 +739,63 @@ void main() {
     expect(rects[1].right, closeTo(SrCapsule.valuePad, 0.5));
     await windDown(tester, h.controller);
   });
+
+  testWidgets('a capsule starting a line runs flush to the column edge', (
+    tester,
+  ) async {
+    final h = await pumpSlotPreview(tester, body: '‡1‡开个会', prefill: '张三');
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+    // No text precedes the chip on its line, so the leading text-contact
+    // clearance is dropped (行首不留空位).
+    expect(pill.left, closeTo(0, 0.5));
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets(
+    'a capsule ending its line swallows the reservation tail (single line)', (
+    tester,
+  ) async {
+    final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张三');
+    final paragraph = previewParagraph(tester);
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+    final flat = h.surface.flatBaseText;
+    final valueStart = flat.indexOf('张三');
+    final valueRight = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: valueStart, extentOffset: valueStart + 2),
+        )
+        .last
+        .right;
+    // Nothing follows the capsule on the line: the pill takes the parking
+    // space AND the breathing tail the reservation holds for text that
+    // is not there (行尾不留空位).
+    expect(
+      pill.right,
+      closeTo(valueRight + SrCapsule.valuePad + SrCapsule.sidePad, 0.5),
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets(
+    'the last band of a multi-line capsule ending the line swallows the tail too', (
+    tester,
+  ) async {
+    final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张\n三');
+    final paragraph = previewParagraph(tester);
+    final rects = h.surface.capsuleSegmentsForTest()[1]!;
+    expect(rects.length, 2);
+    final flat = h.surface.flatBaseText; // 发给￼张\n三￼
+    final sanStart = flat.indexOf('三');
+    final sanRight = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: sanStart, extentOffset: sanStart + 1),
+        )
+        .last
+        .right;
+    expect(
+      rects[1].right,
+      closeTo(sanRight + SrCapsule.valuePad + SrCapsule.sidePad, 0.5),
+    );
+    await windDown(tester, h.controller);
+  });
 }
