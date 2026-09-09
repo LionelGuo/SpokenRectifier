@@ -63,13 +63,15 @@
 /// sits empty, so adjacent capsules keep one spacing whatever their
 /// neighbours hold, and consecutive stream markers are placed as one
 /// run sharing a single slack (反馈十一: gaps inside a run never
-/// double at its edges). The LEADING breathing, by contrast, is always
-/// kept — a pill's cap sits on its reserved circle even at a line
-/// start, because the reservation is layout space paint cannot
-/// consume: flushing only slid the cap off its circle and read as a
-/// wider capsule with the number dragged left (反馈十二, superseding
-/// the single-line 行首贴左; the multi-line column bands keep their
-/// interior flush). An ink-less line (placeholders only) anchors its
+/// double at its edges). The LEADING breathing is kept toward text —
+/// a pill never crowds the preceding glyphs' ink — and swallowed when
+/// no text ink precedes the capsule on its line: the pill paints over
+/// the chip's reserved leading space, flush at a column edge, and
+/// every capsule of a line-start run swallows with its head so the
+/// run keeps one width with each number centered in its own pill's
+/// cap (顶格 + 同宽; 反馈十二→十三 — a lone flush once read as a wider
+/// first capsule with its number dragged off the reserved circle).
+/// An ink-less line (placeholders only) anchors its
 /// chrome on its strut-locked caret line center plus the paragraph's
 /// own ink-vs-caret bias — where its ink anchor lands once glyphs
 /// arrive — never on a placeholder's own middle alignment (反馈十二:
@@ -1154,6 +1156,7 @@ class SlotSurfaceState extends State<SlotSurface>
       _paragraphText.length,
     );
     final inkBias = _paragraphInkBias(paragraph, lines, _paragraphText);
+    final bodyLines = _bodyInkBoxes(paragraph);
     // The wrap width the layout itself used — the theoretical right edge
     // a full line of text reaches.
     final columnRight = paragraph.constraints.maxWidth;
@@ -1221,15 +1224,14 @@ class SlotSurfaceState extends State<SlotSurface>
         for (var i = 0; i < covered.length; i++) {
           final band = covered[i];
           final center = _inkCenter(lines, band.top + band.height / 2);
-          // The first segment's cap starts at the chip's reserved
-          // circle — the leading sidePad kept even at a line start
-          // (反馈十二: the reservation is layout space the paint cannot
-          // consume; flushing slid the cap off its circle). Every later
-          // segment is a column band: full width, flush left.
-          final left =
-              i == 0
-                  ? chipBoxes.first.left + capsuleSidePad
-                  : 0.0;
+          // The first segment's cap: the leading sidePad kept toward
+          // text, swallowed when no text ink precedes the capsule on
+          // its line — flush at a column edge, painted over the
+          // reservation like the single-line run (反馈十二→十三). Every
+          // later segment is a column band: full width, flush left.
+          final left = i == 0
+              ? _firstBandLeft(bodyLines, chipBoxes.first.toRect())
+              : 0.0;
           final right = i == covered.length - 1 ? lastBandRight : columnRight;
           slotBands.add(
             CapsuleBand(
@@ -1271,19 +1273,26 @@ class SlotSurfaceState extends State<SlotSurface>
           left = math.min(left, box.left);
           right = math.max(right, box.right);
         }
-        // The first run's left is the chip box's left plus the leading
-        // sidePad — ALWAYS kept, at a line start too (反馈十二, super-
-        // seding the single-line 行首贴左): the reserved layout space
-        // cannot be consumed by painting (the value's position rides
-        // past it), so flushing only slid the pill's cap off its
-        // reserved circle — a wider capsule with the number dragged
-        // left and the breathing relocated to a longer number-to-value
-        // gap. The last run's right
+        // The first run's left: the leading sidePad is kept toward
+        // TEXT (the pill never crowds the preceding glyphs' ink), and
+        // swallowed when no text ink precedes the capsule on its line
+        // (行首不留空位, 顶格) — a swallowed capsule's pill paints over
+        // the reserved leading space, so every capsule of a line-start
+        // run swallows with its head and the run keeps one width
+        // (反馈十二→十三: flush AND equal). The last run's right
         // grows into the reservation placeholder the projection holds
         // past the value (its first valuePad is the parking space; its
         // tail is the side breathing room) — swallowed whole when no
         // content follows on the line (行尾不留空位).
-        if (i == 0) left = left + capsuleSidePad;
+        if (i == 0) {
+          final inkLine = _lineClaiming(
+            bodyLines,
+            runs[i].first.top,
+            runs[i].first.bottom,
+          );
+          final textBefore = inkLine != null && inkLine.left < left - 0.5;
+          if (textBefore) left = left + capsuleSidePad;
+        }
         var tail = 0.0;
         if (i == runs.length - 1) {
           tail = pillRightPad;
@@ -1369,6 +1378,71 @@ class SlotSurfaceState extends State<SlotSurface>
     return bands;
   }
 
+  /// A multi-line capsule's first band left edge: the chip box's left,
+  /// plus the leading sidePad only when BODY text precedes the capsule
+  /// on its line (the pill never crowds text; a capsule's own value is
+  /// not "text before" the capsule behind it); flushed — the reserved
+  /// leading space painted over — at a column edge or behind another
+  /// swallowed capsule, matching the single-line rule.
+  double _firstBandLeft(List<Rect> bodyLines, Rect chipBox) {
+    if (chipBox.left <= 0.5) return 0.0;
+    final inkLine = _lineClaiming(bodyLines, chipBox.top, chipBox.bottom);
+    final textBefore = inkLine != null && inkLine.left < chipBox.left - 0.5;
+    return textBefore ? chipBox.left + capsuleSidePad : chipBox.left;
+  }
+
+  /// The line ink boxes over the BODY skeleton only — placeholders
+  /// excluded AND slot values excluded. The leading edge rule asks
+  /// whether body text precedes a capsule on its line; a capsule's own
+  /// value ink is never "text before" the capsule behind it (typing
+  /// into the head of a run may not un-flush its tail, 反馈十三).
+  List<Rect> _bodyInkBoxes(RenderParagraph paragraph) {
+    final text = _paragraphText;
+    final spans = <(int, int)>[
+      for (final slot in _projection.slots)
+        (_paintOf(slot.chipAt), _paintOf(slot.valueEnd + 1)),
+    ]..sort((a, b) => a.$1.compareTo(b.$1));
+    final boxes = <TextBox>[];
+    var start = 0;
+    for (final (s, e) in spans) {
+      if (s > start) {
+        boxes.addAll(
+          paragraph.getBoxesForSelection(
+            TextSelection(baseOffset: start, extentOffset: s),
+          ),
+        );
+      }
+      start = math.max(start, e);
+    }
+    if (start < text.length) {
+      boxes.addAll(
+        paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: start, extentOffset: text.length),
+        ),
+      );
+    }
+    return _mergeLineBoxes(boxes);
+  }
+
+  /// The line band (from the given list) sharing the vertical range
+  /// [top, bottom], nearest to its center — the claim the trailing and
+  /// leading edge rules test against.
+  Rect? _lineClaiming(List<Rect> lineBoxes, double top, double bottom) {
+    Rect? best;
+    var bestDistance = double.infinity;
+    final centerDy = (top + bottom) / 2;
+    for (final line in lineBoxes) {
+      if (line.top < bottom && line.bottom > top) {
+        final distance = (line.center.dy - centerDy).abs();
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = line;
+        }
+      }
+    }
+    return best;
+  }
+
   /// Whether the paragraph's content — text glyphs and placeholder boxes
   /// alike, per the line bands passed in — shares the vertical band
   /// [top, bottom] beyond [beyond]: something rides the line after the
@@ -1382,18 +1456,7 @@ class SlotSurfaceState extends State<SlotSurface>
     double bottom, {
     required double beyond,
   }) {
-    Rect? best;
-    var bestDistance = double.infinity;
-    final centerDy = (top + bottom) / 2;
-    for (final line in lineBoxes) {
-      if (line.top < bottom && line.bottom > top) {
-        final distance = (line.center.dy - centerDy).abs();
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          best = line;
-        }
-      }
-    }
+    final best = _lineClaiming(lineBoxes, top, bottom);
     return best != null && best.right > beyond + 0.5;
   }
 

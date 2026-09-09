@@ -894,13 +894,11 @@ void main() {
   testWidgets('consecutive capsules at a line start share one width', (
     tester,
   ) async {
-    // 反馈十二: the line-start flush could not consume the chip's
-    // reserved leading space (the value's layout position rides past
-    // it) — it only slid the pill's cap left of the reserved circle,
-    // relocating the slack INSIDE the pill: the first capsule read
-    // wider than its siblings, its number dragged off its circle with
-    // a longer number-to-value gap. The leading breathing is kept
-    // everywhere; every capsule of a run has one width.
+    // 反馈十二 → 反馈十三 re-ruling: the line-start run runs FLUSH
+    // (顶格) and every capsule of the run swallows its leading
+    // breathing WITH the first — one width, the number still centered
+    // in each pill's own cap, no rift inside the run. Text before a
+    // capsule keeps the breathing toward the text.
     final h = await pumpSlotPreview(
       tester,
       body: '‡1‡‡2‡‡3‡话',
@@ -918,7 +916,10 @@ void main() {
     final empty = [width(1), width(2), width(3)];
     expect(empty[0], closeTo(empty[1], 0.5));
     expect(empty[1], closeTo(empty[2], 0.5));
+    // Flush at the column edge (顶格): the run's first cap touches x=0.
+    expect(left(1), lessThan(1.0));
     final emptyLeft = left(1);
+    final emptyGap = gap(1, 2);
 
     // Filling the first capsule grows it by its own glyphs only: the
     // leading edge and the shared spacing hold (反馈十一's invariant —
@@ -927,17 +928,17 @@ void main() {
     await tester.pump();
     await h.type('张');
     expect(left(1), closeTo(emptyLeft, 0.5));
-    expect(gap(1, 2), closeTo(2 * SrCapsule.sidePad, 0.5));
+    expect(gap(1, 2), closeTo(emptyGap, 0.5));
     expect(width(2), closeTo(empty[1], 0.5));
 
-    // Text before the run: the empty capsules keep exactly the widths
-    // they had at the line start (the user's own "inserting text to
-    // its left makes them all identical").
+    // Text before the run: the breathing toward the text returns —
+    // uniformly, the empty siblings still one width.
     h.surface.editor.place(h.surface.editor.stops.first);
     await tester.pump();
     await h.type('话');
-    expect(width(2), closeTo(empty[1], 0.5));
-    expect(width(3), closeTo(empty[2], 0.5));
+    expect(left(1), greaterThan(4), reason: 'no longer flush beside text');
+    expect(width(2), closeTo(empty[1] - SrCapsule.sidePad, 0.5));
+    expect(width(3), closeTo(empty[2] - SrCapsule.sidePad, 0.5));
     expect(gap(1, 2), closeTo(2 * SrCapsule.sidePad, 0.5));
     await windDown(tester, h.controller);
   });
@@ -1011,23 +1012,16 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('a capsule starting a line keeps its leading breathing', (
+  testWidgets('a capsule starting a line runs flush to the column edge', (
     tester,
   ) async {
     final h = await pumpSlotPreview(tester, body: '‡1‡开个会', prefill: '张三');
-    final paragraph = previewParagraph(tester);
     final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
-    final chipLeft = paragraph
-        .getBoxesForSelection(const TextSelection(baseOffset: 0, extentOffset: 1))
-        .first
-        .left;
-    // 反馈十二 supersedes the single-line 行首贴左: flushing could not
-    // consume the chip's reserved leading space (the value's layout
-    // rides past it) — it only slid the pill's cap off the reserved
-    // circle, widening the capsule and stretching the number-to-value
-    // gap. The cap sits on its reserved circle, mid-line geometry at a
-    // line start too.
-    expect(pill.left, closeTo(chipLeft + SrCapsule.sidePad, 0.5));
+    // 反馈十三 restores the flush at a line start (顶格) on top of the
+    // 反馈十二 width rule: a capsule with no text before it on its line
+    // swallows the leading breathing — and so does every capsule
+    // chained behind it, so a run keeps one width.
+    expect(pill.left, closeTo(0, 0.5));
     // A capsule the wrapper never cuts is a complete pill: both ends
     // round (自然端圆帽).
     final band = h.surface.capsuleBandsForTest()[1]!.single;
