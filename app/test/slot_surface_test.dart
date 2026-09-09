@@ -1,7 +1,7 @@
 /// Ticket 22: the preview editing surface — the fill capsules over the
 /// slot document (rendering shape, tap-to-edit with prefill select-all,
 /// the dual dock points under the surface's own keys, IME-delivered
-/// typing, the single undo stack, the prefill hover tooltip, copy of the
+/// typing, the single undo stack, the slot hover tooltip, copy of the
 /// visible characters, and the substituted text the panel adopts).
 
 library;
@@ -390,7 +390,7 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('hovering a capsule reveals the prefill tooltip', (tester) async {
+  testWidgets('hovering a capsule reveals the edit tooltip', (tester) async {
     final h = await pumpSlotPreview(tester);
     expect(h.surface.tooltipSlotId, isNull);
 

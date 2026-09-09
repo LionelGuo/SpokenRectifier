@@ -1282,16 +1282,16 @@ class _ForegroundPainter extends CustomPainter {
         );
       }
     }
-    // Prefill tooltip: the prefill has no visual mark but the hover.
+    // Slot hover tooltip: one hint for every capsule in every state —
+    // prefill or not, emptied or edited (2026-09-09 user decision; the
+    // per-prefill wording 预填:X/预填为空 is retired).
     final tooltip = state._tooltipId;
     if (tooltip != null) {
       final segments = state._capsuleSegments()[tooltip];
       if (segments != null && segments.isNotEmpty) {
-        final prefill = state._editor.doc.prefillOf(tooltip);
-        final label = prefill.isEmpty ? '预填为空' : '预填:$prefill';
         final tp = TextPainter(
           text: TextSpan(
-            text: label,
+            text: '编辑填充内容',
             style: SrType.micro.copyWith(color: pal.textSecondary),
           ),
           textDirection: TextDirection.ltr,
