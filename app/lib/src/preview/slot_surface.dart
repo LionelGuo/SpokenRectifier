@@ -56,15 +56,24 @@
 /// end) keep the pill's rounded caps (截断直角、文字贴边; D3 反馈五终
 /// 裁, superseding the earlier complete-pill rule) — and a cut end's ink
 /// dissolves to nothing approaching it, so the square edge never reads
-/// as a drawn edge (截断端渐隐; D3 反馈八). At a line's edge the
-/// pill runs flush: the text-contact clearance is dropped when the
-/// capsule starts a line, and the reservation's breathing tail is
-/// swallowed when nothing follows on the line (行首/行尾不留空位) —
-/// where "nothing" means nothing at all: a neighbouring capsule or
-/// marker counts as following even while it sits empty, so adjacent
-/// capsules keep one spacing whatever their neighbours hold, and
-/// consecutive stream markers are placed as one run sharing a single
-/// slack (反馈十一: gaps inside a run never double at its edges).
+/// as a drawn edge (截断端渐隐; D3 反馈八). At a line's end the
+/// reservation's breathing tail is swallowed when nothing follows on
+/// the line (行尾不留空位) — where "nothing" means nothing at all: a
+/// neighbouring capsule or marker counts as following even while it
+/// sits empty, so adjacent capsules keep one spacing whatever their
+/// neighbours hold, and consecutive stream markers are placed as one
+/// run sharing a single slack (反馈十一: gaps inside a run never
+/// double at its edges). The LEADING breathing, by contrast, is always
+/// kept — a pill's cap sits on its reserved circle even at a line
+/// start, because the reservation is layout space paint cannot
+/// consume: flushing only slid the cap off its circle and read as a
+/// wider capsule with the number dragged left (反馈十二, superseding
+/// the single-line 行首贴左; the multi-line column bands keep their
+/// interior flush). An ink-less line (placeholders only) anchors its
+/// chrome on its strut-locked caret line center plus the paragraph's
+/// own ink-vs-caret bias — where its ink anchor lands once glyphs
+/// arrive — never on a placeholder's own middle alignment (反馈十二:
+/// that rides font metrics and re-seats when the first glyph lands).
 /// The caret binds to the line its text sits on WHILE it trails an
 /// insertion tail (typing, IME composition, paste): at a soft-wrap
 /// boundary the framework's default downstream affinity would paint it
@@ -497,21 +506,23 @@ class SlotSurfaceState extends State<SlotSurface>
     final text = widget.text ?? '';
     final sentinels = scanSentinels(text).toList();
     final positions = <int>[];
+    final flat = StringBuffer();
     var textPos = 0;
-    var flatPos = 0;
     for (final span in sentinels) {
-      flatPos += span.start - textPos;
-      positions.add(flatPos);
-      flatPos += 1;
+      flat.write(text.substring(textPos, span.start));
+      flat.write('\u{FFFC}');
+      positions.add(flat.length - 1);
       textPos = span.end;
     }
-    final length = flatPos + (text.length - textPos);
+    flat.write(text.substring(textPos));
+    final length = flat.length;
     final lines = textLineInkBoxes(paragraph, positions, length);
     // The edge rules see ALL content — glyphs and other markers'
     // reservations alike: a following marker is a neighbour, never
     // "nothing follows" (反馈十一).
     final contentLines = textLineContentBoxes(paragraph, length);
-    final placed = <({int id, Rect box, double width})>[];
+    final inkBias = _paragraphInkBias(paragraph, lines, flat.toString());
+    final placed = <({int id, int position, Rect box, double width})>[];
     for (var i = 0; i < sentinels.length; i++) {
       final boxes = paragraph.getBoxesForSelection(
         TextSelection(baseOffset: positions[i], extentOffset: positions[i] + 1),
@@ -519,6 +530,7 @@ class SlotSurfaceState extends State<SlotSurface>
       if (boxes.isEmpty) continue;
       placed.add((
         id: sentinels[i].id,
+        position: positions[i],
         box: boxes.first.toRect(),
         width: pinCapsuleWidth(sentinels[i].id),
       ));
@@ -561,12 +573,26 @@ class SlotSurfaceState extends State<SlotSurface>
                   : 2 * SrCapsule.sidePad;
       for (var k = i; k <= tail; k++) {
         // The one vertical anchor the whole surface shares: the line's
-        // ink center eased down by the optical nudge; the caller's own
-        // center, eased alike, when no line claims it (pins alone on
-        // their line — nothing else there to align to).
+        // ink center eased down by the optical nudge; for a line with
+        // no text at all (markers only) the strut-locked caret line
+        // center plus the paragraph's ink bias — never the spacer's
+        // own middle alignment, which rides font metrics and re-seats
+        // when speech's first glyphs land on the line (反馈十二).
         final box = placed[k].box;
         final left = box.left + slack;
-        final center = _inkCenter(lines, box.center.dy);
+        final caretPosition = TextPosition(offset: placed[k].position);
+        final caretTop = paragraph.getOffsetForCaret(
+          caretPosition,
+          Rect.zero,
+        ).dy;
+        final caretHeight = paragraph.getFullHeightForCaret(caretPosition);
+        final center = _inkCenter(
+          lines,
+          box.center.dy,
+          fallback: caretHeight > 0
+              ? caretTop + caretHeight / 2 + inkBias
+              : null,
+        );
         rects[placed[k].id] = Rect.fromLTRB(
           left,
           center - SrCapsule.height / 2,
@@ -1127,6 +1153,7 @@ class SlotSurfaceState extends State<SlotSurface>
       paragraph,
       _paragraphText.length,
     );
+    final inkBias = _paragraphInkBias(paragraph, lines, _paragraphText);
     // The wrap width the layout itself used — the theoretical right edge
     // a full line of text reaches.
     final columnRight = paragraph.constraints.maxWidth;
@@ -1194,14 +1221,14 @@ class SlotSurfaceState extends State<SlotSurface>
         for (var i = 0; i < covered.length; i++) {
           final band = covered[i];
           final center = _inkCenter(lines, band.top + band.height / 2);
-          // The first segment's cap starts at the chip — clear of the
-          // preceding text's ink, or flush at the column's edge when the
-          // capsule starts the line (行首不留空位).
+          // The first segment's cap starts at the chip's reserved
+          // circle — the leading sidePad kept even at a line start
+          // (反馈十二: the reservation is layout space the paint cannot
+          // consume; flushing slid the cap off its circle). Every later
+          // segment is a column band: full width, flush left.
           final left =
               i == 0
-                  ? (chipBoxes.first.left <= 0.5
-                        ? 0.0
-                        : chipBoxes.first.left + capsuleSidePad)
+                  ? chipBoxes.first.left + capsuleSidePad
                   : 0.0;
           final right = i == covered.length - 1 ? lastBandRight : columnRight;
           slotBands.add(
@@ -1244,15 +1271,19 @@ class SlotSurfaceState extends State<SlotSurface>
           left = math.min(left, box.left);
           right = math.max(right, box.right);
         }
-        // The first run's left is the chip box's left — the child's
-        // leading sidePad lives outside the pill (the pill's cap starts
-        // at the circle, clear of the preceding text's ink), unless the
-        // capsule starts the line (行首不留空位). The last run's right
+        // The first run's left is the chip box's left plus the leading
+        // sidePad — ALWAYS kept, at a line start too (反馈十二, super-
+        // seding the single-line 行首贴左): the reserved layout space
+        // cannot be consumed by painting (the value's position rides
+        // past it), so flushing only slid the pill's cap off its
+        // reserved circle — a wider capsule with the number dragged
+        // left and the breathing relocated to a longer number-to-value
+        // gap. The last run's right
         // grows into the reservation placeholder the projection holds
         // past the value (its first valuePad is the parking space; its
         // tail is the side breathing room) — swallowed whole when no
-        // text follows on the line (行尾不留空位).
-        if (i == 0) left = left <= 0.5 ? 0.0 : left + capsuleSidePad;
+        // content follows on the line (行尾不留空位).
+        if (i == 0) left = left + capsuleSidePad;
         var tail = 0.0;
         if (i == runs.length - 1) {
           tail = pillRightPad;
@@ -1271,7 +1302,25 @@ class SlotSurfaceState extends State<SlotSurface>
             tail += capsuleSidePad;
           }
         }
-        final center = _inkCenter(lines, runs[i].first.center.dy);
+        // The fallback anchor for an ink-less line (this capsule alone
+        // on the line, all placeholders): the strut-locked caret line
+        // center from the covered-lines probe, plus the paragraph's
+        // own ink bias — not the run's own placeholder box (反馈十二).
+        var coveredCenter = runs[i].first.center.dy;
+        var coveredDistance = double.infinity;
+        for (final band in covered) {
+          final distance =
+              ((band.top + band.height / 2) - runs[i].first.center.dy).abs();
+          if (distance < coveredDistance) {
+            coveredDistance = distance;
+            coveredCenter = band.top + band.height / 2;
+          }
+        }
+        final center = _inkCenter(
+          lines,
+          runs[i].first.center.dy,
+          fallback: coveredCenter + inkBias,
+        );
         slotBands.add(
           CapsuleBand(
             rect: Rect.fromLTRB(
@@ -1365,17 +1414,52 @@ class SlotSurfaceState extends State<SlotSurface>
     return textLineInkBoxes(paragraph, positions, text.length);
   }
 
+  /// The paragraph's own ink-vs-caret bias: a TEXT line's ink-box
+  /// center minus its caret line-box center — the engine's leading
+  /// split for the fonts this paragraph actually resolved, measured
+  /// from the paragraph itself (a standalone TextPainter seats glyphs
+  /// differently inside its own line and measures wrong). Ink-less
+  /// lines anchor on their strut-locked caret line center plus this
+  /// bias — exactly where their ink anchor lands once glyphs arrive —
+  /// so the anchor source never switches and nothing re-seats (反馈十
+  /// 二). Zero when the paragraph holds no text at all: nothing to
+  /// calibrate from, and only the first glyph's own font delta —
+  /// sub-pixel on real machines — can move.
+  double _paragraphInkBias(
+    RenderParagraph paragraph,
+    List<Rect> inkLines,
+    String flat,
+  ) {
+    for (var i = 0; i < flat.length; i++) {
+      final cu = flat.codeUnitAt(i);
+      if (cu == 0xFFFC || cu == 0x0A) continue;
+      final probe = TextPosition(offset: i);
+      final height = paragraph.getFullHeightForCaret(probe);
+      if (height <= 0) continue;
+      final center =
+          paragraph.getOffsetForCaret(probe, Rect.zero).dy + height / 2;
+      for (final line in inkLines) {
+        if (center >= line.top - 0.5 && center <= line.bottom + 0.5) {
+          return line.center.dy - center;
+        }
+      }
+    }
+    return 0;
+  }
+
   /// The ink-box center of the line [dy] falls on, eased down by the
-  /// optical nudge — the vertical anchor every span drawing shares. The
-  /// caller's own [dy] (eased alike) when no line claims it (a stale
-  /// probe).
-  double _inkCenter(List<Rect> lines, double dy) {
+  /// optical nudge — the vertical anchor every span drawing shares.
+  /// When no line claims [dy] — an ink-less line, placeholders only —
+  /// the anchor falls to [fallback] (eased alike): the caller supplies
+  /// its caret line center plus the paragraph's ink bias, the same
+  /// value the ink anchor takes once glyphs land there.
+  double _inkCenter(List<Rect> lines, double dy, {double? fallback}) {
     for (final line in lines) {
       if (dy >= line.top - 0.5 && dy <= line.bottom + 0.5) {
         return line.center.dy + _opticalEasePx;
       }
     }
-    return dy + _opticalEasePx;
+    return (fallback ?? dy) + _opticalEasePx;
   }
 
   /// The selection's paint-space range, or null when collapsed — and

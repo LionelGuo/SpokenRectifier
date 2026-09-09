@@ -87,6 +87,7 @@ Future<SlotPreviewHarness> pumpSlotPreview(
   String body = '发给‡1‡一下',
   String prefill = '张三',
   String? prefill2,
+  String? prefill3,
   int pins = 1,
 }) async {
   final gateway = FakeGateway();
@@ -109,6 +110,7 @@ Future<SlotPreviewHarness> pumpSlotPreview(
       prefills: [
         BridgePrefillRow(number: 1, value: prefill),
         if (prefill2 != null) BridgePrefillRow(number: 2, value: prefill2),
+        if (prefill3 != null) BridgePrefillRow(number: 3, value: prefill3),
       ],
     ),
   );
@@ -889,14 +891,143 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('a capsule starting a line runs flush to the column edge', (
+  testWidgets('consecutive capsules at a line start share one width', (
+    tester,
+  ) async {
+    // 反馈十二: the line-start flush could not consume the chip's
+    // reserved leading space (the value's layout position rides past
+    // it) — it only slid the pill's cap left of the reserved circle,
+    // relocating the slack INSIDE the pill: the first capsule read
+    // wider than its siblings, its number dragged off its circle with
+    // a longer number-to-value gap. The leading breathing is kept
+    // everywhere; every capsule of a run has one width.
+    final h = await pumpSlotPreview(
+      tester,
+      body: '‡1‡‡2‡‡3‡话',
+      prefill: '',
+      prefill2: '',
+      prefill3: '',
+      pins: 3,
+    );
+    double width(int id) =>
+        h.surface.capsuleSegmentsForTest()[id]!.first.width;
+    double left(int id) => h.surface.capsuleSegmentsForTest()[id]!.first.left;
+    double gap(int a, int b) =>
+        h.surface.capsuleSegmentsForTest()[b]!.first.left -
+        h.surface.capsuleSegmentsForTest()[a]!.first.right;
+    final empty = [width(1), width(2), width(3)];
+    expect(empty[0], closeTo(empty[1], 0.5));
+    expect(empty[1], closeTo(empty[2], 0.5));
+    final emptyLeft = left(1);
+
+    // Filling the first capsule grows it by its own glyphs only: the
+    // leading edge and the shared spacing hold (反馈十一's invariant —
+    // a filled neighbour never re-geometrys its siblings).
+    await tester.tapAt(h.capsuleRect(1).center);
+    await tester.pump();
+    await h.type('张');
+    expect(left(1), closeTo(emptyLeft, 0.5));
+    expect(gap(1, 2), closeTo(2 * SrCapsule.sidePad, 0.5));
+    expect(width(2), closeTo(empty[1], 0.5));
+
+    // Text before the run: the empty capsules keep exactly the widths
+    // they had at the line start (the user's own "inserting text to
+    // its left makes them all identical").
+    h.surface.editor.place(h.surface.editor.stops.first);
+    await tester.pump();
+    await h.type('话');
+    expect(width(2), closeTo(empty[1], 0.5));
+    expect(width(3), closeTo(empty[2], 0.5));
+    expect(gap(1, 2), closeTo(2 * SrCapsule.sidePad, 0.5));
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets(
+    'an ink-less line anchors its chrome on the strut line box', (
+    tester,
+  ) async {
+    // 反馈十二: a line of capsules with no text ink has no ink box to
+    // claim its band — the anchor's fallback is the strut-locked caret
+    // line center plus the paragraph's own ink-vs-caret bias (measured
+    // from its text lines; a standalone painter seats glyphs differ-
+    // ently and measures wrong). Never the placeholder's own middle
+    // alignment, which rides font metrics and visibly re-seats on real
+    // fallback chains when the line's first glyph lands (真机: every
+    // capsule on the line nudged up ~1px). The capsules sit alone on
+    // their line; the paragraph's second line carries the text.
+    final h = await pumpSlotPreview(
+      tester,
+      body: '‡1‡‡2‡\n话',
+      prefill: '',
+      prefill2: '',
+      pins: 2,
+    );
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.flatBaseText; // ￼￼￼￼\n话
+    // Line 1's caret center, and the bias calibrated from line 2's ink.
+    final line1Center =
+        paragraph.getOffsetForCaret(const TextPosition(offset: 0), Rect.zero).dy +
+        paragraph.getFullHeightForCaret(const TextPosition(offset: 0)) / 2;
+    final huaAt = flat.indexOf('话');
+    final huaPosition = TextPosition(offset: huaAt);
+    final huaCaretCenter =
+        paragraph.getOffsetForCaret(huaPosition, Rect.zero).dy +
+        paragraph.getFullHeightForCaret(huaPosition) / 2;
+    final inkLines = textLineInkBoxes(
+      paragraph,
+      placeholderPositions(flat),
+      flat.length,
+    );
+    final huaInkCenter = inkLines
+        .last
+        .center
+        .dy;
+    final bias = huaInkCenter - huaCaretCenter;
+
+    final ease = SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
+    for (final id in [1, 2]) {
+      final pill = h.surface.capsuleSegmentsForTest()[id]!.first;
+      expect(
+        (pill.center.dy - (line1Center + bias + ease)).abs(),
+        lessThan(0.1),
+        reason: 'the fallback anchor is the strut center plus the ink '
+            'bias, id $id',
+      );
+    }
+
+    // The first glyph landing on the line moves nothing — the line's
+    // own ink anchor equals the fallback it was placed on.
+    final before = h.surface.capsuleSegmentsForTest()[2]!.first.center.dy;
+    await tester.tapAt(h.capsuleRect(1).center);
+    await tester.pump();
+    await h.type('字');
+    expect(
+      h.surface.flatBaseText,
+      '￼字￼￼￼\n话',
+      reason: 'the value landed between chip and reservation',
+    );
+    final after = h.surface.capsuleSegmentsForTest()[2]!.first.center.dy;
+    expect(after, closeTo(before, 0.1));
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('a capsule starting a line keeps its leading breathing', (
     tester,
   ) async {
     final h = await pumpSlotPreview(tester, body: '‡1‡开个会', prefill: '张三');
+    final paragraph = previewParagraph(tester);
     final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
-    // No text precedes the chip on its line, so the leading text-contact
-    // clearance is dropped (行首不留空位).
-    expect(pill.left, closeTo(0, 0.5));
+    final chipLeft = paragraph
+        .getBoxesForSelection(const TextSelection(baseOffset: 0, extentOffset: 1))
+        .first
+        .left;
+    // 反馈十二 supersedes the single-line 行首贴左: flushing could not
+    // consume the chip's reserved leading space (the value's layout
+    // rides past it) — it only slid the pill's cap off the reserved
+    // circle, widening the capsule and stretching the number-to-value
+    // gap. The cap sits on its reserved circle, mid-line geometry at a
+    // line start too.
+    expect(pill.left, closeTo(chipLeft + SrCapsule.sidePad, 0.5));
     // A capsule the wrapper never cuts is a complete pill: both ends
     // round (自然端圆帽).
     final band = h.surface.capsuleBandsForTest()[1]!.single;
