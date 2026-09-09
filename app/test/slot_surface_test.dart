@@ -884,4 +884,79 @@ void main() {
     expect(editor.caret, const SlotCursor.outside(0));
     await windDown(tester, h.controller);
   });
+
+  testWidgets('the caret at a soft-wrap boundary renders on the current line', (
+    tester,
+  ) async {
+    // 反馈六: the wrapper breaks a line at the next UNBREAKABLE unit
+    // (the reservation placeholder after the value), not at the caret's
+    // own character — so the caret's offset can sit exactly on a
+    // soft-wrap boundary while the next typed character still lands on
+    // the current line. The framework's default downstream affinity
+    // would paint it a line early; it renders upstream, on the line its
+    // preceding character lives on (2026-09-09 ruling).
+    final h = await pumpSlotPreview(tester, prefill: 'a');
+    final paragraph = previewParagraph(tester);
+    h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
+    await tester.pump();
+
+    // Grow one long unbroken word letter by letter, the way it is typed:
+    // at every step the caret must ride the line the value's last
+    // character is on — including the boundary step, where the
+    // reservation has already wrapped but one more letter still fits.
+    var sawBoundary = false;
+    for (var n = 0; n < 110; n++) {
+      await h.type('a');
+      final flat = h.surface.flatBaseText;
+      final valueEnd = flat.lastIndexOf('￼');
+      final lastChar = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
+          )
+          .last;
+      final caret = h.surface.caretRect()!;
+      expect(
+        (caret.center.dy - (lastChar.top + lastChar.bottom) / 2).abs(),
+        lessThan(10),
+        reason: 'the caret rides the line its preceding character is on '
+            '(letter $n)',
+      );
+      final upstream = paragraph.getOffsetForCaret(
+        TextPosition(offset: valueEnd, affinity: TextAffinity.upstream),
+        Rect.zero,
+      );
+      final downstream = paragraph.getOffsetForCaret(
+        TextPosition(offset: valueEnd),
+        Rect.zero,
+      );
+      if (upstream.dy != downstream.dy) sawBoundary = true;
+    }
+    expect(sawBoundary, isTrue, reason: 'the walk crossed the wrap boundary');
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('the caret right after a hard newline renders on the new line', (
+    tester,
+  ) async {
+    // The upstream rule yields at hard newlines: a caret placed just
+    // after a '\n' belongs to the new line's start, not the previous
+    // line's end.
+    final h = await pumpSlotPreview(tester, prefill: '张\n三');
+    h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 2));
+    await tester.pump();
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.flatBaseText; // 发给￼张\n三￼一下
+    final sanStart = flat.indexOf('三');
+    final sanBox = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: sanStart, extentOffset: sanStart + 1),
+        )
+        .last;
+    final caret = h.surface.caretRect()!;
+    expect(
+      (caret.center.dy - (sanBox.top + sanBox.bottom) / 2).abs(),
+      lessThan(10),
+    );
+    await windDown(tester, h.controller);
+  });
 }

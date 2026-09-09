@@ -58,6 +58,18 @@
 /// pill runs flush: the text-contact clearance is dropped when the
 /// capsule starts a line, and the reservation's breathing tail is
 /// swallowed when nothing follows on the line (行首/行尾不留空位).
+/// The caret binds to the line its text sits on WHILE it trails an
+/// insertion tail (typing, IME composition, paste): at a soft-wrap
+/// boundary the framework's default downstream affinity would paint it
+/// at the next line's start even though the next typed character still
+/// lands on the current line (the wrapper breaks at the next
+/// unbreakable unit, not at the caret's own character), so the surface
+/// renders such positions upstream, at the current line's end — the
+/// caret moves down only when the text itself moves. The moment the
+/// caret travels on its own (navigation, click, undo), the downstream
+/// binding returns — Home onto a wrapped line's start renders at that
+/// line's start — and right after a hard newline downstream is the
+/// correct binding anyway (D3 反馈六, 2026-09-09 ruling).
 
 library;
 
@@ -356,6 +368,50 @@ class SlotSurfaceState extends State<SlotSurface>
   /// caret rides the composing run's end (EditableText's convention).
   int get _caretPaintFlat =>
       _composing.isEmpty ? _caretBaseFlat : _composingPaintEnd;
+
+  /// The caret's render position. 反馈六: while the caret trails an
+  /// insertion tail (text grew and the caret sits at its end — typing,
+  /// IME composition, paste), a soft-wrap boundary renders UPSTREAM, at
+  /// the current line's end: the framework's default downstream affinity
+  /// paints it at the NEXT line's start even though the next typed
+  /// character still lands on the current line (the wrapper breaks at
+  /// the next unbreakable unit, not at the caret's own character). The
+  /// moment the caret travels on its own (navigation, click, undo —
+  /// offset moved without matching growth), the downstream binding
+  /// returns: Home onto a wrapped line's start keeps rendering at that
+  /// line's start. Right after a hard newline downstream is correct
+  /// anyway: the position belongs to the new line.
+  int? _affinityKeyFlat;
+  int? _affinityKeyLen;
+  bool _affinityUpstream = false;
+
+  TextPosition _caretRenderPosition(RenderParagraph paragraph) {
+    final offset = _caretPaintFlat;
+    final text = _paragraphText;
+    final downstream = TextPosition(offset: offset);
+    if (offset == 0 || text.codeUnitAt(offset - 1) == 0x0A) {
+      _affinityKeyFlat = offset;
+      _affinityKeyLen = text.length;
+      _affinityUpstream = false;
+      return downstream;
+    }
+    if (offset != _affinityKeyFlat || text.length != _affinityKeyLen) {
+      final growth = text.length - (_affinityKeyLen ?? text.length);
+      _affinityUpstream =
+          growth > 0 && offset == (_affinityKeyFlat ?? offset) + growth;
+      _affinityKeyFlat = offset;
+      _affinityKeyLen = text.length;
+    }
+    if (!_affinityUpstream) return downstream;
+    final upstream = TextPosition(
+      offset: offset,
+      affinity: TextAffinity.upstream,
+    );
+    return paragraph.getOffsetForCaret(upstream, Rect.zero).dy ==
+            paragraph.getOffsetForCaret(downstream, Rect.zero).dy
+        ? downstream
+        : upstream;
+  }
 
   RenderParagraph? get _paragraph =>
       _paragraphKey.currentContext?.findRenderObject() as RenderParagraph?;
@@ -772,7 +828,7 @@ class SlotSurfaceState extends State<SlotSurface>
   (int, int)? _visualLineBounds() {
     final paragraph = _paragraph;
     if (paragraph == null) return null;
-    final position = TextPosition(offset: _caretPaintFlat);
+    final position = _caretRenderPosition(paragraph);
     final caretOffset = paragraph.getOffsetForCaret(position, Rect.zero);
     final lineHeight = paragraph.getFullHeightForCaret(position);
     if (lineHeight <= 0) return null;
@@ -799,7 +855,7 @@ class SlotSurfaceState extends State<SlotSurface>
   SlotCursor? _verticalStop(bool up) {
     final paragraph = _paragraph;
     if (paragraph == null) return null;
-    final position = TextPosition(offset: _caretPaintFlat);
+    final position = _caretRenderPosition(paragraph);
     final caretOffset = paragraph.getOffsetForCaret(position, Rect.zero);
     // A pitch and a half from the caret's top clears the rest of this
     // line and lands mid-neighbour even when pitches differ.
@@ -1248,7 +1304,7 @@ class SlotSurfaceState extends State<SlotSurface>
   Rect? caretRect() {
     final paragraph = _paragraph;
     if (paragraph == null) return null;
-    final position = TextPosition(offset: _caretPaintFlat);
+    final position = _caretRenderPosition(paragraph);
     final offset = paragraph.getOffsetForCaret(position, Rect.zero);
     final line = paragraph.getFullHeightForCaret(position);
     final center = _inkCenter(
