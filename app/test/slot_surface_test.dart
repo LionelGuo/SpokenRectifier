@@ -79,12 +79,15 @@ class SlotPreviewHarness {
   }
 }
 
-/// Pumps a pinned session through to the preview: one slot (`‡1‡`) with
-/// [prefill] as its initial value inside the given [body].
+/// Pumps a pinned session through to the preview: [pins] slots (`‡1‡`,
+/// `‡2‡`, …) with [prefill] (and [prefill2], for two) as their initial
+/// values inside the given [body].
 Future<SlotPreviewHarness> pumpSlotPreview(
   WidgetTester tester, {
   String body = '发给‡1‡一下',
   String prefill = '张三',
+  String? prefill2,
+  int pins = 1,
 }) async {
   final gateway = FakeGateway();
   final controller = SpeechController(gateway: gateway, scriptedPhrases: const []);
@@ -93,15 +96,20 @@ Future<SlotPreviewHarness> pumpSlotPreview(
 
   await controller.startSession();
   await tester.pump(const Duration(milliseconds: 350));
-  await gateway.pinPlaceholder();
-  await tester.pump();
+  for (var i = 0; i < pins; i++) {
+    await gateway.pinPlaceholder();
+    await tester.pump();
+  }
   await controller.stopSession();
   await tester.pump(const Duration(milliseconds: 350));
 
   gateway.emit(BridgeEvent.rectifiedTextChunk(delta: body));
   gateway.emit(
     BridgeEvent.previewPrefills(
-      prefills: [BridgePrefillRow(number: 1, value: prefill)],
+      prefills: [
+        BridgePrefillRow(number: 1, value: prefill),
+        if (prefill2 != null) BridgePrefillRow(number: 2, value: prefill2),
+      ],
     ),
   );
   gateway.emit(
@@ -769,6 +777,56 @@ void main() {
     expect(solo.width, SrCapsule.height);
   });
 
+  testWidgets('consecutive markers share one spacing', (tester) async {
+    // 反馈十一: a run of markers with nothing between them is placed as
+    // ONE run — every gap inside it is the reservation's own slack
+    // (sidePad on each side), never doubled by one marker absorbing
+    // while its neighbour does not.
+    Future<Map<int, Rect>> circlesFor(String key, String text) async {
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: srTheme(Brightness.dark),
+          home: Scaffold(
+            body: SlotSurface(
+              key: Key(key),
+              mode: SlotSurfaceMode.stream,
+              text: text,
+              scrollController: scroll,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final state = tester.state(find.byKey(Key(key))) as SlotSurfaceState;
+      return state.streamCircleRectsForTest();
+    }
+
+    void expectUniformGaps(Map<int, Rect> rects) {
+      final gap12 = rects[2]!.left - rects[1]!.right;
+      final gap23 = rects[3]!.left - rects[2]!.right;
+      expect(gap12, closeTo(2 * SrCapsule.sidePad, 0.5));
+      expect(gap23, closeTo(2 * SrCapsule.sidePad, 0.5));
+    }
+
+    // Starting the line (the fresh-pin run): the run flushes left as one
+    // and every inner gap is the reservation's own slack — the tail keeps
+    // its breathing (行首优先、尾巴留呼吸, at run scale).
+    final solo = await circlesFor('session-stream-run-start', '‡1‡‡2‡‡3‡');
+    expectUniformGaps(solo);
+    expect(solo[1]!.left, closeTo(0, 0.5));
+
+    // Ending the line after text: the run hugs the reservation ends as
+    // one, head keeping its breathing toward the text.
+    final tail = await circlesFor('session-stream-run-end', '话‡1‡‡2‡‡3‡');
+    expectUniformGaps(tail);
+
+    // Between text on both sides: the run centers as one.
+    final mid = await circlesFor('session-stream-run-mid', '话‡1‡‡2‡‡3‡话');
+    expectUniformGaps(mid);
+  });
+
   testWidgets(
     'a multi-line capsule bands the column: first flush right, middle full width, last flush left', (
     tester,
@@ -846,6 +904,46 @@ void main() {
     expect(band.rightRounded, isTrue);
     await windDown(tester, h.controller);
   });
+
+  testWidgets(
+    'adjacent capsules keep one spacing, whatever the neighbour holds', (
+    tester,
+    ) async {
+      // 反馈十一: two capsules with nothing between them — a following
+      // capsule's chip placeholder is CONTENT, not "nothing follows", so
+      // the first pill never swells into the shared gap while its
+      // neighbour sits empty and snaps back once it is filled.
+      final h = await pumpSlotPreview(
+        tester,
+        body: '发给‡1‡‡2‡',
+        prefill: '张三',
+        prefill2: '',
+        pins: 2,
+      );
+      double gap() =>
+          h.surface.capsuleSegmentsForTest()[2]!.first.left -
+          h.surface.capsuleSegmentsForTest()[1]!.first.right;
+      final gapEmpty = gap();
+      final widthEmpty = h.surface.capsuleSegmentsForTest()[1]!.first.width;
+      expect(
+        gapEmpty,
+        closeTo(2 * SrCapsule.sidePad, 0.5),
+        reason: 'each capsule keeps its own side breathing toward the other',
+      );
+
+      // Fill the second capsule: the first capsule's geometry must not move.
+      await tester.tapAt(h.capsuleRect(2).center);
+      await tester.pump();
+      await h.type('李');
+      expect(gap(), closeTo(gapEmpty, 0.01));
+      expect(
+        h.surface.capsuleSegmentsForTest()[1]!.first.width,
+        closeTo(widthEmpty, 0.01),
+        reason: 'the neighbour filling may not resize the previous pill',
+      );
+      await windDown(tester, h.controller);
+    },
+  );
 
   testWidgets(
     'a capsule ending its line swallows the reservation tail (single line)', (

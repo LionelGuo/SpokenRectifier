@@ -59,7 +59,12 @@
 /// as a drawn edge (截断端渐隐; D3 反馈八). At a line's edge the
 /// pill runs flush: the text-contact clearance is dropped when the
 /// capsule starts a line, and the reservation's breathing tail is
-/// swallowed when nothing follows on the line (行首/行尾不留空位).
+/// swallowed when nothing follows on the line (行首/行尾不留空位) —
+/// where "nothing" means nothing at all: a neighbouring capsule or
+/// marker counts as following even while it sits empty, so adjacent
+/// capsules keep one spacing whatever their neighbours hold, and
+/// consecutive stream markers are placed as one run sharing a single
+/// slack (反馈十一: gaps inside a run never double at its edges).
 /// The caret binds to the line its text sits on WHILE it trails an
 /// insertion tail (typing, IME composition, paste): at a soft-wrap
 /// boundary the framework's default downstream affinity would paint it
@@ -482,7 +487,9 @@ class SlotSurfaceState extends State<SlotSurface>
   /// and vertically centered on its line's text-ink eased by the optical
   /// nudge, computed in the same frame the layout happens (painted by
   /// the foreground layer, never placed by the WidgetSpan's font-metric
-  /// alignment).
+  /// alignment). Consecutive markers with nothing between them are
+  /// placed as one run sharing a single slack (反馈十一), so the gaps
+  /// inside a run never double up at its edges.
   Map<int, Rect> _streamCircleRects() {
     final paragraph =
         _streamParagraph?.findRenderObject() as RenderParagraph?;
@@ -500,44 +507,74 @@ class SlotSurfaceState extends State<SlotSurface>
     }
     final length = flatPos + (text.length - textPos);
     final lines = textLineInkBoxes(paragraph, positions, length);
-    final rects = <int, Rect>{};
+    // The edge rules see ALL content — glyphs and other markers'
+    // reservations alike: a following marker is a neighbour, never
+    // "nothing follows" (反馈十一).
+    final contentLines = textLineContentBoxes(paragraph, length);
+    final placed = <({int id, Rect box, double width})>[];
     for (var i = 0; i < sentinels.length; i++) {
       final boxes = paragraph.getBoxesForSelection(
         TextSelection(baseOffset: positions[i], extentOffset: positions[i] + 1),
       );
       if (boxes.isEmpty) continue;
-      final box = boxes.first.toRect();
-      final width = pinCapsuleWidth(sentinels[i].id);
-      // The same edge rules as the preview's first/last band: a marker
-      // starting the line absorbs its reservation's leading breathing
-      // (the cap flush at the column's edge); a line with no TEXT ink
-      // after the marker absorbs the tail breathing instead (a following
-      // capsule reserves its own, so only glyphs count). A rigid circle
-      // cannot flush both edges at once — the leading edge wins and the
-      // tail keeps its breathing.
-      final trailingInk = _trailingInkOnLine(
-        lines,
-        box.top,
-        box.bottom,
-        beyond: box.right,
+      placed.add((
+        id: sentinels[i].id,
+        box: boxes.first.toRect(),
+        width: pinCapsuleWidth(sentinels[i].id),
+      ));
+    }
+    // A chain of markers with nothing between them (the previous
+    // reservation ends exactly where this one begins, on one line) is
+    // ONE run, placed at a single shared slack so every gap inside it is
+    // the reservation's own (sidePad a side) — never doubled by one
+    // marker absorbing at a line edge while its neighbours do not. The
+    // run's HEAD carries the edge rules: a run starting the line flushes
+    // leading (行首不留空位, and a rigid circle cannot flush both edges
+    // at once — the tail keeps its breathing); a run with content after
+    // it centers; a run ending the line hugs its reservations' ends. A
+    // marker wrapping onto a new line breaks the chain and heads a run
+    // of its own.
+    bool chained(int k) =>
+        k > 0 &&
+        (placed[k].box.left - placed[k - 1].box.right).abs() < 0.5 &&
+        placed[k].box.top < placed[k - 1].box.bottom &&
+        placed[k].box.bottom > placed[k - 1].box.top;
+
+    final rects = <int, Rect>{};
+    var i = 0;
+    while (i < placed.length) {
+      var tail = i;
+      while (tail + 1 < placed.length && chained(tail + 1)) {
+        tail++;
+      }
+      final runFollowed = _trailingOnLine(
+        contentLines,
+        placed[tail].box.top,
+        placed[tail].box.bottom,
+        beyond: placed[tail].box.right,
       );
-      final left =
-          box.left <= 0.5
-              ? box.left
-              : trailingInk
-                  ? box.left + SrCapsule.sidePad
-                  : box.right - width;
-      // The one vertical anchor the whole surface shares: the line's
-      // ink center eased down by the optical nudge; the caller's own
-      // center, eased alike, when no line claims it (pins alone on
-      // their line — nothing else there to align to).
-      final center = _inkCenter(lines, box.center.dy);
-      rects[sentinels[i].id] = Rect.fromLTRB(
-        left,
-        center - SrCapsule.height / 2,
-        left + width,
-        center + SrCapsule.height / 2,
-      );
+      final slack =
+          placed[i].box.left <= 0.5
+              ? 0.0
+              : runFollowed
+                  ? SrCapsule.sidePad
+                  : 2 * SrCapsule.sidePad;
+      for (var k = i; k <= tail; k++) {
+        // The one vertical anchor the whole surface shares: the line's
+        // ink center eased down by the optical nudge; the caller's own
+        // center, eased alike, when no line claims it (pins alone on
+        // their line — nothing else there to align to).
+        final box = placed[k].box;
+        final left = box.left + slack;
+        final center = _inkCenter(lines, box.center.dy);
+        rects[placed[k].id] = Rect.fromLTRB(
+          left,
+          center - SrCapsule.height / 2,
+          left + placed[k].width,
+          center + SrCapsule.height / 2,
+        );
+      }
+      i = tail + 1;
     }
     return rects;
   }
@@ -1083,6 +1120,13 @@ class SlotSurfaceState extends State<SlotSurface>
     if (paragraph == null) return const {};
     final projection = _projection;
     final lines = _lineInkBoxes(paragraph);
+    // The edge rules ("does anything follow on this line") see ALL
+    // content — glyphs and placeholder boxes alike; only the vertical
+    // anchors stay on the ink-only lines.
+    final contentLines = textLineContentBoxes(
+      paragraph,
+      _paragraphText.length,
+    );
     // The wrap width the layout itself used — the theoretical right edge
     // a full line of text reaches.
     final columnRight = paragraph.constraints.maxWidth;
@@ -1130,14 +1174,20 @@ class SlotSurfaceState extends State<SlotSurface>
             lastRight = math.max(lastRight, box.right);
           }
         }
-        final trailingInk = _trailingInkOnLine(
-          lines,
+        // Something after the reservation (text or a following
+        // capsule's chip) keeps the breathing tail; only a run to the
+        // line's very end swallows it (行尾不留空位) — the check rides
+        // the CONTENT lines past the reservation's own end, so an empty
+        // neighbouring capsule no longer reads as "nothing follows"
+        // (反馈十一).
+        final trailingContent = _trailingOnLine(
+          contentLines,
           lastBand.top,
           lastBand.top + lastBand.height,
-          beyond: lastRight,
+          beyond: lastRight + pillRightPad + capsuleSidePad,
         );
         final lastBandRight = math.max(
-          lastRight + pillRightPad + (trailingInk ? 0.0 : capsuleSidePad),
+          lastRight + pillRightPad + (trailingContent ? 0.0 : capsuleSidePad),
           capsuleHeight / 2,
         );
         final slotBands = <CapsuleBand>[];
@@ -1206,11 +1256,17 @@ class SlotSurfaceState extends State<SlotSurface>
         var tail = 0.0;
         if (i == runs.length - 1) {
           tail = pillRightPad;
-          if (!_trailingInkOnLine(
-            lines,
+          // The check rides the CONTENT lines past the reservation's own
+          // end: text OR a following capsule's chip keeps the breathing
+          // tail; only the line's very end swallows it (行尾不留空位) —
+          // an empty neighbouring capsule is a neighbour, not "nothing
+          // follows" (反馈十一: the pill used to swell into the shared
+          // gap and snap back once the neighbour was filled).
+          if (!_trailingOnLine(
+            contentLines,
             runs[i].first.top,
             runs[i].first.bottom,
-            beyond: right,
+            beyond: right + pillRightPad + capsuleSidePad,
           )) {
             tail += capsuleSidePad;
           }
@@ -1264,14 +1320,15 @@ class SlotSurfaceState extends State<SlotSurface>
     return bands;
   }
 
-  /// Whether the paragraph's TEXT ink shares the vertical band
-  /// [top, bottom] beyond [beyond] — something (body text) rides the
-  /// capsule's last line after it. Placeholder boxes are not ink; a
-  /// following capsule reserves its own breathing room in layout, so
-  /// only glyphs count. The ink line nearest the band's center wins the
+  /// Whether the paragraph's content — text glyphs and placeholder boxes
+  /// alike, per the line bands passed in — shares the vertical band
+  /// [top, bottom] beyond [beyond]: something rides the line after the
+  /// capsule's reservation. Callers pass the CONTENT lines
+  /// ([textLineContentBoxes]); the ink-only lines stay the vertical
+  /// anchors' business. The line nearest the band's center wins the
   /// claim when neighbouring lines' metric boxes graze the band's edges.
-  bool _trailingInkOnLine(
-    List<Rect> inkLines,
+  bool _trailingOnLine(
+    List<Rect> lineBoxes,
     double top,
     double bottom, {
     required double beyond,
@@ -1279,7 +1336,7 @@ class SlotSurfaceState extends State<SlotSurface>
     Rect? best;
     var bestDistance = double.infinity;
     final centerDy = (top + bottom) / 2;
-    for (final line in inkLines) {
+    for (final line in lineBoxes) {
       if (line.top < bottom && line.bottom > top) {
         final distance = (line.center.dy - centerDy).abs();
         if (distance < bestDistance) {
@@ -1655,6 +1712,29 @@ List<Rect> textLineInkBoxes(
       ),
     );
   }
+  return _mergeLineBoxes(boxes);
+}
+
+/// A paragraph's line bands over ALL inline content — text glyphs AND
+/// placeholder boxes (chips, reservations, stream markers) — used by the
+/// edge rules, which ask "does anything ride this line after the
+/// capsule's reservation". A following capsule is CONTENT: the breathing
+/// tail exists so a pill never crowds whatever comes next, and what comes
+/// next may be another capsule that happens to be empty (反馈十一: an
+/// empty neighbour used to read as the line's end — the previous pill
+/// swelled into the shared gap, then snapped back the moment the
+/// neighbour was filled). The vertical anchors stay on the ink-only
+/// [textLineInkBoxes]; placeholders never displace alignment.
+List<Rect> textLineContentBoxes(RenderParagraph paragraph, int length) =>
+    _mergeLineBoxes(
+      paragraph.getBoxesForSelection(
+        TextSelection(baseOffset: 0, extentOffset: length),
+      ),
+    );
+
+/// Unions [boxes] into per-line rectangles, top to bottom: boxes that
+/// overlap vertically are one visual line's band.
+List<Rect> _mergeLineBoxes(List<TextBox> boxes) {
   if (boxes.isEmpty) return const [];
   final sorted = boxes.toList()..sort((a, b) => a.top.compareTo(b.top));
   final lines = <Rect>[];

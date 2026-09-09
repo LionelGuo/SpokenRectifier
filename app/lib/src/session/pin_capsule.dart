@@ -43,7 +43,9 @@ double pinCapsuleWidth(int id) {
 /// [SrCapsule.sidePad] the preview reserves around its pills, carried
 /// here in layout by the one span the stream face has. The surface's
 /// painter places the marker inside, absorbing a side's breathing
-/// when the marker sits at that line edge (行首/行尾不留空位).
+/// when the marker sits at that line edge (行首/行尾不留空位), and
+/// consecutive markers are placed as one run sharing a single slack,
+/// so the gaps between them never double up (反馈十一).
 double pinCapsuleReservation(int id) =>
     pinCapsuleWidth(id) + 2 * SrCapsule.sidePad;
 
