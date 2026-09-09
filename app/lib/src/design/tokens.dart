@@ -311,8 +311,10 @@ abstract final class SrCapsule {
   /// always the pill's full height — the cap is a true semicircle).
   static const double chipCircle = 23.0;
 
-  /// Breathing room between the chip and the value's first character.
-  static const double chipGap = 4.0;
+  /// Breathing room between the chip and the value's first character
+  /// (2026-09-09 验收反馈十: narrowed from 4 — the capsule's own number
+  /// sits slightly closer to the value it labels).
+  static const double chipGap = 2.0;
 
   /// The pill's right padding — the breathing room inside the pill past
   /// the value's last character, also the empty capsule's cursor parking
