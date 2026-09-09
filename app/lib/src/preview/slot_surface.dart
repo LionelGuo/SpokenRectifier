@@ -49,16 +49,17 @@
 /// the first segment runs to the column's right edge, interior lines take
 /// the full width, the last is flush left past its content — empty value
 /// lines included (首行抵右、中行全宽、末行贴左; 23 号验收轮 D3). Every
-/// covered line renders as its own band. An end the wrapper or a newline
+/// covered line renders as its own band, and consecutive bands MEET at
+/// the midline between their lines — the capsule's height is a hair
+/// under the line pitch, and the daylight that gap left at every wrap
+/// read as the curve breaking apart (反馈十四). An end the wrapper or a newline
 /// CUT renders square, and the text beside a cut sits flush against the
 /// column's edge exactly like ordinary text — no parking, no clearance;
 /// only the capsule's NATURAL ends (the chip's left cap, the value's own
 /// end) keep the pill's rounded caps (截断直角、文字贴边; D3 反馈五终
 /// 裁, superseding the earlier complete-pill rule) — and a cut end's ink
 /// dissolves to nothing approaching it, so the square edge never reads
-/// as a drawn edge (截断端渐隐; D3 反馈八), except on the empty tail
-/// line's stub, where nothing sits beside the cut and the curve keeps
-/// its ink (反馈十四). At a line's end the
+/// as a drawn edge (截断端渐隐; D3 反馈八). At a line's end the
 /// reservation's breathing tail is swallowed when nothing follows on
 /// the line (行尾不留空位) — where "nothing" means nothing at all: a
 /// neighbouring capsule or marker counts as following even while it
@@ -1133,12 +1134,13 @@ class SlotSurfaceState extends State<SlotSurface>
   /// 贴边; D3 反馈五终裁); a cut end's fill and stroke dissolve to
   /// nothing approaching it (截断端渐隐). The last band's right edge
   /// never sits closer than its own cap radius, so the cap is always one
-  /// continuous semicircle even on an empty tail line — and that stub
-  /// keeps its ink at its cut too: the fade hides the edge from text
-  /// sitting flush beside it, and none rides an empty line (反馈十
-  /// 四). An ink-less covered line anchors its band on the strut
-  /// caret line center plus the paragraph's ink bias, the anchor its
-  /// siblings' ink lines land on. A single-line
+  /// continuous semicircle even on an empty tail line. Consecutive bands
+  /// of one capsule MEET at the midline between their lines — no daylight
+  /// seam at a wrap — while each band's own stroke still draws its edge
+  /// across the joint, so the per-line segments stay readable inside one
+  /// continuous column (反馈十四). An ink-less covered line anchors its
+  /// band on the strut caret line center plus the paragraph's ink bias,
+  /// the anchor its siblings' ink lines land on. A single-line
   /// capsule is one complete pill.
   /// A capsule spanning several lines reads as one band across the
   /// column — the first segment runs to the column's right edge, interior
@@ -1229,17 +1231,34 @@ class SlotSurfaceState extends State<SlotSurface>
         );
         // No value glyphs claim the last covered line — the value ended
         // with 回车 and the band there is the capsule's parking stub.
-        final tailLineEmpty = lastRight == 0.0;
         final slotBands = <CapsuleBand>[];
+        // One anchor per covered line first (an ink-less line anchors on
+        // the strut-locked caret line center plus the paragraph's ink
+        // bias — the anchor its siblings' ink lines land on; 反馈十二's
+        // convention): the bands close their seams against these.
+        final centers = <double>[
+          for (final band in covered)
+            _inkCenter(
+              lines,
+              band.top + band.height / 2,
+              fallback: band.top + band.height / 2 + inkBias,
+            ),
+        ];
+        final half = capsuleHeight / 2;
         for (var i = 0; i < covered.length; i++) {
-          final band = covered[i];
-          // An ink-less covered line anchors on the strut-locked caret
-          // line center plus the paragraph's ink bias — the anchor its
-          // siblings' ink lines land on (反馈十二's convention; 反馈十四
-          // extended it here — the raw caret center sat the stub a bias
-          // high, reading detached from the band above).
-          final dy = band.top + band.height / 2;
-          final center = _inkCenter(lines, dy, fallback: dy + inkBias);
+          // Consecutive bands of ONE capsule MEET at the midline between
+          // their lines: the capsule's height (23) is a hair under the
+          // line pitch, and the sliver of daylight that gap left at
+          // every wrap read as the capsule's curve breaking apart
+          // (反馈十四 — the empty tail line's stub sat below a visible
+          // seam, a floating fragment). The per-line hairlines the
+          // bands' own strokes draw across the joints remain: the
+          // segments stay readable inside one continuous column.
+          final top = i == 0 ? centers[i] - half : (centers[i - 1] + centers[i]) / 2;
+          final bottom =
+              i == covered.length - 1
+                  ? centers[i] + half
+                  : (centers[i] + centers[i + 1]) / 2;
           // The first segment's cap: the leading sidePad kept toward
           // text, swallowed when no text ink precedes the capsule on
           // its line — flush at a column edge, painted over the
@@ -1251,15 +1270,9 @@ class SlotSurfaceState extends State<SlotSurface>
           final right = i == covered.length - 1 ? lastBandRight : columnRight;
           slotBands.add(
             CapsuleBand(
-              rect: Rect.fromLTRB(
-                left,
-                center - capsuleHeight / 2,
-                right,
-                center + capsuleHeight / 2,
-              ),
+              rect: Rect.fromLTRB(left, top, right, bottom),
               leftRounded: i == 0,
               rightRounded: i == covered.length - 1,
-              solidLeftCut: tailLineEmpty && i == covered.length - 1,
             ),
           );
         }
@@ -1937,19 +1950,11 @@ class CapsuleBand {
     required this.rect,
     required this.leftRounded,
     required this.rightRounded,
-    this.solidLeftCut = false,
   });
 
   final Rect rect;
   final bool leftRounded;
   final bool rightRounded;
-
-  /// Whether a CUT left end keeps its ink instead of dissolving. The
-  /// fade exists to hide a cut edge from the text sitting flush beside
-  /// it; the empty tail line's stub has no text beside its cut, and
-  /// dissolving it left the capsule's curve hanging out of nothing
-  /// (反馈十四).
-  final bool solidLeftCut;
 
   /// The band's painted shape: rounded caps on the natural ends, square
   /// edges on the cut ones, optionally inflated for the active stroke.
@@ -1978,7 +1983,7 @@ class CapsuleBand {
   /// ink. Null when no end is cut: a complete pill paints its flat
   /// colour as-is.
   Shader? cutFadeMask(Rect bounds) {
-    final fadeLeft = !leftRounded && !solidLeftCut;
+    final fadeLeft = !leftRounded;
     final fadeRight = !rightRounded;
     if (!fadeLeft && !fadeRight) return null;
     final run = math.min(

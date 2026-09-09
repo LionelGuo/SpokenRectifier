@@ -891,26 +891,44 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('the empty tail line\'s stub keeps a continuous solid curve', (
+  testWidgets(
+    'a wrapped capsule\'s consecutive bands meet without a daylight seam', (
     tester,
   ) async {
-    // 反馈十四: a capsule wrapping onto an empty second line (值尾回
-    // 车) — the tail stub IS the capsule's curve there, and it must
-    // read continuous. The cut-fade exists to hide a cut edge from the
-    // text sitting flush beside it (反馈八); no text rides the empty
-    // line, and dissolving the stub's left made the whole capsule's
-    // curve materialize out of nothing (曲线不连续).
+    // 反馈十四: the capsule's height is a hair under the line pitch, and
+    // the sliver of background that gap left between consecutive bands
+    // read as the capsule's curve breaking apart at the wrap (the empty
+    // tail line's stub sat below a visible seam, a floating fragment).
+    // The bands of one capsule now MEET at the midline between their
+    // lines — one continuous column; each band's own stroke still draws
+    // its edge across the joint, and the cut-end fades are untouched.
     final h = await pumpSlotPreview(tester, prefill: '张三\n');
     final bands = h.surface.capsuleBandsForTest()[1]!;
     expect(bands.length, 2, reason: 'the trailing 回车 covers a second line');
-    final stub = bands[1];
-    expect(stub.leftRounded, isFalse, reason: 'the newline cut it (反馈五)');
-    expect(stub.rightRounded, isTrue, reason: 'the value\'s own end (反馈七)');
-    expect(
-      stub.cutFadeMask(stub.rect),
-      isNull,
-      reason: 'no text sits beside the cut — the ink stays solid (反馈十四)',
-    );
+    expect(bands[1].rect.top, closeTo(bands[0].rect.bottom, 0.01));
+    // The cut-fade keeps its place on the stub's left (用户裁定: the
+    // gradient is wanted) and the cap stays a full semicircle (反馈七).
+    expect(bands[1].cutFadeMask(bands[1].rect), isNotNull);
+    expect(bands[1].leftRounded, isFalse);
+    expect(bands[1].rightRounded, isTrue);
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('deeper wraps close every seam alike, empty lines included', (
+    tester,
+  ) async {
+    // 反馈十四, the three-line case: content, an empty interior line,
+    // content — every consecutive pair meets at its midline.
+    final h = await pumpSlotPreview(tester, prefill: '张三\n\n李四');
+    final bands = h.surface.capsuleBandsForTest()[1]!;
+    expect(bands.length, 3);
+    for (var i = 0; i + 1 < bands.length; i++) {
+      expect(
+        bands[i + 1].rect.top,
+        closeTo(bands[i].rect.bottom, 0.01),
+        reason: 'seam $i closes without daylight',
+      );
+    }
     await windDown(tester, h.controller);
   });
 
@@ -944,8 +962,10 @@ void main() {
         paragraph.getFullHeightForCaret(tailCaret) / 2 +
         bias +
         SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
+    // The seam-closed rect's center is no longer the anchor itself; the
+    // band's BOTTOM edge still is the anchor plus the half height.
     expect(
-      (stub.rect.center.dy - anchor).abs(),
+      (stub.rect.bottom - (anchor + SrCapsule.height / 2)).abs(),
       lessThan(0.1),
       reason: 'the ink-less line shares the ink lines\' anchor convention',
     );
@@ -1355,18 +1375,9 @@ void main() {
       leftRounded: false,
       rightRounded: true,
     );
-    // 反馈十四: the stub the surface actually renders keeps its ink — no
-    // text sits beside its cut to hide the edge from.
-    const stubSolid = CapsuleBand(
-      rect: Rect.fromLTWH(0, 0, 11.5, 23),
-      leftRounded: false,
-      rightRounded: true,
-      solidLeftCut: true,
-    );
     expect(complete.cutFadeMask(complete.rect), isNull);
     expect(cutRight.cutFadeMask(cutRight.rect), isNotNull);
     expect(cutBoth.cutFadeMask(cutBoth.rect), isNotNull);
     expect(stub.cutFadeMask(stub.rect), isNotNull);
-    expect(stubSolid.cutFadeMask(stubSolid.rect), isNull);
   });
 }
