@@ -857,4 +857,32 @@ void main() {
     );
     await windDown(tester, h.controller);
   });
+
+  testWidgets('Home and End walk the visual line across auto-wrapped text', (
+    tester,
+  ) async {
+    // A long value wraps without a single '\n': Home/End bound the
+    // VISUAL line, not the paragraph (自动换行的行也有行首行尾;
+    // 2026-09-09 用户裁定). Ctrl still jumps the document bounds.
+    final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '测' * 80);
+    final editor = h.surface.editor;
+
+    // The document's end: the value's last visual line.
+    editor.place(editor.stops.last);
+    await tester.pump();
+    await h.key(LogicalKeyboardKey.home);
+    final home = editor.caret;
+    expect(home.inside, isTrue, reason: 'a wrapped line starts mid-value');
+    expect(home.at, 2);
+    expect(home.offset, greaterThan(0));
+    expect(home.offset, lessThan(80));
+
+    // End returns to the same line's end — the document's last stop.
+    await h.key(LogicalKeyboardKey.end);
+    expect(editor.caret, editor.stops.last);
+
+    await h.ctrlKey(LogicalKeyboardKey.home);
+    expect(editor.caret, const SlotCursor.outside(0));
+    await windDown(tester, h.controller);
+  });
 }

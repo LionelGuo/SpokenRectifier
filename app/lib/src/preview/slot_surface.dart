@@ -707,7 +707,7 @@ class SlotSurfaceState extends State<SlotSurface>
           ctrl
               ? _editor.stops.first
               : _projection.flatToCursor(
-                _lineStartFlat(_caretBaseFlat),
+                _visualLineBounds()?.$1 ?? _lineStartFlat(_caretBaseFlat),
                 preferInside: false,
               ),
           extend: shift,
@@ -718,7 +718,7 @@ class SlotSurfaceState extends State<SlotSurface>
           ctrl
               ? _editor.stops.last
               : _projection.flatToCursor(
-                _lineEndFlat(_caretBaseFlat),
+                _visualLineBounds()?.$2 ?? _lineEndFlat(_caretBaseFlat),
                 preferInside: false,
               ),
           extend: shift,
@@ -755,11 +755,12 @@ class SlotSurfaceState extends State<SlotSurface>
 
   // -- line navigation ------------------------------------------------------
   //
-  // Home/End are flat-space line bounds over the projection's base; ↑/↓
-  // probe the paragraph a line's pitch above/below the caret and map the
-  // hit back through the projection. Both fold through flatToCursor, so a
-  // bound landing on a capsule edge resolves to its structural (outside)
-  // dock — the body-side position of the line.
+  // Home/End bound the caret's VISUAL line — probed at the caret's own
+  // dy, so a line the auto-wrapper produced (no '\n' of its own) has its
+  // bounds too; ↑/↓ probe the paragraph a line's pitch above/below the
+  // caret and map the hit back through the projection. All fold through
+  // flatToCursor, so a bound landing on a capsule edge resolves to its
+  // structural (outside) dock — the body-side position of the line.
 
   int _lineStartFlat(int flat) {
     final base = _projection.base;
@@ -771,6 +772,38 @@ class SlotSurfaceState extends State<SlotSurface>
     final base = _projection.base;
     final i = base.indexOf('\n', flat);
     return i == -1 ? base.length : i;
+  }
+
+  /// The caret's VISUAL line bounds in base-space flat offsets: an
+  /// auto-wrapped line has no '\n' of its own, so Home/End probe the
+  /// paragraph at the caret's own line instead of walking newline
+  /// characters (自动换行的行也有行首行尾; 2026-09-09 用户裁定). Null
+  /// when the paragraph cannot be probed — the newline-based bounds are
+  /// the fallback. A line ending in a hard newline stops BEFORE it: the
+  /// newline belongs to the next line's start, not this line's end.
+  (int, int)? _visualLineBounds() {
+    final paragraph = _paragraph;
+    if (paragraph == null) return null;
+    final position = TextPosition(offset: _caretPaintFlat);
+    final caretOffset = paragraph.getOffsetForCaret(position, Rect.zero);
+    final lineHeight = paragraph.getFullHeightForCaret(position);
+    if (lineHeight <= 0) return null;
+    // Probe dead-center of the line, clear of the neighbours' metric
+    // boxes grazing the band's edges.
+    final dy = caretOffset.dy + lineHeight / 2;
+    final start = _baseOf(
+      paragraph.getPositionForOffset(Offset(0, dy)).offset,
+    );
+    var end = _baseOf(
+      paragraph.getPositionForOffset(
+        Offset(paragraph.constraints.maxWidth, dy),
+      ).offset,
+    );
+    final base = _projection.base;
+    if (end > start && end <= base.length && base.codeUnitAt(end - 1) == 0x0A) {
+      end--;
+    }
+    return (start, end);
   }
 
   /// The stop a line up/down from the caret lands on, or null when the
