@@ -202,6 +202,7 @@ class SlotEditor {
   /// (an empty slot always): pass through and step out to the left
   /// (槽内贴边透传步出槽外).
   void backspace() {
+    final from = selectionEdges?.$1 ?? _normalize(_caret);
     if (hasSelection) {
       _deleteSelection();
       return;
@@ -218,10 +219,12 @@ class SlotEditor {
       } else {
         final value = doc.valueOf(span.id);
         final k = caret.offset;
+        final landed = SlotCursor.inside(at: span.start, offset: k - 1);
         doc.edit(
           values: {span.id: value.substring(0, k - 1) + value.substring(k)},
+          mark: (from, landed),
         );
-        _caret = SlotCursor.inside(at: span.start, offset: k - 1);
+        _caret = landed;
       }
       return;
     }
@@ -235,10 +238,16 @@ class SlotEditor {
     }
     if (caret.at > 0) {
       final o = caret.at;
-      doc.edit(
-        skeleton: doc.skeleton.substring(0, o - 1) + doc.skeleton.substring(o),
+      final next =
+          doc.skeleton.substring(0, o - 1) + doc.skeleton.substring(o);
+      final landed = _normalizeIn(
+        next,
+        doc.identities,
+        doc.valueOf,
+        SlotCursor.outside(o - 1),
       );
-      _caret = _normalize(SlotCursor.outside(o - 1));
+      doc.edit(skeleton: next, mark: (from, landed));
+      _caret = landed;
     }
   }
 
@@ -248,6 +257,7 @@ class SlotEditor {
   /// inside, against the value's right edge (an empty slot always):
   /// pass through and step out to the right (槽内贴边透传步出槽外).
   void deleteForward() {
+    final from = selectionEdges?.$1 ?? _normalize(_caret);
     if (hasSelection) {
       _deleteSelection();
       return;
@@ -265,10 +275,12 @@ class SlotEditor {
       } else {
         final value = doc.valueOf(span.id);
         final k = caret.offset;
+        final landed = SlotCursor.inside(at: span.start, offset: k);
         doc.edit(
           values: {span.id: value.substring(0, k) + value.substring(k + 1)},
+          mark: (from, landed),
         );
-        _caret = SlotCursor.inside(at: span.start, offset: k);
+        _caret = landed;
       }
       return;
     }
@@ -279,10 +291,16 @@ class SlotEditor {
     }
     if (caret.at < doc.skeleton.length) {
       final o = caret.at;
-      doc.edit(
-        skeleton: doc.skeleton.substring(0, o) + doc.skeleton.substring(o + 1),
+      final next =
+          doc.skeleton.substring(0, o) + doc.skeleton.substring(o + 1);
+      final landed = _normalizeIn(
+        next,
+        doc.identities,
+        doc.valueOf,
+        SlotCursor.outside(o),
       );
-      _caret = _normalize(SlotCursor.outside(o));
+      doc.edit(skeleton: next, mark: (from, landed));
+      _caret = landed;
     }
   }
 
@@ -299,7 +317,8 @@ class SlotEditor {
       _replaceSelection(text);
       return;
     }
-    final caret = _normalize(_caret);
+    final from = _normalize(_caret);
+    final caret = from;
     if (caret.inside) {
       final span = _spanAt(caret.at);
       if (span == null) {
@@ -308,17 +327,27 @@ class SlotEditor {
       }
       final value = doc.valueOf(span.id);
       final k = caret.offset;
+      final landed = SlotCursor.inside(
+        at: span.start,
+        offset: k + text.length,
+      );
       doc.edit(
         values: {span.id: value.substring(0, k) + text + value.substring(k)},
+        mark: (from, landed),
       );
-      _caret = SlotCursor.inside(at: span.start, offset: k + text.length);
+      _caret = landed;
       return;
     }
     final o = caret.at;
-    doc.edit(
-      skeleton: doc.skeleton.substring(0, o) + text + doc.skeleton.substring(o),
+    final next = doc.skeleton.substring(0, o) + text + doc.skeleton.substring(o);
+    final landed = _normalizeIn(
+      next,
+      doc.identities,
+      doc.valueOf,
+      SlotCursor.outside(o + text.length),
     );
-    _caret = _normalize(SlotCursor.outside(o + text.length));
+    doc.edit(skeleton: next, mark: (from, landed));
+    _caret = landed;
   }
 
   /// The selection's visible characters (复制得到可见字,身份不出模
@@ -350,19 +379,25 @@ class SlotEditor {
   }
 
   /// Step one edit back. The stacks live in the document; the caret
-  /// stays where it was — snapped back onto a valid stop, since the
-  /// text under it may have moved — and the selection collapses.
+  /// travels to where the undone edit began — every edit records the
+  /// cursors it started and ended at on its snapshot, and history walks
+  /// the caret with the change (undo 回到该步修改开始前,2026-09-09
+  /// ruling). A mark-less entry (the coarse forms) keeps the caret,
+  /// snapped onto a valid stop. The selection collapses either way.
   bool undo() {
     if (!doc.undo()) return false;
-    _caret = _normalize(_caret);
+    final mark = doc.restoredMark;
+    if (mark is (SlotCursor, SlotCursor)) _caret = _normalize(mark.$1);
     _anchor = null;
     return true;
   }
 
-  /// Step one undone edit forward again.
+  /// Step one undone edit forward again — the caret lands behind the
+  /// redone modification (重做后光标到该步修改末尾,2026-09-09 ruling).
   bool redo() {
     if (!doc.redo()) return false;
-    _caret = _normalize(_caret);
+    final mark = doc.restoredMark;
+    if (mark is (SlotCursor, SlotCursor)) _caret = _normalize(mark.$2);
     _anchor = null;
     return true;
   }
@@ -446,8 +481,14 @@ class SlotEditor {
       }
       caret = SlotCursor.outside(a.at + (insertion?.length ?? 0));
     }
-    doc.edit(skeleton: skeleton, values: values);
-    return _normalize(caret);
+    final landed = _normalizeIn(
+      skeleton ?? doc.skeleton,
+      doc.identities,
+      (id) => values[id] ?? doc.valueOf(id),
+      caret,
+    );
+    doc.edit(skeleton: skeleton, values: values, mark: (a, landed));
+    return landed;
   }
 
   /// What a selection from [a] to [b] (reading order) covers: the body
@@ -486,22 +527,38 @@ class SlotEditor {
   /// offsets into range, pull a body offset inside a minted shape down
   /// to the shape's left edge, clamp a value offset into the value,
   /// and fall back to the body when the occurrence is gone.
-  SlotCursor _normalize(SlotCursor stop) {
-    if (!stop.inside) return _normalizeBody(stop.at);
-    final span = _spanAt(stop.at);
-    if (span == null) return _normalizeBody(stop.at);
-    var k = stop.offset;
-    final n = doc.valueOf(span.id).length;
-    if (k < 0) k = 0;
-    if (k > n) k = n;
-    return SlotCursor.inside(at: stop.at, offset: k);
-  }
+  SlotCursor _normalize(SlotCursor stop) =>
+      _normalizeIn(doc.skeleton, doc.identities, doc.valueOf, stop);
 
-  SlotCursor _normalizeBody(int offset) {
-    var o = offset;
+  /// The same snap against a candidate state — the skeleton and value
+  /// lookup an edit is about to install — so the caret an edit leaves
+  /// can be computed before the edit applies: it rides the undo
+  /// snapshot as the mark history restores on undo/redo.
+  SlotCursor _normalizeIn(
+    String skeleton,
+    Set<int> minted,
+    String Function(int id) valueAt,
+    SlotCursor stop,
+  ) {
+    final spans = [
+      for (final span in scanSentinels(skeleton))
+        if (minted.contains(span.id)) span,
+    ];
+    if (stop.inside) {
+      for (final span in spans) {
+        if (span.start == stop.at) {
+          var k = stop.offset;
+          final n = valueAt(span.id).length;
+          if (k < 0) k = 0;
+          if (k > n) k = n;
+          return SlotCursor.inside(at: stop.at, offset: k);
+        }
+      }
+    }
+    var o = stop.at;
     if (o < 0) o = 0;
-    if (o > doc.skeleton.length) o = doc.skeleton.length;
-    for (final span in doc.fillSlots) {
+    if (o > skeleton.length) o = skeleton.length;
+    for (final span in spans) {
       if (span.start < o && o < span.end) {
         o = span.start; // strictly inside a shape: down to its left edge
         break;

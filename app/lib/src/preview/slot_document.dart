@@ -198,6 +198,7 @@ class SlotDocument {
     _skeleton = rectifiedText;
     _undo.clear();
     _redo.clear();
+    _restoredMark = null;
   }
 
   /// One undoable edit touching any combination of skeleton and values
@@ -206,7 +207,11 @@ class SlotDocument {
   /// text and value text together. Same rules as the two coarse forms:
   /// unminted ids in [values] are ignored (身份不增不减), and an edit
   /// that would change nothing pushes no snapshot.
-  void edit({String? skeleton, Map<int, String>? values}) {
+  ///
+  /// [mark] is opaque to the document — the editor passes the cursors
+  /// its edit began and ended at, and [undo]/[redo] hand them back via
+  /// [restoredMark] so history walks the caret with the change.
+  void edit({String? skeleton, Map<int, String>? values, Object? mark}) {
     final changesNothing =
         (skeleton == null || skeleton == _skeleton) &&
         (values == null ||
@@ -221,7 +226,7 @@ class SlotDocument {
           if (_values.containsKey(e.key)) _values[e.key] = e.value;
         }
       }
-    });
+    }, mark);
   }
 
   /// Edit a slot's value — typing inside the capsule, as tickets 20/22
@@ -237,34 +242,49 @@ class SlotDocument {
   bool get canUndo => _undo.isNotEmpty;
   bool get canRedo => _redo.isNotEmpty;
 
+  /// The mark carried by the entry the last [undo]/[redo] restored —
+  /// the editor's cursors for that edit. Null when the stacks have not
+  /// been walked since the last edit or arrival, or the entry carried
+  /// no mark (the coarse forms).
+  Object? get restoredMark => _restoredMark;
+  Object? _restoredMark;
+
   /// Step one edit back — values and skeleton move together, in time
   /// order (值与骨架同栈、按时间统一回退). Returns false at the round's
   /// initial state, the bottom of the stack, where another undo is a
   /// no-op. Never crosses a regeneration (the barrier cleared the
   /// stacks) and never touches identity: the minted and visible sets
-  /// stay exactly as they are.
+  /// stay exactly as they are. The restored entry's mark lands in
+  /// [restoredMark].
   bool undo() {
     if (_undo.isEmpty) return false;
-    _redo.add(_Snapshot(_skeleton, _values));
-    _restore(_undo.removeLast());
+    final popped = _undo.removeLast();
+    _redo.add(_Snapshot(_skeleton, _values, popped.mark));
+    _restore(popped);
+    _restoredMark = popped.mark;
     return true;
   }
 
-  /// Step one undone edit forward again. A new edit drops the redo tail.
+  /// Step one undone edit forward again. A new edit drops the redo
+  /// tail. The restored entry's mark lands in [restoredMark].
   bool redo() {
     if (_redo.isEmpty) return false;
-    _undo.add(_Snapshot(_skeleton, _values));
-    _restore(_redo.removeLast());
+    final popped = _redo.removeLast();
+    _undo.add(_Snapshot(_skeleton, _values, popped.mark));
+    _restore(popped);
+    _restoredMark = popped.mark;
     return true;
   }
 
   /// One undoable mutation: snapshot before, drop the redo tail, apply.
   /// Every mutating entry point routes through here, which is what keeps
   /// value edits and body edits on one stack in time order — ticket 20's
-  /// cursor ops included.
-  void _change(void Function() apply) {
-    _undo.add(_Snapshot(_skeleton, _values));
+  /// cursor ops included. The snapshot carries the edit's [mark]
+  /// (opaque here) so history can walk the editor's caret with it.
+  void _change(void Function() apply, Object? mark) {
+    _undo.add(_Snapshot(_skeleton, _values, mark));
     _redo.clear();
+    _restoredMark = null;
     apply();
   }
 
@@ -277,8 +297,13 @@ class SlotDocument {
 }
 
 class _Snapshot {
-  _Snapshot(this.skeleton, Map<int, String> values) : values = Map.of(values);
+  _Snapshot(this.skeleton, Map<int, String> values, this.mark)
+    : values = Map.of(values);
 
   final String skeleton;
   final Map<int, String> values;
+
+  /// Opaque rider from the edit that left this state — the editor's
+  /// cursors for that edit (where it began, where it ended).
+  final Object? mark;
 }

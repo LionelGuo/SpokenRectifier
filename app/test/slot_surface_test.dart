@@ -424,15 +424,20 @@ void main() {
     expect(h.surface.flatBaseText, '。发给￼李四一下');
 
     // One stack, in time order: undo takes the value edit back first,
-    // then the body insert (值与骨架同栈、按时间统一回退).
+    // then the body insert (值与骨架同栈、按时间统一回退). The caret
+    // walks with the history: undo lands where the undone edit began,
+    // redo behind the redone modification (2026-09-09 ruling).
     await h.ctrlKey(LogicalKeyboardKey.keyZ);
     expect(h.surface.flatBaseText, '。发给￼张三一下');
+    expect(h.surface.editor.caret, const SlotCursor.inside(at: 3, offset: 0));
     await h.ctrlKey(LogicalKeyboardKey.keyZ);
     expect(h.surface.flatBaseText, '发给￼张三一下');
+    expect(h.surface.editor.caret, const SlotCursor.outside(0));
 
     // Redo walks forward again.
     await h.ctrlKey(LogicalKeyboardKey.keyZ, shift: true);
     expect(h.surface.flatBaseText, '。发给￼张三一下');
+    expect(h.surface.editor.caret, const SlotCursor.outside(1));
     await windDown(tester, h.controller);
   });
 
