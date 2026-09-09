@@ -1041,10 +1041,10 @@ class SlotSurfaceState extends State<SlotSurface>
   /// the column's edge exactly like ordinary text — no parking, no
   /// clearance; only the capsule's NATURAL ends (the chip's left cap,
   /// the value's own end) keep the pill's rounded caps (截断直角、文字
-  /// 贴边; D3 反馈五终裁) — and the value's own end needs value glyphs
-  /// ON that last line: the empty tail line a trailing '\n' leaves is a
-  /// cut continuation, square. A single-line capsule is one complete
-  /// pill.
+  /// 贴边; D3 反馈五终裁) — the last band's right edge never sits closer
+  /// than its own cap radius, so the cap is always one continuous
+  /// semicircle even on an empty tail line. A single-line capsule is
+  /// one complete pill.
   /// A capsule spanning several lines reads as one band across the
   /// column — the first segment runs to the column's right edge, interior
   /// lines take the full width, the last is flush left past its content
@@ -1092,10 +1092,13 @@ class SlotSurfaceState extends State<SlotSurface>
         // reservation's breathing tail when nothing follows (行尾不
         // 留空位). Every end but the first's left (the chip cap) and the
         // last's right (the value's own end) is a CUT: square. The last
-        // band's cap exists only when value glyphs END that line — a
-        // trailing '\n' leaves an empty tail line whose end is a cut
-        // continuation, square (an empty stub has no natural end of its
-        // own; 反馈七 — the scaled-radius cap read as a sliced-off arc).
+        // band's right edge never sits closer than its own cap radius:
+        // an empty tail line's parking stub would otherwise be too
+        // narrow for the cap, whose radii the renderer would scale down
+        // into a sliced-off arc — lifted to exactly the radius the two
+        // corner arcs share one center and read as one continuous
+        // semicircle (反馈七终案: 右端连续半圆弧). Still inside the
+        // reservation's 15px, clear of all ink.
         final lastBand = covered.last;
         var lastRight = 0.0;
         for (final box in valueBoxes) {
@@ -1110,6 +1113,10 @@ class SlotSurfaceState extends State<SlotSurface>
           lastBand.top + lastBand.height,
           beyond: lastRight,
         );
+        final lastBandRight = math.max(
+          lastRight + pillRightPad + (trailingInk ? 0.0 : capsuleSidePad),
+          capsuleHeight / 2,
+        );
         final slotBands = <CapsuleBand>[];
         for (var i = 0; i < covered.length; i++) {
           final band = covered[i];
@@ -1123,9 +1130,7 @@ class SlotSurfaceState extends State<SlotSurface>
                         ? 0.0
                         : chipBoxes.first.left + capsuleSidePad)
                   : 0.0;
-          final right = i == covered.length - 1
-              ? lastRight + pillRightPad + (trailingInk ? 0.0 : capsuleSidePad)
-              : columnRight;
+          final right = i == covered.length - 1 ? lastBandRight : columnRight;
           slotBands.add(
             CapsuleBand(
               rect: Rect.fromLTRB(
@@ -1135,7 +1140,7 @@ class SlotSurfaceState extends State<SlotSurface>
                 center + capsuleHeight / 2,
               ),
               leftRounded: i == 0,
-              rightRounded: i == covered.length - 1 && lastRight > 0,
+              rightRounded: i == covered.length - 1,
             ),
           );
         }

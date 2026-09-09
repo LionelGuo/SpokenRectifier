@@ -744,15 +744,15 @@ void main() {
     expect(rects.length, 2);
     expect(rects[1].left, closeTo(0, 0.5));
     // No content on the last line: the pill there is the parking space
-    // alone, where the caret sits after the trailing 回车.
-    expect(rects[1].right, closeTo(SrCapsule.valuePad, 0.5));
-    // And its ends are both square: an empty tail line is the '\n' cut's
-    // continuation, not the value's natural end — a round cap could not
-    // fit the narrow stub anyway (反馈七: the scaled-radius cap read as
-    // a sliced-off arc).
+    // alone, where the caret sits after the trailing 回车 — widened to
+    // its own cap radius so the right cap is one continuous semicircle
+    // (反馈七终案: the raw parking width could not fit the cap, and the
+    // renderer's scaled-down radii read as a sliced-off arc).
+    final capRadius = SrCapsule.height / 2;
+    expect(rects[1].right, closeTo(capRadius, 0.5));
     final bands = h.surface.capsuleBandsForTest()[1]!;
     expect(bands[1].leftRounded, isFalse);
-    expect(bands[1].rightRounded, isFalse);
+    expect(bands[1].rightRounded, isTrue);
     await windDown(tester, h.controller);
   });
 
