@@ -891,6 +891,67 @@ void main() {
     await windDown(tester, h.controller);
   });
 
+  testWidgets('the empty tail line\'s stub keeps a continuous solid curve', (
+    tester,
+  ) async {
+    // 反馈十四: a capsule wrapping onto an empty second line (值尾回
+    // 车) — the tail stub IS the capsule's curve there, and it must
+    // read continuous. The cut-fade exists to hide a cut edge from the
+    // text sitting flush beside it (反馈八); no text rides the empty
+    // line, and dissolving the stub's left made the whole capsule's
+    // curve materialize out of nothing (曲线不连续).
+    final h = await pumpSlotPreview(tester, prefill: '张三\n');
+    final bands = h.surface.capsuleBandsForTest()[1]!;
+    expect(bands.length, 2, reason: 'the trailing 回车 covers a second line');
+    final stub = bands[1];
+    expect(stub.leftRounded, isFalse, reason: 'the newline cut it (反馈五)');
+    expect(stub.rightRounded, isTrue, reason: 'the value\'s own end (反馈七)');
+    expect(
+      stub.cutFadeMask(stub.rect),
+      isNull,
+      reason: 'no text sits beside the cut — the ink stays solid (反馈十四)',
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('the empty tail line anchors on the strut line plus the ink bias', (
+    tester,
+  ) async {
+    // 反馈十四 with 反馈十二's convention: an ink-less line a multi-line
+    // capsule covers anchors its band on the strut-locked caret line
+    // center plus the paragraph's own ink bias — the anchor its
+    // siblings' ink lines land on — never the raw caret center (the
+    // stub used to sit a bias high, reading detached from the band
+    // above).
+    final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张三\n');
+    final paragraph = previewParagraph(tester);
+    final stub = h.surface.capsuleBandsForTest()[1]![1];
+    final flat = h.surface.flatBaseText; // 发给￼张三\n￼
+    final inkLines = textLineInkBoxes(
+      paragraph,
+      placeholderPositions(flat),
+      flat.length,
+    );
+    final firstCaret = const TextPosition(offset: 0);
+    final bias =
+        inkLines.first.center.dy -
+        (paragraph.getOffsetForCaret(firstCaret, Rect.zero).dy +
+            paragraph.getFullHeightForCaret(firstCaret) / 2);
+    // The reservation placeholder rides the empty second line.
+    final tailCaret = TextPosition(offset: flat.lastIndexOf('￼'));
+    final anchor =
+        paragraph.getOffsetForCaret(tailCaret, Rect.zero).dy +
+        paragraph.getFullHeightForCaret(tailCaret) / 2 +
+        bias +
+        SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
+    expect(
+      (stub.rect.center.dy - anchor).abs(),
+      lessThan(0.1),
+      reason: 'the ink-less line shares the ink lines\' anchor convention',
+    );
+    await windDown(tester, h.controller);
+  });
+
   testWidgets('consecutive capsules at a line start share one width', (
     tester,
   ) async {
@@ -1294,9 +1355,18 @@ void main() {
       leftRounded: false,
       rightRounded: true,
     );
+    // 反馈十四: the stub the surface actually renders keeps its ink — no
+    // text sits beside its cut to hide the edge from.
+    const stubSolid = CapsuleBand(
+      rect: Rect.fromLTWH(0, 0, 11.5, 23),
+      leftRounded: false,
+      rightRounded: true,
+      solidLeftCut: true,
+    );
     expect(complete.cutFadeMask(complete.rect), isNull);
     expect(cutRight.cutFadeMask(cutRight.rect), isNotNull);
     expect(cutBoth.cutFadeMask(cutBoth.rect), isNotNull);
     expect(stub.cutFadeMask(stub.rect), isNotNull);
+    expect(stubSolid.cutFadeMask(stubSolid.rect), isNull);
   });
 }

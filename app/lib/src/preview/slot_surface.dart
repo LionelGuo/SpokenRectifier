@@ -56,7 +56,9 @@
 /// end) keep the pill's rounded caps (截断直角、文字贴边; D3 反馈五终
 /// 裁, superseding the earlier complete-pill rule) — and a cut end's ink
 /// dissolves to nothing approaching it, so the square edge never reads
-/// as a drawn edge (截断端渐隐; D3 反馈八). At a line's end the
+/// as a drawn edge (截断端渐隐; D3 反馈八), except on the empty tail
+/// line's stub, where nothing sits beside the cut and the curve keeps
+/// its ink (反馈十四). At a line's end the
 /// reservation's breathing tail is swallowed when nothing follows on
 /// the line (行尾不留空位) — where "nothing" means nothing at all: a
 /// neighbouring capsule or marker counts as following even while it
@@ -1131,7 +1133,12 @@ class SlotSurfaceState extends State<SlotSurface>
   /// 贴边; D3 反馈五终裁); a cut end's fill and stroke dissolve to
   /// nothing approaching it (截断端渐隐). The last band's right edge
   /// never sits closer than its own cap radius, so the cap is always one
-  /// continuous semicircle even on an empty tail line. A single-line
+  /// continuous semicircle even on an empty tail line — and that stub
+  /// keeps its ink at its cut too: the fade hides the edge from text
+  /// sitting flush beside it, and none rides an empty line (反馈十
+  /// 四). An ink-less covered line anchors its band on the strut
+  /// caret line center plus the paragraph's ink bias, the anchor its
+  /// siblings' ink lines land on. A single-line
   /// capsule is one complete pill.
   /// A capsule spanning several lines reads as one band across the
   /// column — the first segment runs to the column's right edge, interior
@@ -1220,10 +1227,19 @@ class SlotSurfaceState extends State<SlotSurface>
           lastRight + pillRightPad + (trailingContent ? 0.0 : capsuleSidePad),
           capsuleHeight / 2,
         );
+        // No value glyphs claim the last covered line — the value ended
+        // with 回车 and the band there is the capsule's parking stub.
+        final tailLineEmpty = lastRight == 0.0;
         final slotBands = <CapsuleBand>[];
         for (var i = 0; i < covered.length; i++) {
           final band = covered[i];
-          final center = _inkCenter(lines, band.top + band.height / 2);
+          // An ink-less covered line anchors on the strut-locked caret
+          // line center plus the paragraph's ink bias — the anchor its
+          // siblings' ink lines land on (反馈十二's convention; 反馈十四
+          // extended it here — the raw caret center sat the stub a bias
+          // high, reading detached from the band above).
+          final dy = band.top + band.height / 2;
+          final center = _inkCenter(lines, dy, fallback: dy + inkBias);
           // The first segment's cap: the leading sidePad kept toward
           // text, swallowed when no text ink precedes the capsule on
           // its line — flush at a column edge, painted over the
@@ -1243,6 +1259,7 @@ class SlotSurfaceState extends State<SlotSurface>
               ),
               leftRounded: i == 0,
               rightRounded: i == covered.length - 1,
+              solidLeftCut: tailLineEmpty && i == covered.length - 1,
             ),
           );
         }
@@ -1920,11 +1937,19 @@ class CapsuleBand {
     required this.rect,
     required this.leftRounded,
     required this.rightRounded,
+    this.solidLeftCut = false,
   });
 
   final Rect rect;
   final bool leftRounded;
   final bool rightRounded;
+
+  /// Whether a CUT left end keeps its ink instead of dissolving. The
+  /// fade exists to hide a cut edge from the text sitting flush beside
+  /// it; the empty tail line's stub has no text beside its cut, and
+  /// dissolving it left the capsule's curve hanging out of nothing
+  /// (反馈十四).
+  final bool solidLeftCut;
 
   /// The band's painted shape: rounded caps on the natural ends, square
   /// edges on the cut ones, optionally inflated for the active stroke.
@@ -1953,7 +1978,7 @@ class CapsuleBand {
   /// ink. Null when no end is cut: a complete pill paints its flat
   /// colour as-is.
   Shader? cutFadeMask(Rect bounds) {
-    final fadeLeft = !leftRounded;
+    final fadeLeft = !leftRounded && !solidLeftCut;
     final fadeRight = !rightRounded;
     if (!fadeLeft && !fadeRight) return null;
     final run = math.min(
