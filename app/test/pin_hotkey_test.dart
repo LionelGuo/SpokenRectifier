@@ -170,14 +170,15 @@ void main() {
     expect(find.textContaining('‡'), findsNothing);
 
     // Inline, surrounded by text, the capsule stays a small chip — never
-    // a line-swallowing block. The spacer carries the circle's box (the
-    // circle itself is painted at the line's text-ink center by the
+    // a line-swallowing block. The spacer's reservation carries the
+    // degenerate capsule's width plus the family's side breathing on
+    // both sides (the circle itself is painted inside it by the
     // surface's foreground layer). Measured past the window's entrance
     // animation, which scales the whole stage up from 0.94.
     await tester.pump(const Duration(seconds: 1));
     final capsule = tester.getRect(find.byKey(const ValueKey('pin-capsule-1')));
-    expect(capsule.height, SrCapsule.liveSize);
-    expect(capsule.width, lessThan(2 * SrCapsule.liveSize));
+    expect(capsule.height, SrCapsule.height);
+    expect(capsule.width, SrCapsule.height + 2 * SrCapsule.sidePad);
 
     // Consecutive pins each get their own number.
     registrar.press();

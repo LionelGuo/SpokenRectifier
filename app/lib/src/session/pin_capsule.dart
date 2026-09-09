@@ -1,7 +1,11 @@
 /// The placeholder capsule visuals (ticket 21): the flat capsule family
 /// the sentinels project as on the session surface — never the bare
 /// `‡N‡` four characters. While listening and rectifying the sentinel
-/// collapses to the number circle (号圆); the circle itself is PAINTED by
+/// collapses to the number circle (号圆) — the family's own degenerate
+/// capsule, its width squeezed until the two caps meet as one circle
+/// (2026-09-09 反馈九: both faces share one positional strategy — side
+/// breathing reserved in layout on both sides, absorbed at the line
+/// edges, the same line-ink anchor). The circle itself is PAINTED by
 /// the stream surface's foreground layer onto the spacer this module
 /// reserves, centered on its line's text ink — the same anchor the
 /// preview's fill capsules use, in the same frame the layout happens
@@ -21,15 +25,27 @@ import 'package:flutter/material.dart';
 import '../design/tokens.dart';
 import '../preview/slot_document.dart' show scanSentinels;
 
-/// The number circle's inline width for [id]: one digit a true circle;
-/// wider numbers grow into the family's capsule shape instead of
-/// clipping.
+/// The marker's own painted width for [id]: the family's capsule
+/// squeezed to its degenerate form — one digit exactly the pill's
+/// height, the two caps meeting as one circle; wider numbers grow
+/// into the family's stadium of the same cap radius instead of
+/// clipping (2026-09-09 反馈九: the stream marker IS a capsule, just
+/// narrow).
 double pinCapsuleWidth(int id) {
   final digits = id.toString().length;
   return digits <= 1
-      ? SrCapsule.liveSize
-      : SrCapsule.liveSize + (digits - 1) * 7.0;
+      ? SrCapsule.height
+      : SrCapsule.height + (digits - 1) * 7.0;
 }
+
+/// The spacer's inline reservation for [id]: the marker's own width
+/// plus the family's side breathing on both sides — the same
+/// [SrCapsule.sidePad] the preview reserves around its pills, carried
+/// here in layout by the one span the stream face has. The surface's
+/// painter places the marker inside, absorbing a side's breathing
+/// when the marker sits at that line edge (行首/行尾不留空位).
+double pinCapsuleReservation(int id) =>
+    pinCapsuleWidth(id) + 2 * SrCapsule.sidePad;
 
 /// Splits [text] into display spans: ordinary text as-is, every `‡N‡`
 /// sentinel as one keyed spacer ([WidgetSpan], middle-aligned — the
@@ -52,8 +68,8 @@ List<InlineSpan> sentinelSpans(String text) {
         alignment: PlaceholderAlignment.middle,
         child: SizedBox(
           key: ValueKey('pin-capsule-${span.id}'),
-          width: pinCapsuleWidth(span.id),
-          height: SrCapsule.liveSize,
+          width: pinCapsuleReservation(span.id),
+          height: SrCapsule.height,
         ),
       ),
     );

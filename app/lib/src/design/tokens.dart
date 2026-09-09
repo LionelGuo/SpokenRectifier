@@ -297,13 +297,14 @@ abstract final class SrGeometry {
 /// keeps the pill from riding high over its glyphs (08 号票's 绝对相等
 /// refined by the 23 号 acceptance rounds).
 abstract final class SrCapsule {
-  /// The 号圆's height/diameter (the stream face's round chip).
-  static const double liveSize = 18.0;
-
-  /// The fill capsule's pill height — also the caret's uniform height
-  /// and the ceiling the selection clamps under. 23 (2026-09-09 验收,
-  /// was 22): one pixel taller, riding the 1.7 line height, so the
-  /// remaining optical asymmetry contrasts less.
+  /// The fill capsule's pill height — also the caret's uniform height,
+  /// the ceiling the selection clamps under, and the stream 号圆's own
+  /// diameter: the listening/rectifying marker IS the family's
+  /// degenerate capsule, its width squeezed until the two caps meet
+  /// as one circle (2026-09-09 反馈九: one geometry for both faces,
+  /// retiring the 号圆's private 18). 23 (2026-09-09 验收, was 22): one
+  /// pixel taller, riding the 1.7 line height, so the remaining
+  /// optical asymmetry contrasts less.
   static const double height = 23.0;
 
   /// The number chip's cap circle diameter (the fill capsule's left cap,

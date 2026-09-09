@@ -84,7 +84,8 @@ import 'package:flutter/rendering.dart'
 import 'package:flutter/services.dart';
 
 import '../design/tokens.dart';
-import '../session/pin_capsule.dart' show sentinelSpans;
+import '../session/pin_capsule.dart'
+    show pinCapsuleWidth, sentinelSpans;
 import 'slot_document.dart' show scanSentinels;
 import 'slot_editor.dart';
 import 'slot_projection.dart';
@@ -472,11 +473,16 @@ class SlotSurfaceState extends State<SlotSurface>
   // -- stream capsule geometry ----------------------------------------------
 
   /// The stream capsules' circle rectangles in paragraph-local
-  /// coordinates, keyed by identity: each circle spans its spacer box
-  /// horizontally and centers vertically on its line's text-ink — the
-  /// same anchor the preview's pills use, computed in the same frame
-  /// the layout happens (painted by the foreground layer, never placed
-  /// by the WidgetSpan's font-metric alignment).
+  /// coordinates, keyed by identity: each circle is the family's own
+  /// degenerate capsule (2026-09-09 反馈九) — the pill's height and cap
+  /// radius, its width squeezed until the caps meet — placed inside its
+  /// spacer's reservation by the SAME positional strategy the preview's
+  /// pills use: sidePad clear of the neighbours' ink, a side's breathing
+  /// absorbed when the marker sits at that line edge (行首/行尾不留空位),
+  /// and vertically centered on its line's text-ink eased by the optical
+  /// nudge, computed in the same frame the layout happens (painted by
+  /// the foreground layer, never placed by the WidgetSpan's font-metric
+  /// alignment).
   Map<int, Rect> _streamCircleRects() {
     final paragraph =
         _streamParagraph?.findRenderObject() as RenderParagraph?;
@@ -501,22 +507,36 @@ class SlotSurfaceState extends State<SlotSurface>
       );
       if (boxes.isEmpty) continue;
       final box = boxes.first.toRect();
-      // A circle no text line claims (pins alone on their line) centers
-      // on its own box — there is nothing else on the line to align to.
-      // Text-line circles take the line's ink center eased down by the
-      // optical nudge, the same anchor the preview's chrome uses.
-      var center = box.center.dy;
-      for (final l in lines) {
-        if (center >= l.top - 0.5 && center <= l.bottom + 0.5) {
-          center = l.center.dy + _opticalEasePx;
-          break;
-        }
-      }
+      final width = pinCapsuleWidth(sentinels[i].id);
+      // The same edge rules as the preview's first/last band: a marker
+      // starting the line absorbs its reservation's leading breathing
+      // (the cap flush at the column's edge); a line with no TEXT ink
+      // after the marker absorbs the tail breathing instead (a following
+      // capsule reserves its own, so only glyphs count). A rigid circle
+      // cannot flush both edges at once — the leading edge wins and the
+      // tail keeps its breathing.
+      final trailingInk = _trailingInkOnLine(
+        lines,
+        box.top,
+        box.bottom,
+        beyond: box.right,
+      );
+      final left =
+          box.left <= 0.5
+              ? box.left
+              : trailingInk
+                  ? box.left + SrCapsule.sidePad
+                  : box.right - width;
+      // The one vertical anchor the whole surface shares: the line's
+      // ink center eased down by the optical nudge; the caller's own
+      // center, eased alike, when no line claims it (pins alone on
+      // their line — nothing else there to align to).
+      final center = _inkCenter(lines, box.center.dy);
       rects[sentinels[i].id] = Rect.fromLTRB(
-        box.left,
-        center - SrCapsule.liveSize / 2,
-        box.right,
-        center + SrCapsule.liveSize / 2,
+        left,
+        center - SrCapsule.height / 2,
+        left + width,
+        center + SrCapsule.height / 2,
       );
     }
     return rects;
@@ -1743,10 +1763,11 @@ class CapsuleBand {
 }
 
 /// Paints the stream face's number circles (listening / rectifying):
-/// each sentinel's spacer box carries a flat circle whose vertical
-/// center is its line's text-ink center — the same anchor the preview's
-/// capsule chrome uses, in the layout's own frame (号圆; 21 号票家族,
-/// 23 号验收轮改绘).
+/// each sentinel's spacer reservation carries a flat circle — the
+/// family's own degenerate capsule (2026-09-09 反馈九), placed inside
+/// the reservation by the same edge and anchor strategy the preview's
+/// pills use, in the layout's own frame (号圆; 21 号票家族, 23 号验收轮
+/// 改绘).
 class _StreamCapsulesPainter extends CustomPainter {
   _StreamCapsulesPainter(this.state, this.pal);
 

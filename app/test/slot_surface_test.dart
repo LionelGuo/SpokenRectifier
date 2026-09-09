@@ -691,7 +691,82 @@ void main() {
       lessThan(0.5),
       reason: 'the painted circle rides its line\'s text ink center, eased',
     );
-    expect(rects[1]!.height, SrCapsule.liveSize);
+    // The degenerate capsule (反馈九): the family's height, the two caps
+    // meeting as one circle — mid-line, sidePad breathing inside the
+    // reservation on each side, clear of both neighbours' ink.
+    final marker = paragraph
+        .getBoxesForSelection(const TextSelection(baseOffset: 2, extentOffset: 3))
+        .first
+        .toRect();
+    expect(rects[1]!.height, SrCapsule.height);
+    expect(rects[1]!.width, SrCapsule.height);
+    expect(rects[1]!.left - marker.left, closeTo(SrCapsule.sidePad, 0.5));
+    expect(marker.right - rects[1]!.right, closeTo(SrCapsule.sidePad, 0.5));
+  });
+
+  testWidgets('a stream marker absorbs its breathing at line edges', (
+    tester,
+  ) async {
+    Future<(Rect, Rect)> circleFor(String key, String text, int markerAt) async {
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: srTheme(Brightness.dark),
+          home: Scaffold(
+            body: SlotSurface(
+              key: Key(key),
+              mode: SlotSurfaceMode.stream,
+              text: text,
+              scrollController: scroll,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final state = tester.state(find.byKey(Key(key))) as SlotSurfaceState;
+      final circle = state.streamCircleRectsForTest()[1]!;
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(
+          of: find.byKey(Key(key)),
+          matching: find.byType(RichText),
+        ),
+      );
+      final box =
+          paragraph
+              .getBoxesForSelection(
+                TextSelection(baseOffset: markerAt, extentOffset: markerAt + 1),
+              )
+              .first
+              .toRect();
+      return (circle, box);
+    }
+
+    // Starting the line: the reservation's leading breathing is
+    // absorbed — the cap flush at the column's edge (行首不留空位).
+    final (start, _) = await circleFor(
+      'session-stream-flush-start',
+      '‡1‡后面还有话',
+      0,
+    );
+    expect(start.left, closeTo(0, 0.5));
+    expect(start.width, SrCapsule.height);
+
+    // Ending the line: nothing follows on the line — the tail breathing
+    // is absorbed, the cap flush at the reservation's end (行尾不留空位).
+    final (end, endBox) = await circleFor(
+      'session-stream-flush-end',
+      '前面的话‡1‡',
+      4,
+    );
+    expect(end.right, closeTo(endBox.right, 0.5));
+    expect(end.left, closeTo(endBox.right - SrCapsule.height, 0.5));
+
+    // Alone on its line: a rigid circle cannot flush both edges — the
+    // leading edge wins, the tail keeps its breathing.
+    final (solo, _) = await circleFor('session-stream-flush-solo', '‡1‡', 0);
+    expect(solo.left, closeTo(0, 0.5));
+    expect(solo.width, SrCapsule.height);
   });
 
   testWidgets(
