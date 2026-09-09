@@ -49,13 +49,15 @@
 /// the first segment runs to the column's right edge, interior lines take
 /// the full width, the last is flush left past its content — empty value
 /// lines included (首行抵右、中行全宽、末行贴左; 23 号验收轮 D3). Every
-/// covered line renders as its own complete pill, and a pill at a line's
-/// edge runs flush: the text-contact clearance is dropped when the capsule
-/// starts a line, and the reservation's breathing tail is swallowed when
-/// nothing follows on the line (行首/行尾不留空位). The preview's text
-/// lays out one parking pad inside the column whenever a slot is minted,
-/// so a value filling a line wraps before the pill cap's right parking
-/// instead of squeezing into it (打满一行, 停车区不被吃).
+/// covered line renders as its own band. An end the wrapper or a newline
+/// CUT renders square, and the text beside a cut sits flush against the
+/// column's edge exactly like ordinary text — no parking, no clearance;
+/// only the capsule's NATURAL ends (the chip's left cap, the value's own
+/// end) keep the pill's rounded caps (截断直角、文字贴边; D3 反馈五终
+/// 裁, superseding the earlier complete-pill rule). At a line's edge the
+/// pill runs flush: the text-contact clearance is dropped when the
+/// capsule starts a line, and the reservation's breathing tail is
+/// swallowed when nothing follows on the line (行首/行尾不留空位).
 
 library;
 
@@ -462,17 +464,6 @@ class SlotSurfaceState extends State<SlotSurface>
     return rects;
   }
 
-  /// The preview paragraph's right inset: whenever a slot is minted the
-  /// text LAYS OUT this much inside the column, so a value filling a line
-  /// can never run into the pill cap's right parking zone — the character
-  /// that does not fit before the parking wraps to the next line instead
-  /// of squeezing into it (打满一行, 右侧停车区不被吃掉; 23 号验收轮
-  /// D3 反馈五). The pill bands still paint flush to the column's true
-  /// edge (the painters ride the surface's full canvas). A document with
-  /// no minted slot keeps today's exact wrap width (无钉会话零影响).
-  double get _previewRightInset =>
-      _projection.slots.isNotEmpty ? pillRightPad : 0.0;
-
   Widget _buildPreview(BuildContext context) {
     final pal = srPalette(context);
     return Focus(
@@ -490,21 +481,18 @@ class SlotSurfaceState extends State<SlotSurface>
           child: CustomPaint(
             foregroundPainter: _ForegroundPainter(this, pal),
             painter: _BackgroundPainter(this, pal),
-            child: Padding(
-              padding: EdgeInsets.only(right: _previewRightInset),
-              child: Text.rich(
-                key: _paragraphKey,
-                // Same strut as the stream face: line heights never vary
-                // with a line's content (mixed fallback runs, IME
-                // composing runs), so lines never shift as text is typed.
-                strutStyle: StrutStyle.fromTextStyle(
-                  SrType.bodyLarge,
-                  forceStrutHeight: true,
-                ),
-                TextSpan(
-                  style: SrType.bodyLarge.copyWith(color: pal.textPrimary),
-                  children: _spanTree(pal),
-                ),
+            child: Text.rich(
+              key: _paragraphKey,
+              // Same strut as the stream face: line heights never vary
+              // with a line's content (mixed fallback runs, IME
+              // composing runs), so lines never shift as text is typed.
+              strutStyle: StrutStyle.fromTextStyle(
+                SrType.bodyLarge,
+                forceStrutHeight: true,
+              ),
+              TextSpan(
+                style: SrType.bodyLarge.copyWith(color: pal.textPrimary),
+                children: _spanTree(pal),
               ),
             ),
           ),
@@ -984,28 +972,39 @@ class SlotSurfaceState extends State<SlotSurface>
   // -- geometry for painters and hit tests ---------------------------------
 
   /// The pill rectangles per capsule identity, in paragraph-local
-  /// coordinates: each covered line renders as its own COMPLETE pill
-  /// (每行都是完整胶囊), centered on its line's ink box (居中按所在行墨
-  /// 迹盒, 08 号票). A single-line capsule hugs its content; a capsule
-  /// spanning several lines reads as one band across the column — the
-  /// first segment runs to the column's right edge, interior lines take
-  /// the full width, the last is flush left past its content (首行抵右、
-  /// 中行全宽、末行贴左; 23 号验收轮 D3) — so short wrapped lines cannot
-  /// scatter ragged pill ends through the paragraph. Empty value lines
-  /// (回车/空行) keep their own full-width segment. At a line's edge the
-  /// pill runs flush: no text-contact clearance when the capsule starts
-  /// the line, and the reservation's breathing tail is swallowed whole
-  /// when nothing follows it on the line (行首/行尾不留空位).
-  Map<int, List<Rect>> _capsuleSegments() {
+  /// coordinates — the hover/tap hit boxes and the tests' geometry seam.
+  Map<int, List<Rect>> _capsuleSegments() => {
+    for (final entry in _capsuleBands().entries)
+      entry.key: [for (final band in entry.value) band.rect],
+  };
+
+  /// The rendered bands per capsule identity, in paragraph-local
+  /// coordinates: each covered line renders as its own band, centered on
+  /// its line's ink box (居中按所在行墨迹盒, 08 号票). An end the wrapper
+  /// or a newline CUT is square, with the text beside it flush against
+  /// the column's edge exactly like ordinary text — no parking, no
+  /// clearance; only the capsule's NATURAL ends (the chip's left cap,
+  /// the value's own end) keep the pill's rounded caps (截断直角、文字
+  /// 贴边; D3 反馈五终裁). A single-line capsule is one complete pill.
+  /// A capsule spanning several lines reads as one band across the
+  /// column — the first segment runs to the column's right edge, interior
+  /// lines take the full width, the last is flush left past its content
+  /// (首行抵右、中行全宽、末行贴左; 23 号验收轮 D3) — so short wrapped
+  /// lines cannot scatter ragged pill ends through the paragraph. Empty
+  /// value lines (回车/空行) keep their own full-width segment. At a
+  /// line's edge the pill runs flush: no text-contact clearance when the
+  /// capsule starts the line, and the reservation's breathing tail is
+  /// swallowed whole when nothing follows it on the line (行首/行尾不
+  /// 留空位).
+  Map<int, List<CapsuleBand>> _capsuleBands() {
     final paragraph = _paragraph;
     if (paragraph == null) return const {};
     final projection = _projection;
     final lines = _lineInkBoxes(paragraph);
-    // The column's true right edge — the layout's own wrap width plus the
-    // right inset that keeps full lines clear of the pill cap's parking
-    // zone (the bands paint flush to the true edge, not the wrap width).
-    final columnRight = paragraph.constraints.maxWidth + _previewRightInset;
-    final segments = <int, List<Rect>>{};
+    // The wrap width the layout itself used — the theoretical right edge
+    // a full line of text reaches.
+    final columnRight = paragraph.constraints.maxWidth;
+    final bands = <int, List<CapsuleBand>>{};
     for (final slot in projection.slots) {
       final chipBoxes = paragraph.getBoxesForSelection(
         TextSelection(
@@ -1028,11 +1027,12 @@ class SlotSurfaceState extends State<SlotSurface>
       if (covered.length > 1 &&
           columnRight.isFinite &&
           chipBoxes.isNotEmpty) {
-        // Multi-line: one segment per covered line, flush to the column.
-        // The last segment keeps the content-bounded right edge — the
-        // body text after the capsule flows on beside it — and swallows
-        // the reservation's breathing tail when nothing follows (行尾不
-        // 留空位).
+        // Multi-line: one band per covered line, flush to the column.
+        // The last band keeps the content-bounded right edge — the body
+        // text after the capsule flows on beside it — and swallows the
+        // reservation's breathing tail when nothing follows (行尾不
+        // 留空位). Every end but the first's left (the chip cap) and the
+        // last's right (the value's own end) is a CUT: square.
         final lastBand = covered.last;
         var lastRight = 0.0;
         for (final box in valueBoxes) {
@@ -1047,7 +1047,7 @@ class SlotSurfaceState extends State<SlotSurface>
           lastBand.top + lastBand.height,
           beyond: lastRight,
         );
-        final rects = <Rect>[];
+        final slotBands = <CapsuleBand>[];
         for (var i = 0; i < covered.length; i++) {
           final band = covered[i];
           final center = _inkCenter(lines, band.top + band.height / 2);
@@ -1063,21 +1063,25 @@ class SlotSurfaceState extends State<SlotSurface>
           final right = i == covered.length - 1
               ? lastRight + pillRightPad + (trailingInk ? 0.0 : capsuleSidePad)
               : columnRight;
-          rects.add(
-            Rect.fromLTRB(
-              left,
-              center - capsuleHeight / 2,
-              right,
-              center + capsuleHeight / 2,
+          slotBands.add(
+            CapsuleBand(
+              rect: Rect.fromLTRB(
+                left,
+                center - capsuleHeight / 2,
+                right,
+                center + capsuleHeight / 2,
+              ),
+              leftRounded: i == 0,
+              rightRounded: i == covered.length - 1,
             ),
           );
         }
-        segments[slot.id] = rects;
+        bands[slot.id] = slotBands;
         continue;
       }
-      // Single line: the pill hugs its content. Group the covered boxes
-      // into per-line runs (one, here): a box overlaps its own line's
-      // boxes vertically and never the neighbour line's.
+      // Single line: a complete pill hugging its content. Group the
+      // covered boxes into per-line runs (one, here): a box overlaps its
+      // own line's boxes vertically and never the neighbour line's.
       final runs = <List<Rect>>[];
       for (final box in boxes) {
         final run = runs.isEmpty ? null : runs.last;
@@ -1091,7 +1095,7 @@ class SlotSurfaceState extends State<SlotSurface>
           runs.add([box]);
         }
       }
-      final rects = <Rect>[];
+      final slotBands = <CapsuleBand>[];
       for (var i = 0; i < runs.length; i++) {
         var left = runs[i].first.left;
         var right = runs[i].first.right;
@@ -1121,18 +1125,22 @@ class SlotSurfaceState extends State<SlotSurface>
           }
         }
         final center = _inkCenter(lines, runs[i].first.center.dy);
-        rects.add(
-          Rect.fromLTRB(
-            left,
-            center - capsuleHeight / 2,
-            right + tail,
-            center + capsuleHeight / 2,
+        slotBands.add(
+          CapsuleBand(
+            rect: Rect.fromLTRB(
+              left,
+              center - capsuleHeight / 2,
+              right + tail,
+              center + capsuleHeight / 2,
+            ),
+            leftRounded: true,
+            rightRounded: true,
           ),
         );
       }
-      segments[slot.id] = rects;
+      bands[slot.id] = slotBands;
     }
-    return segments;
+    return bands;
   }
 
   /// The paragraph lines a capsule covers, top to bottom, as caret bands
@@ -1511,6 +1519,10 @@ class SlotSurfaceState extends State<SlotSurface>
   /// The pill rectangles per identity — the tests' geometry seam.
   Map<int, List<Rect>> capsuleSegmentsForTest() => _capsuleSegments();
 
+  /// The rendered bands per identity, corner shapes included — the
+  /// tests' shape seam (截断直角、自然端圆帽).
+  Map<int, List<CapsuleBand>> capsuleBandsForTest() => _capsuleBands();
+
   /// The stream capsules' circle rectangles per identity — the stream
   /// face's geometry seam.
   Map<int, Rect> streamCircleRectsForTest() => _streamCircleRects();
@@ -1578,6 +1590,37 @@ List<Rect> textLineInkBoxes(
 // painters
 // ---------------------------------------------------------------------------
 
+/// One rendered capsule line: the band's rectangle and which of its ends
+/// carry the pill's rounded cap. A capsule's NATURAL ends — the chip's
+/// left cap and the value's own end — stay rounded; an end the wrapper or
+/// a newline CUT is square, and the text beside it sits flush against the
+/// column's edge like ordinary text (截断直角、文字贴边; D3 反馈五终裁).
+class CapsuleBand {
+  const CapsuleBand({
+    required this.rect,
+    required this.leftRounded,
+    required this.rightRounded,
+  });
+
+  final Rect rect;
+  final bool leftRounded;
+  final bool rightRounded;
+
+  /// The band's painted shape: rounded caps on the natural ends, square
+  /// edges on the cut ones, optionally inflated for the active stroke.
+  RRect shape(Radius cap, {double inflate = 0}) =>
+      RRect.fromLTRBAndCorners(
+        rect.left - inflate,
+        rect.top - inflate,
+        rect.right + inflate,
+        rect.bottom + inflate,
+        topLeft: leftRounded ? cap : Radius.zero,
+        bottomLeft: leftRounded ? cap : Radius.zero,
+        topRight: rightRounded ? cap : Radius.zero,
+        bottomRight: rightRounded ? cap : Radius.zero,
+      );
+}
+
 /// Paints the stream face's number circles (listening / rectifying):
 /// each sentinel's spacer box carries a flat circle whose vertical
 /// center is its line's text-ink center — the same anchor the preview's
@@ -1631,15 +1674,15 @@ class _BackgroundPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final segments = state._capsuleSegments();
+    final bandsById = state._capsuleBands();
     // Pills first: the selection may tint over them, never under. Every
-    // covered line is its own COMPLETE pill — full caps on both ends
-    // (每行都是完整胶囊, cut-off square ends retired).
+    // covered line is its own band — rounded caps on the capsule's
+    // natural ends, square edges where the wrapper cut it (截断直角).
     final pillRadius = Radius.circular(SlotSurfaceState.capsuleHeight / 2);
-    for (final entry in segments.entries) {
-      for (final rect in entry.value) {
+    for (final entry in bandsById.entries) {
+      for (final band in entry.value) {
         canvas.drawRRect(
-          RRect.fromRectAndRadius(rect, pillRadius),
+          band.shape(pillRadius),
           Paint()..color = pal.accentSoft,
         );
       }
@@ -1648,9 +1691,9 @@ class _BackgroundPainter extends CustomPainter {
     // tracing the fill's own shape.
     final active = state._activeId;
     if (active != null && state._activeFade.value > 0) {
-      for (final rect in segments[active] ?? const <Rect>[]) {
+      for (final band in bandsById[active] ?? const <CapsuleBand>[]) {
         canvas.drawRRect(
-          RRect.fromRectAndRadius(rect.inflate(0.5), pillRadius),
+          band.shape(pillRadius, inflate: 0.5),
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1.2

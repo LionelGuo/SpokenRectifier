@@ -85,7 +85,6 @@ Future<SlotPreviewHarness> pumpSlotPreview(
   WidgetTester tester, {
   String body = '发给‡1‡一下',
   String prefill = '张三',
-  bool pin = true,
 }) async {
   final gateway = FakeGateway();
   final controller = SpeechController(gateway: gateway, scriptedPhrases: const []);
@@ -94,10 +93,8 @@ Future<SlotPreviewHarness> pumpSlotPreview(
 
   await controller.startSession();
   await tester.pump(const Duration(milliseconds: 350));
-  if (pin) {
-    await gateway.pinPlaceholder();
-    await tester.pump();
-  }
+  await gateway.pinPlaceholder();
+  await tester.pump();
   await controller.stopSession();
   await tester.pump(const Duration(milliseconds: 350));
 
@@ -706,9 +703,8 @@ void main() {
     // invisible to every box query).
     final h = await pumpSlotPreview(tester, prefill: '张三\n\n李四');
     final paragraph = previewParagraph(tester);
-    // The column's TRUE edge: the minted slot reserves one parking pad of
-    // layout width, so the wrap width sits inside it.
-    final column = paragraph.constraints.maxWidth + SrCapsule.valuePad;
+    final column = paragraph.constraints.maxWidth;
+    final bands = h.surface.capsuleBandsForTest()[1]!;
     final rects = h.surface.capsuleSegmentsForTest()[1]!;
     expect(rects.length, 3, reason: 'the empty middle line keeps its band');
     // First: from the chip to the column's right edge (首行抵右).
@@ -729,6 +725,14 @@ void main() {
         .last
         .right;
     expect(rects[2].right, closeTo(liRight + SrCapsule.valuePad, 0.5));
+    // Corner shapes: the chip cap and the value's own end stay round;
+    // every end a newline (or the wrapper) cut is square (截断直角).
+    expect(bands[0].leftRounded, isTrue);
+    expect(bands[0].rightRounded, isFalse);
+    expect(bands[1].leftRounded, isFalse);
+    expect(bands[1].rightRounded, isFalse);
+    expect(bands[2].leftRounded, isFalse);
+    expect(bands[2].rightRounded, isTrue);
     await windDown(tester, h.controller);
   });
 
@@ -753,6 +757,11 @@ void main() {
     // No text precedes the chip on its line, so the leading text-contact
     // clearance is dropped (行首不留空位).
     expect(pill.left, closeTo(0, 0.5));
+    // A capsule the wrapper never cuts is a complete pill: both ends
+    // round (自然端圆帽).
+    final band = h.surface.capsuleBandsForTest()[1]!.single;
+    expect(band.leftRounded, isTrue);
+    expect(band.rightRounded, isTrue);
     await windDown(tester, h.controller);
   });
 
@@ -805,56 +814,46 @@ void main() {
   });
 
   testWidgets(
-    'a value that fills its line wraps before the pill\'s right parking', (
+    'an auto-wrapped value renders square cut ends with flush text', (
     tester,
   ) async {
-    // 打满一行: the greedy wrapper would otherwise squeeze the next
-    // character into the pill cap's parking zone (the acceptance-round
-    // finding: the typed character landed at the full line's end, its
-    // right free space one character short). The narrowed wrap width
-    // sends that character to the next line instead — the parking
-    // survives on every full line.
+    // 截断直角、文字贴边 (D3 反馈五终裁): the wrap CUTS a line's end, the
+    // cut renders square, and the text beside it runs against the
+    // column's edge exactly like ordinary text — no parking zone, no
+    // wrap reserve (the reserve's body-text cost was ruled
+    // unacceptable).
     final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '测' * 80);
     final paragraph = previewParagraph(tester);
-    final surface = tester.getRect(find.byKey(const Key('session-text')));
-    expect(
-      paragraph.constraints.maxWidth,
-      closeTo(surface.width - SrCapsule.valuePad, 0.5),
-      reason: 'the minted slot reserves one parking pad of layout width',
-    );
-    final rects = h.surface.capsuleSegmentsForTest()[1]!;
-    expect(rects.length, greaterThan(1), reason: 'the value overflows one line');
-    // The band still runs flush to the column's true edge...
-    expect(rects[0].right, closeTo(surface.width, 0.5));
-    // ...and no value glyph ever enters the parking zone.
+    final column = paragraph.constraints.maxWidth;
+    final bands = h.surface.capsuleBandsForTest()[1]!;
+    expect(bands.length, greaterThan(1), reason: 'the value overflows one line');
+    expect(bands.first.leftRounded, isTrue, reason: 'the chip cap is natural');
+    expect(bands.first.rightRounded, isFalse, reason: 'the wrapper cut it');
+    expect(bands.last.leftRounded, isFalse, reason: 'the wrapper cut it');
+    expect(bands.last.rightRounded, isTrue, reason: 'the value end is natural');
+    if (bands.length > 2) {
+      expect(bands[1].leftRounded, isFalse);
+      expect(bands[1].rightRounded, isFalse);
+    }
+    // The full line's text sits flush against the column's edge: the
+    // wrap leaves at most one character's width of slack, and the band
+    // reaches the edge itself.
     final flat = h.surface.flatBaseText;
     final valueStart = flat.indexOf('测');
+    var firstTop = double.infinity;
+    var firstRight = 0.0;
     for (final box in paragraph.getBoxesForSelection(
       TextSelection(baseOffset: valueStart, extentOffset: valueStart + 80),
     )) {
-      expect(
-        box.right,
-        lessThanOrEqualTo(surface.width - SrCapsule.valuePad + 0.5),
-      );
+      if (box.top < firstTop - 1) {
+        firstTop = box.top;
+        firstRight = box.right;
+      } else if ((box.top - firstTop).abs() < 1 && box.right > firstRight) {
+        firstRight = box.right;
+      }
     }
-    await windDown(tester, h.controller);
-  });
-
-  testWidgets('a session without pins lays out at the full column width', (
-    tester,
-  ) async {
-    // The wrap reserve exists only for minted slots: a pin-less preview
-    // keeps today's exact layout (无钉会话零影响, E1). A long body makes
-    // the shrink-wrapping surface take the full column, so its width IS
-    // the wrap width to compare against.
-    final h = await pumpSlotPreview(tester, pin: false, body: '发' * 100);
-    final paragraph = previewParagraph(tester);
-    final surface = tester.getRect(find.byKey(const Key('session-text')));
-    expect(
-      paragraph.constraints.maxWidth,
-      closeTo(surface.width, 0.5),
-      reason: 'no slot minted: the wrap width is the column itself',
-    );
+    expect(column - firstRight, lessThan(16));
+    expect(bands.first.rect.right, closeTo(column, 0.5));
     await windDown(tester, h.controller);
   });
 
