@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/preview/slot_editor.dart';
+import 'package:spokenrectifier_app/src/preview/slot_projection.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgePrefillRow, BridgeSessionState;
@@ -119,6 +120,23 @@ Future<void> windDown(WidgetTester tester, SpeechController controller) async {
 }
 
 void main() {
+  testWidgets(
+    'the outgoing setClient configuration carries the view id the engine requires', (
+    tester,
+  ) async {
+    // The Windows engine rejects TextInput.setClient outright when the
+    // configuration has no integer viewId — the text model is never
+    // created and every typed character is silently dropped (the
+    // acceptance-round finding: typing inserted nothing on hardware).
+    final h = await pumpSlotPreview(tester);
+    final args = h.tester.testTextInput.setClientArgs;
+    expect(args, isNotNull, reason: 'a client must be attached in preview');
+    expect(args!['viewId'], isA<int>());
+    expect(args['inputAction'], 'TextInputAction.newline');
+    await windDown(tester, h.controller);
+  },
+  );
+
   testWidgets('the preview paints the prefill in a capsule, no bare sentinel', (
     tester,
   ) async {
@@ -330,6 +348,60 @@ void main() {
     await tester.pump();
     await h.type('!');
     expect(h.surface.editor.doc.skeleton, '发给‡1‡一下!');
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('Home and End walk line bounds, Ctrl the doc bounds', (
+    tester,
+  ) async {
+    // A value with a newline splits the projection into two lines:
+    // "发给￼张" / "三一下".
+    final h = await pumpSlotPreview(tester, prefill: '张\n三');
+    final editor = h.surface.editor;
+    editor.place(const SlotCursor.inside(at: 2, offset: 0));
+    await tester.pump();
+
+    // End lands before the newline — the first line's last position.
+    await h.key(LogicalKeyboardKey.end);
+    expect(editor.caret, const SlotCursor.inside(at: 2, offset: 1));
+    // Home lands at the line's start, before the capsule.
+    await h.key(LogicalKeyboardKey.home);
+    expect(editor.caret, const SlotCursor.outside(0));
+
+    // The Ctrl variants jump the whole document.
+    await h.ctrlKey(LogicalKeyboardKey.end);
+    expect(editor.caret, editor.stops.last);
+    await h.ctrlKey(LogicalKeyboardKey.home);
+    expect(editor.caret, const SlotCursor.outside(0));
+
+    // Shift+Home extends the selection to the line's start, keeping the
+    // far edge — from the second line's end that is 三's left side, not
+    // the document's start.
+    editor.place(editor.stops.last);
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.home);
+    await tester.pump();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    final edges = editor.selectionEdges!;
+    expect(edges.$1, const SlotCursor.inside(at: 2, offset: 2));
+    expect(edges.$2, editor.stops.last);
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('ArrowUp and ArrowDown walk between the lines', (tester) async {
+    final h = await pumpSlotPreview(tester, prefill: '张\n三');
+    final editor = h.surface.editor;
+    int flat() => SlotProjection(editor.doc).cursorToFlat(editor.caret);
+
+    // From the second line's end, up lands on the first line, down back
+    // on the second.
+    editor.place(editor.stops.last);
+    await tester.pump();
+    await h.key(LogicalKeyboardKey.arrowUp);
+    expect(flat(), lessThanOrEqualTo(4), reason: 'the first line ends here');
+    await h.key(LogicalKeyboardKey.arrowDown);
+    expect(flat(), greaterThanOrEqualTo(5), reason: 'the second line starts here');
     await windDown(tester, h.controller);
   });
 }

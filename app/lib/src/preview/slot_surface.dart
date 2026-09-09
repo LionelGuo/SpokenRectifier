@@ -40,7 +40,6 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show File, FileMode;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -168,19 +167,22 @@ class SlotSurfaceState extends State<SlotSurface>
 
   bool get _isPreview => widget.mode == SlotSurfaceMode.preview;
 
-  // -- DEBUG-22kb: acceptance-round instrumentation ------------------------
-  // Logs every key event, connection transition, and incoming editing
-  // update to a fixed file. Tagged; remove after the round.
-  void _dbg(String line) {
-    debugPrint('[DEBUG-22kb] $line');
-    try {
-      final f = File('C:/Users/lione/Code/SpokenRectifier/.scratch/debug-22.log');
-      f.createSync(recursive: true);
-      f.writeAsStringSync(
-        '${DateTime.now().toIso8601String()} $line\n',
-        mode: FileMode.append,
-      );
-    } catch (_) {}
+  /// The view the connection targets. The engine rejects setClient
+  /// without an integer viewId — without it no platform text model
+  /// exists and typed characters are silently dropped (the 22 号
+  /// acceptance-round finding).
+  int? _viewId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newViewId = View.of(context).viewId;
+    if (_isPreview && newViewId != _viewId) {
+      _viewId = newViewId;
+      // The live connection's config names the old view; re-open under
+      // the current one.
+      if (widget.focusNode?.hasFocus ?? false) _openConnection();
+    }
   }
 
   @override
@@ -188,8 +190,8 @@ class SlotSurfaceState extends State<SlotSurface>
     super.initState();
     if (_isPreview) {
       widget.focusNode?.addListener(_onFocusChanged);
-      _dbg('initState focused=${widget.focusNode?.hasFocus}');
-      if (widget.focusNode?.hasFocus ?? false) _openConnection();
+      // Opening waits for didChangeDependencies: the view id the engine
+      // demands is only resolvable there.
     }
   }
 
@@ -211,7 +213,6 @@ class SlotSurfaceState extends State<SlotSurface>
     if (widget.resetToken != oldWidget.resetToken) {
       // A new preview round: the editor arrived fresh; drop everything
       // ephemeral and re-sync the platform.
-      _dbg('resetToken ${oldWidget.resetToken}->${widget.resetToken}');
       _composing = '';
       _clearTooltip();
       _hoverId = null;
@@ -414,10 +415,6 @@ class SlotSurfaceState extends State<SlotSurface>
     final ctrl = keyboard.isControlPressed;
     final shift = keyboard.isShiftPressed;
     final result = _onKeyDown(key, ctrl, shift);
-    _dbg(
-      'key ${event.runtimeType} ${key.keyLabel.isEmpty ? key.debugName : key.keyLabel}'
-      ' ctrl=$ctrl shift=$shift composing="$_composing" -> $result',
-    );
     return result;
   }
 
@@ -436,6 +433,8 @@ class SlotSurfaceState extends State<SlotSurface>
         LogicalKeyboardKey.arrowRight ||
         LogicalKeyboardKey.arrowUp ||
         LogicalKeyboardKey.arrowDown ||
+        LogicalKeyboardKey.home ||
+        LogicalKeyboardKey.end ||
         LogicalKeyboardKey.backspace ||
         LogicalKeyboardKey.delete ||
         LogicalKeyboardKey.enter ||
@@ -445,7 +444,11 @@ class SlotSurfaceState extends State<SlotSurface>
       };
     }
 
-    if (ctrl) {
+    // Ctrl+Home/End fall through to the line-navigation cases, which
+    // read ctrl themselves for the doc-bound variant.
+    if (ctrl &&
+        key != LogicalKeyboardKey.home &&
+        key != LogicalKeyboardKey.end) {
       if (key == LogicalKeyboardKey.keyZ) {
         if (shift) {
           _mutate(_editor.redo);
@@ -495,9 +498,41 @@ class SlotSurfaceState extends State<SlotSurface>
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.arrowDown:
-        // No vertical caret walk yet (a single flowing paragraph); still
-        // consumed — a bubbled arrow would hit the app's directional
-        // focus-traversal shortcuts and walk the focus off the surface.
+        // A bubbled vertical arrow would hit the app's directional
+        // focus-traversal shortcuts and walk the focus off the surface,
+        // so the walk is owned here.
+        final up = key == LogicalKeyboardKey.arrowUp;
+        final target =
+            _verticalStop(up) ??
+            _projection.flatToCursor(
+              up
+                  ? _lineStartFlat(_caretBaseFlat)
+                  : _lineEndFlat(_caretBaseFlat),
+              preferInside: false,
+            );
+        _moveTo(target, extend: shift);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.home:
+        _moveTo(
+          ctrl
+              ? _editor.stops.first
+              : _projection.flatToCursor(
+                _lineStartFlat(_caretBaseFlat),
+                preferInside: false,
+              ),
+          extend: shift,
+        );
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.end:
+        _moveTo(
+          ctrl
+              ? _editor.stops.last
+              : _projection.flatToCursor(
+                _lineEndFlat(_caretBaseFlat),
+                preferInside: false,
+              ),
+          extend: shift,
+        );
         return KeyEventResult.handled;
       case LogicalKeyboardKey.backspace:
         _mutate(_editor.backspace);
@@ -525,6 +560,55 @@ class SlotSurfaceState extends State<SlotSurface>
         ? (i > 0 ? stops[i - 1] : stops.first)
         : (i >= 0 && i < stops.length - 1 ? stops[i + 1] : stops.last);
     _editor.select(anchor, next);
+    _afterLocalChange();
+  }
+
+  // -- line navigation ------------------------------------------------------
+  //
+  // Home/End are flat-space line bounds over the projection's base; ↑/↓
+  // probe the paragraph a line's pitch above/below the caret and map the
+  // hit back through the projection. Both fold through flatToCursor, so a
+  // bound landing on a capsule edge resolves to its structural (outside)
+  // dock — the body-side position of the line.
+
+  int _lineStartFlat(int flat) {
+    final base = _projection.base;
+    final i = flat <= 0 ? -1 : base.lastIndexOf('\n', math.max(0, flat - 1));
+    return i + 1;
+  }
+
+  int _lineEndFlat(int flat) {
+    final base = _projection.base;
+    final i = base.indexOf('\n', flat);
+    return i == -1 ? base.length : i;
+  }
+
+  /// The stop a line up/down from the caret lands on, or null when the
+  /// paragraph cannot be probed.
+  SlotCursor? _verticalStop(bool up) {
+    final paragraph = _paragraph;
+    if (paragraph == null) return null;
+    final position = TextPosition(offset: _caretPaintFlat);
+    final caretOffset = paragraph.getOffsetForCaret(position, Rect.zero);
+    // A pitch and a half from the caret's top clears the rest of this
+    // line and lands mid-neighbour even when pitches differ.
+    final pitch = paragraph.getFullHeightForCaret(position) * 1.5;
+    final probe = Offset(
+      caretOffset.dx,
+      up ? caretOffset.dy - pitch : caretOffset.dy + pitch,
+    );
+    final target = paragraph.getPositionForOffset(probe);
+    return _projection.flatToCursor(_baseOf(target.offset), preferInside: false);
+  }
+
+  /// Place the caret, or extend the selection keeping its far edge.
+  void _moveTo(SlotCursor target, {required bool extend}) {
+    if (extend) {
+      final anchor = _editor.selectionEdges?.$1 ?? _editor.caret;
+      _editor.select(anchor, target);
+    } else {
+      _editor.place(target);
+    }
     _afterLocalChange();
   }
 
@@ -793,10 +877,8 @@ class SlotSurfaceState extends State<SlotSurface>
 
   void _onFocusChanged() {
     if (widget.focusNode?.hasFocus ?? false) {
-      _dbg('focus gained');
       _openConnection();
     } else {
-      _dbg('focus lost, closing connection');
       _connection?.close();
       _connection = null;
     }
@@ -805,13 +887,10 @@ class SlotSurfaceState extends State<SlotSurface>
   void _openConnection() {
     _connection?.close();
     _shadow = _buildShadow();
-    _dbg(
-      'openConnection shadow="${_shadow.text}" '
-      'sel=${_shadow.selection.baseOffset}/${_shadow.selection.extentOffset}',
-    );
     _connection = TextInput.attach(
       this,
-      const TextInputConfiguration(
+      TextInputConfiguration(
+        viewId: _viewId,
         inputType: TextInputType.multiline,
         inputAction: TextInputAction.newline,
         autocorrect: false,
@@ -877,12 +956,6 @@ class SlotSurfaceState extends State<SlotSurface>
     final newComposing = composingRange.isValid && !composingRange.isCollapsed
         ? value.text.substring(composingRange.start, composingRange.end)
         : '';
-    _dbg(
-      'updateEditingValue text="${value.text}" '
-      'sel=${value.selection.baseOffset}/${value.selection.extentOffset} '
-      'composing=${composingRange.start}..${composingRange.end} '
-      '| shadow="${_shadow.text}" _composing="$_composing"',
-    );
 
     // Everything outside the composing runs must be the projection plus
     // committed insertions; diff the two bases to find them.
@@ -919,7 +992,6 @@ class SlotSurfaceState extends State<SlotSurface>
       suffix++;
     }
     final inserted = newBase.substring(prefix, newBase.length - suffix);
-    _dbg('diff prefix=$prefix suffix=$suffix inserted="$inserted"');
 
     if (inserted.isNotEmpty) {
       // A commit or a plain keystroke: one atomic model insert (one undo
@@ -938,7 +1010,6 @@ class SlotSurfaceState extends State<SlotSurface>
 
   @override
   void performAction(TextInputAction action) {
-    _dbg('performAction $action');
     // Newlines arrive as model inserts (the key handler) or committed
     // text (the Windows plugin adds '\n' to the editing state before
     // this action); there is nothing to do here. Multiline fields never
@@ -947,7 +1018,6 @@ class SlotSurfaceState extends State<SlotSurface>
 
   @override
   void connectionClosed() {
-    _dbg('connectionClosed focused=${widget.focusNode?.hasFocus}');
     _connection = null;
     if (widget.focusNode?.hasFocus ?? false) _openConnection();
   }
