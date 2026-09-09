@@ -11,10 +11,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
+import 'package:spokenrectifier_app/src/design/tokens.dart' show SrCapsule;
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeSessionState;
-import 'package:spokenrectifier_app/src/session/pin_capsule.dart'
-    show PinNumberCapsule;
 
 import 'fake_gateway.dart';
 
@@ -171,14 +170,14 @@ void main() {
     expect(find.textContaining('‡'), findsNothing);
 
     // Inline, surrounded by text, the capsule stays a small chip — never
-    // a line-swallowing block. (Regression: a Container.alignment inside
-    // a WidgetSpan expands to the bounded paragraph width, and each pin
-    // filled a whole line.) Measured past the window's entrance
+    // a line-swallowing block. The spacer carries the circle's box (the
+    // circle itself is painted at the line's text-ink center by the
+    // surface's foreground layer). Measured past the window's entrance
     // animation, which scales the whole stage up from 0.94.
     await tester.pump(const Duration(seconds: 1));
     final capsule = tester.getRect(find.byKey(const ValueKey('pin-capsule-1')));
-    expect(capsule.height, PinNumberCapsule.size);
-    expect(capsule.width, lessThan(2 * PinNumberCapsule.size));
+    expect(capsule.height, SrCapsule.liveSize);
+    expect(capsule.width, lessThan(2 * SrCapsule.liveSize));
 
     // Consecutive pins each get their own number.
     registrar.press();

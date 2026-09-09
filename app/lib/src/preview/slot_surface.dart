@@ -179,15 +179,10 @@ class SlotSurfaceState extends State<SlotSurface>
   int? _tooltipId;
   Timer? _tooltipTimer;
 
-  // Stream mode: the capsules' paint-offset correction against their
-  // lines' text ink. The WidgetSpan's own middle alignment follows the
-  // font's metrics, which on the real fallback chains sits visibly off
-  // the CJK line's centre (23 号验收轮); after each layout the surface
-  // measures every circle against its line's glyph-only ink box and
-  // shifts the paint by the difference. Layout never moves — only the
-  // circle's paint does.
+  /// Stream mode: the paragraph's context (the Builder inside the scroll
+  /// view) — the circle painter's and the tests' way to the
+  /// RenderParagraph.
   BuildContext? _streamParagraph;
-  List<double> _capsuleShifts = const [];
 
   bool get _isPreview => widget.mode == SlotSurfaceMode.preview;
 
@@ -216,8 +211,6 @@ class SlotSurfaceState extends State<SlotSurface>
       widget.focusNode?.addListener(_onFocusChanged);
       // Opening waits for didChangeDependencies: the view id the engine
       // demands is only resolvable there.
-    } else {
-      _scheduleStreamAlign();
     }
   }
 
@@ -225,18 +218,14 @@ class SlotSurfaceState extends State<SlotSurface>
   void didUpdateWidget(SlotSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_isPreview) {
-      // The stream keeps itself pinned to the newest line, and the
-      // circles re-align to the new layout's text ink.
-      if (widget.text != oldWidget.text) {
-        if (widget.scrollController != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            final scroll = widget.scrollController;
-            if (scroll != null && scroll.hasClients && mounted) {
-              scroll.jumpTo(scroll.position.maxScrollExtent);
-            }
-          });
-        }
-        _scheduleStreamAlign();
+      // The stream keeps itself pinned to the newest line.
+      if (widget.text != oldWidget.text && widget.scrollController != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final scroll = widget.scrollController;
+          if (scroll != null && scroll.hasClients && mounted) {
+            scroll.jumpTo(scroll.position.maxScrollExtent);
+          }
+        });
       }
       return;
     }
@@ -364,43 +353,55 @@ class SlotSurfaceState extends State<SlotSurface>
 
   Widget _buildStream(BuildContext context) {
     final text = widget.text ?? '';
+    final pal = srPalette(context);
     return SingleChildScrollView(
       controller: widget.scrollController,
-      child: Builder(
-        builder: (paragraphContext) {
-          _streamParagraph = paragraphContext;
-          return Text.rich(
-            key: const Key('session-stream'),
-            TextSpan(
-              style: widget.streamStyle ?? SrType.bodyLarge,
-              children: sentinelSpans(text, capsuleShifts: _capsuleShifts),
-            ),
-          );
-        },
+      child: CustomPaint(
+        foregroundPainter: _StreamCapsulesPainter(this, pal),
+        child: Builder(
+          builder: (paragraphContext) {
+            _streamParagraph = paragraphContext;
+            return Text.rich(
+              key: const Key('session-stream'),
+              // The strut pins every line to the style's own metrics:
+              // line heights never vary with what a line happens to
+              // contain (mixed fallback runs, IME composing runs), so
+              // lines — and the capsules anchored to them — never shift
+              // as content changes (23 号验收轮: typing a character
+              // visibly re-seated the lines).
+              strutStyle: StrutStyle.fromTextStyle(
+                widget.streamStyle ?? SrType.bodyLarge,
+                forceStrutHeight: true,
+              ),
+              TextSpan(
+                style: widget.streamStyle ?? SrType.bodyLarge,
+                children: sentinelSpans(text),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
-  // -- stream capsule alignment ---------------------------------------------
+  // -- stream capsule geometry ----------------------------------------------
 
-  void _scheduleStreamAlign() {
-    WidgetsBinding.instance.addPostFrameCallback((_) => _alignStreamCapsules());
-  }
-
-  /// Measure every stream capsule against its line's glyph-only ink box
-  /// and adopt the paint shift. Only a real change (0.1px hysteresis)
-  /// rebuilds — a stable layout settles after one correction, and stale
-  /// shifts from the previous text ride the next layout without a flash.
-  void _alignStreamCapsules() {
-    if (!mounted || _isPreview) return;
+  /// The stream capsules' circle rectangles in paragraph-local
+  /// coordinates, keyed by identity: each circle spans its spacer box
+  /// horizontally and centers vertically on its line's text-ink — the
+  /// same anchor the preview's pills use, computed in the same frame
+  /// the layout happens (painted by the foreground layer, never placed
+  /// by the WidgetSpan's font-metric alignment).
+  Map<int, Rect> _streamCircleRects() {
     final paragraph =
         _streamParagraph?.findRenderObject() as RenderParagraph?;
-    if (paragraph == null || !paragraph.attached) return;
+    if (paragraph == null || !paragraph.attached) return const {};
     final text = widget.text ?? '';
+    final sentinels = scanSentinels(text).toList();
     final positions = <int>[];
     var textPos = 0;
     var flatPos = 0;
-    for (final span in scanSentinels(text)) {
+    for (final span in sentinels) {
       flatPos += span.start - textPos;
       positions.add(flatPos);
       flatPos += 1;
@@ -408,37 +409,30 @@ class SlotSurfaceState extends State<SlotSurface>
     }
     final length = flatPos + (text.length - textPos);
     final lines = textLineInkBoxes(paragraph, positions, length);
-    final shifts = List<double>.filled(positions.length, 0);
-    for (var i = 0; i < positions.length; i++) {
+    final rects = <int, Rect>{};
+    for (var i = 0; i < sentinels.length; i++) {
       final boxes = paragraph.getBoxesForSelection(
-        TextSelection(
-          baseOffset: positions[i],
-          extentOffset: positions[i] + 1,
-        ),
+        TextSelection(baseOffset: positions[i], extentOffset: positions[i] + 1),
       );
       if (boxes.isEmpty) continue;
-      final center = boxes.first.toRect().center.dy;
-      // A circle no text line claims (pins alone on their line) keeps its
-      // own placement — there is nothing to align against.
-      Rect? line;
+      final box = boxes.first.toRect();
+      // A circle no text line claims (pins alone on their line) centers
+      // on its own box — there is nothing else on the line to align to.
+      var center = box.center.dy;
       for (final l in lines) {
         if (center >= l.top - 0.5 && center <= l.bottom + 0.5) {
-          line = l;
+          center = l.center.dy;
           break;
         }
       }
-      shifts[i] = line == null ? 0 : line.center.dy - center;
+      rects[sentinels[i].id] = Rect.fromLTRB(
+        box.left,
+        center - SrCapsule.liveSize / 2,
+        box.right,
+        center + SrCapsule.liveSize / 2,
+      );
     }
-    var changed = shifts.length != _capsuleShifts.length;
-    if (!changed) {
-      for (var i = 0; i < shifts.length; i++) {
-        if ((shifts[i] - _capsuleShifts[i]).abs() > 0.1) {
-          changed = true;
-          break;
-        }
-      }
-    }
-    if (changed) setState(() => _capsuleShifts = shifts);
+    return rects;
   }
 
   Widget _buildPreview(BuildContext context) {
@@ -460,6 +454,13 @@ class SlotSurfaceState extends State<SlotSurface>
             painter: _BackgroundPainter(this, pal),
             child: Text.rich(
               key: _paragraphKey,
+              // Same strut as the stream face: line heights never vary
+              // with a line's content (mixed fallback runs, IME
+              // composing runs), so lines never shift as text is typed.
+              strutStyle: StrutStyle.fromTextStyle(
+                SrType.bodyLarge,
+                forceStrutHeight: true,
+              ),
               TextSpan(
                 style: SrType.bodyLarge.copyWith(color: pal.textPrimary),
                 children: _spanTree(pal),
@@ -1300,9 +1301,9 @@ class SlotSurfaceState extends State<SlotSurface>
   /// The pill rectangles per identity — the tests' geometry seam.
   Map<int, List<Rect>> capsuleSegmentsForTest() => _capsuleSegments();
 
-  /// The stream capsules' current paint shifts against their lines' text
-  /// ink (stream mode only) — the tests' alignment seam.
-  List<double> get streamCapsuleShiftsForTest => _capsuleShifts;
+  /// The stream capsules' circle rectangles per identity — the stream
+  /// face's geometry seam.
+  Map<int, Rect> streamCircleRectsForTest() => _streamCircleRects();
 }
 
 // ---------------------------------------------------------------------------
@@ -1366,6 +1367,48 @@ List<Rect> textLineInkBoxes(
 // ---------------------------------------------------------------------------
 // painters
 // ---------------------------------------------------------------------------
+
+/// Paints the stream face's number circles (listening / rectifying):
+/// each sentinel's spacer box carries a flat circle whose vertical
+/// center is its line's text-ink center — the same anchor the preview's
+/// capsule chrome uses, in the layout's own frame (号圆; 21 号票家族,
+/// 23 号验收轮改绘).
+class _StreamCapsulesPainter extends CustomPainter {
+  _StreamCapsulesPainter(this.state, this.pal);
+
+  final SlotSurfaceState state;
+  final SrPalette pal;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final entry in state._streamCircleRects().entries) {
+      final rect = entry.value;
+      // The flat family: fill only — no border, no shadow; one digit a
+      // true circle, wider numbers a capsule.
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          rect,
+          Radius.circular(rect.height / 2),
+        ),
+        Paint()..color = pal.accentSoft,
+      );
+      final digits = TextPainter(
+        text: TextSpan(
+          text: '${entry.key}',
+          style: SrType.micro.copyWith(color: pal.accentText, height: 1),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      digits.paint(
+        canvas,
+        rect.center - Offset(digits.width / 2, digits.height / 2),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StreamCapsulesPainter old) => true;
+}
 
 /// Paints under the text: the capsule pills (flat family: fill only) and
 /// the selection (height-clamped, never above the capsule).

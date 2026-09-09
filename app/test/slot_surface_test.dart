@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/theme.dart' show srTheme;
+import 'package:spokenrectifier_app/src/design/tokens.dart' show SrCapsule;
 import 'package:spokenrectifier_app/src/preview/slot_editor.dart';
 import 'package:spokenrectifier_app/src/preview/slot_projection.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
@@ -644,9 +645,7 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('stream capsules measure their alignment against the text ink', (
-    tester,
-  ) async {
+  testWidgets('stream circles center on their line text ink', (tester) async {
     final scroll = ScrollController();
     addTearDown(scroll.dispose);
     await tester.pumpWidget(
@@ -662,18 +661,27 @@ void main() {
         ),
       ),
     );
-    // The post-frame measurement runs and settles: one capsule, one
-    // measured shift, within a hair of the text ink in any font.
-    await tester.pump();
     await tester.pump();
     final state =
         tester.state(find.byKey(const Key('session-stream-solo')))
             as SlotSurfaceState;
-    expect(state.streamCapsuleShiftsForTest, hasLength(1));
-    expect(
-      state.streamCapsuleShiftsForTest.single.abs(),
-      lessThan(1),
-      reason: 'the circle rides its line\'s text ink center',
+    final rects = state.streamCircleRectsForTest();
+    expect(rects.keys, [1]);
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.byKey(const Key('session-stream-solo')),
+        matching: find.byType(RichText),
+      ),
     );
+    // Flat = 发给(2) + spacer(1) + 一下(2): the glyph-only ink line
+    // around the spacer at 2 claims the circle's center.
+    final lines = textLineInkBoxes(paragraph, const [2], 5);
+    expect(lines, isNotEmpty);
+    expect(
+      (rects[1]!.center.dy - lines.first.center.dy).abs(),
+      lessThan(0.5),
+      reason: 'the painted circle rides its line\'s text ink center',
+    );
+    expect(rects[1]!.height, SrCapsule.liveSize);
   });
 }

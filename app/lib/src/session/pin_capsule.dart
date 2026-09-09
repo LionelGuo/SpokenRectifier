@@ -1,8 +1,13 @@
 /// The placeholder capsule visuals (ticket 21): the flat capsule family
 /// the sentinels project as on the session surface — never the bare
 /// `‡N‡` four characters. While listening and rectifying the sentinel
-/// collapses to the number round (号圆胶囊); the preview's full fill
-/// capsule (08 号票) joins the same family in ticket 22.
+/// collapses to the number circle (号圆); the circle itself is PAINTED by
+/// the stream surface's foreground layer onto the spacer this module
+/// reserves, centered on its line's text ink — the same anchor the
+/// preview's fill capsules use, in the same frame the layout happens
+/// (23 号验收轮: the WidgetSpan's own middle alignment follows font
+/// metrics and sat visibly off on real fallback chains, and any
+/// post-frame correction lags the stream's constant re-layout).
 ///
 /// Family rules (spec 「预览填写槽·视觉」, 08 号五轮): all-flat — no
 /// border, no shadow; the number is plain small text; the empty-state
@@ -16,91 +21,43 @@ import 'package:flutter/material.dart';
 import '../design/tokens.dart';
 import '../preview/slot_document.dart' show scanSentinels;
 
-/// One pinned placeholder's collapsed form: a flat round chip carrying
-/// the number, read-only (聆听不能填 — nothing here is editable).
-class PinNumberCapsule extends StatelessWidget {
-  const PinNumberCapsule({super.key, required this.id});
-
-  /// The placeholder's identity — the digits inside the sentinel. The
-  /// number IS the slot (数字即身份, 07 号票), so it is all the chip
-  /// shows.
-  final int id;
-
-  /// Capsule height: 18 keeps the chip inside bodyLarge's 24px line box
-  /// with equal breathing room top and bottom (行上下间距绝对相等). The
-  /// number lives in the design table (SrCapsule.liveSize).
-  static const double size = SrCapsule.liveSize;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return Container(
-      key: ValueKey('pin-capsule-$id'),
-      height: size,
-      // minWidth keeps one digit a true circle; wider numbers grow into
-      // the family's capsule shape instead of clipping.
-      constraints: const BoxConstraints(minWidth: size),
-      padding: const EdgeInsets.symmetric(horizontal: 5),
-      decoration: BoxDecoration(
-        // The flat family: fill only — no border, no shadow.
-        color: pal.accentSoft,
-        borderRadius: BorderRadius.circular(size / 2),
-      ),
-      // Deliberately NO Container.alignment: inline (WidgetSpan) the width
-      // constraints are bounded — the paragraph width — and the Align a
-      // Container builds with a null widthFactor sizes itself to
-      // maxWidth, swallowing whole lines. Center with explicit factors
-      // shrink-wraps to the digits; the tight height above still forces
-      // the 18px chip and centers them vertically.
-      child: Center(
-        widthFactor: 1,
-        heightFactor: 1,
-        child: Text(
-          '$id',
-          // Plain small digits — not bold, not accented beyond family tint.
-          style: SrType.micro.copyWith(color: pal.accentText, height: 1),
-        ),
-      ),
-    );
-  }
+/// The number circle's inline width for [id]: one digit a true circle;
+/// wider numbers grow into the family's capsule shape instead of
+/// clipping.
+double pinCapsuleWidth(int id) {
+  final digits = id.toString().length;
+  return digits <= 1
+      ? SrCapsule.liveSize
+      : SrCapsule.liveSize + (digits - 1) * 7.0;
 }
 
-/// Splits [text] into display spans: ordinary text as-is, every
-/// `‡N‡` sentinel as one [PinNumberCapsule] inline (middle-aligned to
-/// the line). This is the read-only projection the main surface paints
+/// Splits [text] into display spans: ordinary text as-is, every `‡N‡`
+/// sentinel as one keyed spacer ([WidgetSpan], middle-aligned — the
+/// alignment only places the invisible reservation; the circle is
+/// painted at the line's text-ink center by the surface's foreground
+/// layer). This is the read-only projection the main surface paints
 /// while listening and rectifying — the scan is the same shape-driven
 /// one the slot model uses (同形也抽), so a same-shape the ASR happened
 /// to transcribe renders as a capsule too, exactly as it would extract
 /// as a slot later.
-///
-/// [capsuleShifts] carries per-capsule paint offsets (dy) the surface
-/// measured against each line's text ink — the WidgetSpan's own middle
-/// alignment follows the font's metrics and can sit visibly off the CJK
-/// line's centre on real fallback chains (23 号验收轮), so the surface
-/// corrects the paint, never the layout. An empty list paints unshifted.
-List<InlineSpan> sentinelSpans(
-  String text, {
-  List<double> capsuleShifts = const [],
-}) {
+List<InlineSpan> sentinelSpans(String text) {
   final spans = <InlineSpan>[];
   var copied = 0;
-  var capsule = 0;
   for (final span in scanSentinels(text)) {
     if (span.start > copied) {
       spans.add(TextSpan(text: text.substring(copied, span.start)));
     }
-    final shift = capsule < capsuleShifts.length ? capsuleShifts[capsule] : 0.0;
-    final child = PinNumberCapsule(id: span.id);
     spans.add(
       WidgetSpan(
         alignment: PlaceholderAlignment.middle,
-        child: shift == 0
-            ? child
-            : Transform.translate(offset: Offset(0, shift), child: child),
+        child: SizedBox(
+          key: ValueKey('pin-capsule-${span.id}'),
+          width: pinCapsuleWidth(span.id),
+          height: SrCapsule.liveSize,
+        ),
       ),
     );
     copied = span.end;
-    capsule++;
   }
   if (copied < text.length) {
     spans.add(TextSpan(text: text.substring(copied)));
