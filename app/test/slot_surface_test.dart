@@ -85,6 +85,7 @@ Future<SlotPreviewHarness> pumpSlotPreview(
   WidgetTester tester, {
   String body = '发给‡1‡一下',
   String prefill = '张三',
+  bool pin = true,
 }) async {
   final gateway = FakeGateway();
   final controller = SpeechController(gateway: gateway, scriptedPhrases: const []);
@@ -93,8 +94,10 @@ Future<SlotPreviewHarness> pumpSlotPreview(
 
   await controller.startSession();
   await tester.pump(const Duration(milliseconds: 350));
-  await gateway.pinPlaceholder();
-  await tester.pump();
+  if (pin) {
+    await gateway.pinPlaceholder();
+    await tester.pump();
+  }
   await controller.stopSession();
   await tester.pump(const Duration(milliseconds: 350));
 
@@ -703,7 +706,9 @@ void main() {
     // invisible to every box query).
     final h = await pumpSlotPreview(tester, prefill: '张三\n\n李四');
     final paragraph = previewParagraph(tester);
-    final column = paragraph.constraints.maxWidth;
+    // The column's TRUE edge: the minted slot reserves one parking pad of
+    // layout width, so the wrap width sits inside it.
+    final column = paragraph.constraints.maxWidth + SrCapsule.valuePad;
     final rects = h.surface.capsuleSegmentsForTest()[1]!;
     expect(rects.length, 3, reason: 'the empty middle line keeps its band');
     // First: from the chip to the column's right edge (首行抵右).
@@ -795,6 +800,60 @@ void main() {
     expect(
       rects[1].right,
       closeTo(sanRight + SrCapsule.valuePad + SrCapsule.sidePad, 0.5),
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets(
+    'a value that fills its line wraps before the pill\'s right parking', (
+    tester,
+  ) async {
+    // 打满一行: the greedy wrapper would otherwise squeeze the next
+    // character into the pill cap's parking zone (the acceptance-round
+    // finding: the typed character landed at the full line's end, its
+    // right free space one character short). The narrowed wrap width
+    // sends that character to the next line instead — the parking
+    // survives on every full line.
+    final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '测' * 80);
+    final paragraph = previewParagraph(tester);
+    final surface = tester.getRect(find.byKey(const Key('session-text')));
+    expect(
+      paragraph.constraints.maxWidth,
+      closeTo(surface.width - SrCapsule.valuePad, 0.5),
+      reason: 'the minted slot reserves one parking pad of layout width',
+    );
+    final rects = h.surface.capsuleSegmentsForTest()[1]!;
+    expect(rects.length, greaterThan(1), reason: 'the value overflows one line');
+    // The band still runs flush to the column's true edge...
+    expect(rects[0].right, closeTo(surface.width, 0.5));
+    // ...and no value glyph ever enters the parking zone.
+    final flat = h.surface.flatBaseText;
+    final valueStart = flat.indexOf('测');
+    for (final box in paragraph.getBoxesForSelection(
+      TextSelection(baseOffset: valueStart, extentOffset: valueStart + 80),
+    )) {
+      expect(
+        box.right,
+        lessThanOrEqualTo(surface.width - SrCapsule.valuePad + 0.5),
+      );
+    }
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('a session without pins lays out at the full column width', (
+    tester,
+  ) async {
+    // The wrap reserve exists only for minted slots: a pin-less preview
+    // keeps today's exact layout (无钉会话零影响, E1). A long body makes
+    // the shrink-wrapping surface take the full column, so its width IS
+    // the wrap width to compare against.
+    final h = await pumpSlotPreview(tester, pin: false, body: '发' * 100);
+    final paragraph = previewParagraph(tester);
+    final surface = tester.getRect(find.byKey(const Key('session-text')));
+    expect(
+      paragraph.constraints.maxWidth,
+      closeTo(surface.width, 0.5),
+      reason: 'no slot minted: the wrap width is the column itself',
     );
     await windDown(tester, h.controller);
   });

@@ -52,7 +52,10 @@
 /// covered line renders as its own complete pill, and a pill at a line's
 /// edge runs flush: the text-contact clearance is dropped when the capsule
 /// starts a line, and the reservation's breathing tail is swallowed when
-/// nothing follows on the line (行首/行尾不留空位).
+/// nothing follows on the line (行首/行尾不留空位). The preview's text
+/// lays out one parking pad inside the column whenever a slot is minted,
+/// so a value filling a line wraps before the pill cap's right parking
+/// instead of squeezing into it (打满一行, 停车区不被吃).
 
 library;
 
@@ -459,6 +462,17 @@ class SlotSurfaceState extends State<SlotSurface>
     return rects;
   }
 
+  /// The preview paragraph's right inset: whenever a slot is minted the
+  /// text LAYS OUT this much inside the column, so a value filling a line
+  /// can never run into the pill cap's right parking zone — the character
+  /// that does not fit before the parking wraps to the next line instead
+  /// of squeezing into it (打满一行, 右侧停车区不被吃掉; 23 号验收轮
+  /// D3 反馈五). The pill bands still paint flush to the column's true
+  /// edge (the painters ride the surface's full canvas). A document with
+  /// no minted slot keeps today's exact wrap width (无钉会话零影响).
+  double get _previewRightInset =>
+      _projection.slots.isNotEmpty ? pillRightPad : 0.0;
+
   Widget _buildPreview(BuildContext context) {
     final pal = srPalette(context);
     return Focus(
@@ -476,18 +490,21 @@ class SlotSurfaceState extends State<SlotSurface>
           child: CustomPaint(
             foregroundPainter: _ForegroundPainter(this, pal),
             painter: _BackgroundPainter(this, pal),
-            child: Text.rich(
-              key: _paragraphKey,
-              // Same strut as the stream face: line heights never vary
-              // with a line's content (mixed fallback runs, IME
-              // composing runs), so lines never shift as text is typed.
-              strutStyle: StrutStyle.fromTextStyle(
-                SrType.bodyLarge,
-                forceStrutHeight: true,
-              ),
-              TextSpan(
-                style: SrType.bodyLarge.copyWith(color: pal.textPrimary),
-                children: _spanTree(pal),
+            child: Padding(
+              padding: EdgeInsets.only(right: _previewRightInset),
+              child: Text.rich(
+                key: _paragraphKey,
+                // Same strut as the stream face: line heights never vary
+                // with a line's content (mixed fallback runs, IME
+                // composing runs), so lines never shift as text is typed.
+                strutStyle: StrutStyle.fromTextStyle(
+                  SrType.bodyLarge,
+                  forceStrutHeight: true,
+                ),
+                TextSpan(
+                  style: SrType.bodyLarge.copyWith(color: pal.textPrimary),
+                  children: _spanTree(pal),
+                ),
               ),
             ),
           ),
@@ -951,9 +968,10 @@ class SlotSurfaceState extends State<SlotSurface>
     if (paragraph == null) return const {};
     final projection = _projection;
     final lines = _lineInkBoxes(paragraph);
-    // The wrap width the layout itself used — the theoretical right edge
-    // a full line of text reaches.
-    final columnRight = paragraph.constraints.maxWidth;
+    // The column's true right edge — the layout's own wrap width plus the
+    // right inset that keeps full lines clear of the pill cap's parking
+    // zone (the bands paint flush to the true edge, not the wrap width).
+    final columnRight = paragraph.constraints.maxWidth + _previewRightInset;
     final segments = <int, List<Rect>>{};
     for (final slot in projection.slots) {
       final chipBoxes = paragraph.getBoxesForSelection(
