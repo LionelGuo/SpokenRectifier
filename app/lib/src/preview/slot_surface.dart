@@ -76,7 +76,6 @@ class SlotSurface extends StatefulWidget {
     this.scrollController,
     this.resetToken = 0,
     this.onChanged,
-    this.onSurfaceReady,
   });
 
   final SlotSurfaceMode mode;
@@ -106,14 +105,6 @@ class SlotSurface extends StatefulWidget {
   /// substituted confirm text — what the panel adopts as the on-screen
   /// preview text.
   final ValueChanged<String>? onChanged;
-
-  /// Fired once from initState with the fresh state (preview mode only):
-  /// the panel's handle for driving the surface from outside the text
-  /// area — the footer's 待填 ▸ jump (ticket 23). The surface remounts
-  /// on every preview entry (the branch alternates with the stream
-  /// face), so the handle refreshes each round. The handler runs during
-  /// initState and must not call setState.
-  final ValueChanged<SlotSurfaceState>? onSurfaceReady;
 
   /// The preview round this mount serves (preview mode only): a new
   /// round bumps it and the surface resets its ephemeral state — the
@@ -203,7 +194,6 @@ class SlotSurfaceState extends State<SlotSurface>
     super.initState();
     if (_isPreview) {
       widget.focusNode?.addListener(_onFocusChanged);
-      widget.onSurfaceReady?.call(this);
       // Opening waits for didChangeDependencies: the view id the engine
       // demands is only resolvable there.
     }
@@ -750,58 +740,6 @@ class SlotSurfaceState extends State<SlotSurface>
       });
     }
     setState(() {});
-  }
-
-  // -- external driving (the footer's 待填 ▸, ticket 23) -------------------
-
-  /// The visible capsules whose value is empty, in body order — the
-  /// pending list the panel counts and the jump cycles through. An
-  /// emptied mis-pin counts exactly like a never-filled slot (掏空也是
-  /// 空值).
-  List<ProjectedSlot> get _emptySlots => [
-    for (final slot in _projection.slots)
-      if (_editor.doc.valueOf(slot.id).isEmpty) slot,
-  ];
-
-  /// Jump the caret into the next empty capsule: the first at or after
-  /// the caret's position in body order, wrapping to the first, skipping
-  /// the one the caret already sits in — so repeated clicks walk the
-  /// empty slots one at a time, round and round (点击循环跳空槽落光标;
-  /// 08 号票). Focuses the surface, homes the IME and reveals the caret.
-  /// Returns false when no visible capsule is empty.
-  bool jumpToNextEmptySlot() {
-    final empties = _emptySlots;
-    if (empties.isEmpty) return false;
-    final caret = _editor.caret;
-    var target = empties.first;
-    for (final slot in empties) {
-      final atOrAfter =
-          slot.bodyStart > caret.at ||
-          (slot.bodyStart == caret.at && !caret.inside);
-      if (atOrAfter) {
-        target = slot;
-        break;
-      }
-    }
-    _editor.place(SlotCursor.inside(at: target.bodyStart, offset: 0));
-    widget.focusNode?.requestFocus();
-    // Caret-only plumbing: the model did not change, so there is nothing
-    // to substitute or push — just the visual and platform state that
-    // follows the caret.
-    _syncShadow();
-    _blink.value = 0;
-    final newActive = _activeId;
-    if (newActive != _activeFadeTarget) {
-      _activeFadeTarget = newActive;
-      if (newActive != null) {
-        _activeFade.forward();
-      } else {
-        _activeFade.reverse();
-      }
-    }
-    _revealCaret();
-    setState(() {});
-    return true;
   }
 
   void _clearTooltip() {
