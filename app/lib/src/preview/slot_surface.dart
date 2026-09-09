@@ -49,10 +49,8 @@
 /// the first segment runs to the column's right edge, interior lines take
 /// the full width, the last is flush left past its content — empty value
 /// lines included (首行抵右、中行全宽、末行贴左; 23 号验收轮 D3). Every
-/// covered line renders as its own band, and consecutive bands MEET at
-/// the midline between their lines — the capsule's height is a hair
-/// under the line pitch, and the daylight that gap left at every wrap
-/// read as the curve breaking apart (反馈十四) — except a covered line
+/// covered line renders as its own band, every band the capsule's own
+/// height on its line — except a covered line
 /// the capsule's own boxes do not hold, which joins the capsule only
 /// when the value hard-continues onto it: a line holding nothing but
 /// the wrapped reservation placeholder renders no band at all (one
@@ -429,14 +427,13 @@ class SlotSurfaceState extends State<SlotSurface>
       _affinityKeyLen = text.length;
     }
     if (!_affinityUpstream) return downstream;
-    final upstream = TextPosition(
-      offset: offset,
-      affinity: TextAffinity.upstream,
-    );
-    return paragraph.getOffsetForCaret(upstream, Rect.zero).dy ==
-            paragraph.getOffsetForCaret(downstream, Rect.zero).dy
-        ? downstream
-        : upstream;
+    // Upstream stands even when the engine seats BOTH affinities at the
+    // next line's start — a boundary before a wrapped inline placeholder
+    // cannot split it, so upstream collapses to the placeholder's left
+    // edge on the next line (the real engine does this; flutter_tester
+    // does not). [caretRect] parks such a caret at the preceding
+    // glyph's right edge, on the glyph's own line (反馈十五②).
+    return TextPosition(offset: offset, affinity: TextAffinity.upstream);
   }
 
   RenderParagraph? get _paragraph =>
@@ -1018,7 +1015,33 @@ class SlotSurfaceState extends State<SlotSurface>
     } else {
       _editor.place(cursor);
     }
+    _bindCaretToTappedLine(local, hit.$1);
     _afterLocalChange();
+  }
+
+  /// 反馈十五②: a tap landing on THIS line may resolve to the soft-wrap
+  /// boundary offset whose default (downstream) rendering sits at the
+  /// NEXT line's start — bind the caret upstream for this position so it
+  /// renders at the tapped line's end instead (点击行末, 光标留在行末;
+  /// the same binding typing already gets from trailing its insertion
+  /// tail). A tap on the next line's start region leaves the downstream
+  /// binding: that IS where the position renders.
+  void _bindCaretToTappedLine(Offset local, SlotCursor cursor) {
+    final paragraph = _paragraph;
+    if (paragraph == null) return;
+    final flat = _projection.cursorToFlat(cursor);
+    if (flat <= 0 || _paragraphText.codeUnitAt(flat - 1) == 0x0A) return;
+    final downstream = paragraph.getOffsetForCaret(
+      TextPosition(offset: flat),
+      Rect.zero,
+    );
+    final pitch = paragraph.getFullHeightForCaret(TextPosition(offset: flat));
+    if (pitch <= 0) return;
+    if (downstream.dy >= local.dy + pitch / 2) {
+      _affinityKeyFlat = flat;
+      _affinityKeyLen = _paragraphText.length;
+      _affinityUpstream = true;
+    }
   }
 
   SlotCursor? _dragAnchor;
@@ -1138,11 +1161,10 @@ class SlotSurfaceState extends State<SlotSurface>
   /// 贴边; D3 反馈五终裁); a cut end's fill and stroke dissolve to
   /// nothing approaching it (截断端渐隐). The last band's right edge
   /// never sits closer than its own cap radius, so the cap is always one
-  /// continuous semicircle even on an empty tail line. Consecutive bands
-  /// of one capsule MEET at the midline between their lines — no daylight
-  /// seam at a wrap — while each band's own stroke still draws its edge
-  /// across the joint, so the per-line segments stay readable inside one
-  /// continuous column (反馈十四). An ink-less covered line anchors its
+  /// continuous semicircle even on an empty tail line. Every band is the
+  /// capsule's own height on its line — the thin daylight between a
+  /// wrap's bands is the family's look (反馈十五 reverted the seam-
+  /// closing that stretched them). An ink-less covered line anchors its
   /// band on the strut caret line center plus the paragraph's ink bias,
   /// the anchor its siblings' ink lines land on. A single-line
   /// capsule is one complete pill.
@@ -1246,10 +1268,10 @@ class SlotSurfaceState extends State<SlotSurface>
         // No value glyphs claim the last covered line — the value ended
         // with 回车 and the band there is the capsule's parking stub.
         final slotBands = <CapsuleBand>[];
-        // One anchor per covered line first (an ink-less line anchors on
-        // the strut-locked caret line center plus the paragraph's ink
-        // bias — the anchor its siblings' ink lines land on; 反馈十二's
-        // convention): the bands close their seams against these.
+        // One anchor per covered line (an ink-less line anchors on the
+        // strut-locked caret line center plus the paragraph's ink bias —
+        // the anchor its siblings' ink lines land on; 反馈十二's
+        // convention).
         final centers = <double>[
           for (final band in covered)
             _inkCenter(
@@ -1260,19 +1282,14 @@ class SlotSurfaceState extends State<SlotSurface>
         ];
         final half = capsuleHeight / 2;
         for (var i = 0; i < covered.length; i++) {
-          // Consecutive bands of ONE capsule MEET at the midline between
-          // their lines: the capsule's height (23) is a hair under the
-          // line pitch, and the sliver of daylight that gap left at
-          // every wrap read as the capsule's curve breaking apart
-          // (反馈十四 — the empty tail line's stub sat below a visible
-          // seam, a floating fragment). The per-line hairlines the
-          // bands' own strokes draw across the joints remain: the
-          // segments stay readable inside one continuous column.
-          final top = i == 0 ? centers[i] - half : (centers[i - 1] + centers[i]) / 2;
-          final bottom =
-              i == covered.length - 1
-                  ? centers[i] + half
-                  : (centers[i] + centers[i + 1]) / 2;
+          // Every band is the capsule's OWN height on its line (反馈十
+          // 五: the seam-closing experiment that stretched bands toward
+          // their neighbours made the capsule read taller than the
+          // family and graze the capsules above and below — the thin
+          // daylight between a wrap's bands is the family's look, ruled
+          // back).
+          final top = centers[i] - half;
+          final bottom = centers[i] + half;
           // The first segment's cap: the leading sidePad kept toward
           // text, swallowed when no text ink precedes the capsule on
           // its line — flush at a column edge, painted over the
@@ -1588,8 +1605,30 @@ class SlotSurfaceState extends State<SlotSurface>
     final paragraph = _paragraph;
     if (paragraph == null) return null;
     final position = _caretRenderPosition(paragraph);
-    final offset = paragraph.getOffsetForCaret(position, Rect.zero);
+    var offset = paragraph.getOffsetForCaret(position, Rect.zero);
     final line = paragraph.getFullHeightForCaret(position);
+    // 反馈十五②: an upstream-bound caret whose engine-rendered seat lies
+    // on the line BELOW its preceding glyph (the placeholder boundary)
+    // parks at that glyph's right edge, on the glyph's own line — the
+    // caret stays where the typing or the tap happened, never jumping
+    // ahead of the text it trails.
+    final text = _paragraphText;
+    if (position.affinity == TextAffinity.upstream &&
+        position.offset > 0 &&
+        text.codeUnitAt(position.offset - 1) != 0x0A) {
+      final prevBoxes = paragraph.getBoxesForSelection(
+        TextSelection(
+          baseOffset: position.offset - 1,
+          extentOffset: position.offset,
+        ),
+      );
+      if (prevBoxes.isNotEmpty) {
+        final prev = prevBoxes.last.toRect();
+        if ((prev.center.dy - (offset.dy + line / 2)).abs() > 1) {
+          offset = Offset(prev.right, prev.center.dy - line / 2);
+        }
+      }
+    }
     final center = _inkCenter(
       _lineInkBoxes(paragraph),
       offset.dy + line / 2,

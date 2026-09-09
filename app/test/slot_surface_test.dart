@@ -939,44 +939,62 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets(
-    'a wrapped capsule\'s consecutive bands meet without a daylight seam', (
+  testWidgets('every band of a wrapped capsule keeps the capsule height', (
     tester,
   ) async {
-    // 反馈十四: the capsule's height is a hair under the line pitch, and
-    // the sliver of background that gap left between consecutive bands
-    // read as the capsule's curve breaking apart at the wrap (the empty
-    // tail line's stub sat below a visible seam, a floating fragment).
-    // The bands of one capsule now MEET at the midline between their
-    // lines — one continuous column; each band's own stroke still draws
-    // its edge across the joint, and the cut-end fades are untouched.
-    final h = await pumpSlotPreview(tester, prefill: '张三\n');
-    final bands = h.surface.capsuleBandsForTest()[1]!;
-    expect(bands.length, 2, reason: 'the trailing 回车 covers a second line');
-    expect(bands[1].rect.top, closeTo(bands[0].rect.bottom, 0.01));
-    // The cut-fade keeps its place on the stub's left (用户裁定: the
-    // gradient is wanted) and the cap stays a full semicircle (反馈七).
-    expect(bands[1].cutFadeMask(bands[1].rect), isNotNull);
-    expect(bands[1].leftRounded, isFalse);
-    expect(bands[1].rightRounded, isTrue);
-    await windDown(tester, h.controller);
-  });
-
-  testWidgets('deeper wraps close every seam alike, empty lines included', (
-    tester,
-  ) async {
-    // 反馈十四, the three-line case: content, an empty interior line,
-    // content — every consecutive pair meets at its midline.
+    // 反馈十五①: the seam-closing experiment stretched each band into
+    // the inter-line daylight — the capsule read taller than the family
+    // and grazed the capsules above and below (真机: 上下两行的胶囊重
+    // 叠). Every band is the capsule's OWN height, centred on its line.
     final h = await pumpSlotPreview(tester, prefill: '张三\n\n李四');
     final bands = h.surface.capsuleBandsForTest()[1]!;
     expect(bands.length, 3);
-    for (var i = 0; i + 1 < bands.length; i++) {
-      expect(
-        bands[i + 1].rect.top,
-        closeTo(bands[i].rect.bottom, 0.01),
-        reason: 'seam $i closes without daylight',
-      );
+    for (final band in bands) {
+      expect(band.rect.height, closeTo(SrCapsule.height, 0.01));
     }
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('tapping a wrapped line\'s end keeps the caret on that line', (
+    tester,
+  ) async {
+    // 反馈十五②: a tap near a soft-wrapped line's end resolves to the
+    // boundary offset, whose default downstream rendering sits at the
+    // NEXT line's start — the caret jumped ahead of the text (真机: 点
+    // 行末, 光标跑到下一行行首; same for the value that just filled its
+    // line). The tap binds the caret upstream: it renders at the tapped
+    // line's end. The tapped line is BODY text — the plain-editor case
+    // the user named, capsule or not.
+    final h = await pumpSlotPreview(
+      tester,
+      body: '话' * 60 + '‡1‡',
+      prefill: '测',
+    );
+    final paragraph = previewParagraph(tester);
+    final width = paragraph.constraints.maxWidth;
+    final firstTop = paragraph
+        .getOffsetForCaret(const TextPosition(offset: 0), Rect.zero)
+        .dy;
+    final pitch = paragraph.getFullHeightForCaret(
+      const TextPosition(offset: 0),
+    );
+    final origin = tester
+        .getRect(find.byKey(const Key('session-text')))
+        .topLeft;
+    await tester.tapAt(origin + Offset(width - 4, firstTop + pitch / 2));
+    await tester.pump();
+
+    final caret = h.surface.caretRect()!;
+    expect(
+      (caret.center.dy - (firstTop + pitch / 2)).abs(),
+      lessThan(5),
+      reason: 'the caret stays on the tapped line',
+    );
+    expect(
+      caret.left,
+      greaterThan(width / 2),
+      reason: 'at the line\'s end, not the next line\'s start',
+    );
     await windDown(tester, h.controller);
   });
 
@@ -1010,10 +1028,8 @@ void main() {
         paragraph.getFullHeightForCaret(tailCaret) / 2 +
         bias +
         SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
-    // The seam-closed rect's center is no longer the anchor itself; the
-    // band's BOTTOM edge still is the anchor plus the half height.
     expect(
-      (stub.rect.bottom - (anchor + SrCapsule.height / 2)).abs(),
+      (stub.rect.center.dy - anchor).abs(),
       lessThan(0.1),
       reason: 'the ink-less line shares the ink lines\' anchor convention',
     );
