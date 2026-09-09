@@ -39,7 +39,9 @@
 /// text, not selectable, not copyable), the selection height never above
 /// the capsule, the pill vertically centered on its line's TEXT ink (the
 /// line-ink union excludes every placeholder box — the chip's own
-/// placement can never displace the alignment reference), the capsule's
+/// placement can never displace the alignment reference — and every
+/// anchor eases down by SrCapsule.opticalEase, since the typographic
+/// box's center rides slightly above the glyphs' true ink), the capsule's
 /// horizontal margins reserved in layout (the chip's leading spacer and
 /// the per-slot reservation placeholder), and the empty capsule one
 /// character narrower than a single character fills it (删空只缩短不消失).
@@ -152,6 +154,18 @@ class SlotSurfaceState extends State<SlotSurface>
   static const double selectionHeight = SrCapsule.selectionHeight;
 
   static const double caretWidth = SrCapsule.caretWidth;
+
+  /// The chrome anchor's downward nudge in px — [SrCapsule.opticalEase]
+  /// of the face's font size. The line ink box is a TYPOGRAPHIC box
+  /// (font ascent/descent); its center rides ~0.5–1px above the glyphs'
+  /// true ink center on the real resolution fonts, which read as the
+  /// pill sitting high over its text. The ease lands the dominant fonts
+  /// at even-to-slightly-high — never fill-below-wider.
+  double get _opticalEasePx =>
+      SrCapsule.opticalEase *
+      (_isPreview
+          ? SrType.bodyLarge.fontSize!
+          : (widget.streamStyle ?? SrType.bodyLarge).fontSize!);
 
   final GlobalKey _paragraphKey = GlobalKey();
 
@@ -418,10 +432,12 @@ class SlotSurfaceState extends State<SlotSurface>
       final box = boxes.first.toRect();
       // A circle no text line claims (pins alone on their line) centers
       // on its own box — there is nothing else on the line to align to.
+      // Text-line circles take the line's ink center eased down by the
+      // optical nudge, the same anchor the preview's chrome uses.
       var center = box.center.dy;
       for (final l in lines) {
         if (center >= l.top - 0.5 && center <= l.bottom + 0.5) {
-          center = l.center.dy;
+          center = l.center.dy + _opticalEasePx;
           break;
         }
       }
@@ -1000,16 +1016,17 @@ class SlotSurfaceState extends State<SlotSurface>
     return textLineInkBoxes(paragraph, positions, text.length);
   }
 
-  /// The ink-box center of the line [dy] falls on — the vertical anchor
-  /// every span drawing shares. The caller's own [dy] when no line
-  /// claims it (a stale probe).
+  /// The ink-box center of the line [dy] falls on, eased down by the
+  /// optical nudge — the vertical anchor every span drawing shares. The
+  /// caller's own [dy] (eased alike) when no line claims it (a stale
+  /// probe).
   double _inkCenter(List<Rect> lines, double dy) {
     for (final line in lines) {
       if (dy >= line.top - 0.5 && dy <= line.bottom + 0.5) {
-        return line.center.dy;
+        return line.center.dy + _opticalEasePx;
       }
     }
-    return dy;
+    return dy + _opticalEasePx;
   }
 
   /// The selection's paint-space range, or null when collapsed — and

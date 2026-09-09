@@ -132,8 +132,10 @@ class SrType {
     fontWeight: FontWeight.w600,
   );
 
-  /// Session text — the dictated / rectified body copy.
-  static const bodyLarge = TextStyle(fontSize: 15, height: 1.6);
+  /// Session text — the dictated / rectified body copy. The 1.7 line
+  /// height (2026-09-09 验收定, was 1.6) gives the taller capsule family
+  /// room per line so its optical asymmetry reads less contrasted.
+  static const bodyLarge = TextStyle(fontSize: 15, height: 1.7);
 
   /// Default UI body.
   static const body = TextStyle(fontSize: 14, height: 1.5);
@@ -290,19 +292,23 @@ abstract final class SrGeometry {
 /// The placeholder capsule family's own geometry — one table for both
 /// faces: the stream 号圆 (listening / rectifying, ticket 21) and the
 /// preview fill capsule (ticket 22). The pill's vertical placement is
-/// NOT a number here: every capsule, selection box and the caret center
-/// on their line's ink box (胶囊对所在行上下间距绝对相等, 08 号票) —
-/// geometry the surface computes, never a locked pixel.
+/// computed from the line's ink box, never a locked pixel — with one
+/// deliberate exception: [opticalEase], the safe downward nudge that
+/// keeps the pill from riding high over its glyphs (08 号票's 绝对相等
+/// refined by the 23 号 acceptance rounds).
 abstract final class SrCapsule {
   /// The 号圆's height/diameter (the stream face's round chip).
   static const double liveSize = 18.0;
 
   /// The fill capsule's pill height — also the caret's uniform height
-  /// and the ceiling the selection clamps under.
-  static const double height = 22.0;
+  /// and the ceiling the selection clamps under. 23 (2026-09-09 验收,
+  /// was 22): one pixel taller, riding the 1.7 line height, so the
+  /// remaining optical asymmetry contrasts less.
+  static const double height = 23.0;
 
-  /// The number chip's cap circle diameter (the fill capsule's left cap).
-  static const double chipCircle = 22.0;
+  /// The number chip's cap circle diameter (the fill capsule's left cap,
+  /// always the pill's full height — the cap is a true semicircle).
+  static const double chipCircle = 23.0;
 
   /// Breathing room between the chip and the value's first character.
   static const double chipGap = 4.0;
@@ -323,4 +329,18 @@ abstract final class SrCapsule {
 
   /// The caret's stroke width.
   static const double caretWidth = 2.5;
+
+  /// The whole chrome anchor's downward nudge, as a fraction of the
+  /// face's font size (2026-09-09 验收裁定). The line ink box's center —
+  /// a TYPOGRAPHIC box (font ascent/descent, accent headroom included) —
+  /// sits measurably above the glyphs' true ink center on the real
+  /// resolution fonts (measured from the font tables, centers above the
+  /// baseline in em: YaHei '中' ink 0.349 vs box 0.398, YaHei digits
+  /// 0.378 vs 0.398, Segoe digits 0.350 vs 0.414; SimSun 0.361 vs
+  /// 0.359 is the near-neutral outlier). Dropping the anchor 0.02em
+  /// lands the dominant fonts at even-to-slightly-high (never
+  /// fill-below-wider); only the legacy SimSun fallback flips by a
+  /// sub-visible ~0.6px. A deliberate constant, small by design — not
+  /// per-font tuning (标号/选区/光标/号圆同锚下移, 药丸不再骑高).
+  static const double opticalEase = 0.02;
 }

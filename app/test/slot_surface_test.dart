@@ -15,7 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/theme.dart' show srTheme;
-import 'package:spokenrectifier_app/src/design/tokens.dart' show SrCapsule;
+import 'package:spokenrectifier_app/src/design/tokens.dart'
+    show SrCapsule, SrType;
 import 'package:spokenrectifier_app/src/preview/slot_editor.dart';
 import 'package:spokenrectifier_app/src/preview/slot_projection.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
@@ -616,8 +617,12 @@ void main() {
     );
     final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
     expect(lines, isNotEmpty);
+    // The anchor is the line's TEXT glyphs (placeholders excluded), eased
+    // down by the optical nudge — the typographic box's center rides
+    // slightly above the glyphs' true ink.
+    final ease = SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
     expect(
-      (pill.center.dy - lines.first.center.dy).abs(),
+      (pill.center.dy - (lines.first.center.dy + ease)).abs(),
       lessThan(0.5),
       reason: 'the anchor is the line\'s TEXT glyphs, placeholders excluded',
     );
@@ -637,8 +642,9 @@ void main() {
     );
     final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
     expect(lines, isNotEmpty);
+    final ease = SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
     expect(
-      (pill.center.dy - lines.first.center.dy).abs(),
+      (pill.center.dy - (lines.first.center.dy + ease)).abs(),
       lessThan(0.5),
       reason: 'empty and filled share one anchor: the text, never the chip',
     );
@@ -677,10 +683,13 @@ void main() {
     // around the spacer at 2 claims the circle's center.
     final lines = textLineInkBoxes(paragraph, const [2], 5);
     expect(lines, isNotEmpty);
+    final ease =
+        SrCapsule.opticalEase *
+        (state.widget.streamStyle ?? SrType.bodyLarge).fontSize!;
     expect(
-      (rects[1]!.center.dy - lines.first.center.dy).abs(),
+      (rects[1]!.center.dy - (lines.first.center.dy + ease)).abs(),
       lessThan(0.5),
-      reason: 'the painted circle rides its line\'s text ink center',
+      reason: 'the painted circle rides its line\'s text ink center, eased',
     );
     expect(rects[1]!.height, SrCapsule.liveSize);
   });
