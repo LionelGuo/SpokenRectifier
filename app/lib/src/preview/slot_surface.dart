@@ -35,10 +35,14 @@
 /// Visual rules come from ticket 08's five rounds: the all-flat capsule
 /// family (no borders or shadows; the active capsule's stroke fades
 /// in/out), the number absolutely positioned in the left cap circle
-/// (drawn as the chip placeholder — not selectable, not copyable), the
-/// selection height never above the capsule, the pill vertically centered
-/// on its line's ink box, and the empty capsule one character narrower
-/// than a single character fills it (删空只缩短不消失).
+/// (painted by the foreground layer onto the pill's cap — not part of the
+/// text, not selectable, not copyable), the selection height never above
+/// the capsule, the pill vertically centered on its line's TEXT ink (the
+/// line-ink union excludes every placeholder box — the chip's own
+/// placement can never displace the alignment reference), the capsule's
+/// horizontal margins reserved in layout (the chip's leading spacer and
+/// the per-slot reservation placeholder), and the empty capsule one
+/// character narrower than a single character fills it (删空只缩短不消失).
 
 library;
 
@@ -52,6 +56,7 @@ import 'package:flutter/services.dart';
 
 import '../design/tokens.dart';
 import '../session/pin_capsule.dart' show sentinelSpans;
+import 'slot_document.dart' show scanSentinels;
 import 'slot_editor.dart';
 import 'slot_projection.dart';
 
@@ -138,6 +143,11 @@ class SlotSurfaceState extends State<SlotSurface>
   /// space (空胶囊右侧留空位作光标落点;08 号票).
   static const double pillRightPad = SrCapsule.valuePad;
 
+  /// Breathing room between the pill's caps and the neighbouring text,
+  /// reserved in layout (the chip's leading spacer and the reservation
+  /// placeholder's tail beyond the pill's right cap).
+  static const double capsuleSidePad = SrCapsule.sidePad;
+
   /// Selection boxes never reach the capsule's full height.
   static const double selectionHeight = SrCapsule.selectionHeight;
 
@@ -169,6 +179,16 @@ class SlotSurfaceState extends State<SlotSurface>
   int? _tooltipId;
   Timer? _tooltipTimer;
 
+  // Stream mode: the capsules' paint-offset correction against their
+  // lines' text ink. The WidgetSpan's own middle alignment follows the
+  // font's metrics, which on the real fallback chains sits visibly off
+  // the CJK line's centre (23 号验收轮); after each layout the surface
+  // measures every circle against its line's glyph-only ink box and
+  // shifts the paint by the difference. Layout never moves — only the
+  // circle's paint does.
+  BuildContext? _streamParagraph;
+  List<double> _capsuleShifts = const [];
+
   bool get _isPreview => widget.mode == SlotSurfaceMode.preview;
 
   /// The view the connection targets. The engine rejects setClient
@@ -196,6 +216,8 @@ class SlotSurfaceState extends State<SlotSurface>
       widget.focusNode?.addListener(_onFocusChanged);
       // Opening waits for didChangeDependencies: the view id the engine
       // demands is only resolvable there.
+    } else {
+      _scheduleStreamAlign();
     }
   }
 
@@ -203,14 +225,18 @@ class SlotSurfaceState extends State<SlotSurface>
   void didUpdateWidget(SlotSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_isPreview) {
-      // The stream keeps itself pinned to the newest line.
-      if (widget.text != oldWidget.text && widget.scrollController != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final scroll = widget.scrollController;
-          if (scroll != null && scroll.hasClients && mounted) {
-            scroll.jumpTo(scroll.position.maxScrollExtent);
-          }
-        });
+      // The stream keeps itself pinned to the newest line, and the
+      // circles re-align to the new layout's text ink.
+      if (widget.text != oldWidget.text) {
+        if (widget.scrollController != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final scroll = widget.scrollController;
+            if (scroll != null && scroll.hasClients && mounted) {
+              scroll.jumpTo(scroll.position.maxScrollExtent);
+            }
+          });
+        }
+        _scheduleStreamAlign();
       }
       return;
     }
@@ -340,14 +366,79 @@ class SlotSurfaceState extends State<SlotSurface>
     final text = widget.text ?? '';
     return SingleChildScrollView(
       controller: widget.scrollController,
-      child: Text.rich(
-        key: const Key('session-stream'),
-        TextSpan(
-          style: widget.streamStyle ?? SrType.bodyLarge,
-          children: sentinelSpans(text),
-        ),
+      child: Builder(
+        builder: (paragraphContext) {
+          _streamParagraph = paragraphContext;
+          return Text.rich(
+            key: const Key('session-stream'),
+            TextSpan(
+              style: widget.streamStyle ?? SrType.bodyLarge,
+              children: sentinelSpans(text, capsuleShifts: _capsuleShifts),
+            ),
+          );
+        },
       ),
     );
+  }
+
+  // -- stream capsule alignment ---------------------------------------------
+
+  void _scheduleStreamAlign() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _alignStreamCapsules());
+  }
+
+  /// Measure every stream capsule against its line's glyph-only ink box
+  /// and adopt the paint shift. Only a real change (0.1px hysteresis)
+  /// rebuilds — a stable layout settles after one correction, and stale
+  /// shifts from the previous text ride the next layout without a flash.
+  void _alignStreamCapsules() {
+    if (!mounted || _isPreview) return;
+    final paragraph =
+        _streamParagraph?.findRenderObject() as RenderParagraph?;
+    if (paragraph == null || !paragraph.attached) return;
+    final text = widget.text ?? '';
+    final positions = <int>[];
+    var textPos = 0;
+    var flatPos = 0;
+    for (final span in scanSentinels(text)) {
+      flatPos += span.start - textPos;
+      positions.add(flatPos);
+      flatPos += 1;
+      textPos = span.end;
+    }
+    final length = flatPos + (text.length - textPos);
+    final lines = textLineInkBoxes(paragraph, positions, length);
+    final shifts = List<double>.filled(positions.length, 0);
+    for (var i = 0; i < positions.length; i++) {
+      final boxes = paragraph.getBoxesForSelection(
+        TextSelection(
+          baseOffset: positions[i],
+          extentOffset: positions[i] + 1,
+        ),
+      );
+      if (boxes.isEmpty) continue;
+      final center = boxes.first.toRect().center.dy;
+      // A circle no text line claims (pins alone on their line) keeps its
+      // own placement — there is nothing to align against.
+      Rect? line;
+      for (final l in lines) {
+        if (center >= l.top - 0.5 && center <= l.bottom + 0.5) {
+          line = l;
+          break;
+        }
+      }
+      shifts[i] = line == null ? 0 : line.center.dy - center;
+    }
+    var changed = shifts.length != _capsuleShifts.length;
+    if (!changed) {
+      for (var i = 0; i < shifts.length; i++) {
+        if ((shifts[i] - _capsuleShifts[i]).abs() > 0.1) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) setState(() => _capsuleShifts = shifts);
   }
 
   Widget _buildPreview(BuildContext context) {
@@ -381,8 +472,12 @@ class SlotSurfaceState extends State<SlotSurface>
   }
 
   /// The paragraph's span tree: body runs as plain text, each capsule as
-  /// its chip placeholder (WidgetSpan) followed by its value as plain
-  /// text, the composing run underlined over the selection it replaces.
+  /// its chip placeholder (WidgetSpan) followed by its value as plain text
+  /// and its reservation placeholder, the composing run underlined over
+  /// the selection it replaces. The chip child is a bare spacer — its
+  /// leading [capsuleSidePad] plus the cap circle's width; the digits are
+  /// painted by the foreground layer onto the pill's cap, so they can
+  /// never disagree with the pill's own geometry.
   List<InlineSpan> _spanTree(SrPalette pal) {
     final projection = _projection;
     final base = projection.base;
@@ -390,13 +485,19 @@ class SlotSurfaceState extends State<SlotSurface>
     final coverStart = _composingCoverStartFlat;
     final coverEnd = _composingCoverEndFlat;
 
-    // Base segments: (start, end) runs broken at every chip boundary and
-    // at the composing splice range's edges.
+    // Base segments: (start, end) runs broken at every placeholder
+    // boundary and at the composing splice range's edges.
     final breaks = <int>{
       0,
       base.length,
       if (composing) ...[coverStart, coverEnd],
-      for (final slot in projection.slots) ...[slot.chipAt, slot.chipAt + 1],
+      for (final slot in projection.slots) ...[
+        slot.chipAt,
+        slot.chipAt + 1,
+        slot.valueStart,
+        slot.valueEnd,
+        slot.valueEnd + 1,
+      ],
     };
     final segments = <(int, int)>[];
     final ordered = breaks.toList()..sort();
@@ -416,8 +517,8 @@ class SlotSurfaceState extends State<SlotSurface>
     for (final (start, end) in segments) {
       if (start == end) continue;
       // The composing run splices ahead of the first segment at or past
-      // its start — even when that segment is the chip (the caret rests
-      // at the capsule's outside-left dock).
+      // its start — even when that segment is a placeholder (the caret
+      // rests at the capsule's outside-left dock, or its inside-end).
       if (composingPending && start >= coverStart) {
         children.add(TextSpan(text: _composing, style: underline));
         composingPending = false;
@@ -425,15 +526,20 @@ class SlotSurfaceState extends State<SlotSurface>
       if (composing && start >= coverStart && end <= coverEnd) {
         continue; // covered by the composing run
       }
-      final isChip = projection.slots.any(
-        (s) => s.chipAt == start && end == s.chipAt + 1,
-      );
-      if (isChip) {
-        final slot = projection.slots.firstWhere((s) => s.chipAt == start);
+      if (base.codeUnitAt(start) == 0xFFFC) {
+        final slot = projection.slots.any((s) => s.chipAt == start)
+            ? projection.slots.firstWhere((s) => s.chipAt == start)
+            : null;
         children.add(
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
-            child: _NumberChip(id: slot.id),
+            child: SizedBox(
+              width:
+                  slot != null
+                  ? capsuleSidePad + chipCircle + chipGap
+                  : pillRightPad + capsuleSidePad,
+              height: slot != null ? capsuleHeight : 4,
+            ),
           ),
         );
         continue;
@@ -854,6 +960,13 @@ class SlotSurfaceState extends State<SlotSurface>
           left = math.min(left, box.left);
           right = math.max(right, box.right);
         }
+        // The first run's left is the chip box's left — the child's
+        // leading sidePad lives outside the pill (the pill's cap starts
+        // at the circle, clear of the preceding text's ink). The last
+        // run's right grows into the reservation placeholder the
+        // projection holds past the value (its first valuePad is the
+        // parking space; its tail is the side breathing room).
+        if (i == 0) left += capsuleSidePad;
         final center = _inkCenter(lines, runs[i].first.toRect().center.dy);
         rects.add(
           Rect.fromLTRB(
@@ -869,37 +982,21 @@ class SlotSurfaceState extends State<SlotSurface>
     return segments;
   }
 
-  /// The paragraph's line ink boxes, top to bottom: every glyph box
-  /// unions into its line's ink extent — the line's own geometry, the
-  /// font's leading excluded, the capsule chips included. Pills,
+  /// The paragraph's line ink boxes, top to bottom: the TEXT glyphs only
+  /// — every placeholder box (chips, reservations, stream circles) is
+  /// excluded, so the anchor describes where the line's writing sits and
+  /// a placeholder's own placement can never displace the alignment
+  /// reference it is measured against. Pills, the painted digits,
   /// selection boxes and the caret all center on these: one vertical
   /// anchor for the whole surface, computed rather than locked to pixels
   /// (胶囊对所在行上下间距绝对相等, 不锁像素;08 号票).
   List<Rect> _lineInkBoxes(RenderParagraph paragraph) {
     final text = _paragraphText;
-    final boxes = paragraph.getBoxesForSelection(
-      TextSelection(baseOffset: 0, extentOffset: text.length),
-    );
-    if (boxes.isEmpty) return const [];
-    final sorted = boxes.toList()..sort((a, b) => a.top.compareTo(b.top));
-    final lines = <Rect>[];
-    for (final box in sorted) {
-      final rect = box.toRect();
-      if (lines.isNotEmpty && rect.top < lines.last.bottom) {
-        final last = lines.removeLast();
-        lines.add(
-          Rect.fromLTRB(
-            math.min(last.left, rect.left),
-            last.top,
-            math.max(last.right, rect.right),
-            math.max(last.bottom, rect.bottom),
-          ),
-        );
-      } else {
-        lines.add(rect);
-      }
-    }
-    return lines;
+    final positions = <int>[
+      for (var i = 0; i < text.length; i++)
+        if (text.codeUnitAt(i) == 0xFFFC) i,
+    ];
+    return textLineInkBoxes(paragraph, positions, text.length);
   }
 
   /// The ink-box center of the line [dy] falls on — the vertical anchor
@@ -1202,6 +1299,68 @@ class SlotSurfaceState extends State<SlotSurface>
 
   /// The pill rectangles per identity — the tests' geometry seam.
   Map<int, List<Rect>> capsuleSegmentsForTest() => _capsuleSegments();
+
+  /// The stream capsules' current paint shifts against their lines' text
+  /// ink (stream mode only) — the tests' alignment seam.
+  List<double> get streamCapsuleShiftsForTest => _capsuleShifts;
+}
+
+// ---------------------------------------------------------------------------
+// shared line geometry
+// ---------------------------------------------------------------------------
+
+/// A paragraph's line ink boxes over the TEXT glyphs only, top to bottom:
+/// the selection ranges BETWEEN [placeholders] (flat offsets of the inline
+/// placeholder code units) are measured and unioned per line; the
+/// placeholder boxes themselves are skipped. Both faces of the surface
+/// family anchor their capsule chrome on this — the stream's circle
+/// shifts and the preview's pills, digits, selection and caret — so every
+/// capsule aligns against where the line's writing actually sits, never
+/// against a placeholder's own (font-metric-driven) placement.
+List<Rect> textLineInkBoxes(
+  RenderParagraph paragraph,
+  List<int> placeholders,
+  int length,
+) {
+  final boxes = <TextBox>[];
+  var start = 0;
+  for (final p in placeholders) {
+    if (p > start) {
+      boxes.addAll(
+        paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: start, extentOffset: p),
+        ),
+      );
+    }
+    start = p + 1;
+  }
+  if (start < length) {
+    boxes.addAll(
+      paragraph.getBoxesForSelection(
+        TextSelection(baseOffset: start, extentOffset: length),
+      ),
+    );
+  }
+  if (boxes.isEmpty) return const [];
+  final sorted = boxes.toList()..sort((a, b) => a.top.compareTo(b.top));
+  final lines = <Rect>[];
+  for (final box in sorted) {
+    final rect = box.toRect();
+    if (lines.isNotEmpty && rect.top < lines.last.bottom) {
+      final last = lines.removeLast();
+      lines.add(
+        Rect.fromLTRB(
+          math.min(last.left, rect.left),
+          last.top,
+          math.max(last.right, rect.right),
+          math.max(last.bottom, rect.bottom),
+        ),
+      );
+    } else {
+      lines.add(rect);
+    }
+  }
+  return lines;
 }
 
 // ---------------------------------------------------------------------------
@@ -1336,6 +1495,27 @@ class _ForegroundPainter extends CustomPainter {
         );
       }
     }
+    // The capsules' number digits, centered on each pill's left cap
+    // circle — the same geometry the pill layer drew, so the digits can
+    // never disagree with the pill's placement (号数绝对定位于左端切圆
+    // 圆心,08 号票; the chip widget itself is a bare spacer).
+    for (final entry in state._capsuleSegments().entries) {
+      final first = entry.value.first;
+      final digits = TextPainter(
+        text: TextSpan(
+          text: '${entry.key}',
+          style: SrType.micro.copyWith(color: pal.accentText, height: 1),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      digits.paint(
+        canvas,
+        Offset(
+          first.left + SlotSurfaceState.capsuleHeight / 2 - digits.width / 2,
+          first.center.dy - digits.height / 2,
+        ),
+      );
+    }
     // Slot hover tooltip: one hint for every capsule in every state —
     // prefill or not, emptied or edited (2026-09-09 user decision; the
     // per-prefill wording 预填:X/预填为空 is retired).
@@ -1381,43 +1561,4 @@ class _ForegroundPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ForegroundPainter old) => true;
-}
-
-/// The capsule's number chip: the pill's left cap circle carrying the
-/// digits (号数绝对定位于左端切圆圆心的普通小字 — the circle itself is
-/// painted by the pill layer; this widget is only the digits and the
-/// horizontal space the cap occupies in the line). Fixed size, so the
-/// WidgetSpan never stretches to the bounded paragraph width (the 21 号
-/// regression).
-class _NumberChip extends StatelessWidget {
-  const _NumberChip({required this.id});
-
-  final int id;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return SizedBox(
-      width: SlotSurfaceState.chipCircle + SlotSurfaceState.chipGap,
-      height: SlotSurfaceState.capsuleHeight,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: SlotSurfaceState.chipCircle,
-            height: SlotSurfaceState.capsuleHeight,
-            child: Center(
-              widthFactor: 1,
-              heightFactor: 1,
-              child: Text(
-                '$id',
-                style: SrType.micro.copyWith(color: pal.accentText, height: 1),
-              ),
-            ),
-          ),
-          const SizedBox(width: SlotSurfaceState.chipGap),
-        ],
-      ),
-    );
-  }
 }

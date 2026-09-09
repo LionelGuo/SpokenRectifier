@@ -8,11 +8,13 @@ library;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
+import 'package:spokenrectifier_app/src/design/theme.dart' show srTheme;
 import 'package:spokenrectifier_app/src/preview/slot_editor.dart';
 import 'package:spokenrectifier_app/src/preview/slot_projection.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
@@ -141,7 +143,7 @@ void main() {
     tester,
   ) async {
     final h = await pumpSlotPreview(tester);
-    expect(h.surface.flatBaseText, '发给￼张三一下');
+    expect(h.surface.flatBaseText, '发给￼张三￼一下');
     // The whole main surface never shows the four sentinel characters.
     expect(find.textContaining('‡'), findsNothing);
     expect(h.surface.capsuleSegmentsForTest().keys, [1]);
@@ -165,7 +167,7 @@ void main() {
     // Typing over the selection replaces the prefill wholesale, and the
     // substituted text (what confirm would insert) follows at once.
     await h.type('李四');
-    expect(h.surface.flatBaseText, '发给￼李四一下');
+    expect(h.surface.flatBaseText, '发给￼李四￼一下');
     expect(h.controller.previewText, '发给李四一下');
     await windDown(tester, h.controller);
   });
@@ -189,7 +191,7 @@ void main() {
       // selection start without touching the text...
       h.tester.testTextInput.updateEditingValue(
         const TextEditingValue(
-          text: '发给￼张三一下',
+          text: '发给￼张三￼一下',
           selection: TextSelection(baseOffset: 3, extentOffset: 5),
           composing: TextRange(start: 3, end: 3),
         ),
@@ -199,7 +201,7 @@ void main() {
       // and inserted the composing run at the selection start.
       h.tester.testTextInput.updateEditingValue(
         const TextEditingValue(
-          text: '发给￼zhang一下',
+          text: '发给￼zhang￼一下',
           selection: TextSelection.collapsed(offset: 8),
           composing: TextRange(start: 3, end: 8),
         ),
@@ -207,15 +209,15 @@ void main() {
       await h.tester.pump();
       // Mid-composition: the model keeps its selection (the overlay covers
       // it) and the painted paragraph equals the platform text.
-      expect(h.surface.flatBaseText, '发给￼张三一下');
+      expect(h.surface.flatBaseText, '发给￼张三￼一下');
       expect(h.surface.composingText, 'zhang');
-      expect(h.surface.paintedTextForTest, '发给￼zhang一下');
+      expect(h.surface.paintedTextForTest, '发给￼zhang￼一下');
 
       // Space commits 张: the commit itself sends no update (the plugin
       // defers to the end event); the end event carries the final state.
       h.tester.testTextInput.updateEditingValue(
         const TextEditingValue(
-          text: '发给￼张一下',
+          text: '发给￼张￼一下',
           selection: TextSelection.collapsed(offset: 4),
           composing: TextRange(start: 0, end: 0),
         ),
@@ -224,7 +226,7 @@ void main() {
 
       expect(h.surface.composingText, '');
       expect(h.surface.editor.doc.valueOf(1), '张');
-      expect(h.surface.flatBaseText, '发给￼张一下');
+      expect(h.surface.flatBaseText, '发给￼张￼一下');
       expect(h.controller.previewText, '发给张一下');
       await windDown(tester, h.controller);
     },
@@ -241,11 +243,11 @@ void main() {
       final h = await pumpSlotPreview(tester, body: '发给‡1‡');
       await tester.tapAt(h.capsuleRect(1).center);
       await h.tester.pump();
-      expect(h.surface.flatBaseText, '发给￼张三');
+      expect(h.surface.flatBaseText, '发给￼张三￼');
 
       h.tester.testTextInput.updateEditingValue(
         const TextEditingValue(
-          text: '发给￼zhang',
+          text: '发给￼zhang￼',
           selection: TextSelection.collapsed(offset: 8),
           composing: TextRange(start: 3, end: 8),
         ),
@@ -255,7 +257,7 @@ void main() {
 
       h.tester.testTextInput.updateEditingValue(
         const TextEditingValue(
-          text: '发给￼张',
+          text: '发给￼张￼',
           selection: TextSelection.collapsed(offset: 4),
           composing: TextRange(start: 0, end: 0),
         ),
@@ -264,7 +266,7 @@ void main() {
 
       expect(h.surface.composingText, '');
       expect(h.surface.editor.doc.valueOf(1), '张');
-      expect(h.surface.flatBaseText, '发给￼张');
+      expect(h.surface.flatBaseText, '发给￼张￼');
       await windDown(tester, h.controller);
     },
   );
@@ -321,7 +323,7 @@ void main() {
     await tester.pump();
     expect(h.surface.activeSlotId, 1);
     await h.type('王五');
-    expect(h.surface.flatBaseText, '发给￼王五一下');
+    expect(h.surface.flatBaseText, '发给￼王五￼一下');
     expect(h.controller.previewText, '发给王五一下');
     await windDown(tester, h.controller);
   });
@@ -421,22 +423,22 @@ void main() {
     await tester.tapAt(h.capsuleRect(1).center);
     await tester.pump();
     await h.type('李四');
-    expect(h.surface.flatBaseText, '。发给￼李四一下');
+    expect(h.surface.flatBaseText, '。发给￼李四￼一下');
 
     // One stack, in time order: undo takes the value edit back first,
     // then the body insert (值与骨架同栈、按时间统一回退). The caret
     // walks with the history: undo lands where the undone edit began,
     // redo behind the redone modification (2026-09-09 ruling).
     await h.ctrlKey(LogicalKeyboardKey.keyZ);
-    expect(h.surface.flatBaseText, '。发给￼张三一下');
+    expect(h.surface.flatBaseText, '。发给￼张三￼一下');
     expect(h.surface.editor.caret, const SlotCursor.inside(at: 3, offset: 0));
     await h.ctrlKey(LogicalKeyboardKey.keyZ);
-    expect(h.surface.flatBaseText, '发给￼张三一下');
+    expect(h.surface.flatBaseText, '发给￼张三￼一下');
     expect(h.surface.editor.caret, const SlotCursor.outside(0));
 
     // Redo walks forward again.
     await h.ctrlKey(LogicalKeyboardKey.keyZ, shift: true);
-    expect(h.surface.flatBaseText, '。发给￼张三一下');
+    expect(h.surface.flatBaseText, '。发给￼张三￼一下');
     expect(h.surface.editor.caret, const SlotCursor.outside(1));
     await windDown(tester, h.controller);
   });
@@ -553,5 +555,125 @@ void main() {
     await h.key(LogicalKeyboardKey.arrowDown);
     expect(flat(), greaterThanOrEqualTo(5), reason: 'the second line starts here');
     await windDown(tester, h.controller);
+  });
+
+  // -- capsule chrome geometry (23 号验收轮 D1/D3 修复的回归锁) --------------
+
+  RenderParagraph previewParagraph(WidgetTester tester) =>
+      tester.renderObject<RenderParagraph>(
+        find.descendant(
+          of: find.byKey(const Key('session-text')),
+          matching: find.byType(RichText),
+        ),
+      );
+
+  /// The flat offsets of the placeholder code units (chip + reservation).
+  List<int> placeholderPositions(String flat) => [
+    for (var i = 0; i < flat.length; i++)
+      if (flat.codeUnitAt(i) == 0xFFFC) i,
+  ];
+
+  testWidgets(
+    'the pill keeps clear of the neighbouring glyphs on both sides', (
+    tester,
+  ) async {
+    final h = await pumpSlotPreview(tester);
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.flatBaseText;
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+    final leftEnd = flat.indexOf('￼');
+    final rightStart = flat.lastIndexOf('￼') + 1;
+    final before = paragraph
+        .getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: leftEnd))
+        .last
+        .right;
+    final after = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: rightStart, extentOffset: flat.length),
+        )
+        .first
+        .left;
+    // The margins are reserved in layout (the chip's leading spacer, the
+    // reservation placeholder's tail) — the pill's caps may never touch,
+    // let alone paint over, the neighbours' ink.
+    expect(pill.left - before, greaterThan(4));
+    expect(after - pill.right, greaterThan(4));
+    await windDown(tester, h.controller);
+  },
+  );
+
+  testWidgets('the pill centres on the line text ink, filled capsule', (
+    tester,
+  ) async {
+    final h = await pumpSlotPreview(tester);
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.flatBaseText;
+    final lines = textLineInkBoxes(
+      paragraph,
+      placeholderPositions(flat),
+      flat.length,
+    );
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+    expect(lines, isNotEmpty);
+    expect(
+      (pill.center.dy - lines.first.center.dy).abs(),
+      lessThan(0.5),
+      reason: 'the anchor is the line\'s TEXT glyphs, placeholders excluded',
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('the pill centres on the line text ink, empty capsule', (
+    tester,
+  ) async {
+    final h = await pumpSlotPreview(tester, prefill: '');
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.flatBaseText;
+    final lines = textLineInkBoxes(
+      paragraph,
+      placeholderPositions(flat),
+      flat.length,
+    );
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+    expect(lines, isNotEmpty);
+    expect(
+      (pill.center.dy - lines.first.center.dy).abs(),
+      lessThan(0.5),
+      reason: 'empty and filled share one anchor: the text, never the chip',
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('stream capsules measure their alignment against the text ink', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: srTheme(Brightness.dark),
+        home: Scaffold(
+          body: SlotSurface(
+            key: const Key('session-stream-solo'),
+            mode: SlotSurfaceMode.stream,
+            text: '发给‡1‡一下',
+            scrollController: scroll,
+          ),
+        ),
+      ),
+    );
+    // The post-frame measurement runs and settles: one capsule, one
+    // measured shift, within a hair of the text ink in any font.
+    await tester.pump();
+    await tester.pump();
+    final state =
+        tester.state(find.byKey(const Key('session-stream-solo')))
+            as SlotSurfaceState;
+    expect(state.streamCapsuleShiftsForTest, hasLength(1));
+    expect(
+      state.streamCapsuleShiftsForTest.single.abs(),
+      lessThan(1),
+      reason: 'the circle rides its line\'s text ink center',
+    );
   });
 }

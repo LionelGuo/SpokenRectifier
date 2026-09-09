@@ -72,20 +72,35 @@ class PinNumberCapsule extends StatelessWidget {
 /// one the slot model uses (同形也抽), so a same-shape the ASR happened
 /// to transcribe renders as a capsule too, exactly as it would extract
 /// as a slot later.
-List<InlineSpan> sentinelSpans(String text) {
+///
+/// [capsuleShifts] carries per-capsule paint offsets (dy) the surface
+/// measured against each line's text ink — the WidgetSpan's own middle
+/// alignment follows the font's metrics and can sit visibly off the CJK
+/// line's centre on real fallback chains (23 号验收轮), so the surface
+/// corrects the paint, never the layout. An empty list paints unshifted.
+List<InlineSpan> sentinelSpans(
+  String text, {
+  List<double> capsuleShifts = const [],
+}) {
   final spans = <InlineSpan>[];
   var copied = 0;
+  var capsule = 0;
   for (final span in scanSentinels(text)) {
     if (span.start > copied) {
       spans.add(TextSpan(text: text.substring(copied, span.start)));
     }
+    final shift = capsule < capsuleShifts.length ? capsuleShifts[capsule] : 0.0;
+    final child = PinNumberCapsule(id: span.id);
     spans.add(
       WidgetSpan(
         alignment: PlaceholderAlignment.middle,
-        child: PinNumberCapsule(id: span.id),
+        child: shift == 0
+            ? child
+            : Transform.translate(offset: Offset(0, shift), child: child),
       ),
     );
     copied = span.end;
+    capsule++;
   }
   if (copied < text.length) {
     spans.add(TextSpan(text: text.substring(copied)));

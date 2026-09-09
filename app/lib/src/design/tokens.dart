@@ -311,6 +311,12 @@ abstract final class SrCapsule {
   /// space (空胶囊右侧留空位作光标落点; 08 号票).
   static const double valuePad = 6.0;
 
+  /// Breathing room between the pill's caps and the neighbouring text —
+  /// reserved in layout on both sides (the chip's leading spacer, and the
+  /// per-slot reservation placeholder after the value), never painted over
+  /// the neighbours' ink (胶囊两侧间距走视觉与布局预留).
+  static const double sidePad = 6.0;
+
   /// Selection boxes never reach the capsule's full height.
   static const double selectionHeight = 20.0;
 

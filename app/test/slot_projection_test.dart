@@ -17,10 +17,10 @@ SlotEditor arriveEditor(String text, Map<int, String> prefill) {
 }
 
 void main() {
-  test('sentinels project to chip + value; body passes through', () {
+  test('sentinels project to chip + value + reservation; body passes through', () {
     final editor = arriveEditor('发给‡1‡一下', {1: '张三'});
     final projection = SlotProjection(editor.doc);
-    expect(projection.base, '发给$chipPlaceholder张三一下');
+    expect(projection.base, '发给$chipPlaceholder张三$chipPlaceholder一下');
     expect(projection.slots, hasLength(1));
     final slot = projection.slots.single;
     expect(slot.id, 1);
@@ -29,9 +29,12 @@ void main() {
     expect(slot.valueEnd, 5);
   });
 
-  test('empty value leaves the chip alone in the string', () {
+  test('empty value projects the chip beside its reservation', () {
     final editor = arriveEditor('发给‡1‡一下', {});
-    expect(SlotProjection(editor.doc).base, '发给$chipPlaceholder一下');
+    expect(
+      SlotProjection(editor.doc).base,
+      '发给$chipPlaceholder$chipPlaceholder一下',
+    );
   });
 
   test('same-shapes typed after arrival pass through verbatim', () {
@@ -41,18 +44,21 @@ void main() {
     editor.place(const SlotCursor.outside(5)); // past 乙
     editor.insert('‡2‡');
     final projection = SlotProjection(editor.doc);
-    expect(projection.base, '甲$chipPlaceholder值乙‡2‡丙');
+    expect(projection.base, '甲$chipPlaceholder值$chipPlaceholder乙‡2‡丙');
     expect(projection.slots.map((s) => s.id), [1]);
   });
 
   test('same identity twice projects two occurrences of one value', () {
     final editor = arriveEditor('甲‡1‡乙‡1‡丙', {1: '张'});
     final projection = SlotProjection(editor.doc);
-    expect(projection.base, '甲$chipPlaceholder张乙$chipPlaceholder张丙');
+    expect(
+      projection.base,
+      '甲$chipPlaceholder张$chipPlaceholder乙$chipPlaceholder张$chipPlaceholder丙',
+    );
     expect(projection.slots, hasLength(2));
     expect(projection.slots.first.valueStart, 2);
-    expect(projection.slots.last.chipAt, 4);
-    expect(projection.slots.last.valueStart, 5);
+    expect(projection.slots.last.chipAt, 5);
+    expect(projection.slots.last.valueStart, 6);
   });
 
   group('cursor ⇄ flat round trips', () {
@@ -102,12 +108,37 @@ void main() {
     // A long first value pushes the second capsule's flat position.
     final editor = arriveEditor('‡1‡与‡2‡', {1: '很长的值', 2: '短'});
     final projection = SlotProjection(editor.doc);
-    expect(projection.base, '$chipPlaceholder很长的值与$chipPlaceholder短');
+    expect(
+      projection.base,
+      '$chipPlaceholder很长的值$chipPlaceholder与$chipPlaceholder短$chipPlaceholder',
+    );
     final second = projection.slots.last;
-    expect(second.chipAt, 6);
-    expect(second.valueStart, 7);
-    // The end stop: past both capsules (the long value pushes, the second
-    // sentinel shrinks).
-    expect(projection.cursorToFlat(const SlotCursor.outside(7)), 8);
+    expect(second.chipAt, 7);
+    expect(second.valueStart, 8);
+    // The end stop: past both capsules and their reservations (the long
+    // value pushes, the second sentinel shrinks).
+    expect(projection.cursorToFlat(const SlotCursor.outside(7)), 10);
+  });
+
+  test('the outside-right stop lands past the reservation', () {
+    final editor = arriveEditor('发给‡1‡一下', {1: '张三'});
+    final projection = SlotProjection(editor.doc);
+    final outsideRight = projection.cursorToFlat(const SlotCursor.outside(5));
+    expect(outsideRight, 6); // past the reservation at 5, clear of the pill
+    expect(
+      projection.flatToCursor(6, preferInside: false),
+      const SlotCursor.outside(5),
+    );
+    // The inside-end dock still sits at the value's own end — inside the
+    // pill's parking space, before the reservation.
+    final insideEnd = projection.cursorToFlat(const SlotCursor.inside(
+      at: 2,
+      offset: 2,
+    ));
+    expect(insideEnd, 5);
+    expect(
+      projection.flatToCursor(5, preferInside: true),
+      const SlotCursor.inside(at: 2, offset: 2),
+    );
   });
 }

@@ -1,13 +1,14 @@
 /// The flat projection of a slot document (ticket 22): the skeleton with
-/// every minted sentinel replaced by an inline number chip plus its value
-/// — the string the preview editing surface lays out, the caret walks and
-/// the platform text input holds. Pure Dart, no Flutter; headless-testable.
+/// every minted sentinel replaced by an inline number chip, its value, and
+/// a trailing reservation placeholder — the string the preview editing
+/// surface lays out, the caret walks and the platform text input holds.
+/// Pure Dart, no Flutter; headless-testable.
 ///
 /// The projection is one string built in one pass:
 ///
 /// ```text
-/// 发给␀张三一下          (␀ = U+FFFC, the chip placeholder)
-///  ^^^^^^^ skeleton      chip + value replace each ‡N‡
+/// 发给␀张三␀一下         (␀ = U+FFFC, a placeholder code unit)
+///  ^^^^^^^ skeleton      chip + value + reservation replace each ‡N‡
 /// ```
 ///
 /// The chip placeholder is one code unit at the capsule's left end — the
@@ -17,6 +18,16 @@
 /// offset after it (槽内/槽外两个停靠点;20 号票) — two distinct flat
 /// positions, so the paragraph's own caret geometry renders both without
 /// any model change.
+///
+/// The reservation placeholder is one more code unit right past the value
+/// (at [ProjectedSlot.valueEnd]): an inline spacer the surface sizes to
+/// the pill's right padding plus its side breathing room. It carries the
+/// capsule's horizontal margins in LAYOUT — the pill's caps may never
+/// paint over the neighbours' ink, and the only reservation that leaves
+/// the caret and the IME alone (a letter-spaced glyph would push both
+/// past the capsule; 23 号验收轮) is a zero-content placeholder. The
+/// caret boundary at the value's end sits before it, so the inside-end
+/// dock still lands inside the pill.
 ///
 /// Composing (IME pre-edit) text is NOT part of this projection: the
 /// surface splices it at the caret when it builds the paragraph and the
@@ -28,8 +39,10 @@ library;
 import 'slot_document.dart';
 import 'slot_editor.dart' show SlotCursor;
 
-/// The object replacement character standing in for a capsule's number
-/// chip in the flat text — one code unit, never user-typed.
+/// The object replacement character standing in for a capsule's inline
+/// placeholders in the flat text — one code unit, never user-typed. The
+/// chip carries it at the capsule's left end; the reservation at the
+/// value's right.
 const chipPlaceholder = '\uFFFC';
 
 /// One capsule occurrence's coordinates in the projection: where the chip
@@ -60,7 +73,8 @@ class ProjectedSlot {
   /// The value's first code unit in the projection.
   final int valueStart;
 
-  /// Just past the value's last code unit (== valueStart when empty).
+  /// Just past the value's last code unit (== valueStart when empty) —
+  /// and the reservation placeholder's own offset.
   final int valueEnd;
 
   @override
@@ -93,15 +107,16 @@ class SlotProjection {
       buffer
         ..write(doc.skeleton.substring(copied, slot.bodyStart))
         ..write(chipPlaceholder)
-        ..write(doc.valueOf(slot.id));
+        ..write(doc.valueOf(slot.id))
+        ..write(chipPlaceholder);
       copied = slot.bodyEnd;
     }
     base = (buffer..write(doc.skeleton.substring(copied))).toString();
   }
 
-  /// The projected text: skeleton body + chip placeholder + value per
-  /// minted occurrence, in body order. Unminted same-shapes pass through
-  /// verbatim (人改同形不铸号,19 号票).
+  /// The projected text: skeleton body + chip placeholder + value +
+  /// reservation placeholder per minted occurrence, in body order.
+  /// Unminted same-shapes pass through verbatim (人改同形不铸号,19 号票).
   late final String base;
 
   /// The minted occurrences in body order, with their flat coordinates.
@@ -120,9 +135,9 @@ class SlotProjection {
         valueStart: chipAt + 1,
         valueEnd: chipAt + 1 + valueLength,
       );
-      // This occurrence grew (or shrank) the text by placeholder + value
-      // against the sentinel it replaced.
-      shift += 1 + valueLength - (span.end - span.start);
+      // This occurrence grew (or shrank) the text by chip + value +
+      // reservation against the sentinel it replaced.
+      shift += 2 + valueLength - (span.end - span.start);
     }
   }
 
@@ -142,8 +157,10 @@ class SlotProjection {
     var flat = bodyOffset;
     for (final slot in slots) {
       if (slot.bodyEnd <= bodyOffset) {
-        // The occurrence replaced its sentinel with placeholder + value.
-        flat += 1 + (slot.valueEnd - slot.valueStart) -
+        // The occurrence replaced its sentinel with chip + value +
+        // reservation. The outside-right stop lands past the reservation,
+        // clear of the pill's right cap.
+        flat += 2 + (slot.valueEnd - slot.valueStart) -
             (slot.bodyEnd - slot.bodyStart);
       } else if (slot.bodyStart < bodyOffset) {
         return slot.chipAt; // mid-shape: down to its left edge
@@ -184,7 +201,7 @@ class SlotProjection {
     // Body: walk back over the occurrences it sits past.
     var bodyOffset = flat;
     for (final slot in slots) {
-      final width = 1 + (slot.valueEnd - slot.valueStart);
+      final width = 2 + (slot.valueEnd - slot.valueStart);
       if (flat >= slot.valueEnd) {
         bodyOffset -= width - (slot.bodyEnd - slot.bodyStart);
       } else {
