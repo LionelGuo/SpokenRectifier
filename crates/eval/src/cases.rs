@@ -600,7 +600,7 @@ prefill = [{ pin = 1, any = [\" \"] }]
                 );
                 for (digits, _) in sentinel_counts(&case.transcript) {
                     assert!(
-                        prompt.user.contains(&format!("\n- ‡{digits}‡:")),
+                        prompt.user.contains(&format!("\n- ‡{digits}‡\n")),
                         "{}: census row for ‡{digits}‡ missing",
                         case.id
                     );

@@ -7,7 +7,9 @@
 //!
 //! Placeholders (`‡N‡`) are injected, never baked in: without a sentinel in
 //! the frozen transcript the composition is byte-identical to the
-//! pre-placeholder prompt (ADR-0012).
+//! pre-placeholder prompt (ADR-0012). With pins the response grammar is
+//! inline — the model writes each slot where it rides as `‡N:值‡`, bare
+//! `‡N‡` meaning an empty prefill (ADR-0013).
 
 use spokenrectifier_engine::provider::llm::RectifyRequest;
 
@@ -99,7 +101,7 @@ const GLOBAL_PRECEDENCE: &str = "(优先级:本指令高于其他一切语体、
 const GLOBAL_REMINDER: &str =
     "【全局指令】(必须执行;高于一切拼写与格式保留规则,仅保真铁律与场景指令例外)";
 
-// -- the placeholder branch (ADR-0012, 12 号票锁定稿) ----------------------
+// -- the placeholder branch (ADR-0012; grammar per ADR-0013) --------------
 //
 // Everything in this block exists ONLY when the frozen transcript's
 // mechanical census finds at least one ‡digits‡ sentinel. A no-pin request
@@ -111,26 +113,29 @@ const GLOBAL_REMINDER: &str =
 /// rule (铁律 > 占位符专条 > 场景 > 全局 > 形式规则). The fidelity rule
 /// governs facts and meaning; this rule governs the slots' identity,
 /// glyph, count, and position — disjoint jurisdictions (ADR-0012). The
-/// wording is the locked draft from ticket 12, byte for byte.
+/// response grammar it teaches is inline: each slot rides the rectified
+/// text where it anchors as `‡N:值‡`, the bare `‡N‡` always legal and
+/// meaning an empty prefill; values carry no `‡` and no newline (ADR-0013).
 const PLACEHOLDER_RULE: &str = "\
 【占位符】(与【保真铁律】分辖:铁律辖事实与意思,本条辖槽;高于其他一切规则)
 - 转写里的 ‡数字‡ 记号(如 ‡1‡)是用户钉入的待填槽:不是措辞、不是冗余、不是标点、不是数字读法。
-- 字节级保留:原样出现在修正文本,不改写、不翻译、不规范化、不增删字符、不加引号或代码块等任何包裹。
+- 修正文本里每个槽在原位写成内联形态 ‡编号:值‡(如 ‡1:张三‡):冒号后直接写预填值,值内不得出现 ‡、不得换行。
+- 拿不准不吸的槽写裸形 ‡编号‡(空值);编号原样保留,不改写、不翻译、不规范化、不加引号或代码块等任何包裹。
 - 各槽相互不是冗余:不合并、不删减、不新增转写中没有的记号;编号不受【中文数字规范化】约束。
 - 占位符是普通句法成分:重组不得把它从所锚定的相邻内容上撕开。
-- 口头更正合并不得把槽当引导语或被替代值清掉;更正改预填,不删槽。
-- 吸收:与槽抢同一论元的空指称整块吸进该槽预填,被吸走的不留在正文;专有名词也可吸进预填;拿不准不吸。吸收只写预填,不写正文。
+- 口头更正合并不得把槽当引导语或被替代值清掉;更正改预填值,不删槽。
+- 吸收:与槽抢同一论元的空指称整块吸进该槽的预填值,被吸走的不留在正文;专有名词也可吸进预填;拿不准不吸(写裸形)。吸收只写预填值,不写正文。
 例(非穷尽,非词表):
-- \"打开这个文件‡1‡\"→正文\"打开‡1‡\",预填填该指称的书面化形式。
-- \"发给张三‡1‡\"→正文\"发给‡1‡\",预填\"张三\"。
-- \"项目里的‡1‡\"→定语留下,槽空。
-- \"不对,是李四,发给‡1‡\"→预填取更正后的所指\"李四\"。";
+- \"打开这个文件‡1‡\"→\"打开‡1:该指称的书面化形式‡\"。
+- \"发给张三‡1‡\"→\"发给‡1:张三‡\"。
+- \"项目里的‡1‡\"→定语留下,写裸形\"‡1‡\"。
+- \"不对,是李四,发给‡1‡\"→\"发给‡1:李四‡\"。";
 
 /// The sentence appended to the HEADER with pins: the sentinel survives
-/// the header's own written-form and no-wrapping demands, and the response
-/// grows the 【预填】 block after the rectified text.
-const PLACEHOLDER_HEADER_TAIL: &str =
-    "记号不受本段书面化与包裹禁令约束;修正文本之后必须另起一行输出【预填】块。";
+/// the header's own written-form and no-wrapping demands. The 【预填】
+/// block demand retired with the block itself (ADR-0013) — the response is
+/// the rectified text alone, slots inline.
+const PLACEHOLDER_HEADER_TAIL: &str = "记号不受本段书面化与包裹禁令约束。";
 
 /// Light-touch with pins adds the absorption exception — absorption only
 /// writes the prefill, so it is not 增删信息. The only intensity variant:
@@ -156,15 +161,19 @@ const DIRECTIVE_REMINDER_PLACEHOLDERS: &str =
 const GLOBAL_REMINDER_PLACEHOLDERS: &str =
     "【全局指令】(必须执行;高于一切拼写与格式保留规则,仅保真铁律、【占位符】与场景指令例外)";
 
-/// The census-table header in the user message. Values are ALWAYS empty:
-/// the first round has nothing to carry, and a regen round never carries
-/// the user's current values (ticket 13: 恒空, both rounds).
-const PREFILL_CENSUS_HEADER: &str = "【预填】(机械普查,值为空)";
+/// The census-table header in the user message. The table is a pure
+/// number anchor now (ADR-0013): the response grammar no longer mirrors
+/// it, so the rows are bare sentinels — the authoritative set against
+/// fabrication. No values ride the request, ever: the first round has
+/// nothing to carry, and a regen round never carries the user's current
+/// values (ticket 13: 恒空, both rounds).
+const PLACEHOLDER_CENSUS_HEADER: &str = "【占位符普查】(机械普查,升序)";
 
 /// The placeholder reminder closing the user message with pins — always
 /// the LAST block, below even the scenario's reminder: recency goes to
-/// the strongest rule (ticket 12).
-const PLACEHOLDER_REMINDER: &str = "【占位符】(必须执行:‡数字‡ 逐字节保留,预填只写文末【预填】块;高于一切语体与格式规则,仅保真铁律例外)";
+/// the strongest rule (ticket 12). The compressed demand is the inline
+/// grammar itself (ADR-0013).
+const PLACEHOLDER_REMINDER: &str = "【占位符】(必须执行:槽在原位写成 ‡编号:值‡,不吸收写裸形 ‡编号‡;高于一切语体与格式规则,仅保真铁律例外)";
 
 /// The placeholder sentinel: ‡ + ASCII digits + ‡ (ticket 07). U+2021, so
 /// every scan walks chars, never bytes.
@@ -288,14 +297,14 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
     let mut user = format!("【原始转写】\n{}", request.paragraphs.join("\n\n"));
     if pins {
         // The census table right after the transcript: every number a
-        // row, ascending, values always empty. Same row syntax the
-        // response's 【预填】 block uses (ticket 12).
+        // bare-sentinel row, ascending — a pure number anchor, teaching
+        // no response syntax (ADR-0013: the response grammar is inline).
         let rows = slots
             .iter()
-            .map(|n| format!("- ‡{n}‡:"))
+            .map(|n| format!("- ‡{n}‡"))
             .collect::<Vec<_>>()
             .join("\n");
-        user.push_str(&format!("\n\n{PREFILL_CENSUS_HEADER}\n{rows}"));
+        user.push_str(&format!("\n\n{PLACEHOLDER_CENSUS_HEADER}\n{rows}"));
     }
     if !request.terms.is_empty() {
         let list = request
@@ -582,14 +591,18 @@ mod tests {
         req.paragraphs = vec!["参考文档里的‡9‡记号".into()];
         let prompt = compose_prompt(&req, Intensity::Full);
         assert!(prompt.system.contains(PLACEHOLDER_RULE));
-        assert!(prompt.user.contains("- ‡9‡:"));
+        assert!(
+            prompt
+                .user
+                .contains("【占位符普查】(机械普查,升序)\n- ‡9‡")
+        );
     }
 
     #[test]
     fn no_pin_prompts_carry_no_placeholder_trace_anywhere() {
-        // 【占位符】/【预填】 cover every section, precedence variant,
-        // reminder and the census; 吸收只改预填 covers the light-touch
-        // variant, which mentions prefill without the brackets.
+        // 【占位符】/【占位符普查】/【预填】 cover every section, precedence
+        // variant, reminder and the census; 吸收只改预填 covers the
+        // light-touch variant, which mentions prefill without the brackets.
         for (style, global) in [
             (None, None),
             (Some("以 Markdown 分条输出"), None),
@@ -599,6 +612,7 @@ mod tests {
             let prompt = compose_prompt(&request(style, global, vec![]), Intensity::LightTouch);
             for text in [&prompt.system, &prompt.user] {
                 assert!(!text.contains("【占位符】"), "placeholder trace: {text}");
+                assert!(!text.contains("【占位符普查】"), "census trace: {text}");
                 assert!(!text.contains("【预填】"), "prefill trace: {text}");
                 assert!(
                     !text.contains("吸收只改预填"),
@@ -619,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_request_appends_the_header_tail_demands_the_prefill_block() {
+    fn pin_request_appends_the_header_tail_sentinel_exemption() {
         let with_pins = compose_prompt(&pin_request(None, None, vec![]), Intensity::Full);
         assert!(
             with_pins
@@ -629,6 +643,28 @@ mod tests {
         let without = compose_prompt(&request(None, None, vec![]), Intensity::Full);
         assert!(without.system.starts_with(HEADER));
         assert!(!without.system.contains(PLACEHOLDER_HEADER_TAIL));
+    }
+
+    #[test]
+    fn pin_prompts_teach_the_inline_grammar_and_leave_no_prefill_block_trace() {
+        // With pins the rule teaches `‡编号:值‡` and the bare form, and
+        // the retired 【预填】 block leaves NO trace anywhere — its
+        // demand, its reminder mention and its row syntax are all gone
+        // (ADR-0013's 块退役, zero residue).
+        for intensity in [Intensity::LightTouch, Intensity::Full] {
+            let prompt = compose_prompt(
+                &pin_request(Some("以 Markdown 分条输出"), Some(GLOBAL), vec![]),
+                intensity,
+            );
+            for text in [&prompt.system, &prompt.user] {
+                assert!(!text.contains("【预填】"), "prefill-block trace: {text}");
+                assert!(!text.contains("‡:"), "block row syntax trace: {text}");
+            }
+            assert!(prompt.system.contains("‡编号:值‡"));
+            assert!(prompt.system.contains("写裸形 ‡编号‡"));
+            assert!(prompt.system.contains("值内不得出现 ‡、不得换行"));
+            assert!(prompt.user.contains(PLACEHOLDER_REMINDER));
+        }
     }
 
     #[test]
@@ -686,8 +722,8 @@ mod tests {
                 .find(needle)
                 .unwrap_or_else(|| panic!("missing {needle} in user message:\n{}", prompt.user))
         };
-        assert!(at("【原始转写】") < at("【预填】"));
-        assert!(at("【预填】") < at("【术语参考】"));
+        assert!(at("【原始转写】") < at("【占位符普查】"));
+        assert!(at("【占位符普查】") < at("【术语参考】"));
         assert!(at("【术语参考】") < at(GLOBAL_REMINDER_PLACEHOLDERS));
         assert!(at(GLOBAL_REMINDER_PLACEHOLDERS) < at(DIRECTIVE_REMINDER_PLACEHOLDERS));
         assert!(at(DIRECTIVE_REMINDER_PLACEHOLDERS) < at(PLACEHOLDER_REMINDER));
@@ -697,14 +733,15 @@ mod tests {
     }
 
     #[test]
-    fn census_table_renders_ascending_rows_with_empty_values() {
-        // One row per number (the repeated ‡1‡ is one row), numeric
-        // order, and the value after each colon is nothing at all.
+    fn census_table_renders_ascending_bare_sentinel_rows() {
+        // One bare-sentinel row per number (the repeated ‡1‡ is one row),
+        // numeric order, no value column at all — a pure number anchor.
         let prompt = compose_prompt(&pin_request(None, None, vec![]), Intensity::Full);
         assert!(
             prompt
                 .user
-                .contains("【预填】(机械普查,值为空)\n- ‡1‡:\n- ‡2‡:\n- ‡10‡:")
+                .contains("【占位符普查】(机械普查,升序)\n- ‡1‡\n- ‡2‡\n- ‡10‡")
         );
+        assert!(!prompt.user.contains("- ‡1‡:"));
     }
 }
