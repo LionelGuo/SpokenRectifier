@@ -2008,20 +2008,34 @@ class CapsuleBand {
   /// gradient washed the whole pill to α², nearly invisible), so the
   /// mask is white-to-transparent — squared to itself at the stops —
   /// and is applied over the flat paint through BlendMode.dstIn inside
-  /// a saveLayer. The run is the cap's radius, clamped to a third of
-  /// [bounds] so a narrow band (an empty tail line's stub) keeps some
-  /// ink. Null when no end is cut: a complete pill paints its flat
-  /// colour as-is.
+  /// a saveLayer. Each side's run is the cap's radius, clamped to a
+  /// third of [bounds] (a narrow band keeps some ink) and — when the
+  /// opposite end is ROUNDED — to the distance to that cap's own flat
+  /// edge: a rounded end is always one continuous semicircle (反馈七终
+  /// 案), and the dissolve never eats into it (F23 round, 反馈十八: the
+  /// parking stub after a trailing 回车 is cut on its left and its
+  /// right end IS the cap — the ramp washed the arc's left half away
+  /// and it read discontinuous until characters pushed the cap clear;
+  /// the stub's flat run is a fraction of a pixel, so its cut side
+  /// keeps a solid square edge). Null when no end is cut or neither run
+  /// survives the clamps: a complete pill paints its flat colour as-is.
   Shader? cutFadeMask(Rect bounds) {
     final fadeLeft = !leftRounded;
     final fadeRight = !rightRounded;
     if (!fadeLeft && !fadeRight) return null;
-    final run = math.min(
-      SlotSurfaceState.capsuleHeight / 2,
-      bounds.width / 3,
-    );
-    if (run <= 0) return null;
-    final f = run / bounds.width;
+    final width = bounds.width;
+    final cap = SlotSurfaceState.capsuleHeight / 2;
+    double runFor(bool fade, bool oppositeRounded) => fade
+        ? math.min(
+            math.min(cap, width / 3),
+            oppositeRounded ? math.max(0, width - cap) : width,
+          )
+        : 0.0;
+    final leftRun = runFor(fadeLeft, rightRounded);
+    final rightRun = runFor(fadeRight, leftRounded);
+    if (leftRun <= 0 && rightRun <= 0) return null;
+    final fLeft = leftRun / width;
+    final fRight = rightRun / width;
     const opaque = Color(0xFFFFFFFF);
     const gone = Color(0x00FFFFFF);
     if (fadeLeft && fadeRight) {
@@ -2029,7 +2043,7 @@ class CapsuleBand {
         begin: Alignment.centerLeft,
         end: Alignment.centerRight,
         colors: [gone, opaque, opaque, gone],
-        stops: [0, f, 1 - f, 1],
+        stops: [0, fLeft, 1 - fRight, 1],
       ).createShader(bounds);
     }
     if (fadeLeft) {
@@ -2037,14 +2051,14 @@ class CapsuleBand {
         begin: Alignment.centerLeft,
         end: Alignment.centerRight,
         colors: [gone, opaque, opaque],
-        stops: [0, f, 1],
+        stops: [0, fLeft, 1],
       ).createShader(bounds);
     }
     return LinearGradient(
       begin: Alignment.centerLeft,
       end: Alignment.centerRight,
       colors: [opaque, opaque, gone],
-      stops: [0, 1 - f, 1],
+      stops: [0, 1 - fRight, 1],
     ).createShader(bounds);
   }
 }

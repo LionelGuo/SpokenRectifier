@@ -6,6 +6,8 @@
 
 library;
 
+import 'dart:ui' show PictureRecorder;
+
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
@@ -1853,8 +1855,12 @@ void main() {
       leftRounded: false,
       rightRounded: false,
     );
-    // The empty tail line's stub: 11.5px wide, cut on the left — the fade
-    // run clamps to a third of the band instead of dissolving it whole.
+    // The empty tail line's stub: cut on the left with its right end
+    // rounded — the dissolve stops at the cap's flat edge (the raster
+    // test below locks the arc untouched). At exactly the cap's width
+    // no flat run survives the clamp and the band paints solid; the
+    // real stub is a hair wider (valuePad) and its sub-pixel ramp is
+    // invisible.
     const stub = CapsuleBand(
       rect: Rect.fromLTWH(0, 0, 11.5, 23),
       leftRounded: false,
@@ -1863,6 +1869,37 @@ void main() {
     expect(complete.cutFadeMask(complete.rect), isNull);
     expect(cutRight.cutFadeMask(cutRight.rect), isNotNull);
     expect(cutBoth.cutFadeMask(cutBoth.rect), isNotNull);
-    expect(stub.cutFadeMask(stub.rect), isNotNull);
+    expect(stub.cutFadeMask(stub.rect), isNull);
+  });
+
+  test('the dissolve never eats into a rounded cap', () async {
+    // F23 acceptance round (2026-09-10 反馈十八): the parking stub after
+    // a trailing 回车 is cut on its left, and its right end IS the cap —
+    // the left dissolve's ramp landed on the arc and washed its left
+    // half away (真机: 右侧弧线不连续; the arc only read whole once
+    // characters on the new line pushed the cap clear of the ramp, which
+    // stays fixed at the band's left). The dissolve now stops at the
+    // cap's own flat edge: a rounded end is always one continuous
+    // semicircle (反馈七终案, extended to the fade layer). Rasterise the
+    // mask alone and probe inside the cap's region — opaque throughout.
+    final cap = SrCapsule.height / 2;
+    final width = SrCapsule.valuePad; // the stub's width: the parking pad
+    expect(width - cap, lessThan(4)); // the cap is nearly the whole stub
+    final stub = CapsuleBand(
+      rect: Rect.fromLTWH(0, 0, width, SrCapsule.height),
+      leftRounded: false,
+      rightRounded: true,
+    );
+    final mask = stub.cutFadeMask(stub.rect)!;
+    final recorder = PictureRecorder();
+    Canvas(recorder).drawRect(stub.rect, Paint()..shader = mask);
+    final image = await recorder
+        .endRecording()
+        .toImage(width.ceil(), SrCapsule.height.ceil());
+    final bytes = await image.toByteData();
+    int alphaAt(int x) => bytes!.getUint8((5 * width.ceil() + x) * 4 + 3);
+    for (var x = (width - cap).ceil(); x < width; x++) {
+      expect(alphaAt(x), greaterThan(242)); // ≥ 0.95, cap ink unmasked
+    }
   });
 }
