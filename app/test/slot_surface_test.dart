@@ -1133,6 +1133,33 @@ void main() {
     await windDown(tester, h.controller);
   });
 
+  testWidgets('text after a capsule on its empty tail line keeps its breathing', (
+    tester,
+  ) async {
+    // F23 round (2026-09-10 反馈十九): typing right after a capsule whose
+    // value ends with 回车 landed the glyphs against the parking stub —
+    // the stub floors ABOVE the reservation's width, so the skeleton
+    // text that follows began inside the pill's span (真机: 文字直接与
+    // 胶囊右侧接触). The reservation riding an EMPTY tail line widens
+    // past the stub floor by sidePad: the following text keeps the same
+    // breathing as anywhere else, and the pill is back inside the
+    // layout space it owns.
+    final h = await pumpSlotPreview(tester, body: '甲‡1‡乙', prefill: '张三\n');
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.flatBaseText; // 甲￼张三\n￼乙
+    final reservation = placeholderPositions(flat)[1];
+    final reservationRight = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: reservation, extentOffset: reservation + 1),
+        )
+        .first
+        .toRect()
+        .right;
+    final stub = h.surface.capsuleSegmentsForTest()[1]!.last;
+    expect(reservationRight - stub.right, closeTo(SrCapsule.sidePad, 0.5));
+    await windDown(tester, h.controller);
+  });
+
   testWidgets('every band of a wrapped capsule keeps the capsule height', (
     tester,
   ) async {

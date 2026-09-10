@@ -198,6 +198,16 @@ class SlotSurfaceState extends State<SlotSurface>
 
   static const double caretWidth = SrCapsule.caretWidth;
 
+  /// The empty tail line's parking-stub floor — the value the last
+  /// band's right edge never sits below (反馈十八修复二: the reservation's
+  /// own width plus the look-tuned pixels that walk the cap start right
+  /// of the dissolve; the real GPU lost the fill's lower-left crescent
+  /// at the near-degenerate cap-radius width). The reservation riding an
+  /// EMPTY tail line widens past it by [capsuleSidePad] (反馈十九, F23
+  /// round): the text typed right after the capsule keeps its breathing,
+  /// and the pill always ends inside the layout space it owns.
+  double get _stubFloor => pillRightPad + capsuleSidePad + 2;
+
   /// The chrome anchor's downward nudge in px — [SrCapsule.opticalEase]
   /// of the face's font size. The line ink box is a TYPOGRAPHIC box
   /// (font ascent/descent); its center rides ~0.5–1px above the glyphs'
@@ -652,18 +662,31 @@ class SlotSurfaceState extends State<SlotSurface>
         continue; // covered by the composing run
       }
       if (base.codeUnitAt(start) == 0xFFFC) {
-        final slot = projection.slots.any((s) => s.chipAt == start)
-            ? projection.slots.firstWhere((s) => s.chipAt == start)
-            : null;
+        ProjectedSlot? chip;
+        ProjectedSlot? reservation;
+        for (final s in projection.slots) {
+          if (s.chipAt == start) chip = s;
+          if (s.valueEnd == start) reservation = s;
+        }
+        // A reservation riding an EMPTY tail line (the value ends with
+        // 回车) widens past the parking stub by sidePad (反馈十九): the
+        // stub floors above the plain reservation's width, and the text
+        // typed right after the capsule would begin against — inside —
+        // the pill's span. Widened, the following text keeps its
+        // breathing and the pill ends inside its own layout space.
+        final emptyTail = reservation != null &&
+            _editor.doc.valueOf(reservation.id).endsWith('\n');
         children.add(
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: SizedBox(
               width:
-                  slot != null
+                  chip != null
                   ? capsuleSidePad + chipCircle + chipGap
+                  : emptyTail
+                  ? _stubFloor + capsuleSidePad
                   : pillRightPad + capsuleSidePad,
-              height: slot != null ? capsuleHeight : 4,
+              height: chip != null ? capsuleHeight : 4,
             ),
           ),
         );
@@ -1331,21 +1354,18 @@ class SlotSurfaceState extends State<SlotSurface>
         }
         // The tail breathing is CONSTANT (反馈十六): the last band keeps
         // the parking pad only, whatever does or does not follow. The
-        // empty tail line's parking stub floors at the RESERVATION's own
-        // width plus two (valuePad + sidePad + 2 — 反馈十八修复二 trialed
-        // at the reservation's own width, then look-tuned upward a pixel
-        // at a time; the ramp clamp keeps the dissolve's length constant
-        // while the cap start walks right): at cap radius + 0.5 the
+        // empty tail line's parking stub floors at [_stubFloor] (the
+        // reservation's own width plus the look-tuned pixels — 反馈十八
+        // 修复二 trialed at the reservation's own width, then walked the
+        // cap start right a pixel at a time; the ramp clamp keeps the
+        // dissolve's length constant): at cap radius + 0.5 the
         // near-degenerate
         // corner geometry lost the fill's lower-left crescent on the real
         // GPU (软件光栅无此缺陷), and the cut dissolve had no flat run to
         // live in — filling the layout space the stub already owns gives
         // the ramp its visible run and walks the cap clear of both the
         // dissolve and the degenerate widths (右端连续半圆弧, 渐变共存).
-        final lastBandRight = math.max(
-          lastRight + pillRightPad,
-          pillRightPad + capsuleSidePad + 2,
-        );
+        final lastBandRight = math.max(lastRight + pillRightPad, _stubFloor);
         // No value glyphs claim the last covered line — the value ended
         // with 回车 and the band there is the capsule's parking stub.
         final slotBands = <CapsuleBand>[];
