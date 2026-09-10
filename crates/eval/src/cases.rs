@@ -98,17 +98,19 @@ pub struct EvalCase {
     /// Tokens that must all appear, in this order (a subsequence of the
     /// output) — the light-touch no-rewording guard for short cases.
     pub order: Vec<String>,
-    /// Strings that must NOT appear in the body — referents the
-    /// placeholder clause absorbs into a prefill (被吸走的不留正文).
+    /// Strings that must NOT appear in the collapsed body — referents
+    /// the placeholder clause absorbs into an inline prefill value
+    /// (被吸走的不留正文).
     pub absorbed: Vec<String>,
-    /// Prefill expectations: each pin's effective 【预填】 value must
-    /// contain one alternative; the empty alternative demands an empty
-    /// value (拿不准不吸).
+    /// Prefill expectations: each pin's effective value (the row its
+    /// inline form resolves to; a bare `‡N‡` reads empty) must contain
+    /// one alternative; the empty alternative demands an empty value
+    /// (拿不准不吸).
     pub prefill: Vec<PrefillExpectation>,
 }
 
 /// One authored prefill expectation: the pin's number (its identity —
-/// the block's rows parse numerically, like the engine's) and any-of
+/// the inline forms parse numerically, like the engine's) and any-of
 /// alternatives like a convey group.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PrefillExpectation {

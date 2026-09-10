@@ -25,6 +25,30 @@ pub struct PrefillRow {
     pub value: String,
 }
 
+/// One form occurrence anywhere in a response body: where it sits, the
+/// slot number it carries, and its value verbatim. Bare `‡N‡` and
+/// inline `‡N:值‡` are occurrences alike (a bare form's value is
+/// empty); an overflow digit run never becomes one (it stays body, not
+/// a form), and leading zeros fold into the number. Occurrences count
+/// every form — the rows a body resolves keep the last per number
+/// ([`scan_forms`] folds).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormOccurrence {
+    /// The form's byte span: opening `‡` through closing `‡`, or
+    /// through the text's end for an unclosed value.
+    pub span: std::ops::Range<usize>,
+    pub number: u32,
+    /// Verbatim, like a row's value — empty for the bare shape.
+    pub value: String,
+}
+
+/// Every form occurrence in a text, left to right (the walk
+/// [`scan_forms`] resolves rows from). Eval's assertions ride this to
+/// see the same forms the engine would show.
+pub fn scan_form_occurrences(text: &str) -> Vec<FormOccurrence> {
+    walk_forms(text).0
+}
+
 /// Mechanical sentinel census, mirroring the prompt's injection gate
 /// (`crates/llm` `census_placeholder_numbers`): every `‡ASCII digits‡`
 /// shape counts, provenance never checked — the engine's split decision
@@ -119,11 +143,12 @@ impl ResponseSplitter {
 }
 
 /// One greedy left-to-right pass over a response text, classifying
-/// every character into body or form. Returns the prefill rows it found
-/// and, when the text ends inside an unresolved `‡[0-9]*` run, that
-/// run's opening byte — the only thing a stream must hold back. This is
-/// the single classification both the streaming hold and the finish-time
-/// row parse run, so they can never disagree.
+/// every character into body or form. Returns every form occurrence it
+/// found and, when the text ends inside an unresolved `‡[0-9]*` run,
+/// that run's opening byte — the only thing a stream must hold back.
+/// This is the single classification the streaming hold, the
+/// finish-time row parse ([`scan_forms`]), and the eval assertions
+/// ([`scan_form_occurrences`]) all ride, so they can never disagree.
 ///
 /// Forms: bare `‡N‡` prefills empty; inline `‡N:值‡` takes everything
 /// after the colon up to the next `‡` — the taught contract forbids `‡`
@@ -132,10 +157,10 @@ impl ResponseSplitter {
 /// whose colon never meets its closing `‡` runs to the text's end and
 /// keeps the accumulated chars (ruling 26's unclosed rule). Numbers
 /// parse as u32 — leading zeros fold to their number, an overflow drops
-/// the row and leaves the text as body. A repeated number keeps the
-/// last form. A `‡` that starts no form (no digits, or a run broken by
-/// other text) is literal body text, byte-for-byte.
-fn scan_forms(text: &str) -> (Vec<PrefillRow>, Option<usize>) {
+/// the occurrence and leaves the text as body. A `‡` that starts no
+/// form (no digits, or a run broken by other text) is literal body
+/// text, byte-for-byte.
+fn walk_forms(text: &str) -> (Vec<FormOccurrence>, Option<usize>) {
     /// A run's digits are settled once terminated: by `:` (inline
     /// value), by `‡` (bare form), or by anything else (literal — the
     /// run never was a form).
@@ -146,7 +171,7 @@ fn scan_forms(text: &str) -> (Vec<PrefillRow>, Option<usize>) {
         Value,
     }
 
-    let mut rows: Vec<PrefillRow> = Vec::new();
+    let mut found: Vec<FormOccurrence> = Vec::new();
     let mut open_at: Option<usize> = None;
     let mut state = State::Body;
     // The current run's opening `‡` and the end of its digit span.
@@ -155,17 +180,18 @@ fn scan_forms(text: &str) -> (Vec<PrefillRow>, Option<usize>) {
     // The inline value's first byte, after its colon.
     let mut value_start = 0;
 
-    let push_row = |rows: &mut Vec<PrefillRow>, number: &str, value: &str| {
+    let push_form = |found: &mut Vec<FormOccurrence>,
+                     span: std::ops::Range<usize>,
+                     number: &str,
+                     value: &str| {
         let Ok(number) = number.parse::<u32>() else {
             return; // Overflow: not an identity; the text stays body.
         };
-        match rows.iter_mut().find(|row| row.number == number) {
-            Some(existing) => existing.value = value.to_string(),
-            None => rows.push(PrefillRow {
-                number,
-                value: value.to_string(),
-            }),
-        }
+        found.push(FormOccurrence {
+            span,
+            number,
+            value: value.to_string(),
+        });
     };
 
     for (i, c) in text.char_indices() {
@@ -185,8 +211,9 @@ fn scan_forms(text: &str) -> (Vec<PrefillRow>, Option<usize>) {
                     state = State::Value;
                     value_start = i + c.len_utf8();
                 } else if c == SENTINEL && has_digits {
-                    push_row(
-                        &mut rows,
+                    push_form(
+                        &mut found,
+                        start..i + SENTINEL.len_utf8(),
                         &text[start + SENTINEL.len_utf8()..digits_end],
                         "",
                     );
@@ -203,8 +230,9 @@ fn scan_forms(text: &str) -> (Vec<PrefillRow>, Option<usize>) {
             }
             State::Value => {
                 if c == SENTINEL {
-                    push_row(
-                        &mut rows,
+                    push_form(
+                        &mut found,
+                        start..i + SENTINEL.len_utf8(),
                         &text[start + SENTINEL.len_utf8()..digits_end],
                         &text[value_start..i],
                     );
@@ -218,13 +246,31 @@ fn scan_forms(text: &str) -> (Vec<PrefillRow>, Option<usize>) {
         State::Value => {
             // Unclosed to the stream's end: the value keeps everything
             // it accumulated (ruling 26).
-            push_row(
-                &mut rows,
+            push_form(
+                &mut found,
+                start..text.len(),
                 &text[start + SENTINEL.len_utf8()..digits_end],
                 &text[value_start..],
             );
         }
         State::Body => {}
+    }
+    (found, open_at)
+}
+
+/// The prefill rows a response text resolves: the walk's occurrences
+/// folded per number, a repeated number keeping the last form.
+fn scan_forms(text: &str) -> (Vec<PrefillRow>, Option<usize>) {
+    let (occurrences, open_at) = walk_forms(text);
+    let mut rows: Vec<PrefillRow> = Vec::new();
+    for occurrence in &occurrences {
+        match rows.iter_mut().find(|row| row.number == occurrence.number) {
+            Some(existing) => existing.value = occurrence.value.clone(),
+            None => rows.push(PrefillRow {
+                number: occurrence.number,
+                value: occurrence.value.clone(),
+            }),
+        }
     }
     (rows, open_at)
 }
@@ -404,5 +450,40 @@ mod tests {
     #[test]
     fn an_empty_text_has_no_forms() {
         assert_eq!(scan_forms(""), (vec![], None));
+    }
+
+    #[test]
+    fn occurrences_carry_spans_and_do_not_deduplicate() {
+        // The occurrence walk is what a body-side projection (the eval
+        // assertions, the shell scan) rides: every form with its span,
+        // folds and repeats included — unlike the rows, which fold a
+        // repeated number to its last form.
+        let text = "发给‡1:张三‡一份‡01:重号‡,备份‡1:后来者‡ ‡99999999999:溢出‡";
+        let occurrences = scan_form_occurrences(text);
+        let describe =
+            |o: &FormOccurrence| format!("{}:{}:{}", o.number, o.value, &text[o.span.clone()]);
+        assert_eq!(
+            occurrences.iter().map(describe).collect::<Vec<_>>(),
+            vec![
+                "1:张三:‡1:张三‡".to_string(),
+                "1:重号:‡01:重号‡".to_string(),
+                "1:后来者:‡1:后来者‡".to_string(),
+                // Overflow never becomes a form; its text stays body.
+            ]
+        );
+        let (rows, _) = scan_forms(text);
+        assert_eq!(rows, vec![row(1, "后来者")]);
+    }
+
+    #[test]
+    fn an_unclosed_value_occurrence_spans_to_the_end() {
+        let text = "发给‡1:这个文";
+        assert_eq!(
+            scan_form_occurrences(text)
+                .iter()
+                .map(|o| (o.number, o.value.as_str(), o.span.clone()))
+                .collect::<Vec<_>>(),
+            vec![(1, "这个文", 6..text.len())]
+        );
     }
 }

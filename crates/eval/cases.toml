@@ -13,19 +13,23 @@
 #   max_once  at most one occurrence          → 残留 (repetition collapse)
 #   order     tokens as an in-order subsequence → 过度改写 (light-touch
 #             no-rewording guard; short cases only)
-#   absorbed  must NOT appear in the body — the placeholder clause
-#             absorbed it into a prefill (被吸走的不留正文) → 吸收失败
-#   prefill   [{pin,any}] the slot's 【预填】 value must contain one
+#   absorbed  must NOT appear in the collapsed body — the placeholder
+#             clause absorbed it into an inline prefill value
+#             (被吸走的不留正文) → 吸收失败
+#   prefill   [{pin,any}] the slot's prefill value (the row its inline
+#             form resolves to; bare ‡N‡ reads empty) must contain one
 #             alternative; "" demands an empty value (拿不准不吸)
 #             → 吸收失败
 #
 # Any transcript carrying ‡N‡ additionally asserts the derived
-# placeholder contract, no list needed: every sentinel byte-exact and
-# exactly as many times as pinned (少号→保留失败, 多号/捏造哨兵→捏造,
-# a rewritten shape like ‡01‡ fails both ways) and never decorated
-# on both sides (不包裹→保留失败). The 【预填】 block is split off the
-# body first (engine semantics), so body probes never see prefill
-# values and prefill expectations never read body text.
+# placeholder contract, no list needed: every number present exactly
+# as many times as pinned, bare ‡N‡ or inline ‡N:值‡ alike
+# (少号→保留失败, 多号/捏造哨兵→捏造, leading zeros fold), and never
+# decorated on both sides (不包裹→保留失败). Inline forms collapse to
+# their bare shapes before the body probes run (engine semantics), so
+# body probes never see prefill values and prefill expectations never
+# read body text; a habit 【预填】 tail stays plain residue and the
+# derived contract catches its duplicate number.
 #
 # Coverage families (the id prefix): correction-, supplement-, stutter-,
 # mixed-, terms-, numeral-, short-, placeholder-. Length discipline:

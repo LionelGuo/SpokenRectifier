@@ -68,11 +68,11 @@ impl TextInserter for NoopInserter {
 }
 
 /// Run one case through the engine: RectifyText → accumulate the chunk
-/// stream → Preview → Cancel. Returns the rectified body and the
-/// 【预填】 rows (the engine's split keeps the block out of the chunk
-/// stream; the rows ride `PreviewPrefills`, arriving before the Preview
-/// state change), or the engine's own error message when the session
-/// aborted.
+/// stream → Preview → Cancel. Returns the rectified body (inline forms
+/// verbatim — the engine's splitter only ever holds a half-grown `‡N`
+/// run off the stream) and the prefill rows resolved from them (riding
+/// `PreviewPrefills`, arriving before the Preview state change), or the
+/// engine's own error message when the session aborted.
 async fn rectify_case(
     engine: &Engine,
     rx: &mut broadcast::Receiver<EventEnvelope>,
@@ -213,9 +213,11 @@ pub async fn run_suite(
         let outcome = match rectify_case(&engine, &mut rx, &case.transcript).await {
             Ok((text, prefill)) => {
                 let trimmed = text.trim();
-                // The chunks carried body only (the engine already split
-                // the block off), so the assertions take the split parts:
-                // body here, rows from the PreviewPrefills event.
+                // The chunks carry the body verbatim (inline forms
+                // included); the rows ride the PreviewPrefills event —
+                // the assertions take the split parts here, and
+                // check_parts collapses the inline forms out of the
+                // body probes' view itself.
                 let pinned = sentinel_counts(&case.transcript);
                 CaseOutcome {
                     id: case.id.clone(),
@@ -374,38 +376,34 @@ mod tests {
 
     #[tokio::test]
     async fn prefill_rows_ride_the_event_and_reach_the_absorption_assertions() {
-        // Inline prefills (ruling 26, ticket 28): the engine streams the
-        // body verbatim and the rows ride `PreviewPrefills`. A response
-        // whose inline row carries the referent must pass its absorption
-        // assertion, and one with only a bare sentinel must fail on the
-        // empty value — the wiring this locks (the live baseline once
-        // read empty for every slot because the runner re-checked a
-        // body-only text). The body probes stay bare-shape-anchored
-        // until ticket 30 switches them to the inline grammar, so the
-        // passing case keeps its bare `‡1‡` in the body and proves the
-        // row through slot 2's inline form.
+        // Inline prefills (ruling 26, tickets 28+30): the engine streams
+        // the body verbatim — inline form and all — and the rows ride
+        // `PreviewPrefills`. A response whose inline value carries the
+        // referent must pass its absorption assertion (the value is
+        // invisible to the body probes through the collapse), and one
+        // with only a bare sentinel must fail on the empty value — the
+        // wiring this locks (the live baseline once read empty for
+        // every slot because the runner re-checked a body-only text).
         use crate::cases::PrefillExpectation;
         use crate::check::FailureCategory;
 
-        let pinned_case = |id: &'static str, pin: u32, name: &str| crate::cases::EvalCase {
+        let pinned_case = |id: &'static str| crate::cases::EvalCase {
             id: id.into(),
             transcript: "发给那个谁‡1‡一份材料".into(),
             convey: vec![vec!["材料".into()]],
+            absorbed: vec!["那个谁".into()],
             prefill: vec![PrefillExpectation {
-                pin,
-                any: vec![name.into()],
+                pin: 1,
+                any: vec!["李四".into()],
             }],
             ..EvalCase::default()
         };
         let suite = EvalSuite {
             terms: vec![],
-            cases: vec![
-                pinned_case("with-row", 2, "李四"),
-                pinned_case("bare-only", 1, "张三"),
-            ],
+            cases: vec![pinned_case("with-row"), pinned_case("bare-only")],
         };
         let outcomes = run_suite(
-            scripted(&["发给‡1‡和‡2:李四‡一份材料。", "发给‡1‡一份材料。"]),
+            scripted(&["发给‡1:李四‡一份材料。", "发给‡1‡一份材料。"]),
             &suite,
             &|_| true,
         )
@@ -414,7 +412,7 @@ mod tests {
 
         assert_eq!(outcomes.len(), 2);
         assert!(outcomes[0].passed(), "{:?}", outcomes[0].failures);
-        assert_eq!(outcomes[0].output, "发给‡1‡和‡2:李四‡一份材料。");
+        assert_eq!(outcomes[0].output, "发给‡1:李四‡一份材料。");
         assert!(!outcomes[1].passed());
         assert_eq!(
             outcomes[1].failures[0].category,

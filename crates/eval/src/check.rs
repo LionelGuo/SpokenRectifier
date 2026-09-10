@@ -6,10 +6,16 @@
 //! contract can break, so the report can say not just "failed" but
 //! how — the axis a prompt iteration needs.
 //!
-//! With pins the model's response is rectified text plus a trailing
-//! 【预填】 block; [`check`] splits the two first and every assertion
-//! sees only the body, so a prefill value can never trip a body probe
-//! (and vice versa).
+//! With pins the prefill values ride inline forms in the body itself
+//! (`‡N:值‡`, ruling 26; the 【预填】 block is retired). The assertions
+//! ride the engine's own scan: [`check`] resolves the rows with the
+//! engine's splitter, and every body probe sees the body with its
+//! inline forms collapsed back to bare `‡N‡` shapes — so a prefill
+//! value can never trip a body probe (and vice versa), the sentinel
+//! contract counts a slot's every spelling, and the absorption
+//! expectations read exactly the rows the engine would show.
+
+use spokenrectifier_engine::prefill::{scan_form_occurrences, ResponseSplitter};
 
 use super::cases::EvalCase;
 
@@ -58,27 +64,43 @@ pub struct Failure {
 /// Check one rectified output against a case's assertions. All checks
 /// are case-sensitive substring checks over the body; `order` is an
 /// in-order subsequence walk. A transcript carrying `‡N‡` sentinels
-/// additionally asserts the derived placeholder contract: every
-/// sentinel byte-exact, once per occurrence, unwrapped (ticket 24).
+/// additionally asserts the derived placeholder contract: every number
+/// present, once per occurrence, unwrapped — bare or inline spelling
+/// alike (tickets 24, 30).
 pub fn check(case: &EvalCase, output: &str) -> Vec<Failure> {
     let pinned = sentinel_counts(&case.transcript);
-    let (raw_body, prefill) = split_prefill_block(!pinned.is_empty(), output);
-    check_parts(case, raw_body, &prefill, &pinned)
+    // One whole response through the engine's own splitter (ruling 26,
+    // ticket 28): the body is everything — inline forms verbatim, a
+    // retired block tail as plain residue — and the rows resolve from
+    // the inline forms exactly as the streaming path would deliver
+    // them (inactive for a pin-less request: verbatim, no rows).
+    let mut splitter = ResponseSplitter::new(!pinned.is_empty());
+    splitter.push(output);
+    let (body, rows) = splitter.finish();
+    let prefill: Vec<(u32, String)> = rows
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| (row.number, row.value))
+        .collect();
+    check_parts(case, &body, &prefill, &pinned)
 }
 
-/// The same assertions over an already-split response: body without the
-/// 【预填】 block, the parsed prefill rows, and the transcript's
-/// sentinel counts. The runner rides this seam (ticket 18's engine-side
-/// split): its chunk stream carries body only and the prefill table
-/// arrives on the `PreviewPrefills` event. [`check`] stays the
-/// whole-response front door for already-concatenated outputs.
+/// The same assertions over the engine's split: the body exactly as the
+/// chunk stream carried it (inline forms verbatim — the splitter only
+/// ever holds a half-grown `‡N` run), the prefill rows the
+/// `PreviewPrefills` event delivered, and the transcript's sentinel
+/// counts. Body probes see the collapsed body
+/// ([`collapse_inline_forms`]): a prefill value can neither trip a
+/// body probe nor mask one. [`check`] stays the whole-response front
+/// door for already-concatenated outputs.
 pub fn check_parts(
     case: &EvalCase,
     raw_body: &str,
     prefill: &[(u32, String)],
     pinned: &[(String, usize)],
 ) -> Vec<Failure> {
-    let body = raw_body.trim_end();
+    let collapsed = collapse_inline_forms(raw_body);
+    let body = collapsed.trim_end();
     let mut failures = Vec::new();
 
     for text in &case.preserve {
@@ -143,10 +165,13 @@ pub fn check_parts(
     failures
 }
 
-/// The derived placeholder contract: the body's `‡N‡` multiset must
-/// equal the transcript's (byte-exact survival — a rewritten shape like
-/// `‡01‡` or `‡ 1 ‡` both fails to match and reads as an invented
-/// number), and no sentinel may sit against a decoration character.
+/// The derived placeholder contract over the collapsed body (every
+/// form already its bare `‡N‡` shape): the sentinel multiset must
+/// equal the transcript's — a number absent is 少号, an extra one is an
+/// invention — and no sentinel may sit against a decoration character.
+/// A broken shape (`‡ 1 ‡`) collapses to nothing and reads as 少号; a
+/// leading zero folds to its number and reads as present (ruling 28's
+/// response-side fold, not a rewritten shape).
 fn check_sentinels(pinned: &[(String, usize)], body: &str, failures: &mut Vec<Failure>) {
     let found = sentinel_counts(body);
 
@@ -184,9 +209,11 @@ fn check_sentinels(pinned: &[(String, usize)], body: &str, failures: &mut Vec<Fa
 }
 
 /// The authored absorption assertions: `absorbed` referents must have
-/// left the body, and each `prefill` expectation must match the slot's
-/// effective 【预填】 value (missing block or missing row reads empty —
-/// 对不上不判失败, the assertion decides what that means).
+/// left the collapsed body (a referent living inside an inline value
+/// has been absorbed), and each `prefill` expectation must match the
+/// slot's effective value from the inline parse (a missing number
+/// reads empty — 对不上不判失败, the assertion decides what that
+/// means).
 fn check_absorption(
     case: &EvalCase,
     body: &str,
@@ -245,70 +272,38 @@ fn first_out_of_order<'a>(tokens: &'a [String], output: &str) -> Option<&'a str>
 /// The placeholder sentinel (ticket 07): `‡` + ASCII digits + `‡`.
 const SENTINEL: char = '‡';
 
-/// The 【预填】 block's header line as the response contract fixes it
-/// (ticket 12): rectified text, blank line, then the block — the header
-/// owns its whole line.
-const PREFILL_HEADER: &str = "【预填】";
-
-/// Split a whole model response into its body and the 【预填】 block's
-/// number→value rows, at whole-text granularity — same semantics the
-/// engine's streaming split (crates/engine `prefill.rs`, ticket 18)
-/// builds, so the assertions see exactly the world the engine would
-/// show: the split fires only for a pinned request (`active`), the
-/// header must be a line exactly, rows keep the exact `- ‡N‡:` shape
-/// with the value verbatim, and a repeated number keeps the last row.
-/// Lenient by contract (对不上不判失败): no block or unreadable rows
-/// just mean empty values.
-fn split_prefill_block(active: bool, output: &str) -> (&str, Vec<(u32, String)>) {
-    let mut body_end = output.len();
-    let mut block = String::new();
-    let mut in_block = false;
-    let mut offset = 0;
-    for line in output.split('\n') {
-        if !in_block && active && line == PREFILL_HEADER {
-            in_block = true;
-            body_end = offset;
-        } else if in_block {
-            block.push_str(line);
-            block.push('\n');
-        }
-        offset += line.len() + 1; // + the '\n' split on
+/// Collapse every inline form to its bare shape: `‡N:值‡` becomes
+/// `‡N‡`, the value leaving the body for the rows (an unclosed value
+/// releases its accumulated chars the same way, ruling 26). Bare forms
+/// and all other text pass through byte-for-byte, a leading zero folds
+/// to its number, and an overflow digit run is no form at all — the
+/// engine's own walk (`scan_form_occurrences`) decides what a form is,
+/// so the probe body can never disagree with the rows the engine would
+/// show.
+fn collapse_inline_forms(text: &str) -> String {
+    let occurrences = scan_form_occurrences(text);
+    if occurrences.is_empty() {
+        return text.to_string();
     }
-    (&output[..body_end], parse_prefill_rows(&block))
-}
-
-/// Parse the block's rows: `- ‡N‡` + `:` + optional single-line value,
-/// verbatim (no smart trimming anywhere). Anything else is ignored.
-/// Mirrors the engine's row parser on purpose.
-fn parse_prefill_rows(block: &str) -> Vec<(u32, String)> {
-    let mut rows: Vec<(u32, String)> = Vec::new();
-    for line in block.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        let Some(rest) = line.strip_prefix("- ‡") else {
-            continue;
-        };
-        let Some(close) = rest.find(SENTINEL) else {
-            continue;
-        };
-        let (digits, after) = rest.split_at(close);
-        let Ok(number) = digits.parse::<u32>() else {
-            continue;
-        };
-        let Some(value) = after[SENTINEL.len_utf8()..].strip_prefix(':') else {
-            continue;
-        };
-        match rows.iter_mut().find(|(n, _)| *n == number) {
-            Some(entry) => entry.1 = value.to_string(),
-            None => rows.push((number, value.to_string())),
-        }
+    let mut collapsed = String::with_capacity(text.len());
+    let mut at = 0;
+    for form in &occurrences {
+        collapsed.push_str(&text[at..form.span.start]);
+        collapsed.push(SENTINEL);
+        collapsed.push_str(&form.number.to_string());
+        collapsed.push(SENTINEL);
+        at = form.span.end;
     }
-    rows
+    collapsed.push_str(&text[at..]);
+    collapsed
 }
 
 /// Count every `‡ASCII digits‡` shape in `text`, digit string verbatim
 /// (a leading zero stays its own number — 不规范化; shape is truth,
-/// story 20). Same mechanical walk the prompt census rides; ordered by
-/// first appearance.
+/// story 20). The REQUEST side's walk — transcripts and the prompt
+/// census only ever carry bare shapes (direction asymmetry, ruling
+/// 26); the response side rides the engine's fold instead
+/// ([`collapse_inline_forms`]). Ordered by first appearance.
 pub(crate) fn sentinel_counts(text: &str) -> Vec<(String, usize)> {
     let mut counts: Vec<(String, usize)> = Vec::new();
     let mut chars = text.chars().peekable();
@@ -344,8 +339,10 @@ const WRAP_CLOSERS: &[char] = &[
     '*', '_', '~', '$', '`', ')', ']', '}', '】', '」', '』', '》', ')', ']', '}', '"', '"', '\'',
 ];
 
-/// Whether any `‡N‡` occurrence in `body` is decorated on both sides
-/// (不包裹).
+/// Whether any sentinel occurrence in `body` is decorated on both
+/// sides (不包裹). Runs over the collapsed body, so a wrapped inline
+/// form (`**‡1:值‡**`) collapses to a wrapped bare one and fails here
+/// too.
 fn is_wrapped(body: &str, digits: &str) -> bool {
     let token = format!("{SENTINEL}{digits}{SENTINEL}");
     let mut from = 0;
@@ -431,11 +428,9 @@ mod tests {
         case.fabricate = strs(&["周五", "下午"]);
         let failures = check(&case, "会议改到周五下午两点。");
         assert_eq!(failures.len(), 2);
-        assert!(
-            failures
-                .iter()
-                .all(|f| f.category == FailureCategory::Fabricated)
-        );
+        assert!(failures
+            .iter()
+            .all(|f| f.category == FailureCategory::Fabricated));
     }
 
     #[test]
@@ -444,11 +439,9 @@ mod tests {
         case.purge = strs(&["海淀区", "8899", "不对"]);
         let failures = check(&case, "地址是海淀区,不对,是朝阳区,尾号8899。");
         assert_eq!(failures.len(), 3);
-        assert!(
-            failures
-                .iter()
-                .all(|f| f.category == FailureCategory::Residual)
-        );
+        assert!(failures
+            .iter()
+            .all(|f| f.category == FailureCategory::Residual));
     }
 
     #[test]
@@ -512,6 +505,15 @@ mod tests {
     }
 
     #[test]
+    fn an_inline_form_counts_as_its_number_present() {
+        // Ruling 26: `‡N:值‡` is slot N in place — no 少号, no 改写
+        // misfire, and the value never shows itself to the body.
+        let case = pin_case("placeholder-absorb-name", "记得发给张三‡1‡,别抄送");
+        let failures = check(&case, "记得发给‡1:张三‡,别抄送。");
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    #[test]
     fn a_missing_sentinel_is_a_preservation_failure() {
         let case = pin_case("placeholder-multi", "备份到‡1‡,连接串记在‡2‡");
         let failures = check(&case, "备份到‡1‡,连接串另行记录。");
@@ -531,58 +533,72 @@ mod tests {
         assert_eq!(fabricated.len(), 2, "{failures:?}");
         assert!(fabricated[0].detail.contains("哨兵多号"));
         assert!(fabricated[1].detail.contains("捏造哨兵") && fabricated[1].detail.contains("‡3‡"));
+
+        // Inline spellings count alike: a duplicated inline form is
+        // still 多号, an invented inline number still 捏造.
+        let failures = check(&case, "备份到‡1:甲‡,再备份到‡1:乙‡,带上‡3:丙‡。");
+        let fabricated: Vec<_> = failures
+            .iter()
+            .filter(|f| f.category == FailureCategory::Fabricated)
+            .collect();
+        assert_eq!(fabricated.len(), 2, "{failures:?}");
+        assert!(fabricated[0].detail.contains("哨兵多号"));
+        assert!(fabricated[1].detail.contains("捏造哨兵") && fabricated[1].detail.contains("‡3‡"));
     }
 
     #[test]
-    fn a_rewritten_shape_both_misses_and_invents() {
-        // ‡01‡ is neither the expected ‡1‡ (少号) nor an honest number
-        // (捏造) — normalization must not launder the shape.
+    fn a_leading_zero_form_folds_to_its_number() {
+        // Ruling 28 folds leading zeros on the response side: ‡01:值‡
+        // IS slot 1 in the engine's world, not a rewritten shape. A
+        // genuinely broken shape still misses — ‡ 1 ‡ is no form.
         let case = pin_case("placeholder-multi", "备份到‡1‡");
-        let failures = check(&case, "备份到‡01‡。");
-        assert_eq!(failures.len(), 2, "{failures:?}");
+        assert!(check(&case, "备份到‡01:配置盘‡。").is_empty());
+        let failures = check(&case, "备份到‡ 1 ‡。");
+        assert_eq!(failures.len(), 1, "{failures:?}");
         assert_eq!(failures[0].category, FailureCategory::PreservationFailed);
-        assert_eq!(failures[1].category, FailureCategory::Fabricated);
+        assert!(failures[0].detail.contains("哨兵少号"));
     }
 
     #[test]
     fn a_wrapped_sentinel_is_a_preservation_failure() {
         let case = pin_case("placeholder-multi", "备份到‡1‡");
-        for output in ["备份到**‡1‡**。", "备份到【‡1‡】。"] {
+        for output in ["备份到**‡1‡**。", "备份到【‡1‡】。", "备份到**‡1:配置‡**。"]
+        {
             let failures = check(&case, output);
             assert_eq!(failures.len(), 1, "{output}: {failures:?}");
             assert_eq!(failures[0].category, FailureCategory::PreservationFailed);
             assert!(failures[0].detail.contains("被包裹"));
         }
         // A phrase parenthesized around the sentinel stays legal: the
-        // decoration does not hug the ‡N‡ itself.
+        // decoration does not hug the form itself.
         assert!(check(&case, "(详见备份位置‡1‡)的说明。").is_empty());
+        assert!(check(&case, "(详见备份位置‡1:网盘‡)的说明。").is_empty());
     }
 
     #[test]
-    fn body_assertions_do_not_see_the_prefill_block() {
+    fn body_assertions_do_not_see_inline_values() {
         let mut case = pin_case("placeholder-absorb-name", "记得发给张三‡1‡,别抄送");
         case.purge = strs(&["张三"]);
         case.prefill = vec![PrefillExpectation {
             pin: 1,
             any: strs(&["张三"]),
         }];
-        // 张三 lives only in the 【预填】 row: the purge probe (body)
-        // stays quiet and the prefill expectation hits.
-        let output = "记得发给‡1‡,别抄送。\n\n【预填】\n- ‡1‡:张三";
-        assert!(check(&case, output).is_empty());
+        // 张三 lives only inside the inline value: the purge probe
+        // (collapsed body) stays quiet and the prefill expectation hits.
+        assert!(check(&case, "记得发给‡1:张三‡,别抄送。").is_empty());
     }
 
     #[test]
-    fn a_missing_block_reads_as_empty_values() {
+    fn a_bare_form_reads_as_an_empty_value() {
         let mut case = pin_case("placeholder-absorb-uncertain", "项目里的‡1‡先别填");
         case.prefill = vec![PrefillExpectation {
             pin: 1,
             any: strs(&[""]),
         }];
-        // No block at all: the slot reads empty — 拿不准不吸 passes.
+        // Bare form: the row reads empty — 拿不准不吸 passes.
         assert!(check(&case, "项目里的‡1‡先别填。").is_empty());
-        // A block whose row carries a value breaks the empty expectation.
-        let failures = check(&case, "项目里的‡1‡先别填。\n\n【预填】\n- ‡1‡:项目");
+        // An inline value breaks the empty expectation.
+        let failures = check(&case, "项目里的‡1:项目‡先别填。");
         assert_eq!(failures.len(), 1);
         assert_eq!(failures[0].category, FailureCategory::AbsorbFailed);
     }
@@ -595,8 +611,9 @@ mod tests {
             pin: 1,
             any: strs(&["这个文件", "该文件"]),
         }];
-        // Absorbed twice over: the referent also stayed in the body.
-        let failures = check(&case, "打开这个文件‡1‡看配置。\n\n【预填】\n- ‡1‡:这个文件");
+        // Absorbed twice over: the referent also stayed in the body
+        // outside the value (the collapsed body still shows it).
+        let failures = check(&case, "打开这个文件‡1:这个文件‡看配置。");
         assert_eq!(failures.len(), 1, "{failures:?}");
         assert_eq!(failures[0].category, FailureCategory::AbsorbFailed);
         assert!(failures[0].detail.contains("留在正文"));
@@ -609,43 +626,63 @@ mod tests {
             pin: 1,
             any: strs(&["张三", "张叁"]),
         }];
-        let failures = check(&case, "发给‡1‡。\n\n【预填】\n- ‡1‡:李四");
+        let failures = check(&case, "发给‡1:李四‡。");
         assert_eq!(failures.len(), 1);
         assert_eq!(failures[0].category, FailureCategory::AbsorbFailed);
         assert!(failures[0].detail.contains("实得「李四」"), "{failures:?}");
     }
 
     #[test]
-    fn malformed_block_rows_are_ignored_not_failures() {
-        // 对不上不判失败: stray lines are skipped, a repeated number
-        // keeps the LAST row (the engine's rule), and a number nobody
-        // pinned just sits unasserted.
-        let output = "备份到‡1‡。\n\n【预填】\n说明一下\n- ‡1‡:备份盘\n- ‡1‡:重复行\n- ‡9‡:多号";
-        let (body, rows) = split_prefill_block(true, output);
-        assert_eq!(body.trim_end(), "备份到‡1‡。");
-        assert_eq!(
-            rows,
-            vec![(1, "重复行".to_string()), (9, "多号".to_string())]
-        );
-
+    fn repeated_numbers_keep_the_last_value() {
+        // 对不上不判失败, engine rule: a repeated number keeps the LAST
+        // form's value — and the derived contract still flags the extra
+        // occurrence (多号), whatever the values.
         let mut case = pin_case("placeholder-multi", "备份到‡1‡");
         case.prefill = vec![PrefillExpectation {
             pin: 1,
-            any: strs(&["重复行"]),
+            any: strs(&["乙"]),
         }];
-        assert!(check(&case, output).is_empty());
+        let failures = check(&case, "备份到‡1:甲‡,再记‡1:乙‡。");
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert_eq!(failures[0].category, FailureCategory::Fabricated);
+        assert!(failures[0].detail.contains("哨兵多号"));
     }
 
     #[test]
-    fn the_split_stays_inactive_for_a_pinless_case() {
-        // The engine never looks for a block without pins; neither does
-        // the eval — a block-shaped tail stays body text all the way
-        // (the purge probe fires on it), and its sentinel shape then
-        // reads as fabricated: shape is truth works both directions.
+    fn overflow_runs_and_retired_block_tails_stay_body() {
+        // An overflow digit run never becomes a number (engine rule):
+        // its text is body, uncounted, unasserted.
+        let case = pin_case("placeholder-multi", "备份到‡1‡");
+        assert!(check(&case, "备份到‡1‡ ‡99999999999:溢出‡。").is_empty());
+
+        // A habit 【预填】 tail is plain residue (ruling 26): its bare
+        // row overwrites the inline value (last form wins) and its
+        // duplicate occurrence flags 多号 — the eval catches the habit.
+        let mut case = pin_case("placeholder-multi", "备份到‡1‡");
+        case.prefill = vec![PrefillExpectation {
+            pin: 1,
+            any: strs(&["备份盘"]),
+        }];
+        let failures = check(&case, "备份到‡1:备份盘‡。\n\n【预填】\n- ‡1‡:备份盘");
+        assert_eq!(failures.len(), 2, "{failures:?}");
+        assert!(failures
+            .iter()
+            .any(|f| f.category == FailureCategory::Fabricated && f.detail.contains("哨兵多号")));
+        assert!(failures
+            .iter()
+            .any(|f| f.category == FailureCategory::AbsorbFailed && f.detail.contains("实得「」")));
+    }
+
+    #[test]
+    fn the_scan_stays_inactive_for_a_pinless_case() {
+        // The engine never looks for forms without pins, but shape is
+        // truth works both directions: the collapse is mechanical, so a
+        // fabricated form in a pin-less response still reads as 捏造
+        // and a habit block tail still trips its purge probe.
         let mut case = case("mixed-product");
         case.transcript = "发给张三,记得抄送".into();
         case.purge = strs(&["【预填】"]);
-        let output = "发给张三,记得抄送。\n\n【预填】\n- ‡1‡:张三";
+        let output = "发给张三,记得抄送。\n\n【预填】\n- ‡1:张三‡";
         let failures = check(&case, output);
         assert_eq!(failures.len(), 2, "{failures:?}");
         assert_eq!(failures[0].category, FailureCategory::Residual);
