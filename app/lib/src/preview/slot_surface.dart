@@ -829,16 +829,13 @@ class SlotSurfaceState extends State<SlotSurface>
       case LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.arrowDown:
         // A bubbled vertical arrow would hit the app's directional
         // focus-traversal shortcuts and walk the focus off the surface,
-        // so the walk is owned here.
+        // so the walk is owned here. Off the document's ends the walk
+        // homes to its first/last stop (首行再 ↑ 到文档首、末行再 ↓ 到
+        // 文档末; F19).
         final up = key == LogicalKeyboardKey.arrowUp;
         final target =
             _verticalStop(up) ??
-            _projection.flatToCursor(
-              up
-                  ? _lineStartFlat(_caretBaseFlat)
-                  : _lineEndFlat(_caretBaseFlat),
-              preferInside: false,
-            );
+            (up ? _editor.stops.first : _editor.stops.last);
         _moveTo(target, extend: shift);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.home:
@@ -925,8 +922,10 @@ class SlotSurfaceState extends State<SlotSurface>
   // paragraph at the caret's own dy; End WALKS the seats rightward from
   // the caret until they leave the line (the far-edge probe cannot see
   // the line's end on engines that seat the wrap boundary on the far
-  // side only). ↑/↓ probe the paragraph a line's pitch above/below the
-  // caret and map the hit back through the projection. All fold through
+  // side only). ↑/↓ probe the paragraph a full pitch from the caret's
+  // CENTER and map the hit back through the projection, homing to the
+  // document's first/last stop when the probe clamps (the caret is on its
+  // boundary line). All fold through
   // flatToCursor, so a bound landing on a capsule edge resolves to its
   // structural (outside) dock — the body-side position of the line —
   // except a line ENDING at a wrapped reservation, whose dock on the
@@ -1014,20 +1013,29 @@ class SlotSurfaceState extends State<SlotSurface>
       _projection.slots.any((s) => s.valueEnd == flat);
 
   /// The stop a line up/down from the caret lands on, or null when the
-  /// paragraph cannot be probed.
+  /// paragraph cannot be probed or the caret already sits on the
+  /// document's first/last line — a clamped probe resolves back onto the
+  /// caret's own line, and the caller homes to the document's end stop.
+  /// The probe is measured from the caret's CENTER — a full pitch lands
+  /// mid-neighbour either way, even when pitches differ — because a pitch
+  /// and a half from the caret's TOP is symmetric only downward: upward it
+  /// overshoots the line above by half a pitch and landed mid the SECOND
+  /// line up (F19: ↑ 隔行跳转 while ↓ walked fine).
   SlotCursor? _verticalStop(bool up) {
     final paragraph = _paragraph;
     if (paragraph == null) return null;
     final position = _caretRenderPosition(paragraph);
     final caretOffset = paragraph.getOffsetForCaret(position, Rect.zero);
-    // A pitch and a half from the caret's top clears the rest of this
-    // line and lands mid-neighbour even when pitches differ.
-    final pitch = paragraph.getFullHeightForCaret(position) * 1.5;
+    final pitch = paragraph.getFullHeightForCaret(position);
+    if (pitch <= 0) return null;
+    final center = caretOffset.dy + pitch / 2;
     final probe = Offset(
       caretOffset.dx,
-      up ? caretOffset.dy - pitch : caretOffset.dy + pitch,
+      up ? center - pitch : center + pitch,
     );
     final target = paragraph.getPositionForOffset(probe);
+    final targetDy = paragraph.getOffsetForCaret(target, Rect.zero).dy;
+    if ((targetDy - caretOffset.dy).abs() < 1) return null;
     return _projection.flatToCursor(_baseOf(target.offset), preferInside: false);
   }
 
@@ -1166,26 +1174,61 @@ class SlotSurfaceState extends State<SlotSurface>
   }
 
   /// A point's stop and, when it lands on a capsule's pill, that capsule.
+  ///
+  /// A FILLED capsule's whole-left on its first band — the left cap and
+  /// its number, left of the value's first glyph — is the dock OUTSIDE
+  /// it, never a capsule hit: 点击胶囊整体的左侧 places the caret at the
+  /// paragraph's start / the gap to its left, while the value side still
+  /// enters (F-group feedback 2026-09-10: a paragraph-start capsule
+  /// swallowed the tap and the caret never reached 段首). The boundary is
+  /// measured GEOMETRICALLY against the value's first glyph — the
+  /// engine's own hit split over a placeholder box wanders with the
+  /// layout (its cut fell near the caret-seat midpoint for a lone
+  /// capsule and near the box's right edge for an adjacent pair), so it
+  /// cannot carry the ruling. An EMPTY capsule has no content side: its
+  /// whole pill enters (点空胶囊进槽内唯一停靠点, F21). Off every pill, a
+  /// click the position engine resolves BEFORE a chip placeholder — the
+  /// gap strip left of a pill — is the outside dock as well.
   (SlotCursor, int?)? _cursorAt(Offset local) {
     final paragraph = _paragraph;
     if (paragraph == null) return null;
     final projection = _projection;
+    final flat = _baseOf(paragraph.getPositionForOffset(local).offset);
+    final cursor = projection.flatToCursor(flat, preferInside: true);
     // The pill wins over the text position under it: the whole capsule is
-    // the tap target, chip included.
+    // the tap target — save its whole-left on the first band.
     for (final entry in _capsuleSegments().entries) {
       for (final rect in entry.value) {
         if (rect.inflate(2).contains(local)) {
           final slot = projection.slots.firstWhere((s) => s.id == entry.key);
-          final cursor = _projection.flatToCursor(
-            _baseOf(paragraph.getPositionForOffset(local).offset),
-            preferInside: true,
-          );
+          if (rect == entry.value.first &&
+              local.dx < _valueContentLeft(paragraph, slot)) {
+            return (
+              projection.flatToCursor(slot.chipAt, preferInside: false),
+              null,
+            );
+          }
           return (cursor, slot.id);
         }
       }
     }
-    final flat = _baseOf(paragraph.getPositionForOffset(local).offset);
-    return (projection.flatToCursor(flat, preferInside: true), null);
+    if (projection.slots.any((s) => s.chipAt == flat)) {
+      return (projection.flatToCursor(flat, preferInside: false), null);
+    }
+    return (cursor, null);
+  }
+
+  /// The left edge of a capsule's CONTENT — its first value glyph — or
+  /// negative infinity when the value is empty (no content side: the
+  /// whole pill is the entering target).
+  double _valueContentLeft(RenderParagraph paragraph, ProjectedSlot slot) {
+    final boxes = paragraph.getBoxesForSelection(
+      TextSelection(
+        baseOffset: _paintOf(slot.valueStart),
+        extentOffset: _paintOf(slot.valueEnd),
+      ),
+    );
+    return boxes.isEmpty ? double.negativeInfinity : boxes.first.toRect().left;
   }
 
   // -- mutation plumbing ---------------------------------------------------

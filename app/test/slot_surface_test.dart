@@ -185,6 +185,41 @@ void main() {
   });
 
   testWidgets(
+    'a tap on a paragraph-start capsule\'s whole-left places the caret at the start', (
+      tester,
+    ) async {
+      // F-group feedback (2026-09-10): with no text before the capsule —
+      // flush at the paragraph's start — a tap on its whole-left (the left
+      // cap, not the value's left side) never reached 段首: the pill's hit
+      // box swallowed it and the tap entered the capsule. The position
+      // engine resolves the left half of the chip's reservation to BEFORE
+      // the placeholder — that resolution is the dock OUTSIDE the capsule,
+      // the paragraph's start.
+      final h = await pumpSlotPreview(tester, body: '‡1‡', prefill: '测');
+      final base = tester.getRect(find.byKey(const Key('session-text')));
+      final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+      // The chip reservation is 31 wide (sidePad + cap circle + chip gap);
+      // x=3 is its left half, well clear of the split at its center.
+      await tester.tapAt(base.topLeft + Offset(3, pill.center.dy));
+      await tester.pump();
+      expect(
+        h.surface.editor.selectionEdges,
+        isNull,
+        reason: 'the whole-left tap is not an entering tap',
+      );
+      expect(h.surface.editor.caret, const SlotCursor.outside(0));
+      // The value side still enters: the first tap selects the whole value.
+      await tester.tapAt(base.topLeft + Offset(36, pill.center.dy));
+      await tester.pump();
+      expect(h.surface.activeSlotId, 1);
+      final edges = h.surface.editor.selectionEdges!;
+      expect(edges.$1, const SlotCursor.inside(at: 0, offset: 0));
+      expect(edges.$2, const SlotCursor.inside(at: 0, offset: 1));
+      await windDown(tester, h.controller);
+    },
+  );
+
+  testWidgets(
     'a Chinese IME composition over the selected value replaces it (the Windows engine sequence)', (
       tester,
     ) async {
@@ -566,6 +601,57 @@ void main() {
     expect(flat(), lessThanOrEqualTo(4), reason: 'the first line ends here');
     await h.key(LogicalKeyboardKey.arrowDown);
     expect(flat(), greaterThanOrEqualTo(5), reason: 'the second line starts here');
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets(
+    'ArrowUp walks one line at a time and off the top homes to the start', (
+    tester,
+  ) async {
+    // F-group feedback (2026-09-10): ↓ walked fine but ↑ skipped a line
+    // (隔行跳转 — from the third line straight to the first). The old
+    // probe measured a pitch and a half from the caret's TOP, which is
+    // symmetric only DOWNWARD: upward it overshoots the line above by
+    // half a pitch and landed mid the SECOND line up. The probe now
+    // measures a full pitch from the caret's CENTER, mid-neighbour
+    // either way. Off the document's ends the walk homes to its
+    // first/last stop (F19: 首行再 ↑ 到文档首、末行再 ↓ 到文档末).
+    final h = await pumpSlotPreview(tester, prefill: '张\n三\n王');
+    final editor = h.surface.editor;
+    double topAt(int offset) {
+      editor.place(SlotCursor.inside(at: 2, offset: offset));
+      return h.surface.caretRect()!.top;
+    }
+
+    final top1 = topAt(1); // past 张, before the first newline
+    final top2 = topAt(3); // past 三, before the second newline
+    editor.place(const SlotCursor.inside(at: 2, offset: 5)); // past 王
+    await h.key(LogicalKeyboardKey.arrowUp);
+    expect(
+      (h.surface.caretRect()!.top - top2).abs(),
+      lessThan(1),
+      reason: 'one line up lands on 三\'s line, not 张\'s (no skipping)',
+    );
+    await h.key(LogicalKeyboardKey.arrowUp);
+    expect(
+      (h.surface.caretRect()!.top - top1).abs(),
+      lessThan(1),
+      reason: 'the second ↑ reaches 张\'s line',
+    );
+    await h.key(LogicalKeyboardKey.arrowUp);
+    expect(
+      editor.caret,
+      editor.stops.first,
+      reason: 'off the top homes to the document\'s start',
+    );
+
+    editor.place(const SlotCursor.inside(at: 2, offset: 4)); // past 王
+    await h.key(LogicalKeyboardKey.arrowDown);
+    expect(
+      editor.caret,
+      editor.stops.last,
+      reason: 'off the bottom homes to the document\'s end',
+    );
     await windDown(tester, h.controller);
   });
 
