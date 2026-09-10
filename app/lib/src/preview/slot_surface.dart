@@ -394,17 +394,21 @@ class SlotSurfaceState extends State<SlotSurface>
       _composing.isEmpty ? _caretBaseFlat : _composingPaintEnd;
 
   /// The caret's render position. 反馈六: while the caret trails an
-  /// insertion tail (text grew and the caret sits at its end — typing,
-  /// IME composition, paste), a soft-wrap boundary renders UPSTREAM, at
+  /// edit tail — text grew and the caret sits at its end (typing, IME
+  /// composition, paste) — a soft-wrap boundary renders UPSTREAM, at
   /// the current line's end: the framework's default downstream affinity
   /// paints it at the NEXT line's start even though the next typed
   /// character still lands on the current line (the wrapper breaks at
-  /// the next unbreakable unit, not at the caret's own character). The
-  /// moment the caret travels on its own (navigation, click, undo —
-  /// offset moved without matching growth), the downstream binding
-  /// returns: Home onto a wrapped line's start keeps rendering at that
-  /// line's start. Right after a hard newline downstream is correct
-  /// anyway: the position belongs to the new line.
+  /// the next unbreakable unit, not at the caret's own character). A
+  /// deletion tail follows the same rule (F1 feedback, 2026-09-10: the
+  /// backspace that eats the line's last glyph leaves the caret seated
+  /// at the next line's start on engines that seat the boundary there) —
+  /// and so does an undo returning to an edit's start, arriving at the
+  /// junction with the text it trails. The moment the caret travels on
+  /// its own (navigation, click — offset moved with no length change),
+  /// the downstream binding returns: Home onto a wrapped line's start
+  /// keeps rendering at that line's start. Right after a hard newline
+  /// downstream is correct anyway: the position belongs to the new line.
   int? _affinityKeyFlat;
   int? _affinityKeyLen;
   bool _affinityUpstream = false;
@@ -422,7 +426,7 @@ class SlotSurfaceState extends State<SlotSurface>
     if (offset != _affinityKeyFlat || text.length != _affinityKeyLen) {
       final growth = text.length - (_affinityKeyLen ?? text.length);
       _affinityUpstream =
-          growth > 0 && offset == (_affinityKeyFlat ?? offset) + growth;
+          growth != 0 && offset == (_affinityKeyFlat ?? offset) + growth;
       _affinityKeyFlat = offset;
       _affinityKeyLen = text.length;
     }

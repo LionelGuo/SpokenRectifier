@@ -1385,6 +1385,80 @@ void main() {
     await windDown(tester, h.controller);
   });
 
+  testWidgets('backspace at the wrap boundary keeps the caret on the line', (
+    tester,
+  ) async {
+    // F1 feedback (2026-09-10): typing rides the boundary fine, but the
+    // backspace that removes the line's last glyph re-bound the caret
+    // DOWNSTREAM — on the real engine that seat sits at the next line's
+    // start while the deletion happened at this line's end (真机: 光标在
+    // 下一行行首, 上一行胶囊的末字被删除). A deletion tail follows the
+    // same rule as an insertion tail: the caret rides the edit junction.
+    // Locked on the body-text boundary before a capsule's chip: the chip
+    // is wider than one glyph, so the boundary SURVIVES the deletion —
+    // the value's own tail boundary cannot hold under flutter_tester
+    // (its reservation is narrower than a test glyph, so any single
+    // backspace unwraps it), but the state transition is the same one.
+    final h = await pumpSlotPreview(tester, body: '话‡1‡', prefill: '测');
+    final paragraph = previewParagraph(tester);
+    final editor = h.surface.editor;
+    editor.place(const SlotCursor.outside(1));
+    await tester.pump();
+
+    int caretFlat() => SlotProjection(editor.doc).cursorToFlat(editor.caret);
+    bool divergent(int offset) {
+      final upstream = paragraph.getOffsetForCaret(
+        TextPosition(offset: offset, affinity: TextAffinity.upstream),
+        Rect.zero,
+      );
+      final downstream = paragraph.getOffsetForCaret(
+        TextPosition(offset: offset),
+        Rect.zero,
+      );
+      return upstream.dy != downstream.dy;
+    }
+
+    // Type body text until the caret's offset lands exactly on the wrap
+    // boundary (the chip already wrapped, the typed glyphs not).
+    var boundary = false;
+    for (var n = 0; n < 120 && !boundary; n++) {
+      await h.type('话');
+      boundary = divergent(caretFlat());
+    }
+    expect(boundary, isTrue, reason: 'the walk reached the wrap boundary');
+
+    // One more glyph, then the backspace that removes it walks the caret
+    // back ONTO the boundary by DELETION — the exact arrival the real
+    // machine reports (真机 value glyphs are ~7px, so a deletion never
+    // frees the 15px reservation: the caret arrives at a boundary that
+    // is still divergent).
+    await h.type('话');
+    await h.key(LogicalKeyboardKey.backspace);
+    final flat = caretFlat();
+    expect(
+      divergent(flat),
+      isTrue,
+      reason: 'the boundary holds under the deletion',
+    );
+    final lastChar = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: flat - 1, extentOffset: flat),
+        )
+        .last;
+    final caret = h.surface.caretRect()!;
+    expect(
+      (caret.center.dy - (lastChar.top + lastChar.bottom) / 2).abs(),
+      lessThan(10),
+      reason: 'the caret rides the line of the glyph the backspace reached',
+    );
+    expect(
+      caret.left,
+      greaterThan(paragraph.constraints.maxWidth / 2),
+      reason: 'the line\'s end, not the next line\'s start',
+    );
+    await windDown(tester, h.controller);
+  });
+
   testWidgets('the caret right after a hard newline renders on the new line', (
     tester,
   ) async {
