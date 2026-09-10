@@ -1320,7 +1320,7 @@ class SlotSurfaceState extends State<SlotSurface>
         // into a sliced-off arc — lifted to exactly the radius the two
         // corner arcs share one center and read as one continuous
         // semicircle (反馈七终案: 右端连续半圆弧). Still inside the
-        // reservation's 15px, clear of all ink.
+        // reservation's width (valuePad + sidePad), clear of all ink.
         final lastBand = covered.last;
         var lastRight = 0.0;
         for (final box in valueBoxes) {

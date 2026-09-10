@@ -312,14 +312,15 @@ abstract final class SrCapsule {
   static const double chipCircle = 23.0;
 
   /// Breathing room between the chip and the value's first character
-  /// (2026-09-09 验收反馈十: narrowed from 4 — the capsule's own number
-  /// sits slightly closer to the value it labels).
-  static const double chipGap = 2.0;
+  /// (2026-09-09 验收反馈十: narrowed from 4 to 2; 2026-09-10 反馈十七
+  /// trial: 0 — the value starts flush at the cap circle's edge).
+  static const double chipGap = 0.0;
 
   /// The pill's right padding — the breathing room inside the pill past
   /// the value's last character, also the empty capsule's cursor parking
-  /// space (空胶囊右侧留空位作光标落点; 08 号票; 2026-09-09 验收定 9).
-  static const double valuePad = 9.0;
+  /// space (空胶囊右侧留空位作光标落点; 08 号票; 2026-09-09 验收定 9;
+  /// 2026-09-10 反馈十七 trial: 12).
+  static const double valuePad = 12.0;
 
   /// Breathing room between the pill's caps and the neighbouring text —
   /// reserved in layout on both sides (the chip's leading spacer, and the
