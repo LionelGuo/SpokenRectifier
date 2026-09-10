@@ -853,13 +853,39 @@ class SlotSurfaceState extends State<SlotSurface>
         );
         return KeyEventResult.handled;
       case LogicalKeyboardKey.end:
+        if (ctrl) {
+          _moveTo(_editor.stops.last, extend: shift);
+          return KeyEventResult.handled;
+        }
+        final walked = _visualLineEndFlat();
+        if (walked == null) {
+          _moveTo(
+            _projection.flatToCursor(
+              _lineEndFlat(_caretBaseFlat),
+              preferInside: false,
+            ),
+            extend: shift,
+          );
+          return KeyEventResult.handled;
+        }
+        final (endFlat, soft) = walked;
+        // End arrives from within the line, so a soft-wrap boundary it
+        // lands on binds upstream — it renders at THIS line's end even
+        // on engines that seat both affinities onto the next line (F7:
+        // 真机 End 跳到下一行, Home 不跳 — a line's start seat is a real
+        // glyph seat and needs no binding). A boundary at a wrapped
+        // reservation is the value's own end: the outside dock past it
+        // seats on the next line.
+        if (soft) {
+          _affinityKeyFlat = endFlat;
+          _affinityKeyLen = _paragraphText.length;
+          _affinityUpstream = true;
+        }
         _moveTo(
-          ctrl
-              ? _editor.stops.last
-              : _projection.flatToCursor(
-                _visualLineBounds()?.$2 ?? _lineEndFlat(_caretBaseFlat),
-                preferInside: false,
-              ),
+          _projection.flatToCursor(
+            endFlat,
+            preferInside: soft && _atReservation(endFlat),
+          ),
           extend: shift,
         );
         return KeyEventResult.handled;
@@ -894,12 +920,17 @@ class SlotSurfaceState extends State<SlotSurface>
 
   // -- line navigation ------------------------------------------------------
   //
-  // Home/End bound the caret's VISUAL line — probed at the caret's own
-  // dy, so a line the auto-wrapper produced (no '\n' of its own) has its
-  // bounds too; ↑/↓ probe the paragraph a line's pitch above/below the
+  // Home/End bound the caret's VISUAL line, so a line the auto-wrapper
+  // produced (no '\n' of its own) has its bounds too. Home probes the
+  // paragraph at the caret's own dy; End WALKS the seats rightward from
+  // the caret until they leave the line (the far-edge probe cannot see
+  // the line's end on engines that seat the wrap boundary on the far
+  // side only). ↑/↓ probe the paragraph a line's pitch above/below the
   // caret and map the hit back through the projection. All fold through
   // flatToCursor, so a bound landing on a capsule edge resolves to its
-  // structural (outside) dock — the body-side position of the line.
+  // structural (outside) dock — the body-side position of the line —
+  // except a line ENDING at a wrapped reservation, whose dock on the
+  // next line is wrong: the value's own inside end is the line's end.
 
   int _lineStartFlat(int flat) {
     final base = _projection.base;
@@ -944,6 +975,43 @@ class SlotSurfaceState extends State<SlotSurface>
     }
     return (start, end);
   }
+
+  /// The caret's visual line's END in base-space flat offsets, walked
+  /// one offset at a time from the caret's own seat until the seat
+  /// drops to a later line — plus whether that drop is a SOFT wrap
+  /// boundary (a hard newline crossing is stepped back before it). The
+  /// far-edge probe Home uses cannot see this line's end on engines
+  /// that seat a wrap boundary on the far side only (the real engine
+  /// collapses both affinities of a boundary before a wrapped
+  /// placeholder onto the next line; F7: End resolved past its line).
+  /// Mid-line seats are identical on every engine, so the walk needs
+  /// nothing the engine disagrees about. Null when the paragraph
+  /// cannot be probed.
+  (int, bool)? _visualLineEndFlat() {
+    final paragraph = _paragraph;
+    if (paragraph == null) return null;
+    final position = _caretRenderPosition(paragraph);
+    final lineDy = paragraph.getOffsetForCaret(position, Rect.zero).dy;
+    final text = _paragraphText;
+    var o = _caretPaintFlat;
+    for (; o < text.length; o++) {
+      final dy = paragraph
+          .getOffsetForCaret(TextPosition(offset: o), Rect.zero)
+          .dy;
+      if (dy > lineDy + 0.5) break;
+    }
+    final end = _baseOf(o);
+    final base = _projection.base;
+    if (end > 0 && end <= base.length && base.codeUnitAt(end - 1) == 0x0A) {
+      // The walk crossed a hard newline: the line's end stops before it.
+      return (end - 1, false);
+    }
+    return (end, o < text.length);
+  }
+
+  /// Whether [flat] is a slot's reservation placeholder offset.
+  bool _atReservation(int flat) =>
+      _projection.slots.any((s) => s.valueEnd == flat);
 
   /// The stop a line up/down from the caret lands on, or null when the
   /// paragraph cannot be probed.
@@ -1029,7 +1097,12 @@ class SlotSurfaceState extends State<SlotSurface>
   /// renders at the tapped line's end instead (点击行末, 光标留在行末;
   /// the same binding typing already gets from trailing its insertion
   /// tail). A tap on the next line's start region leaves the downstream
-  /// binding: that IS where the position renders.
+  /// binding: that IS where the position renders. The tap owns the
+  /// WHOLE line box it lands on (F3: the old half-pitch threshold only
+  /// bound taps in the line's upper half — a low tap on the line's end
+  /// intermittently jumped to the next line), so the seat is compared
+  /// against the tap point itself: a downstream seat at or below the
+  /// tap belongs to a later line than the one tapped.
   void _bindCaretToTappedLine(Offset local, SlotCursor cursor) {
     final paragraph = _paragraph;
     if (paragraph == null) return;
@@ -1039,9 +1112,7 @@ class SlotSurfaceState extends State<SlotSurface>
       TextPosition(offset: flat),
       Rect.zero,
     );
-    final pitch = paragraph.getFullHeightForCaret(TextPosition(offset: flat));
-    if (pitch <= 0) return;
-    if (downstream.dy >= local.dy + pitch / 2) {
+    if (downstream.dy >= local.dy) {
       _affinityKeyFlat = flat;
       _affinityKeyLen = _paragraphText.length;
       _affinityUpstream = true;

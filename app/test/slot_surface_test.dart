@@ -1459,6 +1459,156 @@ void main() {
     await windDown(tester, h.controller);
   });
 
+  testWidgets('End on a wrapped body line renders at that line\'s end', (
+    tester,
+  ) async {
+    // F7 feedback (2026-09-10): End takes the caret to the visual line's
+    // end OFFSET but renders it downstream — at the next line's start on
+    // engines that seat the boundary on the far side (真机: 胶囊与正文中
+    // 按 End 光标跳到下一行, Home 正常 — a line's start seat is a real
+    // glyph seat, unambiguous). End arrives from WITHIN the line: the
+    // boundary it lands on binds upstream, like a tap or a typing tail.
+    final h = await pumpSlotPreview(
+      tester,
+      body: '话' * 60 + '‡1‡',
+      prefill: '测',
+    );
+    h.surface.editor.place(const SlotCursor.outside(0));
+    await tester.pump();
+    await h.key(LogicalKeyboardKey.end);
+    final paragraph = previewParagraph(tester);
+    final width = paragraph.constraints.maxWidth;
+    final firstTop = paragraph
+        .getOffsetForCaret(const TextPosition(offset: 0), Rect.zero)
+        .dy;
+    final pitch = paragraph.getFullHeightForCaret(
+      const TextPosition(offset: 0),
+    );
+    var caret = h.surface.caretRect()!;
+    expect(
+      (caret.center.dy - (firstTop + pitch / 2)).abs(),
+      lessThan(5),
+      reason: 'End renders on the caret\'s line',
+    );
+    expect(
+      caret.left,
+      greaterThan(width / 2),
+      reason: 'the line\'s end, not the next line\'s start',
+    );
+
+    // Shift+Home then Shift+End re-walk the same bounds as a selection:
+    // the moving edge renders on its line too (F11).
+    await h.key(LogicalKeyboardKey.home);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.end);
+    await tester.pump();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    expect(h.surface.editor.selectionEdges, isNotNull);
+    caret = h.surface.caretRect()!;
+    expect(
+      (caret.center.dy - (firstTop + pitch / 2)).abs(),
+      lessThan(5),
+      reason: 'the selection\'s moving edge stays on the line',
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('End inside a line-filling value stays inside, on the line', (
+    tester,
+  ) async {
+    // The value's glyphs fill the line and only the (invisible)
+    // reservation wrapped: the line's end IS the value's inside end —
+    // not the outside dock past the reservation, whose seat sits on
+    // the next line. End resolves the boundary into the capsule.
+    final h = await pumpSlotPreview(tester, prefill: 'a');
+    final paragraph = previewParagraph(tester);
+    h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
+    await tester.pump();
+
+    bool divergent(int valueEnd) {
+      final upstream = paragraph.getOffsetForCaret(
+        TextPosition(offset: valueEnd, affinity: TextAffinity.upstream),
+        Rect.zero,
+      );
+      final downstream = paragraph.getOffsetForCaret(
+        TextPosition(offset: valueEnd),
+        Rect.zero,
+      );
+      return upstream.dy != downstream.dy;
+    }
+
+    var boundary = false;
+    for (var n = 0; n < 110 && !boundary; n++) {
+      await h.type('a');
+      boundary = divergent(h.surface.flatBaseText.lastIndexOf('￼'));
+    }
+    expect(boundary, isTrue, reason: 'the walk reached the wrap boundary');
+
+    await h.key(LogicalKeyboardKey.end);
+    final valueLen = h.surface.editor.doc.valueOf(1).length;
+    expect(
+      h.surface.editor.caret,
+      SlotCursor.inside(at: 2, offset: valueLen),
+      reason: 'the line\'s end is the value\'s own end',
+    );
+    final flat = h.surface.flatBaseText;
+    final valueEnd = flat.lastIndexOf('￼');
+    final lastChar = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
+        )
+        .last;
+    final caret = h.surface.caretRect()!;
+    expect(
+      (caret.center.dy - (lastChar.top + lastChar.bottom) / 2).abs(),
+      lessThan(10),
+      reason: 'End renders on the value\'s line',
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('a tap low on the line still keeps the caret on that line', (
+    tester,
+  ) async {
+    // F3 feedback (2026-09-10): the second tap on a line's end bound
+    // upstream only when it landed in the line's UPPER half — the old
+    // half-pitch threshold — so a tap slightly below the centre fell
+    // through to the downstream seat at the next line's start,
+    // intermittently (真机: 有时第二次点击光标仍在下一行行首, 重复点击
+    // 才好). The tap owns the whole line box it lands on.
+    final h = await pumpSlotPreview(
+      tester,
+      body: '话' * 60 + '‡1‡',
+      prefill: '测',
+    );
+    final paragraph = previewParagraph(tester);
+    final width = paragraph.constraints.maxWidth;
+    final firstTop = paragraph
+        .getOffsetForCaret(const TextPosition(offset: 0), Rect.zero)
+        .dy;
+    final pitch = paragraph.getFullHeightForCaret(
+      const TextPosition(offset: 0),
+    );
+    final origin = tester
+        .getRect(find.byKey(const Key('session-text')))
+        .topLeft;
+    await tester.tapAt(origin + Offset(width - 4, firstTop + pitch * 0.75));
+    await tester.pump();
+
+    final caret = h.surface.caretRect()!;
+    expect(
+      (caret.center.dy - (firstTop + pitch / 2)).abs(),
+      lessThan(5),
+      reason: 'the tap owns the whole line box',
+    );
+    expect(
+      caret.left,
+      greaterThan(width / 2),
+      reason: 'the line\'s end, not the next line\'s start',
+    );
+    await windDown(tester, h.controller);
+  });
+
   testWidgets('the caret right after a hard newline renders on the new line', (
     tester,
   ) async {
