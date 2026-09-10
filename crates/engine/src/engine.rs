@@ -1132,10 +1132,12 @@ async fn rectify_task(
         }
     };
     let mut stream = Box::pin(stream);
-    // A pin request's response ends in a 【预填】 block the surface must
-    // never see: the splitter streams body text only and hands the block
-    // over as the preview's prefill table. Pin-less requests keep the
-    // exact pre-placeholder path — same chunks, same bytes (ticket 18).
+    // A pin request's response carries inline prefill forms (`‡N:值‡`,
+    // ruling 26): the splitter streams the body verbatim, holding only a
+    // half-grown sentinel run so `‡N` fragments never flash, and hands
+    // the parsed rows over as the preview's prefill table. Pin-less
+    // requests keep the exact pre-placeholder path — same chunks, same
+    // bytes.
     let mut splitter = prefill::ResponseSplitter::new(pins_present);
     loop {
         tokio::select! {
@@ -1150,10 +1152,10 @@ async fn rectify_task(
                     Some(Ok(delta)) => {
                         let out = splitter.push(&delta);
                         if out.is_empty() {
-                            // Fully held back (could still be the block's
-                            // separator): nothing streams; a cancel or
-                            // supersede is caught on the next producing
-                            // delta or at the stream's end.
+                            // Fully held back (a `‡N` run still growing):
+                            // nothing streams; a cancel or supersede is
+                            // caught on the next producing delta or at
+                            // the stream's end.
                             continue;
                         }
                         let mut st = inner.state_lock();

@@ -1,9 +1,9 @@
-//! The rectify response's prefill block (【预填】, ticket 18): the
-//! streaming split that keeps the block off the chunks, the prefill
-//! table's arrival ahead of the Preview state change, and the
-//! pin-less path staying byte-identical to today. Pin placement itself
-//! is `pin.rs`'s ground; here a single pin just marks the session as
-//! carrying sentinels.
+//! The rectify response's inline prefill forms (ruling 26, ticket 28):
+//! the body streaming verbatim with its `‡N:值‡` forms, the half-grown
+//! sentinel runs held off the chunk stream, the prefill table's arrival
+//! ahead of the Preview state change, and the pin-less path staying
+//! byte-identical to today. Pin placement itself is `pin.rs`'s ground;
+//! here a single pin just marks the session as carrying sentinels.
 
 mod common;
 
@@ -79,97 +79,167 @@ async fn pin_session(
     (h, rx, timeline)
 }
 
+fn row(number: u32, value: &str) -> PrefillRow {
+    PrefillRow {
+        number,
+        value: value.into(),
+    }
+}
+
 #[tokio::test]
-async fn a_block_response_streams_only_the_body_and_delivers_the_table() {
+async fn an_inline_response_streams_verbatim_and_delivers_rows() {
+    // Hostile token boundaries cutting through the form: the chunk
+    // stream still carries the body verbatim (the shell's live capsule
+    // grows straight out of it) and the rows parse from the body.
     let (h, mut rx, (streamed, prefills)) = pin_session(
-        vec![tokens(&[
-            "打开‡1‡",
-            "。\n\n【",
-            "预填】\n- ‡1‡:",
-            "这个文件\n- ‡2‡:多余号",
-        ])],
+        vec![tokens(&["发给‡1", ":这个文", "件‡一", "份,还有‡2‡。"])],
         true,
     )
     .await;
 
-    // The chunks carry the body only — separator and block never
-    // stream, however the token boundaries cut them.
-    assert_eq!(streamed, "打开‡1‡。");
-    assert_eq!(
-        prefills,
-        Some(vec![
-            PrefillRow {
-                number: 1,
-                value: "这个文件".into()
-            },
-            PrefillRow {
-                number: 2,
-                value: "多余号".into()
-            },
-        ])
-    );
+    assert_eq!(streamed, "发给‡1:这个文件‡一份,还有‡2‡。");
+    assert_eq!(prefills, Some(vec![row(1, "这个文件"), row(2, "")]));
 
     // The preview body (and so the engine's insert, pre-substitution)
-    // is the block-free text; the extra row rides as written for the
-    // shell's extraction to ignore.
+    // carries the forms verbatim.
     ok(&h.engine, Command::ConfirmInsert).await;
     await_state(&mut rx, SessionState::Idle).await;
-    assert_eq!(h.inserter.inserted_texts(), vec!["打开‡1‡。"]);
-}
-
-#[tokio::test]
-async fn a_blockless_response_still_announces_an_empty_table() {
-    let (_h, _rx, (streamed, prefills)) =
-        pin_session(vec![tokens(&["打开‡1‡", "就好"])], true).await;
-    // Everything streams (no block to find), and the pin session still
-    // gets its table event — empty, so every slot prefills empty.
-    assert_eq!(streamed, "打开‡1‡就好");
-    assert_eq!(prefills, Some(vec![]));
-}
-
-#[tokio::test]
-async fn an_unsplittable_header_streams_everything_and_prefills_empty() {
-    let (_h, _rx, (streamed, prefills)) = pin_session(
-        vec![tokens(&["正文\n【预填】(机械普查,值为空)\n- ‡1‡:值"])],
-        true,
-    )
-    .await;
-    // The header must own its line; same-line junk means no block, no
-    // failure, an empty table.
-    assert_eq!(streamed, "正文\n【预填】(机械普查,值为空)\n- ‡1‡:值");
-    assert_eq!(prefills, Some(vec![]));
-}
-
-#[tokio::test]
-async fn rows_ride_verbatim_whether_or_not_the_body_has_the_number() {
-    // The body keeps its mechanical sentinels (‡3‡ streams through);
-    // the table keeps its rows (‡2‡, absent from the body). Deciding
-    // what exists is the shell's extraction, not the engine's.
-    let (_h, _rx, (streamed, prefills)) = pin_session(
-        vec![tokens(&["发给‡3‡\n\n【预填】\n- ‡2‡:幽灵号\n- ‡3‡:"])],
-        true,
-    )
-    .await;
-    assert_eq!(streamed, "发给‡3‡");
     assert_eq!(
-        prefills,
-        Some(vec![
-            PrefillRow {
-                number: 2,
-                value: "幽灵号".into()
-            },
-            PrefillRow {
-                number: 3,
-                value: String::new()
-            },
-        ])
+        h.inserter.inserted_texts(),
+        vec!["发给‡1:这个文件‡一份,还有‡2‡。"]
     );
+}
+
+#[tokio::test]
+async fn a_half_grown_run_never_flashes_on_the_stream() {
+    // The deltas land mid-form: every emitted chunk leaves the
+    // cumulative stream settled — a `‡N` fragment never reaches the
+    // surface as body text, however the boundaries cut.
+    let script = vec!["发给‡1", ":这个", "文件", "‡还有‡2", "‡。"];
+    let (h, mut rx) = harness(
+        EngineConfig::default(),
+        vec![vec![AsrStep::Say("你好".into())]],
+        vec![tokens(&script)],
+    );
+    ok(&h.engine, Command::StartSession).await;
+    drain_said(&mut rx, "你好").await;
+    ok(&h.engine, Command::PinPlaceholder).await;
+    ok(&h.engine, Command::StopSession).await;
+
+    let mut cumulative = String::new();
+    let prefills = loop {
+        let envelope = next_matching(&mut rx, |env| {
+            matches!(
+                env.event,
+                EngineEvent::RectifiedTextChunk { .. }
+                    | EngineEvent::PreviewPrefills { .. }
+                    | EngineEvent::SessionStateChanged {
+                        to: SessionState::Preview,
+                        ..
+                    }
+            )
+        })
+        .await;
+        match envelope.event {
+            EngineEvent::RectifiedTextChunk { delta } => {
+                cumulative.push_str(&delta);
+                // Settled means: not ending inside an unresolved `‡N`
+                // run. The fragment chars may briefly sit past the last
+                // decisive boundary only while held — the invariant is
+                // on what has streamed.
+                assert!(
+                    !ends_unresolved(&cumulative),
+                    "flashing chunk, cumulative {cumulative:?}"
+                );
+            }
+            EngineEvent::PreviewPrefills { prefills } => break prefills,
+            EngineEvent::SessionStateChanged {
+                to: SessionState::Preview,
+                ..
+            } => panic!("Preview reached without the prefill table"),
+            _ => unreachable!("filtered above"),
+        }
+    };
+    assert_eq!(cumulative, "发给‡1:这个文件‡还有‡2‡。");
+    assert_eq!(prefills, vec![row(1, "这个文件"), row(2, "")]);
+}
+
+/// The no-flash probe: the streamed text must not end inside a
+/// `‡[0-9]*` run that no decisive character has settled yet. A faithful
+/// mirror of the splitter's own classification (Body / Digits / Value):
+/// only a trailing Digits run counts as unresolved — inside an inline
+/// value everything is settled content (the capsule is already growing
+/// by design).
+fn ends_unresolved(streamed: &str) -> bool {
+    #[derive(PartialEq)]
+    enum State {
+        Body,
+        Digits,
+        Value,
+    }
+    let mut state = State::Body;
+    let mut digits = 0usize;
+    for c in streamed.chars() {
+        match state {
+            State::Body => {
+                if c == '‡' {
+                    state = State::Digits;
+                    digits = 0;
+                }
+            }
+            State::Digits => {
+                if c.is_ascii_digit() {
+                    digits += 1;
+                } else if c == ':' && digits > 0 {
+                    state = State::Value;
+                } else if c == '‡' && digits > 0 {
+                    state = State::Body; // A bare form closed.
+                } else if c == '‡' {
+                    state = State::Digits; // `‡‡`: literal, reopen.
+                    digits = 0;
+                } else {
+                    state = State::Body; // A breaking char: literal.
+                }
+            }
+            State::Value => {
+                if c == '‡' {
+                    state = State::Body; // The value closed.
+                }
+            }
+        }
+    }
+    state == State::Digits
+}
+
+#[tokio::test]
+async fn a_formless_response_still_announces_an_empty_table() {
+    let (_h, _rx, (streamed, prefills)) = pin_session(vec![tokens(&["打开就好"])], true).await;
+    // Everything streams (no form to find), and the pin session still
+    // gets its table event — empty, so every slot prefills empty.
+    assert_eq!(streamed, "打开就好");
+    assert_eq!(prefills, Some(vec![]));
+}
+
+#[tokio::test]
+async fn a_retired_block_tail_streams_whole_as_residue() {
+    // The model still emits the old 【预填】 block shape out of habit:
+    // nothing splits, the tail rides the body verbatim, and the rows
+    // come from the body's own forms — both `‡1‡` are bare, so slot 1
+    // prefills empty and the block-line value is residue.
+    let response = "发给‡1‡。\n\n【预填】\n- ‡1‡:张三";
+    let (h, mut rx, (streamed, prefills)) = pin_session(vec![tokens(&[response])], true).await;
+    assert_eq!(streamed, response);
+    assert_eq!(prefills, Some(vec![row(1, "")]));
+    // The insert carries the response whole, habit tail and all.
+    ok(&h.engine, Command::ConfirmInsert).await;
+    await_state(&mut rx, SessionState::Idle).await;
+    assert_eq!(h.inserter.inserted_texts(), vec![response]);
 }
 
 #[tokio::test]
 async fn a_pinless_session_is_byte_identical_and_never_announces() {
-    // Even a response that happens to carry a block-shaped tail streams
-    // whole: without sentinels in the request the engine never looks.
+    // Even a response that happens to carry forms streams whole:
+    // without sentinels in the request the engine never looks.
     let script = vec!["正文一\n", "\n【预填】\n", "- ‡1‡:值"];
     let (h, mut rx) = harness(
         EngineConfig::default(),
@@ -209,7 +279,7 @@ async fn a_pinless_session_is_byte_identical_and_never_announces() {
     };
     assert_eq!(chunks, script);
     assert_eq!(prefills, None);
-    // The insert carries the response whole, block and all.
+    // The insert carries the response whole, forms and all.
     ok(&h.engine, Command::ConfirmInsert).await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(
@@ -223,35 +293,20 @@ async fn a_reroll_delivers_the_new_round_table() {
     let (h, mut rx) = harness(
         EngineConfig::default(),
         vec![vec![AsrStep::Say("你好".into())]],
-        vec![
-            tokens(&["发给‡1‡\n\n【预填】\n- ‡1‡:张三"]),
-            tokens(&["发给‡1‡\n\n【预填】\n- ‡1‡:李四"]),
-        ],
+        vec![tokens(&["发给‡1:张三‡"]), tokens(&["发给‡1:李四‡"])],
     );
     ok(&h.engine, Command::StartSession).await;
     drain_said(&mut rx, "你好").await;
     ok(&h.engine, Command::PinPlaceholder).await;
     ok(&h.engine, Command::StopSession).await;
     let (streamed, prefills) = attempt_timeline(&mut rx).await;
-    assert_eq!(streamed, "发给‡1‡");
-    assert_eq!(
-        prefills,
-        Some(vec![PrefillRow {
-            number: 1,
-            value: "张三".into()
-        }])
-    );
+    assert_eq!(streamed, "发给‡1:张三‡");
+    assert_eq!(prefills, Some(vec![row(1, "张三")]));
 
     // The reroll's table replaces the first round's — one event per
     // attempt, the fresh round's values.
     ok(&h.engine, Command::Reroll).await;
     let (streamed, prefills) = attempt_timeline(&mut rx).await;
-    assert_eq!(streamed, "发给‡1‡");
-    assert_eq!(
-        prefills,
-        Some(vec![PrefillRow {
-            number: 1,
-            value: "李四".into()
-        }])
-    );
+    assert_eq!(streamed, "发给‡1:李四‡");
+    assert_eq!(prefills, Some(vec![row(1, "李四")]));
 }

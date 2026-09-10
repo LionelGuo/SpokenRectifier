@@ -374,32 +374,38 @@ mod tests {
 
     #[tokio::test]
     async fn prefill_rows_ride_the_event_and_reach_the_absorption_assertions() {
-        // The engine's split (ticket 18) keeps the 【预填】 block out of
-        // the chunk stream; the rows ride `PreviewPrefills`. A response
-        // with a proper block must pass its absorption assertions, and
-        // one without a block must fail on the empty value — the wiring
-        // this locks (the live 25-case baseline once read empty for
-        // every slot because the runner re-checked a body-only text).
+        // Inline prefills (ruling 26, ticket 28): the engine streams the
+        // body verbatim and the rows ride `PreviewPrefills`. A response
+        // whose inline row carries the referent must pass its absorption
+        // assertion, and one with only a bare sentinel must fail on the
+        // empty value — the wiring this locks (the live baseline once
+        // read empty for every slot because the runner re-checked a
+        // body-only text). The body probes stay bare-shape-anchored
+        // until ticket 30 switches them to the inline grammar, so the
+        // passing case keeps its bare `‡1‡` in the body and proves the
+        // row through slot 2's inline form.
         use crate::cases::PrefillExpectation;
         use crate::check::FailureCategory;
 
-        let pinned_case = |id: &str, name: &str| crate::cases::EvalCase {
+        let pinned_case = |id: &'static str, pin: u32, name: &str| crate::cases::EvalCase {
             id: id.into(),
-            transcript: format!("发给{name}‡1‡,材料一份"),
+            transcript: "发给那个谁‡1‡一份材料".into(),
             convey: vec![vec!["材料".into()]],
-            absorbed: vec![name.into()],
             prefill: vec![PrefillExpectation {
-                pin: 1,
+                pin,
                 any: vec![name.into()],
             }],
             ..EvalCase::default()
         };
         let suite = EvalSuite {
             terms: vec![],
-            cases: vec![pinned_case("with-block", "张三"), pinned_case("no-block", "李四")],
+            cases: vec![
+                pinned_case("with-row", 2, "李四"),
+                pinned_case("bare-only", 1, "张三"),
+            ],
         };
         let outcomes = run_suite(
-            scripted(&["发给‡1‡一份材料。\n\n【预填】\n- ‡1‡:张三", "发给‡1‡一份材料。"]),
+            scripted(&["发给‡1‡和‡2:李四‡一份材料。", "发给‡1‡一份材料。"]),
             &suite,
             &|_| true,
         )
@@ -408,7 +414,7 @@ mod tests {
 
         assert_eq!(outcomes.len(), 2);
         assert!(outcomes[0].passed(), "{:?}", outcomes[0].failures);
-        assert_eq!(outcomes[0].output, "发给‡1‡一份材料。");
+        assert_eq!(outcomes[0].output, "发给‡1‡和‡2:李四‡一份材料。");
         assert!(!outcomes[1].passed());
         assert_eq!(
             outcomes[1].failures[0].category,

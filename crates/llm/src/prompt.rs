@@ -591,11 +591,7 @@ mod tests {
         req.paragraphs = vec!["参考文档里的‡9‡记号".into()];
         let prompt = compose_prompt(&req, Intensity::Full);
         assert!(prompt.system.contains(PLACEHOLDER_RULE));
-        assert!(
-            prompt
-                .user
-                .contains("【占位符普查】(机械普查,升序)\n- ‡9‡")
-        );
+        assert!(prompt.user.contains("【占位符普查】(机械普查,升序)\n- ‡9‡"));
     }
 
     #[test]

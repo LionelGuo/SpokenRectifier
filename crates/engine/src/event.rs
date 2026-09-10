@@ -64,16 +64,18 @@ pub enum EngineEvent {
     /// The user started / stopped speaking per VAD. Only flows while
     /// recording; the shell mirrors it into the orb's speaking state.
     SpeechActivityChanged { speaking: bool },
-    /// An incremental piece of the rectified text. For a pin session,
-    /// body text only — the 【预填】 block never streams (ticket 18).
+    /// An incremental piece of the rectified text. For a pin session
+    /// the body streams verbatim with its inline prefill forms
+    /// (`‡N:值‡`); only a half-grown sentinel run (`‡N`) is held back
+    /// until it resolves, so fragments never flash (ruling 26).
     RectifiedTextChunk { delta: String },
-    /// The prefill table (【预填】 block) split off a pin session's
-    /// rectify response, delivered once per attempt as it enters
-    /// Preview: after the last `RectifiedTextChunk`, before the Preview
-    /// state change. Rows ride exactly as the model wrote them — the
-    /// shell's body-scan extraction decides which identities exist, so
-    /// a row for a number the body lacks is simply never looked up, and
-    /// a body sentinel with no row prefills empty. Never emitted for a
+    /// The prefill table parsed from a pin session's rectify response
+    /// body, delivered once per attempt as it enters Preview: after the
+    /// last `RectifiedTextChunk`, before the Preview state change. Rows
+    /// ride exactly as the model wrote them — a bare `‡N‡` is an empty
+    /// value, an unclosed `‡N:值` at the stream's end keeps its
+    /// accumulated chars — and the rows come from the body itself, so
+    /// every row's number is one the body carries. Never emitted for a
     /// pin-less session.
     PreviewPrefills { prefills: Vec<PrefillRow> },
     /// The preview text changed because of user edits.
