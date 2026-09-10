@@ -1332,8 +1332,10 @@ class SlotSurfaceState extends State<SlotSurface>
         // The tail breathing is CONSTANT (反馈十六): the last band keeps
         // the parking pad only, whatever does or does not follow. The
         // empty tail line's parking stub floors at the RESERVATION's own
-        // width (valuePad + sidePad — 反馈十八修复二, superseding 反馈七
-        // 终案's cap-radius floor): at cap radius + 0.5 the near-degenerate
+        // width plus one (valuePad + sidePad + 1 — 反馈十八修复二 trialed
+        // at the reservation's own width, superseding 反馈七终案's
+        // cap-radius floor; the extra pixel is the user's look-tuning
+        // trial): at cap radius + 0.5 the near-degenerate
         // corner geometry lost the fill's lower-left crescent on the real
         // GPU (软件光栅无此缺陷), and the cut dissolve had no flat run to
         // live in — filling the layout space the stub already owns gives
@@ -1341,7 +1343,7 @@ class SlotSurfaceState extends State<SlotSurface>
         // dissolve and the degenerate widths (右端连续半圆弧, 渐变共存).
         final lastBandRight = math.max(
           lastRight + pillRightPad,
-          pillRightPad + capsuleSidePad,
+          pillRightPad + capsuleSidePad + 1,
         );
         // No value glyphs claim the last covered line — the value ended
         // with 回车 and the band there is the capsule's parking stub.

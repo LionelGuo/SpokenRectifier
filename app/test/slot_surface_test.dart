@@ -1124,7 +1124,7 @@ void main() {
     // lost the fill's lower-left crescent on the real GPU, and the cut
     // dissolve had no flat run to live in — the empty stub now fills
     // the layout space it already owns).
-    final stubFloor = SrCapsule.valuePad + SrCapsule.sidePad;
+    final stubFloor = SrCapsule.valuePad + SrCapsule.sidePad + 1; // look-tuned +1
     expect(stubFloor - SrCapsule.height / 2, greaterThan(2));
     expect(rects[1].right, closeTo(stubFloor, 0.5));
     final bands = h.surface.capsuleBandsForTest()[1]!;
@@ -1890,7 +1890,7 @@ void main() {
     // the ramp dissolves near the left edge, the cap region stays
     // opaque throughout.
     final cap = SrCapsule.height / 2;
-    final width = SrCapsule.valuePad + SrCapsule.sidePad; // the stub floor
+    final width = SrCapsule.valuePad + SrCapsule.sidePad + 1; // the stub floor
     expect(width - cap, greaterThan(2)); // flat room for the ramp
     final stub = CapsuleBand(
       rect: Rect.fromLTWH(0, 0, width, SrCapsule.height),
