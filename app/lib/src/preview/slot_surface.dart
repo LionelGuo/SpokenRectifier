@@ -1246,9 +1246,10 @@ class SlotSurfaceState extends State<SlotSurface>
   /// clearance; only the capsule's NATURAL ends (the chip's left cap,
   /// the value's own end) keep the pill's rounded caps (截断直角、文字
   /// 贴边; D3 反馈五终裁); a cut end's fill and stroke dissolve to
-  /// nothing approaching it (截断端渐隐). The last band's right edge
-  /// never sits closer than its own cap radius, so the cap is always one
-  /// continuous semicircle even on an empty tail line. Every band is the
+  /// nothing approaching it (截断端渐隐). The empty tail line's
+  /// parking stub floors at the reservation's own width, so the cut
+  /// dissolve has its flat run and the cap stays one continuous
+  /// semicircle clear of it (反馈十八修复二). Every band is the
   /// capsule's own height on its line — the thin daylight between a
   /// wrap's bands is the family's look (反馈十五 reverted the seam-
   /// closing that stretched them). An ink-less covered line anchors its
@@ -1313,14 +1314,13 @@ class SlotSurfaceState extends State<SlotSurface>
         // The last band keeps the content-bounded right edge — the body
         // text after the capsule flows on beside it. Every end but the
         // first's left (the chip cap) and the
-        // last's right (the value's own end) is a CUT: square. The last
-        // band's right edge never sits closer than its own cap radius:
-        // an empty tail line's parking stub would otherwise be too
-        // narrow for the cap, whose radii the renderer would scale down
-        // into a sliced-off arc — lifted to exactly the radius the two
-        // corner arcs share one center and read as one continuous
-        // semicircle (反馈七终案: 右端连续半圆弧). Still inside the
-        // reservation's width (valuePad + sidePad), clear of all ink.
+        // last's right (the value's own end) is a CUT: square. The
+        // empty tail line's parking stub floors at the reservation's own
+        // width — exactly the layout space it already owns, clear of all
+        // ink (反馈十八修复二; the floor's history: 反馈七终案's cap
+        // radius, then widened — the near-degenerate width lost the
+        // fill's lower-left crescent on the real GPU and left the cut
+        // dissolve no flat run).
         final lastBand = covered.last;
         var lastRight = 0.0;
         for (final box in valueBoxes) {
@@ -1331,15 +1331,17 @@ class SlotSurfaceState extends State<SlotSurface>
         }
         // The tail breathing is CONSTANT (反馈十六): the last band keeps
         // the parking pad only, whatever does or does not follow. The
-        // right edge never sits closer than its own cap radius: an empty
-        // tail line's parking stub would otherwise be too narrow for the
-        // cap, whose radii the renderer would scale down into a
-        // sliced-off arc — lifted to exactly the radius the two corner
-        // arcs share one center and read as one continuous semicircle
-        // (反馈七终案: 右端连续半圆弧).
+        // empty tail line's parking stub floors at the RESERVATION's own
+        // width (valuePad + sidePad — 反馈十八修复二, superseding 反馈七
+        // 终案's cap-radius floor): at cap radius + 0.5 the near-degenerate
+        // corner geometry lost the fill's lower-left crescent on the real
+        // GPU (软件光栅无此缺陷), and the cut dissolve had no flat run to
+        // live in — filling the layout space the stub already owns gives
+        // the ramp its visible run and walks the cap clear of both the
+        // dissolve and the degenerate widths (右端连续半圆弧, 渐变共存).
         final lastBandRight = math.max(
           lastRight + pillRightPad,
-          capsuleHeight / 2,
+          pillRightPad + capsuleSidePad,
         );
         // No value glyphs claim the last covered line — the value ended
         // with 回车 and the band there is the capsule's parking stub.

@@ -1119,10 +1119,14 @@ void main() {
     // No content on the last line: the pill there is the parking space
     // alone, where the caret sits after the trailing 回车 — widened to
     // its own cap radius so the right cap is one continuous semicircle
-    // (反馈七终案: the raw parking width could not fit the cap, and the
-    // renderer's scaled-down radii read as a sliced-off arc).
-    final capRadius = SrCapsule.height / 2;
-    expect(rects[1].right, closeTo(capRadius, 0.5));
+    // (反馈七终案), and then to the reservation's own width (反馈十八
+    // 修复二: at cap radius + 0.5 the near-degenerate corner geometry
+    // lost the fill's lower-left crescent on the real GPU, and the cut
+    // dissolve had no flat run to live in — the empty stub now fills
+    // the layout space it already owns).
+    final stubFloor = SrCapsule.valuePad + SrCapsule.sidePad;
+    expect(stubFloor - SrCapsule.height / 2, greaterThan(2));
+    expect(rects[1].right, closeTo(stubFloor, 0.5));
     final bands = h.surface.capsuleBandsForTest()[1]!;
     expect(bands[1].leftRounded, isFalse);
     expect(bands[1].rightRounded, isTrue);
@@ -1880,11 +1884,14 @@ void main() {
     // characters on the new line pushed the cap clear of the ramp, which
     // stays fixed at the band's left). The dissolve now stops at the
     // cap's own flat edge: a rounded end is always one continuous
-    // semicircle (反馈七终案, extended to the fade layer). Rasterise the
-    // mask alone and probe inside the cap's region — opaque throughout.
+    // semicircle (反馈七终案, extended to the fade layer). 修复二
+    // widened the stub to its reservation's width so the ramp has a
+    // visible flat run to live in (渐变应该存在) — both halves probed:
+    // the ramp dissolves near the left edge, the cap region stays
+    // opaque throughout.
     final cap = SrCapsule.height / 2;
-    final width = SrCapsule.valuePad; // the stub's width: the parking pad
-    expect(width - cap, lessThan(4)); // the cap is nearly the whole stub
+    final width = SrCapsule.valuePad + SrCapsule.sidePad; // the stub floor
+    expect(width - cap, greaterThan(2)); // flat room for the ramp
     final stub = CapsuleBand(
       rect: Rect.fromLTWH(0, 0, width, SrCapsule.height),
       leftRounded: false,
@@ -1898,6 +1905,9 @@ void main() {
         .toImage(width.ceil(), SrCapsule.height.ceil());
     final bytes = await image.toByteData();
     int alphaAt(int x) => bytes!.getUint8((5 * width.ceil() + x) * 4 + 3);
+    // The ramp dissolves: near the left edge the ink is mostly gone.
+    expect(alphaAt(1), lessThan(128));
+    // The cap region — from the cap's flat edge rightward — is opaque.
     for (var x = (width - cap).ceil(); x < width; x++) {
       expect(alphaAt(x), greaterThan(242)); // ≥ 0.95, cap ink unmasked
     }
