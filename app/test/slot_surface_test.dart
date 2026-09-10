@@ -2052,4 +2052,83 @@ void main() {
       expect(alphaAt(x), greaterThan(242)); // ≥ 0.95, cap ink unmasked
     }
   });
+
+  testWidgets(
+    'a regeneration keeps the modified and the emptied, refreshes the untouched '
+    '(J7 携带项:掏空不被新预填复活)',
+    (tester) async {
+      // The full J6→J7 journey on the inline grammar (ruling 26): three
+      // slots arrive with prefills, the user rewrites 1, empties 2,
+      // leaves 3 — the reroll must keep 1 and 2 exactly as the user
+      // left them (the emptied one included; the failing J7 item of
+      // ticket 25's round, carried here for the inline path) and hand
+      // 3 the fresh prefill.
+      final h = await pumpSlotPreview(
+        tester,
+        body: '改‡1:旧甲‡掏‡2:旧乙‡留‡3:旧丙‡',
+        prefill: '甲',
+        prefill2: '乙',
+        prefill3: '丙',
+        pins: 3,
+      );
+      expect(h.surface.capsuleSegmentsForTest().keys, [1, 2, 3]);
+
+      // Rewrite slot 1 (a tap on a prefill capsule selects the whole
+      // value; typing over the selection replaces it wholesale).
+      await tester.tapAt(h.capsuleRect(1).center);
+      await tester.pump();
+      await h.type('X');
+      // Empty slot 2 (select-all, then delete the covered value).
+      await tester.tapAt(h.capsuleRect(2).center);
+      await tester.pump();
+      await h.key(LogicalKeyboardKey.backspace);
+      final round1 = h.surface.editor.doc;
+      expect(round1.valueOf(1), 'X');
+      expect(round1.valueOf(2), '');
+      expect(round1.valueOf(3), '丙');
+      expect(h.controller.previewText, '改X掏留丙');
+
+      // Regenerate: a fresh round over the same pins, every slot
+      // prefilled anew — the engine's order (chunks, table, Preview
+      // change) exactly as the splitter delivers it.
+      await h.gateway.reroll();
+      await tester.pump(const Duration(milliseconds: 400));
+      h.gateway.emit(
+        const BridgeEvent.rectifiedTextChunk(
+          delta: '改‡1:新甲‡掏‡2:新乙‡留‡3:新丙‡',
+        ),
+      );
+      h.gateway.emit(
+        const BridgeEvent.previewPrefills(
+          prefills: [
+            BridgePrefillRow(number: 1, value: '新甲'),
+            BridgePrefillRow(number: 2, value: '新乙'),
+            BridgePrefillRow(number: 3, value: '新丙'),
+          ],
+        ),
+      );
+      h.gateway.emit(
+        const BridgeEvent.sessionStateChanged(
+          from: BridgeSessionState.rectifying,
+          to: BridgeSessionState.preview,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      final surface =
+          tester.state(find.byKey(const Key('session-text')))
+              as SlotSurfaceState;
+
+      // Retention: 1 keeps the rewrite, 2 stays emptied — the new
+      // prefill must not revive it — and 3 follows the fresh prefill.
+      final doc = surface.editor.doc;
+      expect(doc.valueOf(1), 'X');
+      expect(doc.valueOf(2), '');
+      expect(doc.valueOf(3), '新丙');
+      expect(doc.visibleIdentities, {1, 2, 3});
+      expect(h.controller.previewText, '改X掏留新丙');
+      // The regeneration is the undo barrier (14 号票).
+      expect(surface.editor.canUndo, isFalse);
+      await windDown(tester, h.controller);
+    },
+  );
 }
