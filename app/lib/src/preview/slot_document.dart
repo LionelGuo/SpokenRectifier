@@ -1,9 +1,12 @@
 /// The preview fill-slot document (ticket 19): the single source of truth
 /// the preview editing surface projects from — the skeleton (the body
-/// text carrying its `‡N‡` sentinels) plus one map of identity → current
-/// value. A fill slot is not a second store: it is a sentinel occurrence
-/// projected as a span in the body, edited in place through its value in
-/// the map (骨架 + 身份→当前值,填写槽是跨度投影;05 号票).
+/// text carrying its sentinel forms — the bare `‡N‡` and, since ruling
+/// 26, the inline `‡N:值‡`; the scan treats both as slot N's span, and
+/// the inline value text itself is never the fact source — values ride
+/// the PreviewPrefills event, 29 号票) plus one map of identity →
+/// current value. A fill slot is not a second store: it is a sentinel
+/// occurrence projected as a span in the body, edited in place through
+/// its value in the map (骨架 + 身份→当前值,填写槽是跨度投影;05 号票).
 ///
 /// The number is the identity (`‡1‡` is slot 1 — the digits are the id,
 /// 07 号票). Identities are minted exactly once per round, mechanically
@@ -56,24 +59,181 @@ class PlaceholderSpan {
   String toString() => 'PlaceholderSpan(id: $id, start: $start, end: $end)';
 }
 
-final _sentinel = RegExp(r'‡[0-9]+‡');
+/// One sentinel form found by [scanForms]: the response grammar's two
+/// spellings (ruling 26) — the bare `‡N‡` and the inline `‡N:值‡` — as
+/// one record. The [kind] is shape-driven (a colon was present), never
+/// value-driven: `‡1:‡` is an inline form with an empty value and
+/// renders as a full capsule, not a circle.
+enum ScannedFormKind { bare, inline }
 
-/// Scans [text] for `‡` + ASCII digits + `‡` shapes, left to right,
-/// non-overlapping (first match wins). Pure and total.
+/// One classified form: the parsed [id], its code-unit span, and — for
+/// the inline kind — the value verbatim, possibly still growing
+/// ([unclosed]: the closing `‡` has not arrived; the value keeps the
+/// characters accumulated after the colon, ruling 26's streaming rule).
+class ScannedForm {
+  const ScannedForm({
+    required this.id,
+    required this.kind,
+    required this.start,
+    required this.end,
+    required this.value,
+    required this.unclosed,
+  });
+
+  /// The identity: the number between the marks, leading zeros folded
+  /// (`‡01‡` is slot 1). Same number, same slot, wherever it occurs.
+  final int id;
+
+  final ScannedFormKind kind;
+
+  /// Offset of the leading `‡` in the enclosing text.
+  final int start;
+
+  /// Just past the form's last character: the closing `‡`, or the text's
+  /// end when [unclosed].
+  final int end;
+
+  /// The inline form's value, verbatim — everything after the colon up
+  /// to the closing `‡` (newlines mechanically kept; the taught contract
+  /// only asks the model not to write them). Empty for the bare kind.
+  final String value;
+
+  /// An inline form whose closing `‡` never came: still a slot, its
+  /// value the characters accumulated so far (the stream's growing
+  /// capsule).
+  final bool unclosed;
+
+  PlaceholderSpan get span => PlaceholderSpan(id: id, start: start, end: end);
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScannedForm &&
+      other.id == id &&
+      other.kind == kind &&
+      other.start == start &&
+      other.end == end &&
+      other.value == value &&
+      other.unclosed == unclosed;
+
+  @override
+  int get hashCode =>
+      Object.hash(ScannedForm, id, kind, start, end, value, unclosed);
+
+  @override
+  String toString() =>
+      'ScannedForm(id: $id, kind: $kind, start: $start, end: $end, '
+      'value: $value, unclosed: $unclosed)';
+}
+
+/// The largest identity the engine's rows can carry (`u32`) — a number
+/// beyond it is not an identity on either side of the bridge: the engine
+/// drops the row and leaves the text as body, and the scan mirrors that
+/// (an overflow shape is literal text, never a slot).
+const maxSlotId = 0xFFFFFFFF;
+
+/// One greedy left-to-right pass over a text, classifying every code
+/// unit into body or form — the Dart mirror of the engine's
+/// `scan_forms` (`crates/engine/src/prefill.rs`), so the shell's
+/// identity set can never disagree with the rows the engine delivered:
+///
+/// - bare `‡N‡` and inline `‡N:值‡` are both forms; the inline value
+///   runs from the colon to the next `‡` (newlines kept), or to the
+///   text's end when it never closes (unclosed — still a form);
+/// - `‡` + ASCII digits, settled by `:` or `‡`; a run broken by any
+///   other character was never a form and stays literal body text —
+///   including a trailing bare `‡N` run, exactly the fragment the
+///   engine's splitter holds back off the chunk stream;
+/// - `‡‡` reopens at the second mark; `‡:` with no digits is literal;
+/// - leading zeros fold; a number beyond [maxSlotId] drops the form and
+///   leaves the text as body (the engine's overflow rule);
+/// - a `‡` that starts no form is literal body text, byte-for-byte.
+///
+/// Pure and total; code-unit offsets (`‡` is U+2021, one unit). The
+/// value is carried for the STREAM face's growing capsules only — the
+/// preview's fact source stays the PreviewPrefills event, never the
+/// body text (29 号票).
+List<ScannedForm> scanForms(String text) {
+  final forms = <ScannedForm>[];
+  // State: -1 body, >= 0 the digit run's opening `‡` offset; _valueStart
+  // >= 0 marks the value state (offset of its first code unit).
+  var start = -1;
+  var digitsEnd = 0;
+  var valueStart = -1;
+
+  void close({required int end, required bool unclosed}) {
+    final digits = text.substring(start + 1, digitsEnd);
+    final id = int.tryParse(digits);
+    // Beyond u32 the engine drops the row and leaves the text as body;
+    // the scan agrees, so the shape never mints here either.
+    if (id == null || id > maxSlotId) return;
+    final inline = valueStart >= 0;
+    // The inline value runs to just before the closing `‡`; an unclosed
+    // form keeps everything to the text's end.
+    final valueEnd = inline ? (unclosed ? text.length : end - 1) : 0;
+    forms.add(
+      ScannedForm(
+        id: id,
+        kind: inline ? ScannedFormKind.inline : ScannedFormKind.bare,
+        start: start,
+        end: end,
+        value: inline ? text.substring(valueStart, valueEnd) : '',
+        unclosed: unclosed,
+      ),
+    );
+  }
+
+  for (var i = 0; i < text.length; i++) {
+    final c = text.codeUnitAt(i);
+    if (valueStart >= 0) {
+      if (c == 0x2021) {
+        final end = i + 1;
+        close(end: end, unclosed: false);
+        start = -1;
+        valueStart = -1;
+      }
+      continue; // everything else is value, newlines included
+    }
+    if (start >= 0) {
+      if (c >= 0x30 && c <= 0x39) {
+        digitsEnd = i + 1;
+      } else if (c == 0x3A && digitsEnd > start + 1) {
+        valueStart = i + 1;
+      } else if (c == 0x2021 && digitsEnd > start + 1) {
+        final end = i + 1;
+        close(end: end, unclosed: false);
+        start = -1;
+      } else if (c == 0x2021) {
+        start = i; // `‡‡`: the first was literal; this one opens anew
+        digitsEnd = i + 1;
+      } else {
+        start = -1; // a breaking character: the run was never a form
+      }
+      continue;
+    }
+    if (c == 0x2021) {
+      start = i;
+      digitsEnd = i + 1;
+    }
+  }
+  if (valueStart >= 0) {
+    close(end: text.length, unclosed: true); // unclosed: keep the tail
+  }
+  // A trailing bare `‡N` run is body residue — never a form (the engine
+  // holds it off the stream; a finished response releases it as text).
+  return forms;
+}
+
+/// Scans [text] for its sentinel forms — both spellings, [scanForms] —
+/// as spans. Pure and total.
 ///
 /// The census reads strings, not pin events: any same-shape text counts
 /// — a shape the user happened to speak into the transcript is
 /// mechanically a slot, exactly like a pinned one (同形也抽). The digits
-/// parse as a number (`‡01‡` is slot 1) and `‡0‡` mints id 0; the engine
-/// never emits those, but the scan is shape-driven and special-cases
-/// nothing.
+/// parse as a number (`‡01‡` is slot 1) and `‡0‡` mints id 0; the
+/// engine never emits those, but the scan is shape-driven and
+/// special-cases nothing.
 List<PlaceholderSpan> scanSentinels(String text) => [
-  for (final match in _sentinel.allMatches(text))
-    PlaceholderSpan(
-      id: int.parse(match[0]!.substring(1, match[0]!.length - 1)),
-      start: match.start,
-      end: match.end,
-    ),
+  for (final form in scanForms(text)) form.span,
 ];
 
 /// The preview-stage fill-slot document: skeleton + identity → current

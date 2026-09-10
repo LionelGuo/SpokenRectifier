@@ -100,8 +100,7 @@ import 'package:flutter/services.dart';
 
 import '../design/tokens.dart';
 import '../session/pin_capsule.dart'
-    show pinCapsuleWidth, sentinelSpans;
-import 'slot_document.dart' show scanSentinels;
+    show StreamMarkers, pinCapsuleReservation, pinCapsuleWidth, projectStream;
 import 'slot_editor.dart';
 import 'slot_projection.dart';
 
@@ -376,8 +375,7 @@ class SlotSurfaceState extends State<SlotSurface>
     final start = _composingCoverStartFlat;
     if (baseOffset <= start) return baseOffset;
     if (baseOffset >= _composingCoverEndFlat) {
-      return baseOffset + _composing.length -
-          (_composingCoverEndFlat - start);
+      return baseOffset + _composing.length - (_composingCoverEndFlat - start);
     }
     return start;
   }
@@ -396,8 +394,7 @@ class SlotSurfaceState extends State<SlotSurface>
     final start = _composingCoverStartFlat;
     if (baseOffset < start) return baseOffset;
     if (baseOffset >= _composingCoverEndFlat) {
-      return baseOffset + _composing.length -
-          (_composingCoverEndFlat - start);
+      return baseOffset + _composing.length - (_composingCoverEndFlat - start);
     }
     return start;
   }
@@ -409,8 +406,7 @@ class SlotSurfaceState extends State<SlotSurface>
     final start = _composingCoverStartFlat;
     if (paintOffset <= start) return paintOffset;
     if (paintOffset >= _composingPaintEnd) {
-      return paintOffset - _composing.length +
-          (_composingCoverEndFlat - start);
+      return paintOffset - _composing.length + (_composingCoverEndFlat - start);
     }
     return start;
   }
@@ -491,9 +487,11 @@ class SlotSurfaceState extends State<SlotSurface>
   Widget _buildStream(BuildContext context) {
     final text = widget.text ?? '';
     final pal = srPalette(context);
+    final markers = projectStream(text);
     return SingleChildScrollView(
       controller: widget.scrollController,
       child: CustomPaint(
+        painter: _StreamPillPainter(this, pal),
         foregroundPainter: _StreamCapsulesPainter(this, pal),
         child: Builder(
           builder: (paragraphContext) {
@@ -512,7 +510,7 @@ class SlotSurfaceState extends State<SlotSurface>
               ),
               TextSpan(
                 style: widget.streamStyle ?? SrType.bodyLarge,
-                children: sentinelSpans(text),
+                children: _streamSpanTree(markers),
               ),
             );
           },
@@ -521,7 +519,97 @@ class SlotSurfaceState extends State<SlotSurface>
     );
   }
 
+  /// The stream paragraph's span tree over its flat projection: body
+  /// runs as plain text, every bare sentinel as its circle spacer, every
+  /// inline form as chip spacer + value + reservation spacer — the same
+  /// three-part shape the preview's capsules lay out as, so the capsule
+  /// the stream grows becomes the preview's capsule without re-seating
+  /// (29 号票; the value is real text, the growing thing itself). The
+  /// reservation riding a value that ends with 回车 widens past the
+  /// parking stub by sidePad exactly as the preview's does (反馈十九) —
+  /// whatever streams in after it keeps its breathing.
+  List<InlineSpan> _streamSpanTree(StreamMarkers markers) {
+    final flat = markers.flat;
+    final circleAt = {for (final circle in markers.circles) circle.at: circle};
+    final chipAt = {for (final slot in markers.capsules) slot.chipAt: slot};
+    final reservationAt = {
+      for (final slot in markers.capsules) slot.valueEnd: slot,
+    };
+    final valueOf = {
+      for (final slot in markers.capsules)
+        slot.id: flat.substring(slot.valueStart, slot.valueEnd),
+    };
+    final children = <InlineSpan>[];
+    var runStart = 0;
+    for (var i = 0; i < flat.length; i++) {
+      if (flat.codeUnitAt(i) != 0xFFFC) continue;
+      final circle = circleAt[i];
+      final chip = chipAt[i];
+      final reservation = reservationAt[i];
+      if (circle == null && chip == null && reservation == null) {
+        continue; // a stray placeholder glyph inside a value: text
+      }
+      if (i > runStart) {
+        children.add(TextSpan(text: flat.substring(runStart, i)));
+      }
+      if (circle != null) {
+        children.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: SizedBox(
+              key: ValueKey('pin-capsule-${circle.id}'),
+              width: pinCapsuleReservation(circle.id),
+              height: capsuleHeight,
+            ),
+          ),
+        );
+      } else if (chip != null) {
+        children.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: SizedBox(
+              key: ValueKey('pin-capsule-${chip.id}'),
+              width: capsuleSidePad + chipCircle + chipGap,
+              height: capsuleHeight,
+            ),
+          ),
+        );
+      } else {
+        final slot = reservation!;
+        final emptyTail = (valueOf[slot.id] ?? '').endsWith('\n');
+        children.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: SizedBox(
+              width: emptyTail
+                  ? _stubFloor + capsuleSidePad
+                  : pillRightPad + capsuleSidePad,
+              height: 4,
+            ),
+          ),
+        );
+      }
+      runStart = i + 1;
+    }
+    if (runStart < flat.length) {
+      children.add(TextSpan(text: flat.substring(runStart)));
+    }
+    return children;
+  }
+
   // -- stream capsule geometry ----------------------------------------------
+
+  /// The stream face's flat projection of its text — the one string the
+  /// paragraph lays out and every painter queries (never recomputed
+  /// differently, the surface's core discipline).
+  StreamMarkers _streamMarkers() => projectStream(widget.text ?? '');
+
+  /// All placeholder offsets in the stream flat text — circles, chips,
+  /// reservations: every box the line-ink anchor must exclude.
+  List<int> _streamPlaceholderPositions(StreamMarkers markers) => [
+    for (var i = 0; i < markers.flat.length; i++)
+      if (markers.flat.codeUnitAt(i) == 0xFFFC) i,
+  ];
 
   /// The stream capsules' circle rectangles in paragraph-local
   /// coordinates, keyed by identity: each circle is the family's own
@@ -537,28 +625,19 @@ class SlotSurfaceState extends State<SlotSurface>
   /// foreground layer, never placed by the WidgetSpan's font-metric
   /// alignment).
   Map<int, Rect> _streamCircleRects() {
-    final paragraph =
-        _streamParagraph?.findRenderObject() as RenderParagraph?;
+    final paragraph = _streamParagraph?.findRenderObject() as RenderParagraph?;
     if (paragraph == null || !paragraph.attached) return const {};
-    final text = widget.text ?? '';
-    final sentinels = scanSentinels(text).toList();
-    final positions = <int>[];
-    final flat = StringBuffer();
-    var textPos = 0;
-    for (final span in sentinels) {
-      flat.write(text.substring(textPos, span.start));
-      flat.write('\u{FFFC}');
-      positions.add(flat.length - 1);
-      textPos = span.end;
-    }
-    flat.write(text.substring(textPos));
-    final length = flat.length;
-    final lines = textLineInkBoxes(paragraph, positions, length);
-    final inkBias = _paragraphInkBias(paragraph, lines, flat.toString());
+    final markers = _streamMarkers();
+    final lines = textLineInkBoxes(
+      paragraph,
+      _streamPlaceholderPositions(markers),
+      markers.flat.length,
+    );
+    final inkBias = _paragraphInkBias(paragraph, lines, markers.flat);
     final rects = <int, Rect>{};
-    for (var i = 0; i < sentinels.length; i++) {
+    for (final circle in markers.circles) {
       final boxes = paragraph.getBoxesForSelection(
-        TextSelection(baseOffset: positions[i], extentOffset: positions[i] + 1),
+        TextSelection(baseOffset: circle.at, extentOffset: circle.at + 1),
       );
       if (boxes.isEmpty) continue;
       final box = boxes.first.toRect();
@@ -569,27 +648,41 @@ class SlotSurfaceState extends State<SlotSurface>
       // center plus the paragraph's ink bias — never the spacer's
       // own middle alignment, which rides font metrics and re-seats
       // when speech's first glyphs land on the line (反馈十二).
-      final caretPosition = TextPosition(offset: positions[i]);
-      final caretTop = paragraph.getOffsetForCaret(
-        caretPosition,
-        Rect.zero,
-      ).dy;
+      final caretPosition = TextPosition(offset: circle.at);
+      final caretTop = paragraph.getOffsetForCaret(caretPosition, Rect.zero).dy;
       final caretHeight = paragraph.getFullHeightForCaret(caretPosition);
       final center = _inkCenter(
         lines,
         box.center.dy,
-        fallback: caretHeight > 0
-            ? caretTop + caretHeight / 2 + inkBias
-            : null,
+        fallback: caretHeight > 0 ? caretTop + caretHeight / 2 + inkBias : null,
       );
-      rects[sentinels[i].id] = Rect.fromLTRB(
+      rects[circle.id] = Rect.fromLTRB(
         left,
         center - SrCapsule.height / 2,
-        left + pinCapsuleWidth(sentinels[i].id),
+        left + pinCapsuleWidth(circle.id),
         center + SrCapsule.height / 2,
       );
     }
     return rects;
+  }
+
+  /// The stream's INLINE capsules' rendered bands — the same shape
+  /// computation the preview's pills use (one band per covered line,
+  /// cut ends square and faded, the parking stub floor), over the
+  /// stream's own flat projection with the value the text itself
+  /// carries. Read-only face: no active stroke ever fades in.
+  Map<int, List<CapsuleBand>> _streamCapsuleBands() {
+    final paragraph = _streamParagraph?.findRenderObject() as RenderParagraph?;
+    if (paragraph == null || !paragraph.attached) return const {};
+    final markers = _streamMarkers();
+    return capsuleBandsFor(
+      paragraph: paragraph,
+      paintText: markers.flat,
+      slots: markers.capsules,
+      valueEndsWithNewline: (slot) =>
+          markers.flat.substring(slot.valueStart, slot.valueEnd).endsWith('\n'),
+      opticalEasePx: _opticalEasePx,
+    );
   }
 
   Widget _buildPreview(BuildContext context) {
@@ -697,14 +790,14 @@ class SlotSurfaceState extends State<SlotSurface>
         // typed right after the capsule would begin against — inside —
         // the pill's span. Widened, the following text keeps its
         // breathing and the pill ends inside its own layout space.
-        final emptyTail = reservation != null &&
+        final emptyTail =
+            reservation != null &&
             _editor.doc.valueOf(reservation.id).endsWith('\n');
         children.add(
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: SizedBox(
-              width:
-                  chip != null
+              width: chip != null
                   ? capsuleSidePad + chipCircle + chipGap
                   : emptyTail
                   ? _stubFloor + capsuleSidePad
@@ -737,12 +830,7 @@ class SlotSurfaceState extends State<SlotSurface>
     return result;
   }
 
-  KeyEventResult _onKeyDown(
-    LogicalKeyboardKey key,
-    bool ctrl,
-    bool shift,
-  ) {
-
+  KeyEventResult _onKeyDown(LogicalKeyboardKey key, bool ctrl, bool shift) {
     // While composing, the IME owns the keyboard: every editing key is
     // consumed without model action (the composition commits via
     // updateEditingValue); printables stay ignored so they feed the IME.
@@ -833,9 +921,9 @@ class SlotSurfaceState extends State<SlotSurface>
           ctrl
               ? _editor.stops.first
               : _projection.flatToCursor(
-                _visualLineBounds()?.$1 ?? _lineStartFlat(_caretBaseFlat),
-                preferInside: false,
-              ),
+                  _visualLineBounds()?.$1 ?? _lineStartFlat(_caretBaseFlat),
+                  preferInside: false,
+                ),
           extend: shift,
         );
         return KeyEventResult.handled;
@@ -950,13 +1038,11 @@ class SlotSurfaceState extends State<SlotSurface>
     // Probe dead-center of the line, clear of the neighbours' metric
     // boxes grazing the band's edges.
     final dy = caretOffset.dy + lineHeight / 2;
-    final start = _baseOf(
-      paragraph.getPositionForOffset(Offset(0, dy)).offset,
-    );
+    final start = _baseOf(paragraph.getPositionForOffset(Offset(0, dy)).offset);
     var end = _baseOf(
-      paragraph.getPositionForOffset(
-        Offset(paragraph.constraints.maxWidth, dy),
-      ).offset,
+      paragraph
+          .getPositionForOffset(Offset(paragraph.constraints.maxWidth, dy))
+          .offset,
     );
     final base = _projection.base;
     if (end > start && end <= base.length && base.codeUnitAt(end - 1) == 0x0A) {
@@ -1019,14 +1105,14 @@ class SlotSurfaceState extends State<SlotSurface>
     final pitch = paragraph.getFullHeightForCaret(position);
     if (pitch <= 0) return null;
     final center = caretOffset.dy + pitch / 2;
-    final probe = Offset(
-      caretOffset.dx,
-      up ? center - pitch : center + pitch,
-    );
+    final probe = Offset(caretOffset.dx, up ? center - pitch : center + pitch);
     final target = paragraph.getPositionForOffset(probe);
     final targetDy = paragraph.getOffsetForCaret(target, Rect.zero).dy;
     if ((targetDy - caretOffset.dy).abs() < 1) return null;
-    return _projection.flatToCursor(_baseOf(target.offset), preferInside: false);
+    return _projection.flatToCursor(
+      _baseOf(target.offset),
+      preferInside: false,
+    );
   }
 
   /// Place the caret, or extend the selection keeping its far edge.
@@ -1317,219 +1403,16 @@ class SlotSurfaceState extends State<SlotSurface>
   Map<int, List<CapsuleBand>> _capsuleBands() {
     final paragraph = _paragraph;
     if (paragraph == null) return const {};
-    final projection = _projection;
-    final lines = _lineInkBoxes(paragraph);
-    final inkBias = _paragraphInkBias(paragraph, lines, _paragraphText);
-    // The wrap width the layout itself used — the theoretical right edge
-    // a full line of text reaches.
-    final columnRight = paragraph.constraints.maxWidth;
-    final bands = <int, List<CapsuleBand>>{};
-    for (final slot in projection.slots) {
-      final chipBoxes = paragraph.getBoxesForSelection(
-        TextSelection(
-          baseOffset: _paintOf(slot.chipAt),
-          extentOffset: _paintOf(slot.chipAt) + 1,
-        ),
-      );
-      final valueBoxes = paragraph.getBoxesForSelection(
-        TextSelection(
-          baseOffset: _paintOf(slot.valueStart),
-          extentOffset: _paintOfEnd(slot.valueEnd),
-        ),
-      );
-      final boxes = <Rect>[
-        for (final box in chipBoxes) box.toRect(),
-        for (final box in valueBoxes) box.toRect(),
-      ]..sort((a, b) => a.left.compareTo(b.left));
-      if (boxes.isEmpty) continue;
-      var covered = _coveredLines(paragraph, slot);
-      // 反馈十四: a covered tail line holding neither the chip nor any
-      // value glyph — claimed by the wrap-boundary caret probe at the
-      // reservation's own offset — belongs to the capsule only when the
-      // value hard-continues onto it. Otherwise the capsule is one
-      // complete pill on its glyph line.
-      covered = truncateCoveredLines(
-        covered,
-        boxes,
-        _editor.doc.valueOf(slot.id).endsWith('\n'),
-      );
-      if (covered.length > 1 &&
-          columnRight.isFinite &&
-          chipBoxes.isNotEmpty) {
-        // Multi-line: one band per covered line, flush to the column.
-        // The last band keeps the content-bounded right edge — the body
-        // text after the capsule flows on beside it. Every end but the
-        // first's left (the chip cap) and the
-        // last's right (the value's own end) is a CUT: square. The
-        // empty tail line's parking stub floors at the reservation's own
-        // width — exactly the layout space it already owns, clear of all
-        // ink (反馈十八修复二; the floor's history: 反馈七终案's cap
-        // radius, then widened — the near-degenerate width lost the
-        // fill's lower-left crescent on the real GPU and left the cut
-        // dissolve no flat run).
-        final lastBand = covered.last;
-        var lastRight = 0.0;
-        for (final box in valueBoxes) {
-          if (box.top < lastBand.top + lastBand.height - 1 &&
-              box.bottom > lastBand.top + 1) {
-            lastRight = math.max(lastRight, box.right);
-          }
-        }
-        // The tail breathing is CONSTANT (反馈十六): the last band keeps
-        // the parking pad only, whatever does or does not follow. The
-        // empty tail line's parking stub floors at [_stubFloor] (the
-        // reservation's own width plus the look-tuned pixels — 反馈十八
-        // 修复二 trialed at the reservation's own width, then walked the
-        // cap start right a pixel at a time; the ramp clamp keeps the
-        // dissolve's length constant): at cap radius + 0.5 the
-        // near-degenerate
-        // corner geometry lost the fill's lower-left crescent on the real
-        // GPU (软件光栅无此缺陷), and the cut dissolve had no flat run to
-        // live in — filling the layout space the stub already owns gives
-        // the ramp its visible run and walks the cap clear of both the
-        // dissolve and the degenerate widths (右端连续半圆弧, 渐变共存).
-        final lastBandRight = math.max(lastRight + pillRightPad, _stubFloor);
-        // No value glyphs claim the last covered line — the value ended
-        // with 回车 and the band there is the capsule's parking stub.
-        final slotBands = <CapsuleBand>[];
-        // One anchor per covered line (an ink-less line anchors on the
-        // strut-locked caret line center plus the paragraph's ink bias —
-        // the anchor its siblings' ink lines land on; 反馈十二's
-        // convention).
-        final centers = <double>[
-          for (final band in covered)
-            _inkCenter(
-              lines,
-              band.top + band.height / 2,
-              fallback: band.top + band.height / 2 + inkBias,
-            ),
-        ];
-        final half = capsuleHeight / 2;
-        for (var i = 0; i < covered.length; i++) {
-          // Every band is the capsule's OWN height on its line (反馈十
-          // 五: the seam-closing experiment that stretched bands toward
-          // their neighbours made the capsule read taller than the
-          // family and graze the capsules above and below — the thin
-          // daylight between a wrap's bands is the family's look, ruled
-          // back).
-          final top = centers[i] - half;
-          final bottom = centers[i] + half;
-          // The first segment's cap keeps its leading sidePad
-          // unconditionally (反馈十六); every later segment is a column
-          // band: full width, flush left.
-          final left = i == 0
-              ? chipBoxes.first.toRect().left + capsuleSidePad
-              : 0.0;
-          final right = i == covered.length - 1 ? lastBandRight : columnRight;
-          slotBands.add(
-            CapsuleBand(
-              rect: Rect.fromLTRB(left, top, right, bottom),
-              leftRounded: i == 0,
-              rightRounded: i == covered.length - 1,
-            ),
-          );
-        }
-        bands[slot.id] = slotBands;
-        continue;
-      }
-      // Single line: a complete pill hugging its content. Group the
-      // covered boxes into per-line runs (one, here): a box overlaps its
-      // own line's boxes vertically and never the neighbour line's.
-      final runs = <List<Rect>>[];
-      for (final box in boxes) {
-        final run = runs.isEmpty ? null : runs.last;
-        final sameLine =
-            run != null &&
-            box.top < run.first.bottom + 1 &&
-            box.bottom > run.first.top - 1;
-        if (sameLine) {
-          run.add(box);
-        } else {
-          runs.add([box]);
-        }
-      }
-      final slotBands = <CapsuleBand>[];
-      for (var i = 0; i < runs.length; i++) {
-        var left = runs[i].first.left;
-        var right = runs[i].first.right;
-        for (final box in runs[i]) {
-          left = math.min(left, box.left);
-          right = math.max(right, box.right);
-        }
-        // The breathing is CONSTANT (2026-09-10 反馈十六 re-ruling,
-        // retiring the line-edge swallows of 反馈四②/十三): the first
-        // run's left always sits on the chip reservation's leading
-        // sidePad — a capsule's placement and width never depend on
-        // what its neighbours or its line's edges hold — and the last
-        // run always grows into the parking pad the reservation holds
-        // past the value, keeping its breathing tail.
-        if (i == 0) left = left + capsuleSidePad;
-        final tail = i == runs.length - 1 ? pillRightPad : 0.0;
-        // The fallback anchor for an ink-less line (this capsule alone
-        // on the line, all placeholders): the strut-locked caret line
-        // center from the covered-lines probe, plus the paragraph's
-        // own ink bias — not the run's own placeholder box (反馈十二).
-        var coveredCenter = runs[i].first.center.dy;
-        var coveredDistance = double.infinity;
-        for (final band in covered) {
-          final distance =
-              ((band.top + band.height / 2) - runs[i].first.center.dy).abs();
-          if (distance < coveredDistance) {
-            coveredDistance = distance;
-            coveredCenter = band.top + band.height / 2;
-          }
-        }
-        final center = _inkCenter(
-          lines,
-          runs[i].first.center.dy,
-          fallback: coveredCenter + inkBias,
-        );
-        slotBands.add(
-          CapsuleBand(
-            rect: Rect.fromLTRB(
-              left,
-              center - capsuleHeight / 2,
-              right + tail,
-              center + capsuleHeight / 2,
-            ),
-            leftRounded: true,
-            rightRounded: true,
-          ),
-        );
-      }
-      bands[slot.id] = slotBands;
-    }
-    return bands;
-  }
-
-  /// The paragraph lines a capsule covers, top to bottom, as caret bands
-  /// (the caret's top and full line height at a position on the line). A
-  /// line with no glyphs — an empty value line between 回车s, or the one
-  /// a trailing 回车 leaves — is real to the caret but invisible to every
-  /// box query, so the lines are discovered by parking the caret at each
-  /// flat position from the chip through the reservation placeholder
-  /// (which rides the value's last line, so a trailing 回车's line is
-  /// found too).
-  List<({double top, double height})> _coveredLines(
-    RenderParagraph paragraph,
-    ProjectedSlot slot,
-  ) {
-    final bands = <({double top, double height})>[];
-    for (var f = _paintOf(slot.chipAt); f <= _paintOfEnd(slot.valueEnd); f++) {
-      final position = TextPosition(offset: f);
-      final top = paragraph.getOffsetForCaret(position, Rect.zero).dy;
-      final height = paragraph.getFullHeightForCaret(position);
-      var seen = false;
-      for (final band in bands) {
-        if ((band.top - top).abs() < 0.75) {
-          seen = true;
-          break;
-        }
-      }
-      if (!seen) bands.add((top: top, height: height));
-    }
-    bands.sort((a, b) => a.top.compareTo(b.top));
-    return bands;
+    return capsuleBandsFor(
+      paragraph: paragraph,
+      paintText: _paragraphText,
+      slots: _projection.slots,
+      valueEndsWithNewline: (slot) =>
+          _editor.doc.valueOf(slot.id).endsWith('\n'),
+      opticalEasePx: _opticalEasePx,
+      paintOf: _paintOf,
+      paintOfEnd: _paintOfEnd,
+    );
   }
 
   /// The paragraph's line ink boxes, top to bottom: the TEXT glyphs only
@@ -1549,38 +1432,12 @@ class SlotSurfaceState extends State<SlotSurface>
     return textLineInkBoxes(paragraph, positions, text.length);
   }
 
-  /// The paragraph's own ink-vs-caret bias: a TEXT line's ink-box
-  /// center minus its caret line-box center — the engine's leading
-  /// split for the fonts this paragraph actually resolved, measured
-  /// from the paragraph itself (a standalone TextPainter seats glyphs
-  /// differently inside its own line and measures wrong). Ink-less
-  /// lines anchor on their strut-locked caret line center plus this
-  /// bias — exactly where their ink anchor lands once glyphs arrive —
-  /// so the anchor source never switches and nothing re-seats (反馈十
-  /// 二). Zero when the paragraph holds no text at all: nothing to
-  /// calibrate from, and only the first glyph's own font delta —
-  /// sub-pixel on real machines — can move.
+  /// The paragraph's own ink-vs-caret bias — see [_paragraphInkBiasOf].
   double _paragraphInkBias(
     RenderParagraph paragraph,
     List<Rect> inkLines,
     String flat,
-  ) {
-    for (var i = 0; i < flat.length; i++) {
-      final cu = flat.codeUnitAt(i);
-      if (cu == 0xFFFC || cu == 0x0A) continue;
-      final probe = TextPosition(offset: i);
-      final height = paragraph.getFullHeightForCaret(probe);
-      if (height <= 0) continue;
-      final center =
-          paragraph.getOffsetForCaret(probe, Rect.zero).dy + height / 2;
-      for (final line in inkLines) {
-        if (center >= line.top - 0.5 && center <= line.bottom + 0.5) {
-          return line.center.dy - center;
-        }
-      }
-    }
-    return 0;
-  }
+  ) => _paragraphInkBiasOf(paragraph, inkLines, flat);
 
   /// The ink-box center of the line [dy] falls on, eased down by the
   /// optical nudge — the vertical anchor every span drawing shares.
@@ -1588,14 +1445,8 @@ class SlotSurfaceState extends State<SlotSurface>
   /// the anchor falls to [fallback] (eased alike): the caller supplies
   /// its caret line center plus the paragraph's ink bias, the same
   /// value the ink anchor takes once glyphs land there.
-  double _inkCenter(List<Rect> lines, double dy, {double? fallback}) {
-    for (final line in lines) {
-      if (dy >= line.top - 0.5 && dy <= line.bottom + 0.5) {
-        return line.center.dy + _opticalEasePx;
-      }
-    }
-    return (fallback ?? dy) + _opticalEasePx;
-  }
+  double _inkCenter(List<Rect> lines, double dy, {double? fallback}) =>
+      inkCenterOf(lines, dy, _opticalEasePx, fallback: fallback);
 
   /// The selection's paint-space range, or null when collapsed — and
   /// while composing: the overlay covers the selection, and the platform
@@ -1640,10 +1491,7 @@ class SlotSurfaceState extends State<SlotSurface>
         }
       }
     }
-    final center = _inkCenter(
-      _lineInkBoxes(paragraph),
-      offset.dy + line / 2,
-    );
+    final center = _inkCenter(_lineInkBoxes(paragraph), offset.dy + line / 2);
     return Rect.fromLTWH(
       offset.dx,
       center - capsuleHeight / 2,
@@ -1784,7 +1632,11 @@ class SlotSurfaceState extends State<SlotSurface>
         ? value.text
         : value.text.replaceRange(composingRange.start, composingRange.end, '');
     final oldBase = hadComposing
-        ? _shadow.text.replaceRange(previousComposing.start, previousComposing.end, '')
+        ? _shadow.text.replaceRange(
+            previousComposing.start,
+            previousComposing.end,
+            '',
+          )
         : _shadow.text;
 
     var prefix = 0;
@@ -1952,6 +1804,320 @@ List<({double top, double height})> truncateCoveredLines(
   return covered.sublist(0, lastHeld + 1);
 }
 
+/// The paragraph's own ink-vs-caret bias: a TEXT line's ink-box
+/// center minus its caret line-box center — the engine's leading
+/// split for the fonts this paragraph actually resolved, measured
+/// from the paragraph itself (a standalone TextPainter seats glyphs
+/// differently inside its own line and measures wrong). Ink-less
+/// lines anchor on their strut-locked caret line center plus this
+/// bias — exactly where their ink anchor lands once glyphs arrive —
+/// so the anchor source never switches and nothing re-seats (反馈十
+/// 二). Zero when the paragraph holds no text at all: nothing to
+/// calibrate from, and only the first glyph's own font delta —
+/// sub-pixel on real machines — can move.
+double _paragraphInkBiasOf(
+  RenderParagraph paragraph,
+  List<Rect> inkLines,
+  String flat,
+) {
+  for (var i = 0; i < flat.length; i++) {
+    final cu = flat.codeUnitAt(i);
+    if (cu == 0xFFFC || cu == 0x0A) continue;
+    final probe = TextPosition(offset: i);
+    final height = paragraph.getFullHeightForCaret(probe);
+    if (height <= 0) continue;
+    final center =
+        paragraph.getOffsetForCaret(probe, Rect.zero).dy + height / 2;
+    for (final line in inkLines) {
+      if (center >= line.top - 0.5 && center <= line.bottom + 0.5) {
+        return line.center.dy - center;
+      }
+    }
+  }
+  return 0;
+}
+
+/// The ink-box center of the line [dy] falls on, eased down by
+/// [opticalEasePx] — the vertical anchor every span drawing shares,
+/// factored out so both faces of the surface family (and the band
+/// computation they share) anchor identically. When no line claims
+/// [dy] — an ink-less line, placeholders only — the anchor falls to
+/// [fallback] (eased alike).
+double inkCenterOf(
+  List<Rect> lines,
+  double dy,
+  double opticalEasePx, {
+  double? fallback,
+}) {
+  for (final line in lines) {
+    if (dy >= line.top - 0.5 && dy <= line.bottom + 0.5) {
+      return line.center.dy + opticalEasePx;
+    }
+  }
+  return (fallback ?? dy) + opticalEasePx;
+}
+
+/// The paragraph lines a capsule covers, top to bottom, as caret bands
+/// (the caret's top and full line height at a position on the line). A
+/// line with no glyphs — an empty value line between 回车s, or the one
+/// a trailing 回车 leaves — is real to the caret but invisible to every
+/// box query, so the lines are discovered by parking the caret at each
+/// flat position from the chip through the reservation placeholder
+/// (which rides the value's last line, so a trailing 回车's line is
+/// found too). [paintOf]/[paintOfEnd] carry the caller's base→paint
+/// shift (the preview's composing splice; identity on the stream face).
+List<({double top, double height})> coveredLinesFor(
+  RenderParagraph paragraph,
+  ProjectedSlot slot, {
+  int Function(int)? paintOf,
+  int Function(int)? paintOfEnd,
+}) {
+  final toPaint = paintOf ?? (f) => f;
+  final toPaintEnd = paintOfEnd ?? (f) => f;
+  final bands = <({double top, double height})>[];
+  for (var f = toPaint(slot.chipAt); f <= toPaintEnd(slot.valueEnd); f++) {
+    final position = TextPosition(offset: f);
+    final top = paragraph.getOffsetForCaret(position, Rect.zero).dy;
+    final height = paragraph.getFullHeightForCaret(position);
+    var seen = false;
+    for (final band in bands) {
+      if ((band.top - top).abs() < 0.75) {
+        seen = true;
+        break;
+      }
+    }
+    if (!seen) bands.add((top: top, height: height));
+  }
+  bands.sort((a, b) => a.top.compareTo(b.top));
+  return bands;
+}
+
+/// The rendered bands per capsule identity, in paragraph-local
+/// coordinates — the ONE shape computation both faces of the surface
+/// family run: the preview's editable pills (29 号's extraction seam)
+/// and the stream's read-only inline capsules. Each covered line
+/// renders as its own band, centered on its line's ink box (居中按所在
+/// 行墨迹盒, 08 号票); an end the wrapper or a newline CUT is square,
+/// only the capsule's NATURAL ends keep the rounded caps (截断直角、文
+/// 字贴边; D3 反馈五终裁); a cut end's fill dissolves approaching it
+/// (截断端渐隐); the parking stub floors at the reservation's own width
+/// (反馈十八修复二); every band is the capsule's own height on its line
+/// (反馈十五); the breathing is CONSTANT at every edge (反馈十六).
+///
+/// [paintText] is the string the paragraph actually lays out — the flat
+/// projection (the stream's, or the preview's with the composing run
+/// spliced). [valueEndsWithNewline] answers per occurrence, its fact
+/// source the caller's (the preview's value map; the stream's own text).
+/// [paintOf]/[paintOfEnd] default to identity for faces with no
+/// composing overlay.
+Map<int, List<CapsuleBand>> capsuleBandsFor({
+  required RenderParagraph paragraph,
+  required String paintText,
+  required List<ProjectedSlot> slots,
+  required bool Function(ProjectedSlot slot) valueEndsWithNewline,
+  required double opticalEasePx,
+  int Function(int)? paintOf,
+  int Function(int)? paintOfEnd,
+}) {
+  final toPaint = paintOf ?? (f) => f;
+  final toPaintEnd = paintOfEnd ?? (f) => f;
+  double inkCenter(List<Rect> lines, double dy, {double? fallback}) =>
+      inkCenterOf(lines, dy, opticalEasePx, fallback: fallback);
+  final placeholderPositions = [
+    for (var i = 0; i < paintText.length; i++)
+      if (paintText.codeUnitAt(i) == 0xFFFC) i,
+  ];
+  final lines = textLineInkBoxes(
+    paragraph,
+    placeholderPositions,
+    paintText.length,
+  );
+  final inkBias = _paragraphInkBiasOf(paragraph, lines, paintText);
+  // The wrap width the layout itself used — the theoretical right edge
+  // a full line of text reaches.
+  final columnRight = paragraph.constraints.maxWidth;
+  final bands = <int, List<CapsuleBand>>{};
+  for (final slot in slots) {
+    final chipBoxes = paragraph.getBoxesForSelection(
+      TextSelection(
+        baseOffset: toPaint(slot.chipAt),
+        extentOffset: toPaint(slot.chipAt) + 1,
+      ),
+    );
+    final valueBoxes = paragraph.getBoxesForSelection(
+      TextSelection(
+        baseOffset: toPaint(slot.valueStart),
+        extentOffset: toPaintEnd(slot.valueEnd),
+      ),
+    );
+    final boxes = <Rect>[
+      for (final box in chipBoxes) box.toRect(),
+      for (final box in valueBoxes) box.toRect(),
+    ]..sort((a, b) => a.left.compareTo(b.left));
+    if (boxes.isEmpty) continue;
+    var covered = coveredLinesFor(
+      paragraph,
+      slot,
+      paintOf: paintOf,
+      paintOfEnd: paintOfEnd,
+    );
+    // 反馈十四: a covered tail line holding neither the chip nor any
+    // value glyph — claimed by the wrap-boundary caret probe at the
+    // reservation's own offset — belongs to the capsule only when the
+    // value hard-continues onto it. Otherwise the capsule is one
+    // complete pill on its glyph line.
+    covered = truncateCoveredLines(covered, boxes, valueEndsWithNewline(slot));
+    if (covered.length > 1 && columnRight.isFinite && chipBoxes.isNotEmpty) {
+      // Multi-line: one band per covered line, flush to the column.
+      // The last band keeps the content-bounded right edge — the body
+      // text after the capsule flows on beside it. Every end but the
+      // first's left (the chip cap) and the
+      // last's right (the value's own end) is a CUT: square. The
+      // empty tail line's parking stub floors at the reservation's own
+      // width — exactly the layout space it already owns, clear of all
+      // ink (反馈十八修复二; the floor's history: 反馈七终案's cap
+      // radius, then widened — the near-degenerate width lost the
+      // fill's lower-left crescent on the real GPU and left the cut
+      // dissolve no flat run).
+      final lastBand = covered.last;
+      var lastRight = 0.0;
+      for (final box in valueBoxes) {
+        if (box.top < lastBand.top + lastBand.height - 1 &&
+            box.bottom > lastBand.top + 1) {
+          lastRight = math.max(lastRight, box.right);
+        }
+      }
+      // The tail breathing is CONSTANT (反馈十六): the last band keeps
+      // the parking pad only, whatever does or does not follow. The
+      // empty tail line's parking stub floors at the reservation's own
+      // width plus the look-tuned pixels (反馈十八修复二 trialed at the
+      // reservation's own width, then walked the cap start right a
+      // pixel at a time; the ramp clamp keeps the dissolve's length
+      // constant): at cap radius + 0.5 the near-degenerate corner
+      // geometry lost the fill's lower-left crescent on the real GPU
+      // (软件光栅无此缺陷), and the cut dissolve had no flat run to
+      // live in — filling the layout space the stub already owns gives
+      // the ramp its visible run and walks the cap clear of both the
+      // dissolve and the degenerate widths (右端连续半圆弧, 渐变共存).
+      final stubFloor =
+          SlotSurfaceState.pillRightPad + SlotSurfaceState.capsuleSidePad + 2;
+      final lastBandRight = math.max(
+        lastRight + SlotSurfaceState.pillRightPad,
+        stubFloor,
+      );
+      // No value glyphs claim the last covered line — the value ended
+      // with 回车 and the band there is the capsule's parking stub.
+      final slotBands = <CapsuleBand>[];
+      // One anchor per covered line (an ink-less line anchors on the
+      // strut-locked caret line center plus the paragraph's ink bias —
+      // the anchor its siblings' ink lines land on; 反馈十二's
+      // convention).
+      final centers = <double>[
+        for (final band in covered)
+          inkCenter(
+            lines,
+            band.top + band.height / 2,
+            fallback: band.top + band.height / 2 + inkBias,
+          ),
+      ];
+      final half = SlotSurfaceState.capsuleHeight / 2;
+      for (var i = 0; i < covered.length; i++) {
+        // Every band is the capsule's OWN height on its line (反馈十
+        // 五: the seam-closing experiment that stretched bands toward
+        // their neighbours made the capsule read taller than the
+        // family and graze the capsules above and below — the thin
+        // daylight between a wrap's bands is the family's look, ruled
+        // back).
+        final top = centers[i] - half;
+        final bottom = centers[i] + half;
+        // The first segment's cap keeps its leading sidePad
+        // unconditionally (反馈十六); every later segment is a column
+        // band: full width, flush left.
+        final left = i == 0
+            ? chipBoxes.first.toRect().left + SlotSurfaceState.capsuleSidePad
+            : 0.0;
+        final right = i == covered.length - 1 ? lastBandRight : columnRight;
+        slotBands.add(
+          CapsuleBand(
+            rect: Rect.fromLTRB(left, top, right, bottom),
+            leftRounded: i == 0,
+            rightRounded: i == covered.length - 1,
+          ),
+        );
+      }
+      bands[slot.id] = slotBands;
+      continue;
+    }
+    // Single line: a complete pill hugging its content. Group the
+    // covered boxes into per-line runs (one, here): a box overlaps its
+    // own line's boxes vertically and never the neighbour line's.
+    final runs = <List<Rect>>[];
+    for (final box in boxes) {
+      final run = runs.isEmpty ? null : runs.last;
+      final sameLine =
+          run != null &&
+          box.top < run.first.bottom + 1 &&
+          box.bottom > run.first.top - 1;
+      if (sameLine) {
+        run.add(box);
+      } else {
+        runs.add([box]);
+      }
+    }
+    final slotBands = <CapsuleBand>[];
+    for (var i = 0; i < runs.length; i++) {
+      var left = runs[i].first.left;
+      var right = runs[i].first.right;
+      for (final box in runs[i]) {
+        left = math.min(left, box.left);
+        right = math.max(right, box.right);
+      }
+      // The breathing is CONSTANT (2026-09-10 反馈十六 re-ruling,
+      // retiring the line-edge swallows of 反馈四②/十三): the first
+      // run's left always sits on the chip reservation's leading
+      // sidePad — a capsule's placement and width never depend on
+      // what its neighbours or the line's edges hold — and the last
+      // run always grows into the parking pad the reservation holds
+      // past the value, keeping its breathing tail.
+      if (i == 0) left = left + SlotSurfaceState.capsuleSidePad;
+      final tail = i == runs.length - 1 ? SlotSurfaceState.pillRightPad : 0.0;
+      // The fallback anchor for an ink-less line (this capsule alone
+      // on the line, all placeholders): the strut-locked caret line
+      // center from the covered-lines probe, plus the paragraph's
+      // own ink bias — not the run's own placeholder box (反馈十二).
+      var coveredCenter = runs[i].first.center.dy;
+      var coveredDistance = double.infinity;
+      for (final band in covered) {
+        final distance =
+            ((band.top + band.height / 2) - runs[i].first.center.dy).abs();
+        if (distance < coveredDistance) {
+          coveredDistance = distance;
+          coveredCenter = band.top + band.height / 2;
+        }
+      }
+      final center = inkCenter(
+        lines,
+        runs[i].first.center.dy,
+        fallback: coveredCenter + inkBias,
+      );
+      slotBands.add(
+        CapsuleBand(
+          rect: Rect.fromLTRB(
+            left,
+            center - SlotSurfaceState.capsuleHeight / 2,
+            right + tail,
+            center + SlotSurfaceState.capsuleHeight / 2,
+          ),
+          leftRounded: true,
+          rightRounded: true,
+        ),
+      );
+    }
+    bands[slot.id] = slotBands;
+  }
+  return bands;
+}
+
 /// A paragraph's line ink boxes over the TEXT glyphs only, top to bottom:
 /// the selection ranges BETWEEN [placeholders] (flat offsets of the inline
 /// placeholder code units) are measured and unioned per line; the
@@ -2036,17 +2202,16 @@ class CapsuleBand {
 
   /// The band's painted shape: rounded caps on the natural ends, square
   /// edges on the cut ones, optionally inflated for the active stroke.
-  RRect shape(Radius cap, {double inflate = 0}) =>
-      RRect.fromLTRBAndCorners(
-        rect.left - inflate,
-        rect.top - inflate,
-        rect.right + inflate,
-        rect.bottom + inflate,
-        topLeft: leftRounded ? cap : Radius.zero,
-        bottomLeft: leftRounded ? cap : Radius.zero,
-        topRight: rightRounded ? cap : Radius.zero,
-        bottomRight: rightRounded ? cap : Radius.zero,
-      );
+  RRect shape(Radius cap, {double inflate = 0}) => RRect.fromLTRBAndCorners(
+    rect.left - inflate,
+    rect.top - inflate,
+    rect.right + inflate,
+    rect.bottom + inflate,
+    topLeft: leftRounded ? cap : Radius.zero,
+    bottomLeft: leftRounded ? cap : Radius.zero,
+    topRight: rightRounded ? cap : Radius.zero,
+    bottomRight: rightRounded ? cap : Radius.zero,
+  );
 
   /// A horizontal ALPHA mask holding opaque and dissolving to nothing
   /// across the run approaching each CUT end, so the square edge never
@@ -2114,12 +2279,44 @@ class CapsuleBand {
   }
 }
 
-/// Paints the stream face's number circles (listening / rectifying):
-/// each sentinel's spacer reservation carries a flat circle — the
-/// family's own degenerate capsule (2026-09-09 反馈九), placed inside
-/// the reservation by the same edge and anchor strategy the preview's
-/// pills use, in the layout's own frame (号圆; 21 号票家族, 23 号验收轮
-/// 改绘).
+/// Paints [paint]'s shape, then — when the band has a cut end —
+/// confines it with the cut-fade mask: the flat colour first inside a
+/// saveLayer, then the alpha gradient over the WHOLE layer rectangle
+/// through dstIn. The mask is a plain rect inflated past every edge of
+/// the band's ink — a mask sharing the shape's own boundary multiplies
+/// its AA against the ink's (a stroked band lost the outer half of
+/// its outline along the whole run on hardware), while the rect's
+/// α=1 plateau reaches every pixel of the band untouched and only the
+/// horizontal ramp toward the cut modulates it. Shared by both faces'
+/// pill layers (the preview's and the stream's, 29 号票).
+void paintFadedBand(Canvas canvas, CapsuleBand band, RRect shape, Paint paint) {
+  final mask = band.cutFadeMask(shape.outerRect);
+  if (mask == null) {
+    canvas.drawRRect(shape, paint);
+    return;
+  }
+  final layer = shape.outerRect.inflate(1);
+  canvas.saveLayer(layer, Paint());
+  canvas.drawRRect(shape, paint);
+  canvas.drawRect(
+    layer,
+    Paint()
+      ..blendMode = BlendMode.dstIn
+      ..shader = mask,
+  );
+  canvas.restore();
+}
+
+/// Paints the stream face's number circles and capsule digits
+/// (listening / rectifying): each bare sentinel's spacer reservation
+/// carries a flat circle — the family's own degenerate capsule
+/// (2026-09-09 反馈九), placed inside the reservation by the same edge
+/// and anchor strategy the preview's pills use, in the layout's own
+/// frame (号圆; 21 号票家族, 23 号验收轮改绘). Each INLINE form's pill
+/// is painted under the text by [_StreamPillPainter]; this layer adds
+/// the number digits onto its left cap — the same geometry the pill
+/// layer drew, so the digits can never disagree with the pill's
+/// placement (29 号票: the growing capsule IS the family's capsule).
 class _StreamCapsulesPainter extends CustomPainter {
   _StreamCapsulesPainter(this.state, this.pal);
 
@@ -2133,10 +2330,7 @@ class _StreamCapsulesPainter extends CustomPainter {
       // The flat family: fill only — no border, no shadow; one digit a
       // true circle, wider numbers a capsule.
       canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          rect,
-          Radius.circular(rect.height / 2),
-        ),
+        RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
         Paint()..color = pal.accentSoft,
       );
       final digits = TextPainter(
@@ -2151,10 +2345,64 @@ class _StreamCapsulesPainter extends CustomPainter {
         rect.center - Offset(digits.width / 2, digits.height / 2),
       );
     }
+    // The inline capsules' number digits, centered on each pill's left
+    // cap circle — the same geometry the pill layer drew, so the digits
+    // can never disagree with the pill's placement (号数绝对定位于左
+    // 端切圆圆心,08 号票; the chip widget itself is a bare spacer).
+    for (final entry in state._streamCapsuleBands().entries) {
+      final first = entry.value.first;
+      final digits = TextPainter(
+        text: TextSpan(
+          text: '${entry.key}',
+          style: SrType.micro.copyWith(color: pal.accentText, height: 1),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      digits.paint(
+        canvas,
+        Offset(
+          first.rect.left +
+              SlotSurfaceState.capsuleHeight / 2 -
+              digits.width / 2,
+          first.rect.center.dy - digits.height / 2,
+        ),
+      );
+    }
   }
 
   @override
   bool shouldRepaint(_StreamCapsulesPainter old) => true;
+}
+
+/// Paints under the stream text: the INLINE capsules' pills (flat
+/// family: fill only, the cut-fade included) — the same band shape the
+/// preview's [_BackgroundPainter] draws, over the stream's own flat
+/// projection. The bare sentinels' circles are the foreground layer's
+/// (they sit ON their reservations, not around text); a pill must sit
+/// UNDER the value it grows around (29 号票).
+class _StreamPillPainter extends CustomPainter {
+  _StreamPillPainter(this.state, this.pal);
+
+  final SlotSurfaceState state;
+  final SrPalette pal;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pillRadius = Radius.circular(SlotSurfaceState.capsuleHeight / 2);
+    for (final entry in state._streamCapsuleBands().entries) {
+      for (final band in entry.value) {
+        paintFadedBand(
+          canvas,
+          band,
+          band.shape(pillRadius),
+          Paint()..color = pal.accentSoft,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StreamPillPainter old) => true;
 }
 
 /// Paints under the text: the capsule pills (flat family: fill only) and
@@ -2166,37 +2414,13 @@ class _BackgroundPainter extends CustomPainter {
   final SlotSurfaceState state;
   final SrPalette pal;
 
-  /// Paints [paint]'s shape, then — when the band has a cut end —
-  /// confines it with the cut-fade mask: the flat colour first inside a
-  /// saveLayer, then the alpha gradient over the WHOLE layer rectangle
-  /// through dstIn. The mask is a plain rect inflated past every edge of
-  /// the band's ink — a mask sharing the shape's own boundary multiplies
-  /// its AA against the ink's (a stroked band lost the outer half of
-  /// its outline along the whole run on hardware), while the rect's
-  /// α=1 plateau reaches every pixel of the band untouched and only the
-  /// horizontal ramp toward the cut modulates it.
+  /// Paints [paint]'s shape — see [paintFadedBand].
   void _paintFadedBand(
     Canvas canvas,
     CapsuleBand band,
     RRect shape,
     Paint paint,
-  ) {
-    final mask = band.cutFadeMask(shape.outerRect);
-    if (mask == null) {
-      canvas.drawRRect(shape, paint);
-      return;
-    }
-    final layer = shape.outerRect.inflate(1);
-    canvas.saveLayer(layer, Paint());
-    canvas.drawRRect(shape, paint);
-    canvas.drawRect(
-      layer,
-      Paint()
-        ..blendMode = BlendMode.dstIn
-        ..shader = mask,
-    );
-    canvas.restore();
-  }
+  ) => paintFadedBand(canvas, band, shape, paint);
 
   @override
   void paint(Canvas canvas, Size size) {

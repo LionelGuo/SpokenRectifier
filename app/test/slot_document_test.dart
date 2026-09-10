@@ -110,11 +110,14 @@ void main() {
       expect(doc.substitute(), 'ab');
     });
 
-    test('characters inside a value land verbatim, spaces included (含空格原样)', () {
-      final doc = SlotDocument();
-      doc.arrive('a‡1‡b', {1: ' 张三 '});
-      expect(doc.substitute(), 'a 张三 b');
-    });
+    test(
+      'characters inside a value land verbatim, spaces included (含空格原样)',
+      () {
+        final doc = SlotDocument();
+        doc.arrive('a‡1‡b', {1: ' 张三 '});
+        expect(doc.substitute(), 'a 张三 b');
+      },
+    );
 
     test('junctions are not trimmed (不 trim)', () {
       final doc = SlotDocument();
@@ -138,7 +141,10 @@ void main() {
       final doc = SlotDocument();
       doc.arrive('‡1‡和‡2‡', {1: '', 2: 'X'});
       doc.editValue(1, '‡2‡');
-      expect(doc.substitute(), '‡2‡和X'); // the substituted shape stays, the real one became X
+      expect(
+        doc.substitute(),
+        '‡2‡和X',
+      ); // the substituted shape stays, the real one became X
     });
   });
 
@@ -189,15 +195,18 @@ void main() {
       expect(doc.valueOf(2), 'E');
     });
 
-    test('typing back the old prefill byte-for-byte reads as untouched (改回读作未改)', () {
-      final doc = SlotDocument();
-      doc.arrive('‡1‡', {1: 'A'});
-      doc.editValue(1, 'X');
-      doc.editValue(1, 'A');
-      doc.arrive('‡1‡', {1: 'C'});
-      expect(doc.valueOf(1), 'C');
-      expect(doc.isModified(1), isFalse);
-    });
+    test(
+      'typing back the old prefill byte-for-byte reads as untouched (改回读作未改)',
+      () {
+        final doc = SlotDocument();
+        doc.arrive('‡1‡', {1: 'A'});
+        doc.editValue(1, 'X');
+        doc.editValue(1, 'A');
+        doc.arrive('‡1‡', {1: 'C'});
+        expect(doc.valueOf(1), 'C');
+        expect(doc.isModified(1), isFalse);
+      },
+    );
 
     test('skeleton edits die with the round they were made in (骨架编辑照旧全丢)', () {
       final doc = SlotDocument();
@@ -227,7 +236,10 @@ void main() {
       expect(doc.skeleton, 'A‡1‡B');
       expect(doc.valueOf(1), '二');
 
-      expect(doc.undo(), isTrue); // revert the first edit → the round's initial state
+      expect(
+        doc.undo(),
+        isTrue,
+      ); // revert the first edit → the round's initial state
       expect(doc.skeleton, 'A‡1‡B');
       expect(doc.valueOf(1), '一');
 
@@ -290,6 +302,132 @@ void main() {
       doc.redo();
       expect(doc.identities, {1, 2});
       expect(doc.visibleIdentities, {1, 2});
+    });
+  });
+
+  group('scanForms: 内联文法(26 号裁定,引擎 scan_forms 的 Dart 镜像)', () {
+    test('both spellings are forms; spans cover the whole form', () {
+      final forms = scanForms('发给‡1:张三‡一份‡2‡,还有‡10:李四‡。');
+      expect(forms, [
+        const ScannedForm(
+          id: 1,
+          kind: ScannedFormKind.inline,
+          start: 2,
+          end: 8,
+          value: '张三',
+          unclosed: false,
+        ),
+        const ScannedForm(
+          id: 2,
+          kind: ScannedFormKind.bare,
+          start: 10,
+          end: 13,
+          value: '',
+          unclosed: false,
+        ),
+        const ScannedForm(
+          id: 10,
+          kind: ScannedFormKind.inline,
+          start: 16,
+          end: 23,
+          value: '李四',
+          unclosed: false,
+        ),
+      ]);
+    });
+
+    test('an unclosed value keeps its accumulated chars (照常成槽)', () {
+      final forms = scanForms('发给‡1:这个文');
+      expect(forms, [
+        const ScannedForm(
+          id: 1,
+          kind: ScannedFormKind.inline,
+          start: 2,
+          end: 8,
+          value: '这个文',
+          unclosed: true,
+        ),
+      ]);
+    });
+
+    test('a trailing bare run is body residue — never a form (不闪的半截)', () {
+      expect(scanForms('发给‡1'), isEmpty);
+      expect(scanForms('发给‡'), isEmpty);
+    });
+
+    test(
+      'the value runs to the next ‡ — colons and newlines kept verbatim',
+      () {
+        final forms = scanForms('‡2:多冒号:值‡ ‡4:跨\n行‡');
+        expect(forms[0].value, '多冒号:值');
+        expect(forms[1].value, '跨\n行');
+        expect(forms[1].end, 17); // past the closing mark, newline included
+      },
+    );
+
+    test(
+      '‡‡ reopens; a colon without digits is literal; breaks are literal',
+      () {
+        // `‡‡1‡` — the first mark literal, the second opens slot 1.
+        expect(scanForms('a‡‡1‡b').single.id, 1);
+        expect(scanForms('‡:无号‡'), isEmpty);
+        expect(scanForms('‡1x‡'), isEmpty);
+        expect(scanForms('‡ 1‡ ‡１‡'), isEmpty);
+      },
+    );
+
+    test('leading zeros fold; beyond u32 the shape is literal body', () {
+      expect(scanForms('‡01:前导零‡').single.id, 1);
+      expect(scanForms('‡4294967295‡').single.id, 4294967295);
+      expect(scanForms('‡4294967296:v‡'), isEmpty); // the engine's u32 rows
+      expect(scanForms('‡99999999999999999999:v‡'), isEmpty);
+    });
+
+    test('an inline form with an empty value is inline, not a circle', () {
+      final forms = scanForms('‡1:‡');
+      expect(forms.single.kind, ScannedFormKind.inline);
+      expect(forms.single.value, '');
+    });
+  });
+
+  group('内联形抽取与代入(29 号票)', () {
+    test('inline text mints the identity; the VALUE rides the event rows (值事实源=事件)', () {
+      final doc = SlotDocument();
+      doc.arrive('发给‡1:被模型写错的值‡', {1: '张三'});
+      expect(doc.visibleIdentities, {1});
+      expect(doc.valueOf(1), '张三'); // the row, not the body text
+      expect(doc.prefillOf(1), '张三');
+    });
+
+    test('substitute replaces the whole inline form with the map value', () {
+      final doc = SlotDocument();
+      doc.arrive('发给‡1:张三‡一份‡2:‡', {1: '李四', 2: ''});
+      expect(doc.substitute(), '发给李四一份'); // inline chrome never survives
+    });
+
+    test('an unclosed inline tail still mints at arrival (机械无失败)', () {
+      final doc = SlotDocument();
+      doc.arrive('发给‡1:这个文', {1: '这个文'});
+      expect(doc.visibleIdentities, {1});
+      expect(doc.substitute(), '发给这个文');
+    });
+
+    test(
+      'a minted inline shape typed after arrival is its identity\'s span',
+      () {
+        final doc = SlotDocument();
+        doc.arrive('发给‡1‡', {1: '一'});
+        doc.editSkeleton('x‡1:foo‡y');
+        expect(doc.fillSlots.single.id, 1); // 同号多处: the re-typed shape counts
+        expect(doc.substitute(), 'x一y'); // its literal value never lands
+      },
+    );
+
+    test('an unminted inline shape passes verbatim (人改同形不铸号)', () {
+      final doc = SlotDocument();
+      doc.arrive('正文', const {});
+      doc.editSkeleton('x‡8:foo‡y');
+      expect(doc.substitute(), 'x‡8:foo‡y');
     });
   });
 }
