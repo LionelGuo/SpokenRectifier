@@ -367,11 +367,34 @@ class SlotSurfaceState extends State<SlotSurface>
   /// The caret's base-space flat position (composing splices at it).
   int get _caretBaseFlat => _projection.cursorToFlat(_editor.caret);
 
-  /// A base-space offset moved past the composing run — paint space.
+  /// A base-space offset moved past the composing run — paint space, at
+  /// its seat semantics: an offset AT the run's start maps to the start
+  /// itself (the run begins there), which is what a range START and a
+  /// caret seat want.
   int _paintOf(int baseOffset) {
     if (_composing.isEmpty) return baseOffset;
     final start = _composingCoverStartFlat;
     if (baseOffset <= start) return baseOffset;
+    if (baseOffset >= _composingCoverEndFlat) {
+      return baseOffset + _composing.length -
+          (_composingCoverEndFlat - start);
+    }
+    return start;
+  }
+
+  /// A base-space RANGE END moved past the composing run — the one
+  /// boundary that differs from a start: when a COLLAPSED window sits at
+  /// the value's end dock (start == end == valueEnd — typing pinyin at
+  /// the value's end, or into an empty capsule), the end EXTENDS past
+  /// the run so the pill's measuring range swallows the composing
+  /// letters. Un-extended it cut the range at the value's edge and the
+  /// pill never grew over the composition (反馈二十: IME 组合不增长胶囊
+  /// 长度, 末尾超出胶囊; the selected-value compose path never touches
+  /// the boundary, which is why F16's replay never caught it).
+  int _paintOfEnd(int baseOffset) {
+    if (_composing.isEmpty) return baseOffset;
+    final start = _composingCoverStartFlat;
+    if (baseOffset < start) return baseOffset;
     if (baseOffset >= _composingCoverEndFlat) {
       return baseOffset + _composing.length -
           (_composingCoverEndFlat - start);
@@ -1217,7 +1240,7 @@ class SlotSurfaceState extends State<SlotSurface>
     final boxes = paragraph.getBoxesForSelection(
       TextSelection(
         baseOffset: _paintOf(slot.valueStart),
-        extentOffset: _paintOf(slot.valueEnd),
+        extentOffset: _paintOfEnd(slot.valueEnd),
       ),
     );
     return boxes.isEmpty ? double.negativeInfinity : boxes.first.toRect().left;
@@ -1311,7 +1334,7 @@ class SlotSurfaceState extends State<SlotSurface>
       final valueBoxes = paragraph.getBoxesForSelection(
         TextSelection(
           baseOffset: _paintOf(slot.valueStart),
-          extentOffset: _paintOf(slot.valueEnd),
+          extentOffset: _paintOfEnd(slot.valueEnd),
         ),
       );
       final boxes = <Rect>[
@@ -1492,7 +1515,7 @@ class SlotSurfaceState extends State<SlotSurface>
     ProjectedSlot slot,
   ) {
     final bands = <({double top, double height})>[];
-    for (var f = _paintOf(slot.chipAt); f <= _paintOf(slot.valueEnd); f++) {
+    for (var f = _paintOf(slot.chipAt); f <= _paintOfEnd(slot.valueEnd); f++) {
       final position = TextPosition(offset: f);
       final top = paragraph.getOffsetForCaret(position, Rect.zero).dy;
       final height = paragraph.getFullHeightForCaret(position);

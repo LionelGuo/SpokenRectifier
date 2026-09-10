@@ -770,6 +770,119 @@ void main() {
       if (flat.codeUnitAt(i) == 0xFFFC) i,
   ];
 
+  testWidgets('composing at the value end grows the pill over the ink', (
+    tester,
+  ) async {
+    // 反馈二十 (2026-09-10): typing pinyin at a COLLAPSED caret (the usual
+    // append point, the value's end) never grew the pill — the composing
+    // letters spilled past its right cap (真机: IME 组合不增长胶囊长度,
+    // 末尾超出胶囊). The paint-space map's boundary branch returned the
+    // value-end offset un-extended when the composing window starts exactly
+    // there, so the pill's measuring range stopped before the run. Every
+    // caller of the map is a range END here; the boundary extends.
+    final h = await pumpSlotPreview(tester);
+    h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 2));
+    await tester.pump();
+    h.tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '发给￼张三zhangsan￼一下',
+        selection: TextSelection.collapsed(offset: 13),
+        composing: TextRange(start: 5, end: 13),
+      ),
+    );
+    await h.tester.pump();
+    expect(h.surface.composingText, 'zhangsan');
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.paintedTextForTest;
+    final runStart = flat.indexOf('zhangsan');
+    final inkRight = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: runStart, extentOffset: runStart + 8),
+        )
+        .last
+        .toRect()
+        .right;
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.last;
+    expect(
+      pill.right,
+      greaterThan(inkRight),
+      reason: 'the composing letters ride inside the pill',
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('composing at a multi-line value end stays covered', (
+    tester,
+  ) async {
+    // The same collapsed-end composition against a value that already
+    // wraps: the composing run lands on the LAST band's line (or wraps to
+    // its own), and the band must reach past its ink either way.
+    final h = await pumpSlotPreview(tester, prefill: '测' * 40);
+    h.surface.editor.place(SlotCursor.inside(at: 2, offset: 40));
+    await tester.pump();
+    h.tester.testTextInput.updateEditingValue(
+      TextEditingValue(
+        text: '发给￼${'测' * 40}zhangsan￼一下',
+        selection: TextSelection.collapsed(offset: 51),
+        composing: TextRange(start: 43, end: 51),
+      ),
+    );
+    await h.tester.pump();
+    expect(h.surface.composingText, 'zhangsan');
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.paintedTextForTest;
+    final runStart = flat.indexOf('zhangsan');
+    final boxes = paragraph.getBoxesForSelection(
+      TextSelection(baseOffset: runStart, extentOffset: runStart + 8),
+    );
+    expect(boxes, isNotEmpty);
+    final inkRight = boxes.last.toRect().right;
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.last;
+    expect(
+      pill.right,
+      greaterThan(inkRight),
+      reason: 'the last band reaches past the composing ink',
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('composing into an empty capsule stays covered', (
+    tester,
+  ) async {
+    // F21's entering caret sits at the empty value's single dock — the
+    // collapsed boundary again, with valueStart == valueEnd == the
+    // composing start.
+    final h = await pumpSlotPreview(tester, prefill: '');
+    await tester.tapAt(h.capsuleRect(1).center);
+    await tester.pump();
+    h.tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '发给￼zhangsan￼一下',
+        selection: TextSelection.collapsed(offset: 11),
+        composing: TextRange(start: 3, end: 11),
+      ),
+    );
+    await h.tester.pump();
+    expect(h.surface.composingText, 'zhangsan');
+    final paragraph = previewParagraph(tester);
+    final flat = h.surface.paintedTextForTest;
+    final runStart = flat.indexOf('zhangsan');
+    final inkRight = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: runStart, extentOffset: runStart + 8),
+        )
+        .last
+        .toRect()
+        .right;
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.last;
+    expect(
+      pill.right,
+      greaterThan(inkRight),
+      reason: 'the pill grows over the composing run',
+    );
+    await windDown(tester, h.controller);
+  });
+
   testWidgets(
     'the pill keeps clear of the neighbouring glyphs on both sides', (
     tester,
