@@ -24,7 +24,7 @@ use spokenrectifier_engine::{
 };
 
 use super::cases::EvalSuite;
-use super::check::check;
+use super::check::{check_parts, sentinel_counts};
 use super::report::CaseOutcome;
 
 /// One live event from the running suite.
@@ -68,14 +68,18 @@ impl TextInserter for NoopInserter {
 }
 
 /// Run one case through the engine: RectifyText → accumulate the chunk
-/// stream → Preview → Cancel. Returns the rectified text, or the
-/// engine's own error message when the session aborted.
+/// stream → Preview → Cancel. Returns the rectified body and the
+/// 【预填】 rows (the engine's split keeps the block out of the chunk
+/// stream; the rows ride `PreviewPrefills`, arriving before the Preview
+/// state change), or the engine's own error message when the session
+/// aborted.
 async fn rectify_case(
     engine: &Engine,
     rx: &mut broadcast::Receiver<EventEnvelope>,
     transcript: &str,
-) -> Result<String, String> {
+) -> Result<(String, Vec<(u32, String)>), String> {
     let mut accumulated = String::new();
+    let mut prefill: Vec<(u32, String)> = Vec::new();
     engine
         .execute(Command::RectifyText {
             raw_transcript: transcript.to_string(),
@@ -90,6 +94,12 @@ async fn rectify_case(
             match rx.recv().await {
                 Ok(envelope) => match envelope.event {
                     EngineEvent::RectifiedTextChunk { delta } => accumulated.push_str(&delta),
+                    EngineEvent::PreviewPrefills { prefills } => {
+                        prefill = prefills
+                            .iter()
+                            .map(|row| (row.number, row.value.clone()))
+                            .collect();
+                    }
                     EngineEvent::SessionStateChanged {
                         to: SessionState::Preview,
                         ..
@@ -147,7 +157,7 @@ async fn rectify_case(
             })
             .await
             .map_err(|_| "cancel did not settle into Idle".to_string())?;
-            Ok(accumulated)
+            Ok((accumulated, prefill))
         }
         // The session ended on its own (an engine or LLM error already
         // carried the verdict): there is nothing to cancel, and trying
@@ -201,11 +211,15 @@ pub async fn run_suite(
         }
         let started = Instant::now();
         let outcome = match rectify_case(&engine, &mut rx, &case.transcript).await {
-            Ok(text) => {
+            Ok((text, prefill)) => {
                 let trimmed = text.trim();
+                // The chunks carried body only (the engine already split
+                // the block off), so the assertions take the split parts:
+                // body here, rows from the PreviewPrefills event.
+                let pinned = sentinel_counts(&case.transcript);
                 CaseOutcome {
                     id: case.id.clone(),
-                    failures: check(case, trimmed),
+                    failures: check_parts(case, trimmed, &prefill, &pinned),
                     output: trimmed.to_string(),
                     error: None,
                     duration_ms: started.elapsed().as_millis() as u64,
@@ -356,5 +370,49 @@ mod tests {
         );
         // An execution failure carries no assertion verdicts to show.
         assert!(outcome.failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn prefill_rows_ride_the_event_and_reach_the_absorption_assertions() {
+        // The engine's split (ticket 18) keeps the 【预填】 block out of
+        // the chunk stream; the rows ride `PreviewPrefills`. A response
+        // with a proper block must pass its absorption assertions, and
+        // one without a block must fail on the empty value — the wiring
+        // this locks (the live 25-case baseline once read empty for
+        // every slot because the runner re-checked a body-only text).
+        use crate::cases::PrefillExpectation;
+        use crate::check::FailureCategory;
+
+        let pinned_case = |id: &str, name: &str| crate::cases::EvalCase {
+            id: id.into(),
+            transcript: format!("发给{name}‡1‡,材料一份"),
+            convey: vec![vec!["材料".into()]],
+            absorbed: vec![name.into()],
+            prefill: vec![PrefillExpectation {
+                pin: 1,
+                any: vec![name.into()],
+            }],
+            ..EvalCase::default()
+        };
+        let suite = EvalSuite {
+            terms: vec![],
+            cases: vec![pinned_case("with-block", "张三"), pinned_case("no-block", "李四")],
+        };
+        let outcomes = run_suite(
+            scripted(&["发给‡1‡一份材料。\n\n【预填】\n- ‡1‡:张三", "发给‡1‡一份材料。"]),
+            &suite,
+            &|_| true,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 2);
+        assert!(outcomes[0].passed(), "{:?}", outcomes[0].failures);
+        assert_eq!(outcomes[0].output, "发给‡1‡一份材料。");
+        assert!(!outcomes[1].passed());
+        assert_eq!(
+            outcomes[1].failures[0].category,
+            FailureCategory::AbsorbFailed
+        );
     }
 }

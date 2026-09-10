@@ -68,9 +68,10 @@ pub fn check(case: &EvalCase, output: &str) -> Vec<Failure> {
 
 /// The same assertions over an already-split response: body without the
 /// 【预填】 block, the parsed prefill rows, and the transcript's
-/// sentinel counts. The runner rides [`check`]; this is the seam the
-/// engine-side split (ticket 18) feeds once the chunk stream carries
-/// body only and the prefill table rides its own event.
+/// sentinel counts. The runner rides this seam (ticket 18's engine-side
+/// split): its chunk stream carries body only and the prefill table
+/// arrives on the `PreviewPrefills` event. [`check`] stays the
+/// whole-response front door for already-concatenated outputs.
 pub fn check_parts(
     case: &EvalCase,
     raw_body: &str,
