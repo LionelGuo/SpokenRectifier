@@ -198,8 +198,11 @@ void main() {
       final h = await pumpSlotPreview(tester, body: '‡1‡', prefill: '测');
       final base = tester.getRect(find.byKey(const Key('session-text')));
       final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
-      // The chip reservation is 31 wide (sidePad + cap circle + chip gap);
-      // x=3 is its left half, well clear of the split at its center.
+      // With the constant breathing (反馈十六) the paper in front of
+      // the pill is a sidePad-wide strip: x=3 is background, carried by
+      // the geometric strip rule (before that ruling the pill's flush
+      // left the whole-left ON the pill, carried by the value-content
+      // boundary).
       await tester.tapAt(base.topLeft + Offset(3, pill.center.dy));
       await tester.pump();
       expect(
@@ -215,6 +218,100 @@ void main() {
       final edges = h.surface.editor.selectionEdges!;
       expect(edges.$1, const SlotCursor.inside(at: 0, offset: 0));
       expect(edges.$2, const SlotCursor.inside(at: 0, offset: 1));
+      await windDown(tester, h.controller);
+    },
+  );
+
+  testWidgets(
+    'taps on the background beside an empty capsule reach its outside docks', (
+      tester,
+    ) async {
+      // 愿望三 (2026-09-10): every position the caret can reach must be
+      // clickable. The sidePad-wide background strips flanking the pill
+      // carry the outside docks — an empty capsule's whole pill still
+      // enters (F21), but the paper beside it places the caret before or
+      // after the capsule. Geometry decides, never the engine's
+      // placeholder hit split (which wanders with the layout).
+      final h = await pumpSlotPreview(tester, body: '‡1‡话', prefill: '');
+      final base = tester.getRect(find.byKey(const Key('session-text')));
+      final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+      // The paper in front: the dock outside the capsule's left (段首).
+      await tester.tapAt(base.topLeft + Offset(pill.left - 2, pill.center.dy));
+      await tester.pump();
+      expect(h.surface.activeSlotId, isNull);
+      expect(h.surface.editor.caret, const SlotCursor.outside(0));
+      // The paper behind: the dock outside the capsule's right.
+      await tester.tapAt(base.topLeft + Offset(pill.right + 2, pill.center.dy));
+      await tester.pump();
+      expect(h.surface.activeSlotId, isNull);
+      expect(h.surface.editor.caret, const SlotCursor.outside(3));
+      // The pill itself still enters (F21): the whole pill is the
+      // entering target of an empty capsule.
+      await tester.tapAt(base.topLeft + pill.center);
+      await tester.pump();
+      expect(h.surface.activeSlotId, 1);
+      await windDown(tester, h.controller);
+    },
+  );
+
+  testWidgets(
+    'a click past a line whose only content is the capsule lands outside it', (
+      tester,
+    ) async {
+      // The line-end click: the reservation is the line's last content,
+      // so the engine resolves the click onto the reservation's own flat
+      // offset — which used to become the capsule's inside-end dock
+      // (点击后方进了胶囊). The surface maps it out: the dock past the
+      // capsule.
+      final h = await pumpSlotPreview(tester, body: '‡1‡', prefill: '');
+      final base = tester.getRect(find.byKey(const Key('session-text')));
+      final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+      await tester.tapAt(base.topLeft + Offset(pill.right + 30, pill.center.dy));
+      await tester.pump();
+      expect(h.surface.activeSlotId, isNull);
+      expect(h.surface.editor.caret, const SlotCursor.outside(0));
+      await windDown(tester, h.controller);
+    },
+  );
+
+  testWidgets(
+    'a tap in the gap between adjacent capsules places the caret between them', (
+      tester,
+    ) async {
+      // F25 (2026-09-10): consecutive capsules with nothing between them
+      // — the shared gap is background the reservations hold, and it
+      // must place the caret BETWEEN them (previously the engine's
+      // placeholder hit split sent the click into the left capsule's
+      // inside-end dock; only ←/→ could reach the gap).
+      final h = await pumpSlotPreview(
+        tester,
+        body: '甲‡1‡‡2‡乙',
+        prefill: '',
+        prefill2: '',
+        pins: 2,
+      );
+      final base = tester.getRect(find.byKey(const Key('session-text')));
+      final pill1 = h.surface.capsuleSegmentsForTest()[1]!.first;
+      final pill2 = h.surface.capsuleSegmentsForTest()[2]!.first;
+      final gap = Rect.fromLTRB(
+        pill1.right,
+        pill1.top,
+        pill2.left,
+        pill1.bottom,
+      );
+      expect(gap.width, closeTo(2 * SrCapsule.sidePad, 0.5));
+      // Either half of the gap: the left rides capsule 1's reservation,
+      // the right capsule 2's chip spacer — both resolve to the one dock
+      // between them.
+      for (final dx in [gap.center.dx - 1.5, gap.center.dx + 1.5]) {
+        await tester.tapAt(base.topLeft + Offset(dx, gap.center.dy));
+        await tester.pump();
+        expect(h.surface.activeSlotId, isNull, reason: 'at $dx');
+        expect(h.surface.editor.caret, const SlotCursor.outside(4));
+      }
+      // Typing there inserts BETWEEN the capsules, into neither value.
+      await h.type('字');
+      expect(h.surface.flatBaseText, '甲￼￼字￼￼乙');
       await windDown(tester, h.controller);
     },
   );
@@ -694,8 +791,8 @@ void main() {
     // The margins are reserved in layout (the chip's leading spacer, the
     // reservation placeholder's tail) — the pill's caps may never touch,
     // let alone paint over, the neighbours' ink.
-    expect(pill.left - before, greaterThan(4));
-    expect(after - pill.right, greaterThan(4));
+    expect(pill.left - before, closeTo(SrCapsule.sidePad, 0.5));
+    expect(after - pill.right, closeTo(SrCapsule.sidePad, 0.5));
     await windDown(tester, h.controller);
   },
   );
@@ -838,30 +935,35 @@ void main() {
       return (circle, box);
     }
 
-    // Starting the line: the reservation's leading breathing is
-    // absorbed — the cap flush at the column's edge (行首不留空位).
+    // The breathing is CONSTANT at every edge, line edges included
+    // (2026-09-10 反馈十六 re-ruling, retiring the line-edge swallows):
+    // starting the line keeps the leading sidePad…
     final (start, _) = await circleFor(
-      'session-stream-flush-start',
+      'session-stream-edge-start',
       '‡1‡后面还有话',
       0,
     );
-    expect(start.left, closeTo(0, 0.5));
+    expect(start.left, closeTo(SrCapsule.sidePad, 0.5));
     expect(start.width, SrCapsule.height);
 
-    // Ending the line: nothing follows on the line — the tail breathing
-    // is absorbed, the cap flush at the reservation's end (行尾不留空位).
+    // …ending the line keeps the tail breathing…
     final (end, endBox) = await circleFor(
-      'session-stream-flush-end',
+      'session-stream-edge-end',
       '前面的话‡1‡',
       4,
     );
-    expect(end.right, closeTo(endBox.right, 0.5));
-    expect(end.left, closeTo(endBox.right - SrCapsule.height, 0.5));
+    expect(
+      end.right,
+      closeTo(endBox.right - SrCapsule.sidePad, 0.5),
+    );
+    expect(
+      end.left,
+      closeTo(endBox.right - SrCapsule.sidePad - SrCapsule.height, 0.5),
+    );
 
-    // Alone on its line: a rigid circle cannot flush both edges — the
-    // leading edge wins, the tail keeps its breathing.
-    final (solo, _) = await circleFor('session-stream-flush-solo', '‡1‡', 0);
-    expect(solo.left, closeTo(0, 0.5));
+    // …and alone on its line both edges keep it.
+    final (solo, _) = await circleFor('session-stream-edge-solo', '‡1‡', 0);
+    expect(solo.left, closeTo(SrCapsule.sidePad, 0.5));
     expect(solo.width, SrCapsule.height);
   });
 
@@ -898,12 +1000,12 @@ void main() {
       expect(gap23, closeTo(2 * SrCapsule.sidePad, 0.5));
     }
 
-    // Starting the line (the fresh-pin run): the run flushes left as one
-    // and every inner gap is the reservation's own slack — the tail keeps
-    // its breathing (行首优先、尾巴留呼吸, at run scale).
+    // Starting the line (the fresh-pin run): every gap is the
+    // reservation's own slack, and the run's head keeps its breathing
+    // like everywhere else (反馈十六).
     final solo = await circlesFor('session-stream-run-start', '‡1‡‡2‡‡3‡');
     expectUniformGaps(solo);
-    expect(solo[1]!.left, closeTo(0, 0.5));
+    expect(solo[1]!.left, closeTo(SrCapsule.sidePad, 0.5));
 
     // Ending the line after text: the run hugs the reservation ends as
     // one, head keeping its breathing toward the text.
@@ -1122,14 +1224,14 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('consecutive capsules at a line start share one width', (
+  testWidgets('capsule geometry never depends on what precedes it', (
     tester,
   ) async {
-    // 反馈十二 → 反馈十三 re-ruling: the line-start run runs FLUSH
-    // (顶格) and every capsule of the run swallows its leading
-    // breathing WITH the first — one width, the number still centered
-    // in each pill's own cap, no rift inside the run. Text before a
-    // capsule keeps the breathing toward the text.
+    // 2026-09-10 反馈十六: the breathing is CONSTANT — the number-to-value
+    // distance, the pill widths and the shared gaps never depend on what
+    // the neighbours or the line's edges hold (retiring 反馈十三's
+    // line-start flush, which widened the run and stretched the
+    // number-to-value gap whenever no text preceded it).
     final h = await pumpSlotPreview(
       tester,
       body: '‡1‡‡2‡‡3‡话',
@@ -1144,32 +1246,49 @@ void main() {
     double gap(int a, int b) =>
         h.surface.capsuleSegmentsForTest()[b]!.first.left -
         h.surface.capsuleSegmentsForTest()[a]!.first.right;
+    // The pill's left sits one sidePad right of its chip box — the
+    // constant the number's placement hangs off (the number rides the
+    // pill's left cap, so the number-to-value distance is constant
+    // exactly when this is).
+    double leftOffChip(int id) {
+      final paragraph = previewParagraph(tester);
+      final placeholders = placeholderPositions(h.surface.flatBaseText);
+      final chipAt = placeholders[2 * (id - 1)];
+      final chipBox = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: chipAt, extentOffset: chipAt + 1),
+          )
+          .first
+          .toRect();
+      return left(id) - chipBox.left;
+    }
+
     final empty = [width(1), width(2), width(3)];
     expect(empty[0], closeTo(empty[1], 0.5));
     expect(empty[1], closeTo(empty[2], 0.5));
-    // Flush at the column edge (顶格): the run's first cap touches x=0.
-    expect(left(1), lessThan(1.0));
-    final emptyLeft = left(1);
-    final emptyGap = gap(1, 2);
+    expect(left(1), closeTo(SrCapsule.sidePad, 0.5));
+    expect(leftOffChip(1), closeTo(SrCapsule.sidePad, 0.5));
+    expect(leftOffChip(3), closeTo(SrCapsule.sidePad, 0.5));
+    expect(gap(1, 2), closeTo(2 * SrCapsule.sidePad, 0.5));
 
     // Filling the first capsule grows it by its own glyphs only: the
-    // leading edge and the shared spacing hold (反馈十一's invariant —
-    // a filled neighbour never re-geometrys its siblings).
+    // leading edge and the shared spacing hold.
     await tester.tapAt(h.capsuleRect(1).center);
     await tester.pump();
     await h.type('张');
-    expect(left(1), closeTo(emptyLeft, 0.5));
-    expect(gap(1, 2), closeTo(emptyGap, 0.5));
+    expect(leftOffChip(1), closeTo(SrCapsule.sidePad, 0.5));
+    expect(gap(1, 2), closeTo(2 * SrCapsule.sidePad, 0.5));
     expect(width(2), closeTo(empty[1], 0.5));
 
-    // Text before the run: the breathing toward the text returns —
-    // uniformly, the empty siblings still one width.
+    // Text before the run: NOTHING re-geometrys — the constant breathing
+    // does not depend on the neighbours (the retired flush moved the
+    // whole run here, visibly resizing every capsule).
     h.surface.editor.place(h.surface.editor.stops.first);
     await tester.pump();
     await h.type('话');
-    expect(left(1), greaterThan(4), reason: 'no longer flush beside text');
-    expect(width(2), closeTo(empty[1] - SrCapsule.sidePad, 0.5));
-    expect(width(3), closeTo(empty[2] - SrCapsule.sidePad, 0.5));
+    expect(leftOffChip(1), closeTo(SrCapsule.sidePad, 0.5));
+    expect(width(2), closeTo(empty[1], 0.5));
+    expect(width(3), closeTo(empty[2], 0.5));
     expect(gap(1, 2), closeTo(2 * SrCapsule.sidePad, 0.5));
     await windDown(tester, h.controller);
   });
@@ -1243,16 +1362,15 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('a capsule starting a line runs flush to the column edge', (
+  testWidgets('a capsule starting a line keeps its breathing', (
     tester,
   ) async {
     final h = await pumpSlotPreview(tester, body: '‡1‡开个会', prefill: '张三');
     final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
-    // 反馈十三 restores the flush at a line start (顶格) on top of the
-    // 反馈十二 width rule: a capsule with no text before it on its line
-    // swallows the leading breathing — and so does every capsule
-    // chained behind it, so a run keeps one width.
-    expect(pill.left, closeTo(0, 0.5));
+    // 反馈十六 (2026-09-10): a line's start keeps the sidePad — the
+    // flush (顶格, 反馈十三) is retired, so the pill's placement never
+    // depends on the line's edges.
+    expect(pill.left, closeTo(SrCapsule.sidePad, 0.5));
     // A capsule the wrapper never cuts is a complete pill: both ends
     // round (自然端圆帽).
     final band = h.surface.capsuleBandsForTest()[1]!.single;
@@ -1302,7 +1420,7 @@ void main() {
   );
 
   testWidgets(
-    'a capsule ending its line swallows the reservation tail (single line)', (
+    'a capsule ending its line keeps its breathing tail (single line)', (
     tester,
   ) async {
     final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张三');
@@ -1316,18 +1434,14 @@ void main() {
         )
         .last
         .right;
-    // Nothing follows the capsule on the line: the pill takes the parking
-    // space AND the breathing tail the reservation holds for text that
-    // is not there (行尾不留空位).
-    expect(
-      pill.right,
-      closeTo(valueRight + SrCapsule.valuePad + SrCapsule.sidePad, 0.5),
-    );
+    // Nothing follows the capsule on the line — 反馈十六: the tail
+    // breathing stays anyway; the pill takes the parking pad only.
+    expect(pill.right, closeTo(valueRight + SrCapsule.valuePad, 0.5));
     await windDown(tester, h.controller);
   });
 
   testWidgets(
-    'the last band of a multi-line capsule ending the line swallows the tail too', (
+    'the last band of a multi-line capsule ending the line keeps its tail too', (
     tester,
   ) async {
     final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张\n三');
@@ -1342,10 +1456,7 @@ void main() {
         )
         .last
         .right;
-    expect(
-      rects[1].right,
-      closeTo(sanRight + SrCapsule.valuePad + SrCapsule.sidePad, 0.5),
-    );
+    expect(rects[1].right, closeTo(sanRight + SrCapsule.valuePad, 0.5));
     await windDown(tester, h.controller);
   });
 

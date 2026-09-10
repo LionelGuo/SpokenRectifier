@@ -324,8 +324,14 @@ abstract final class SrCapsule {
   /// Breathing room between the pill's caps and the neighbouring text —
   /// reserved in layout on both sides (the chip's leading spacer, and the
   /// per-slot reservation placeholder after the value), never painted over
-  /// the neighbours' ink (胶囊两侧间距走视觉与布局预留).
-  static const double sidePad = 6.0;
+  /// the neighbours' ink. CONSTANT everywhere: the pill keeps it at a
+  /// line's start and end too (2026-09-10 反馈十六 re-ruling, retiring the
+  /// line-edge swallows of 反馈四②/十三 — the number-to-value distance and
+  /// the capsule-to-capsule gap may never depend on what neighbours hold),
+  /// so every outside dock keeps a clickable background strip. 4 (was 6):
+  /// the narrower constant softens the line-start indent the retired flush
+  /// leaves behind.
+  static const double sidePad = 4.0;
 
   /// Selection boxes never reach the capsule's full height.
   static const double selectionHeight = 20.0;
