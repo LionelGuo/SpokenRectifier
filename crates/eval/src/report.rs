@@ -47,10 +47,11 @@ const CATEGORIES: [FailureCategory; 6] = [
 ];
 
 /// The pass rate the recorded baseline earned (BASELINE.md beside the
-/// suite: run at commit 2342441 on deepseek-v4-flash, 20/23 = 87.0%) —
+/// suite: run at commit 2124783 on deepseek-v4-flash, 24/28 = 85.7%,
+/// the 28-case denominator with the placeholder family) —
 /// the number an interactive run in the settings window is compared
 /// against. Update it whenever a new baseline is recorded there.
-pub const BASELINE_PASS_RATE: f64 = 87.0;
+pub const BASELINE_PASS_RATE: f64 = 85.7;
 
 /// The structured summary behind the markdown report — what the
 /// settings window paints as the 通过率 + 失败类别摘要. Pure over the
