@@ -1332,10 +1332,11 @@ class SlotSurfaceState extends State<SlotSurface>
         // The tail breathing is CONSTANT (反馈十六): the last band keeps
         // the parking pad only, whatever does or does not follow. The
         // empty tail line's parking stub floors at the RESERVATION's own
-        // width plus one (valuePad + sidePad + 1 — 反馈十八修复二 trialed
-        // at the reservation's own width, superseding 反馈七终案's
-        // cap-radius floor; the extra pixel is the user's look-tuning
-        // trial): at cap radius + 0.5 the near-degenerate
+        // width plus two (valuePad + sidePad + 2 — 反馈十八修复二 trialed
+        // at the reservation's own width, then look-tuned upward a pixel
+        // at a time; the ramp clamp keeps the dissolve's length constant
+        // while the cap start walks right): at cap radius + 0.5 the
+        // near-degenerate
         // corner geometry lost the fill's lower-left crescent on the real
         // GPU (软件光栅无此缺陷), and the cut dissolve had no flat run to
         // live in — filling the layout space the stub already owns gives
@@ -1343,7 +1344,7 @@ class SlotSurfaceState extends State<SlotSurface>
         // dissolve and the degenerate widths (右端连续半圆弧, 渐变共存).
         final lastBandRight = math.max(
           lastRight + pillRightPad,
-          pillRightPad + capsuleSidePad + 1,
+          pillRightPad + capsuleSidePad + 2,
         );
         // No value glyphs claim the last covered line — the value ended
         // with 回车 and the band there is the capsule's parking stub.
@@ -2014,9 +2015,12 @@ class CapsuleBand {
   /// and is applied over the flat paint through BlendMode.dstIn inside
   /// a saveLayer. Each side's run is the cap's radius, clamped to a
   /// third of [bounds] (a narrow band keeps some ink) and — when the
-  /// opposite end is ROUNDED — to the distance to that cap's own flat
+  /// opposite end is ROUNDED — to one pixel SHORT of that cap's own flat
   /// edge: a rounded end is always one continuous semicircle (反馈七终
-  /// 案), and the dissolve never eats into it (F23 round, 反馈十八: the
+  /// 案), the dissolve never eats into it, and a pixel of SOLID fill
+  /// separates the ramp's end from the arc's start (2026-09-10 look-
+  /// tuning: the ramp holds its length while the cap start walks right).
+  /// (F23 round, 反馈十八: the
   /// parking stub after a trailing 回车 is cut on its left and its
   /// right end IS the cap — the ramp washed the arc's left half away
   /// and it read discontinuous until characters pushed the cap clear;
@@ -2032,7 +2036,7 @@ class CapsuleBand {
     double runFor(bool fade, bool oppositeRounded) => fade
         ? math.min(
             math.min(cap, width / 3),
-            oppositeRounded ? math.max(0, width - cap) : width,
+            oppositeRounded ? math.max(0, width - cap - 1) : width,
           )
         : 0.0;
     final leftRun = runFor(fadeLeft, rightRounded);
