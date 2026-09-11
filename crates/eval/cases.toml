@@ -35,7 +35,9 @@
 # mixed-, terms-, numeral-, short-, placeholder-. Length discipline:
 # short- cases stay ≤ 15 chars (light-touch), everything else ≥ 60
 # (full rectify), so the configurable threshold (default 40) cannot
-# silently flip a case.
+# silently flip a case — one exception: the placeholder- light band
+# (16–39 chars, ticket 32) deliberately rides the real light-touch
+# path, the real-machine main pinning scenario.
 #
 # The terms fixture rides EVERY case's prompt (a fixed dictionary, so a
 # developer's local spokenrectifier-terms.txt cannot leak into a run).
@@ -259,3 +261,21 @@ transcript = "嗯这次的迁移分三步,第一步先做备份,备份到‡1‡
 convey = [["备份"], ["灰度"], ["20%", "百分之二十"], ["观察"], ["旧库"], ["连接串"], ["新库"]]
 purge = ["嗯", "不对", "百分之十"]
 fabricate = ["30%", "50%"]
+
+# 轻修带(16–39 字,真机主力钉入场景):短句走真轻修路径,锁轻修+钉的
+# 吸收辖序——指称照常吸进预填,原样保留不扩大到槽事务(工单 32)。
+[[case]]
+id = "placeholder-light-absorb"
+transcript = "嗯打开这个文件‡1‡看看超时那块"
+absorbed = ["这个文件"]
+prefill = [{ pin = 1, any = ["这个文件", "该文件", "此文件"] }]
+convey = [["超时"]]
+purge = ["嗯"]
+
+# 轻修带的反向边界:定语式拿不准不吸,锁修不过头(工单 32)。
+[[case]]
+id = "placeholder-light-noabsorb"
+transcript = "项目里的‡1‡你先别填,等定稿再说"
+prefill = [{ pin = 1, any = [""] }]
+preserve = ["项目"]
+convey = [["定稿"]]

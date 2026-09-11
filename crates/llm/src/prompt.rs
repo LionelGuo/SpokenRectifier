@@ -124,9 +124,9 @@ const PLACEHOLDER_RULE: &str = "\
 - 各槽相互不是冗余:不合并、不删减、不新增转写中没有的记号;编号不受【中文数字规范化】约束。
 - 占位符是普通句法成分:重组不得把它从所锚定的相邻内容上撕开。
 - 口头更正合并不得把槽当引导语或被替代值清掉;更正改预填值,不删槽。
-- 吸收:与槽抢同一论元的空指称整块吸进该槽的预填值,被吸走的不留在正文;专有名词也可吸进预填;拿不准不吸(写裸形)。吸收只写预填值,不写正文。
+- 吸收:与槽抢同一论元的空指称整块吸进该槽的预填值,被吸走的不留在正文;空指称词(如\"这个文件\"\"那个文档\")本身即可作预填值,照写;专有名词也可吸进预填;拿不准不吸(写裸形)。吸收只写预填值,不写正文。
 例(非穷尽,非词表):
-- \"打开这个文件‡1‡\"→\"打开‡1:该指称的书面化形式‡\"。
+- \"打开这个文件‡1‡\"→\"打开‡1:该文件‡\"。
 - \"发给张三‡1‡\"→\"发给‡1:张三‡\"。
 - \"项目里的‡1‡\"→定语留下,写裸形\"‡1‡\"。
 - \"不对,是李四,发给‡1‡\"→\"发给‡1:李四‡\"。";
@@ -137,11 +137,16 @@ const PLACEHOLDER_RULE: &str = "\
 /// the rectified text alone, slots inline.
 const PLACEHOLDER_HEADER_TAIL: &str = "记号不受本段书面化与包裹禁令约束。";
 
-/// Light-touch with pins adds the absorption exception — absorption only
-/// writes the prefill, so it is not 增删信息. The only intensity variant:
-/// full rectify never forbids adding or dropping information.
+/// Light-touch with pins commands absorption outright (ticket 32): the
+/// real machine showed the model widening 原样保留 over the slot
+/// transaction — a referent competing with a slot went unabsorbed, the
+/// slot left bare. The exemption grew into a positive command: absorb as
+/// usual, the absorbed referent leaves the body, and that is neither
+/// 增删信息 nor a 原样保留 breach; the keep-original sentence excludes
+/// the absorbed referent by name. The only intensity variant: full
+/// rectify never forbids adding or dropping information.
 const INTENSITY_LIGHT_TOUCH_PLACEHOLDERS: &str = "\
-【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息(吸收只改预填,不算增删)。用户的原措辞与表达顺序尽量原样保留。";
+【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息。与槽抢同一论元的指称照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留。用户的原措辞与表达顺序尽量原样保留,被吸走的指称不算在内。";
 
 /// The directive-precedence line with pins: the placeholder rule joins the
 /// fidelity rule in the exception list — a directive may not restyle or
@@ -597,8 +602,8 @@ mod tests {
     #[test]
     fn no_pin_prompts_carry_no_placeholder_trace_anywhere() {
         // 【占位符】/【占位符普查】/【预填】 cover every section, precedence
-        // variant, reminder and the census; 吸收只改预填 covers the
-        // light-touch variant, which mentions prefill without the brackets.
+        // variant, reminder and the census; 照常整块吸进预填 covers the
+        // light-touch variant's absorption command.
         for (style, global) in [
             (None, None),
             (Some("以 Markdown 分条输出"), None),
@@ -611,7 +616,7 @@ mod tests {
                 assert!(!text.contains("【占位符普查】"), "census trace: {text}");
                 assert!(!text.contains("【预填】"), "prefill trace: {text}");
                 assert!(
-                    !text.contains("吸收只改预填"),
+                    !text.contains("照常整块吸进预填"),
                     "light-touch variant trace: {text}"
                 );
             }
@@ -682,20 +687,21 @@ mod tests {
     }
 
     #[test]
-    fn light_touch_gains_the_absorption_exception_only_with_pins() {
+    fn light_touch_gains_the_absorption_command_only_with_pins() {
         let with_pins = compose_prompt(&pin_request(None, None, vec![]), Intensity::LightTouch);
-        assert!(
-            with_pins
-                .system
-                .contains("禁止增删任何信息(吸收只改预填,不算增删)")
-        );
+        assert!(with_pins.system.contains(
+            "与槽抢同一论元的指称照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留"
+        ));
+        // The keep-original sentence excludes the absorbed referent by
+        // name, so the two demands cannot be read as conflicting.
+        assert!(with_pins.system.contains("被吸走的指称不算在内"));
         // Without pins the ban stays absolute; full rectify never carries
-        // the exception at all — it never forbids 增删 in the first place.
+        // the command at all — it never forbids 增删 in the first place.
         let without = compose_prompt(&request(None, None, vec![]), Intensity::LightTouch);
         assert!(without.system.contains("禁止增删任何信息。"));
-        assert!(!without.system.contains("吸收只改预填"));
+        assert!(!without.system.contains("照常整块吸进预填"));
         let full = compose_prompt(&pin_request(None, None, vec![]), Intensity::Full);
-        assert!(!full.system.contains("吸收只改预填"));
+        assert!(!full.system.contains("照常整块吸进预填"));
     }
 
     #[test]

@@ -549,7 +549,12 @@ prefill = [{ pin = 1, any = [\" \"] }]
         // The light-touch threshold defaults to 40 characters and is
         // config-adjustable; author short cases with a wide margin
         // below it and everything else well above, so threshold drift
-        // cannot silently flip a case's intensity.
+        // cannot silently flip a case's intensity. The one in-between
+        // band is the placeholder family's light cases (ticket 32):
+        // 16–39 chars, deliberately riding the real light-touch path —
+        // the real-machine main pinning scenario — instead of the ≤ 15
+        // short band, because absorption needs a referent and its
+        // sentence around the slot.
         for case in &suite.cases {
             let chars = case.transcript.chars().count();
             if case.id.starts_with("short-") {
@@ -559,10 +564,11 @@ prefill = [{ pin = 1, any = [\" \"] }]
                     case.id,
                     chars
                 );
-            } else {
+            } else if chars < 60 {
                 assert!(
-                    chars >= 60,
-                    "{} is {} chars; non-short cases stay >= 60",
+                    case.id.starts_with("placeholder-") && chars < 40,
+                    "{} is {} chars; the 16-39 light band is placeholder-only \
+                     (it rides the real light-touch path), everything else stays >= 60",
                     case.id,
                     chars
                 );
@@ -614,7 +620,7 @@ prefill = [{ pin = 1, any = [\" \"] }]
                 );
             } else {
                 saw_pinless = true;
-                for trace in ["【占位符】", "【预填】", "吸收只改预填"] {
+                for trace in ["【占位符】", "【预填】", "照常整块吸进预填"] {
                     assert!(
                         !prompt.system.contains(trace) && !prompt.user.contains(trace),
                         "{}: pinless composition carries placeholder trace {trace}",
