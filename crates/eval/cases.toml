@@ -279,3 +279,13 @@ transcript = "项目里的‡1‡你先别填,等定稿再说"
 prefill = [{ pin = 1, any = [""] }]
 preserve = ["项目"]
 convey = [["定稿"]]
+
+# 方向+扩类(31 号真机反馈裁定,2026-09-11):钉前完整定指短语也吸、
+# 钉后空指称不回吸——双钉轻修句,用户原例。
+[[case]]
+id = "placeholder-light-definite"
+transcript = "请你把本科生培养方案‡1‡这个文件转交给张三‡2‡"
+absorbed = ["本科生培养方案", "张三"]
+prefill = [{ pin = 1, any = ["本科生培养方案"] }, { pin = 2, any = ["张三"] }]
+preserve = ["这个文件"]
+convey = [["转交"]]

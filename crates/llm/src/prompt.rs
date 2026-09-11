@@ -124,9 +124,10 @@ const PLACEHOLDER_RULE: &str = "\
 - 各槽相互不是冗余:不合并、不删减、不新增转写中没有的记号;编号不受【中文数字规范化】约束。
 - 占位符是普通句法成分:重组不得把它从所锚定的相邻内容上撕开。
 - 口头更正合并不得把槽当引导语或被替代值清掉;更正改预填值,不删槽。
-- 吸收:与槽抢同一论元的空指称整块吸进该槽的预填值,被吸走的不留在正文;空指称词(如\"这个文件\"\"那个文档\")本身即可作预填值,照写;专有名词也可吸进预填;拿不准不吸(写裸形)。吸收只写预填值,不写正文。
+- 吸收:钉前紧挨着槽的指称整块吸进该槽的预填值,被吸走的不留在正文——空指称词(如\"这个文件\"\"那个文档\")本身即可作预填值,照写;专名与完整定指短语(如\"本科生培养方案\")同理可吸。钉后的词是正文,不回吸。拿不准不吸(写裸形)。吸收只写预填值,不写正文。
 例(非穷尽,非词表):
 - \"打开这个文件‡1‡\"→\"打开‡1:该文件‡\"。
+- \"本科生培养方案‡1‡这个文件\"→\"‡1:本科生培养方案‡这个文件\"。
 - \"发给张三‡1‡\"→\"发给‡1:张三‡\"。
 - \"项目里的‡1‡\"→定语留下,写裸形\"‡1‡\"。
 - \"不对,是李四,发给‡1‡\"→\"发给‡1:李四‡\"。";
@@ -146,7 +147,7 @@ const PLACEHOLDER_HEADER_TAIL: &str = "记号不受本段书面化与包裹禁�
 /// the absorbed referent by name. The only intensity variant: full
 /// rectify never forbids adding or dropping information.
 const INTENSITY_LIGHT_TOUCH_PLACEHOLDERS: &str = "\
-【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息。与槽抢同一论元的指称照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留。用户的原措辞与表达顺序尽量原样保留,被吸走的指称不算在内。";
+【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息。钉前紧挨着槽的指称照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留。用户的原措辞与表达顺序尽量原样保留,被吸走的指称不算在内。";
 
 /// The directive-precedence line with pins: the placeholder rule joins the
 /// fidelity rule in the exception list — a directive may not restyle or
@@ -690,7 +691,7 @@ mod tests {
     fn light_touch_gains_the_absorption_command_only_with_pins() {
         let with_pins = compose_prompt(&pin_request(None, None, vec![]), Intensity::LightTouch);
         assert!(with_pins.system.contains(
-            "与槽抢同一论元的指称照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留"
+            "钉前紧挨着槽的指称照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留"
         ));
         // The keep-original sentence excludes the absorbed referent by
         // name, so the two demands cannot be read as conflicting.
