@@ -116,23 +116,27 @@ const GLOBAL_REMINDER: &str =
 /// response grammar it teaches is inline: each slot rides the rectified
 /// text where it anchors as `‡N:值‡`, the bare `‡N‡` always legal and
 /// meaning an empty prefill; values carry no `‡` and no newline (ADR-0013).
+///
+/// Example-free since ticket 31's third in-round ruling: concrete example
+/// content taught token-matching rather than the noun-phrase principle,
+/// and the eval suite's shared vocabulary with those examples made a
+/// passing run ambiguous between generalization and echo. The user ruled
+/// the prompt stays example-free even though a controlled experiment
+/// showed demonstrations carry the induction (zero examples collapsed
+/// absorption to nothing; decorrelated examples preserved it) — whatever
+/// passes the suite now is genuine generalization, nothing else. The
+/// absorption bullet therefore leads with the default action and demotes
+/// the bare form to an exception, cut-and-paste framing ("移不是抄")
+/// against the duplication failure.
 const PLACEHOLDER_RULE: &str = "\
 【占位符】(与【保真铁律】分辖:铁律辖事实与意思,本条辖槽;高于其他一切规则)
 - 转写里的 ‡数字‡ 记号(如 ‡1‡)是用户钉入的待填槽:不是措辞、不是冗余、不是标点、不是数字读法。
-- 修正文本里每个槽在原位写成内联形态 ‡编号:值‡(如 ‡1:张三‡):冒号后直接写预填值,值内不得出现 ‡、不得换行。
+- 修正文本里每个槽在原位写成内联形态 ‡编号:值‡,冒号后直接写预填值,值内不得出现 ‡、不得换行。
 - 拿不准不吸的槽写裸形 ‡编号‡(空值);编号原样保留,不改写、不翻译、不规范化、不加引号或代码块等任何包裹。
 - 各槽相互不是冗余:不合并、不删减、不新增转写中没有的记号;编号不受【中文数字规范化】约束。
 - 占位符是普通句法成分:重组不得把它从所锚定的相邻内容上撕开。
 - 口头更正合并不得把槽当引导语或被替代值清掉;更正改预填值,不删槽。
-- 吸收:钉前紧挨着槽、把事物完整说出的名词短语,整块吸进该槽的预填值,原样照写——指示语(\"这个文件\")、专名(\"张三\")、内容名(\"本科生培养方案\"\"开题报告初稿\")、文件名、路径、编号同理;判定看句法位置与完整性,不靠特定字眼,路径与文件名吸进预填不算【逐字保留】说的改写。吸走的同一内容不得再留在正文;钉后的词是正文,不回吸;拿不准不吸(写裸形)。吸收只写预填值,不写正文。
-例(非穷尽,非词表):
-- \"打开这个文件‡1‡\"→\"打开‡1:该文件‡\"。
-- \"本科生培养方案‡1‡这个文件\"→\"‡1:本科生培养方案‡这个文件\"。
-- \"把开题报告初稿‡1‡转给王老师\"→\"把‡1:开题报告初稿‡转给王老师\"。
-- \"日志存到C盘data目录‡1‡\"→\"日志存到‡1:C盘data目录‡\"。
-- \"发给张三‡1‡\"→\"发给‡1:张三‡\"。
-- \"项目里的‡1‡\"→定语没把事物名出来,写裸形\"‡1‡\"。
-- \"不对,是李四,发给‡1‡\"→\"发给‡1:李四‡\"。";
+- 吸收:默认把钉前紧挨着槽的名词短语整块移进该槽的预填值,原样照写——是移不是抄,移进之后正文里不得再出现它。指示语、专名、名称性短语、文件名、路径、编号都算;路径与文件名移进预填不算【逐字保留】说的改写。钉后紧挨的词是正文,永远不回吸。仅当钉前没有完整的名词短语(比如只有没把事物名出来的定语)、或确实拿不准时,才不吸,槽写裸形 ‡编号‡(空值)。吸收只写预填值,不写正文。";
 
 /// The sentence appended to the HEADER with pins: the sentinel survives
 /// the header's own written-form and no-wrapping demands. The 【预填】
