@@ -289,3 +289,21 @@ absorbed = ["本科生培养方案", "张三"]
 prefill = [{ pin = 1, any = ["本科生培养方案"] }, { pin = 2, any = ["张三"] }]
 preserve = ["这个文件"]
 convey = [["转交"]]
+
+# 名词短语原则(31 号轮内裁定二,2026-09-11):判定看句法不看字眼——
+# 直说文件名与口说路径照吸(吸走的不重复留正文),探针四形态之二。
+[[case]]
+id = "placeholder-light-filename"
+transcript = "嗯把开题报告初稿‡1‡转给王老师看看"
+absorbed = ["开题报告初稿"]
+prefill = [{ pin = 1, any = ["开题报告初稿"] }]
+convey = [["王老师", "老师"]]
+purge = ["嗯"]
+
+[[case]]
+id = "placeholder-light-path"
+transcript = "嗯日志就存到C盘data目录‡1‡去"
+absorbed = ["C盘data目录", "C盘 data 目录"]
+prefill = [{ pin = 1, any = ["C盘data目录", "C盘 data 目录"] }]
+convey = [["日志"]]
+purge = ["嗯"]
