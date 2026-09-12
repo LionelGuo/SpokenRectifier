@@ -236,6 +236,155 @@ async fn a_pin_does_not_re_arm_the_paragraph_rhythm() {
 }
 
 #[tokio::test]
+async fn a_pause_pin_strips_the_clause_punctuation_before_it() {
+    // The recognizer finalizes the sentence while the speaker is already
+    // reaching for the key, so the pin lands behind its period. The one
+    // splice deletes that mark from every render (工单 35) — the raw
+    // string keeps its bytes, only the projection changes.
+    let h = chan_harness(
+        EngineConfig::default(),
+        vec![vec![LlmStep::Token("修".into())]],
+    );
+    let mut rx = h.engine.subscribe();
+
+    ok(&h.engine, Command::StartSession).await;
+    h.feed.say("请把文件。").await;
+    drain_said(&mut rx, "请把文件。").await;
+
+    ok(&h.engine, Command::PinPlaceholder).await;
+    await_live(&mut rx, "请把文件‡1‡").await;
+
+    // The strip survives later speech folding in: nothing resurrects the
+    // deleted mark, and the freeze carries the same splice.
+    h.feed.say("转给张三").await;
+    drain_said(&mut rx, "请把文件‡1‡转给张三").await;
+
+    ok(&h.engine, Command::StopSession).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    let requests = h.llm.requests();
+    assert_eq!(requests[0].raw_transcript, "请把文件‡1‡转给张三");
+    assert_eq!(requests[0].paragraphs, vec!["请把文件‡1‡转给张三"]);
+}
+
+#[tokio::test]
+async fn the_strip_stays_on_the_pins_own_line() {
+    // A line-start pin has no left text (nothing stripped, and trailing
+    // text after it is untouched), a pin on the closed row strips that
+    // row's own closing mark, and same-offset stacked pins strip only
+    // the run ahead of the first of them.
+    let h = chan_harness(
+        EngineConfig::default(),
+        vec![vec![LlmStep::Token("修".into())]],
+    );
+    let mut rx = h.engine.subscribe();
+
+    ok(&h.engine, Command::StartSession).await;
+
+    // A line-start pin: no left text, nothing to strip.
+    ok(&h.engine, Command::PinPlaceholder).await;
+    await_live(&mut rx, "‡1‡").await;
+
+    h.feed.say("第一段。").await;
+    drain_said(&mut rx, "‡1‡第一段。").await;
+    h.feed.silence(1300).await;
+    next_matching(&mut rx, |env| env.event == EngineEvent::ParagraphMarked).await;
+
+    // A pin pressed mid-pause after the mark lands on the closed row,
+    // behind its period — the strip takes that period: the exact field
+    // shape 工单 35 normalizes.
+    ok(&h.engine, Command::PinPlaceholder).await;
+    await_live(&mut rx, "‡1‡第一段‡2‡").await;
+
+    // A pin on the open row strips that row's mark only; the earlier
+    // rows' renders are untouched.
+    h.feed.say("第二段。").await;
+    drain_said(&mut rx, "‡1‡第一段‡2‡\n第二段。").await;
+    ok(&h.engine, Command::PinPlaceholder).await;
+    await_live(&mut rx, "‡1‡第一段‡2‡\n第二段‡3‡").await;
+
+    // Same-offset stacked pins: one strip, ahead of the first only.
+    ok(&h.engine, Command::PinPlaceholder).await;
+    await_live(&mut rx, "‡1‡第一段‡2‡\n第二段‡3‡‡4‡").await;
+
+    ok(&h.engine, Command::StopSession).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    let requests = h.llm.requests();
+    assert_eq!(requests[0].paragraphs, vec!["‡1‡第一段‡2‡", "第二段‡3‡‡4‡"]);
+}
+
+#[tokio::test]
+async fn a_pin_press_restarts_the_paragraph_silence_clock() {
+    // The reach for the key eats into the silence budget: 1000 ms have
+    // already banked below the 1200 ms threshold when the press lands,
+    // and another 900 ms follows. Judged from the press (工单 35), that
+    // is 900 ms — under the threshold — so the paragraph stays open and
+    // the continuation lands on the pin's own line (before: the 1900 ms
+    // cumulative run closed the paragraph and the continuation opened a
+    // new row).
+    let h = chan_harness(
+        EngineConfig::default(),
+        vec![vec![LlmStep::Token("修".into())]],
+    );
+    let mut rx = h.engine.subscribe();
+
+    ok(&h.engine, Command::StartSession).await;
+    h.feed.say("请把文件。").await;
+    drain_said(&mut rx, "请把文件。").await;
+
+    h.feed.silence(1000).await;
+    // Let the sub-threshold silence land before the press — silence
+    // produces no event of its own, so settle and prove nothing fired.
+    expect_quiet(&mut rx, 20).await;
+    ok(&h.engine, Command::PinPlaceholder).await;
+    await_live(&mut rx, "请把文件‡1‡").await;
+
+    h.feed.silence(1900).await;
+    expect_quiet(&mut rx, 50).await;
+
+    h.feed.say("转给张三").await;
+    drain_said(&mut rx, "请把文件‡1‡转给张三").await;
+
+    ok(&h.engine, Command::StopSession).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    let requests = h.llm.requests();
+    assert_eq!(requests[0].paragraphs, vec!["请把文件‡1‡转给张三"]);
+}
+
+#[tokio::test]
+async fn silence_past_the_press_window_still_marks_once() {
+    // The rebase buys the pin one full silence window, no more: past it
+    // the mark fires exactly once as before, the pin rides the closed
+    // row, and the strip keeps that row's render clean.
+    let h = chan_harness(
+        EngineConfig::default(),
+        vec![vec![LlmStep::Token("修".into())]],
+    );
+    let mut rx = h.engine.subscribe();
+
+    ok(&h.engine, Command::StartSession).await;
+    h.feed.say("请把文件。").await;
+    drain_said(&mut rx, "请把文件。").await;
+    h.feed.silence(1000).await;
+    expect_quiet(&mut rx, 20).await;
+    ok(&h.engine, Command::PinPlaceholder).await;
+    await_live(&mut rx, "请把文件‡1‡").await;
+
+    // 1300 ms past the press: the mark fires exactly once.
+    h.feed.silence(2300).await;
+    next_matching(&mut rx, |env| env.event == EngineEvent::ParagraphMarked).await;
+    expect_quiet(&mut rx, 50).await;
+
+    // The continuation opens its own row after the closed one.
+    h.feed.say("转给张三").await;
+    drain_said(&mut rx, "请把文件‡1‡\n转给张三").await;
+
+    ok(&h.engine, Command::StopSession).await;
+    await_state(&mut rx, SessionState::Preview).await;
+    let requests = h.llm.requests();
+    assert_eq!(requests[0].paragraphs, vec!["请把文件‡1‡", "转给张三"]);
+}
+
+#[tokio::test]
 async fn pin_is_rejected_outside_recording() {
     let h = chan_harness(
         EngineConfig::default(),

@@ -136,6 +136,15 @@ struct Session {
     /// Speech happened since the last paragraph mark (VAD activity or
     /// transcript events) — the next threshold silence closes a paragraph.
     speech_since_mark: bool,
+    /// The current silence run's elapsed as last reported by the
+    /// recognizer — the rebasing point a pin press captures (工单 35).
+    last_silence_ms: u64,
+    /// Silence already elapsed when the last pin pressed: the paragraph
+    /// threshold is judged on what accumulated after the press, so a
+    /// press mid-pause buys the pin its own full silence window (工单
+    /// 35). The session-end threshold keeps the raw elapsed. Speech
+    /// resets this along with the recognizer's own silence run.
+    silence_baseline_ms: u64,
     /// Any speech at all this session. A session with none is discarded on
     /// stop/auto-end instead of rectifying an empty utterance.
     any_speech: bool,
@@ -836,6 +845,8 @@ impl Session {
             in_flight: None,
             paragraph_marked_current_silence: false,
             speech_since_mark: false,
+            last_silence_ms: 0,
+            silence_baseline_ms: 0,
             any_speech: false,
             frozen: None,
             style: SessionStyle::Live,
@@ -881,6 +892,18 @@ impl Session {
     /// One paragraph with the pins anchored in it spliced in at their
     /// offsets. Pins only ever anchor at the then-current end, so
     /// sorting by offset is a no-op that merely makes the order explicit.
+    ///
+    /// The splice is also the pause-pin normalization (工单 35): the
+    /// clause-final punctuation run immediately before a pin is deleted
+    /// from the render. The recognizer finalizes a sentence mid-pause,
+    /// so a pin pressed while the speaker reaches for the key lands
+    /// behind its period — stripping the mark returns the in-sentence
+    /// shape (`文件。‡1‡` renders `文件‡1‡`) every placeholder rule is
+    /// written against. A render projection only: the raw strings and
+    /// the anchors keep their bytes, only the pin's own line's left text
+    /// is examined (a previous line's closing mark stays), a line-start
+    /// pin has no left text, and same-offset stacked pins strip only
+    /// the run ahead of the first of them.
     fn splice_pins(&self, index: usize, text: &str) -> String {
         let mut anchored: Vec<&Pin> = self
             .pins
@@ -894,7 +917,9 @@ impl Session {
         let mut spliced = String::with_capacity(text.len());
         let mut prev = 0;
         for pin in anchored {
-            spliced.push_str(&text[prev..pin.anchor.offset]);
+            let slice = &text[prev..pin.anchor.offset];
+            let strip = trailing_punctuation_len(slice);
+            spliced.push_str(&slice[..slice.len() - strip]);
             spliced.push_str(&pin.sentinel());
             prev = pin.anchor.offset;
         }
@@ -905,7 +930,11 @@ impl Session {
     /// Pin a placeholder at the current end of the transcript. The anchor
     /// rides the paragraph structure, so the splice point stays put while
     /// later speech keeps folding in after the pin. A pin is not speech:
-    /// the paragraph and discard rules never see it.
+    /// the paragraph and discard rules never see it — but it does restart
+    /// the paragraph-silence clock (工单 35): the recognizer finalizes the
+    /// sentence while the speaker is still reaching for the key, so
+    /// silence already banked by the reach must not close the paragraph
+    /// around the pin. The session-end threshold is untouched by this.
     ///
     /// A draft in flight at the press becomes this pin's frozen left
     /// (ticket 16): the draft commits to the finalized side — the words on
@@ -943,6 +972,11 @@ impl Session {
         };
         let number = self.pins.len() + 1;
         self.pins.push(Pin { number, anchor });
+        // The press rebases the paragraph-silence clock: the silence run
+        // in flight keeps counting from zero as of now. The rebasing
+        // point is the last reported elapsed — silence ticks arrive
+        // periodically, so the estimate is only as stale as one tick.
+        self.silence_baseline_ms = self.last_silence_ms;
     }
 
     /// Fold one interim frame into the partial. Under an open snapshot
@@ -997,12 +1031,40 @@ impl Session {
 
     /// Speech happened (transcript or VAD activity): re-arm the paragraph
     /// marker for the next silence run and remember the session had
-    /// content.
+    /// content. Speech also restarts the recognizer's silence run from
+    /// zero, so the rebasing point and the last-seen elapsed follow it.
     fn note_speech(&mut self) {
         self.paragraph_marked_current_silence = false;
         self.speech_since_mark = true;
         self.any_speech = true;
+        self.last_silence_ms = 0;
+        self.silence_baseline_ms = 0;
     }
+}
+
+/// The length, in bytes, of the run of clause-final punctuation at the
+/// end of `text` — the marks a recognizer stamps when it finalizes a
+/// sentence mid-pause, full- and half-width alike. The pin splice
+/// deletes this run from the render ahead of the pin (工单 35).
+fn trailing_punctuation_len(text: &str) -> usize {
+    let mut len = 0;
+    for ch in text.chars().rev() {
+        if !is_clause_punctuation(ch) {
+            break;
+        }
+        len += ch.len_utf8();
+    }
+    len
+}
+
+/// Whether `ch` is a clause-final mark: period, question, exclamation,
+/// comma, enumeration comma, semicolon, colon, or ellipsis — the set the
+/// recognizer uses to close a sentence or clause, in either width.
+fn is_clause_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '。' | '．' | '.' | '！' | '!' | '？' | '?' | '，' | ',' | '、' | '；' | ';' | '：' | ':' | '…'
+    )
 }
 
 /// Consume the ASR event stream of one session: forward transcript updates,
@@ -1042,6 +1104,7 @@ async fn consume_asr(
                         }
                     }
                     AsrEvent::Silence { elapsed_ms } => {
+                        session.last_silence_ms = elapsed_ms;
                         if session.passage_mode {
                             // Only mark a paragraph when speech happened
                             // since the last mark: silence before talking
@@ -1052,8 +1115,16 @@ async fn consume_asr(
                             // pinned row must not split — the sentence is
                             // still resolving around the pin — so the mark
                             // waits. Rows closed before the pin stay closed
-                            // either way; nothing here reopens them.
-                            if elapsed_ms >= session.timings.paragraph_silence_ms
+                            // either way; nothing here reopens them. The
+                            // threshold is judged on the silence accumulated
+                            // since the last pin press (工单 35): a press
+                            // mid-pause restarts the paragraph clock, so the
+                            // reach for the key cannot close the paragraph
+                            // around the pin. The session-end threshold
+                            // below keeps the raw elapsed.
+                            let since_press_ms =
+                                elapsed_ms.saturating_sub(session.silence_baseline_ms);
+                            if since_press_ms >= session.timings.paragraph_silence_ms
                                 && session.speech_since_mark
                                 && !session.paragraph_marked_current_silence
                                 && session.in_flight.is_none()
