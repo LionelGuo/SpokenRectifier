@@ -2,29 +2,14 @@
 //! trait. Production is Win32 (`cfg(windows)`); tests drive a recording
 //! fake, so the orchestration is deterministic on any platform.
 
-/// What the clipboard held before we replaced it, handed back verbatim on
-/// restore. Raw bytes per clipboard format id; `Empty` restores an empty
-/// clipboard.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SavedClipboard {
-    Empty,
-    Formats(Vec<(u32, Vec<u8>)>),
-}
-
 /// The platform operations insertion needs. Implementations must be safe
 /// to call from any thread (the engine awaits `insert` wherever the
 /// command lands).
 pub trait InputOs: Send + Sync + 'static {
-    /// Snapshot the clipboard's contents (whatever formats the
-    /// implementation preserves).
-    fn clipboard_save(&self) -> Result<SavedClipboard, String>;
-
-    /// Put `text` on the clipboard as Unicode text.
+    /// Put `text` on the clipboard as Unicode text. It stays there: the
+    /// inserted text is the newest clipboard-history entry and the user's
+    /// manual Ctrl+V fallback when a paste fails.
     fn clipboard_set_text(&self, text: &str) -> Result<(), String>;
-
-    /// Put a saved snapshot back. `SavedClipboard::Empty` clears the
-    /// clipboard.
-    fn clipboard_restore(&self, saved: SavedClipboard) -> Result<(), String>;
 
     /// Remember the current foreground window as the insertion target.
     /// Implementations skip windows owned by this process: starting a
@@ -109,15 +94,7 @@ pub struct UnsupportedOs;
 
 #[cfg(not(windows))]
 impl InputOs for UnsupportedOs {
-    fn clipboard_save(&self) -> Result<SavedClipboard, String> {
-        Err("text insertion is only implemented on Windows".into())
-    }
-
     fn clipboard_set_text(&self, _text: &str) -> Result<(), String> {
-        Err("text insertion is only implemented on Windows".into())
-    }
-
-    fn clipboard_restore(&self, _saved: SavedClipboard) -> Result<(), String> {
         Err("text insertion is only implemented on Windows".into())
     }
 

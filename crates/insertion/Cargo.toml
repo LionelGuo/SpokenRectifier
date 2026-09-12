@@ -1,6 +1,6 @@
 [package]
 name = "spokenrectifier-insertion"
-description = "Real text insertion into the target window: clipboard save/replace/paste with restore, or a per-key typing fallback (glossary: 预览窗 → 目标输入框)."
+description = "Real text insertion into the target window: clipboard paste (the text stays on the clipboard), or a per-key typing fallback (glossary: 预览窗 → 目标输入框)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

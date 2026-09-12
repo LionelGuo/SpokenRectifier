@@ -1,6 +1,5 @@
-//! The Win32 [`InputOs`]: clipboard save/restore over global memory,
-//! keystrokes over `SendInput`, and the foreground window as the
-//! insertion target.
+//! The Win32 [`InputOs`]: the clipboard over global memory, keystrokes
+//! over `SendInput`, and the foreground window as the insertion target.
 //!
 //! Only the two-liner would be untestable here; everything with logic to
 //! it lives in the crate's OS-agnostic orchestration and is covered by the
@@ -10,10 +9,10 @@ use std::sync::{Mutex, OnceLock};
 
 use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
-    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
+    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock,
 };
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -29,16 +28,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::os::{InjectedKey, InputOs, SavedClipboard, paced_paste_script};
 
-// Standard clipboard format ids (documented Win32 constants, stable ABI;
-// declared locally so the Ole feature is not pulled in for numbers).
-const CF_DIB: u32 = 8;
+// The Unicode-text clipboard format id (a documented Win32 constant,
+// stable ABI; declared locally so the Ole feature is not pulled in for
+// the number).
 const CF_UNICODETEXT: u32 = 13;
-const CF_HDROP: u32 = 15;
-
-/// The formats preserved across a paste: text, bitmap images
-/// (screenshots), and file lists. Synthesized and exotic application
-/// formats are not — a documented boundary of the clipboard restore.
-const PRESERVED_FORMATS: [u32; 3] = [CF_UNICODETEXT, CF_DIB, CF_HDROP];
 
 pub struct Win32Os {
     /// The remembered target window handle. Stored as `usize`: `HWND`
@@ -82,28 +75,6 @@ impl Default for Win32Os {
 }
 
 impl InputOs for Win32Os {
-    fn clipboard_save(&self) -> Result<SavedClipboard, String> {
-        with_clipboard(|| {
-            let mut formats = Vec::new();
-            for format in PRESERVED_FORMATS {
-                // An absent format is not an error — most clipboards hold
-                // one format.
-                let Ok(handle) = (unsafe { GetClipboardData(format) }) else {
-                    continue;
-                };
-                let Some(bytes) = read_global(handle) else {
-                    continue;
-                };
-                formats.push((format, bytes));
-            }
-            Ok(if formats.is_empty() {
-                SavedClipboard::Empty
-            } else {
-                SavedClipboard::Formats(formats)
-            })
-        })
-    }
-
     fn clipboard_set_text(&self, text: &str) -> Result<(), String> {
         let mut units: Vec<u16> = text.encode_utf16().collect();
         units.push(0); // CF_UNICODETEXT is NUL-terminated
@@ -120,24 +91,6 @@ impl InputOs for Win32Os {
                 // equivalents; this path needs SetClipboardData itself to
                 // fail, which is nearer to unreachable than to rare.
                 return Err(format!("SetClipboardData failed: {err}"));
-            }
-            Ok(())
-        })
-    }
-
-    fn clipboard_restore(&self, saved: SavedClipboard) -> Result<(), String> {
-        let formats = match saved {
-            SavedClipboard::Empty => Vec::new(),
-            SavedClipboard::Formats(formats) => formats,
-        };
-        with_clipboard(|| {
-            win_call(unsafe { EmptyClipboard() }, "EmptyClipboard")?;
-            for (format, bytes) in formats {
-                let handle = write_global(&bytes)?;
-                if let Err(err) = unsafe { SetClipboardData(format, Some(HANDLE(handle.0))) } {
-                    // See clipboard_set_text for the deliberate leak.
-                    return Err(format!("SetClipboardData failed: {err}"));
-                }
             }
             Ok(())
         })
@@ -364,22 +317,6 @@ fn with_clipboard<T>(body: impl FnOnce() -> Result<T, String>) -> Result<T, Stri
 /// Map a fallible Win32 call to a `String` error, naming the API.
 fn win_call<T>(result: windows::core::Result<T>, api: &str) -> Result<T, String> {
     result.map_err(|err| format!("{api} failed: {err}"))
-}
-
-/// Copy a global-memory block owned by someone else into a Vec.
-fn read_global(handle: HANDLE) -> Option<Vec<u8>> {
-    let global = HGLOBAL(handle.0);
-    let size = unsafe { GlobalSize(global) };
-    if size == 0 {
-        return None;
-    }
-    let src = unsafe { GlobalLock(global) };
-    if src.is_null() {
-        return None;
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(src.cast::<u8>(), size) }.to_vec();
-    unsafe { GlobalUnlock(global) }.ok();
-    Some(bytes)
 }
 
 /// Copy `bytes` into a fresh global-memory block ready for

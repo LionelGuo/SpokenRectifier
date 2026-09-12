@@ -14,9 +14,10 @@ use spokenrectifier_config::section_write::{SectionField, WriteLayer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InsertionMode {
-    /// Replace the clipboard, send Ctrl+V at the target, restore the
-    /// clipboard. The default: fast, layout-independent, works everywhere
-    /// paste works.
+    /// Put the text on the clipboard and send Ctrl+V at the target. The
+    /// default: fast, layout-independent, works everywhere paste works.
+    /// The text stays on the clipboard afterward — the newest history
+    /// entry, and ready for a manual Ctrl+V if the paste fails.
     Paste,
     /// Type the text key by key (Unicode SendInput). For targets that
     /// block or mangle paste; slower, touches no clipboard.
@@ -50,8 +51,8 @@ pub struct InsertionConfig {
     /// Wait after re-focusing the target before sending keys: the target
     /// needs a moment to restore its caret.
     pub focus_settle_ms: u64,
-    /// Wait after Ctrl+V before restoring the clipboard: the target reads
-    /// the clipboard synchronously, but give slow apps room.
+    /// Wait after Ctrl+V before the insert is reported done: the target
+    /// reads the clipboard synchronously, but give slow apps room.
     pub paste_settle_ms: u64,
     /// Pause between typed characters, so targets can keep up.
     pub typing_delay_ms: u64,

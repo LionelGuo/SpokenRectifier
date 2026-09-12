@@ -1,16 +1,19 @@
 //! The production [`TextInserter`]: confirmed text into the target
 //! window, orchestrated over the [`InputOs`] seam.
 //!
-//! Paste mode borrows the clipboard — save, replace, Ctrl+V at the
-//! target, restore — so the user's clipboard survives the insert. Typing
-//! mode sends the text key by key and never touches the clipboard, for
-//! targets that block paste. The target window is remembered when the
-//! session starts (`note_target`) and re-focused before the keys go out,
-//! because editing the preview hands focus to our own window. The
-//! mode/pacing config is swapped at runtime by the settings window's
-//! advanced form (`set_config`); each insert snapshots it up front, so
-//! a save applies from the next insert on and never tears a running
-//! insert apart.
+//! Paste mode puts the text on the clipboard and sends Ctrl+V at the
+//! target; the text stays on the clipboard afterward — the newest entry
+//! in the clipboard history, and a manual Ctrl+V fallback should the
+//! paste itself fail. Typing mode sends the text key by key and never
+//! touches the clipboard, for targets that block paste. Before the keys
+//! go out, the keyboard is pointed at the insertion target: a foreign
+//! window holding the foreground is the user's latest chosen point and
+//! is pasted into directly, while the target remembered at session start
+//! (`note_target`) is only activated when our own window holds the
+//! foreground (editing the preview hands it to us). The mode/pacing
+//! config is swapped at runtime by the settings window's advanced form
+//! (`set_config`); each insert snapshots it up front, so a save applies
+//! from the next insert on and never tears a running insert apart.
 
 use std::sync::{Arc, RwLock};
 
@@ -79,23 +82,7 @@ impl TargetInserter {
     }
 
     fn insert_by_paste(&self, text: &str, config: &InsertionConfig) -> Result<(), InsertError> {
-        let saved = self
-            .os
-            .clipboard_save()
-            .map_err(|err| InsertError(format!("clipboard save failed: {err}")))?;
-        let pasted = self.paste_steps(&to_crlf(text), config);
-        // Always hand the clipboard back, however the paste went. A
-        // restore failure after a successful paste is swallowed
-        // deliberately: the text already landed, and reporting the insert
-        // as failed would be a lie (only the clipboard was lost).
-        drop(self.os.clipboard_restore(saved));
-        pasted
-    }
-
-    fn paste_steps(&self, text: &str, config: &InsertionConfig) -> Result<(), InsertError> {
-        // Without a remembered target the keys go to whatever holds the
-        // foreground — right whenever the user focused the target
-        // themselves, wrong when that window is our own preview.
+        let text = &to_crlf(text);
         self.focus_somewhere()?;
         self.os
             .clipboard_set_text(text)
@@ -130,23 +117,30 @@ impl TargetInserter {
         Ok(())
     }
 
-    /// Point the keyboard at somewhere that is not us: the remembered
-    /// target when there is one, the current foreground otherwise — but
-    /// never our own window (a session started from the orb with the
-    /// preview still focused would paste into itself).
+    /// Point the keyboard at the insertion target: the current foreground
+    /// when a foreign window holds it, the remembered target otherwise —
+    /// never our own window. A foreign foreground is the user's latest
+    /// stated choice (they clicked into that window to place the caret
+    /// while the preview was up); activating the remembered target there
+    /// would stomp it and paste into the stale session-start window —
+    /// the "selected a position, nothing inserted" failure. When our own
+    /// window holds the foreground (the preview field still editing),
+    /// re-note the target — the live tracker may name a window the user
+    /// focused after the session began — and hand the keyboard over.
     fn focus_somewhere(&self) -> Result<(), InsertError> {
+        if !self.os.foreground_is_own_process() {
+            return Ok(());
+        }
+        self.os.note_target();
         if self.os.activate_target() {
             return Ok(());
         }
-        if self.os.foreground_is_own_process() {
-            return Err(InsertError(
-                "no target window to insert into: focus the window you \
-                 type in before starting the session, then start it from \
-                 the orb or the hotkey"
-                    .into(),
-            ));
-        }
-        Ok(())
+        Err(InsertError(
+            "no target window to insert into: focus the window you \
+             type in before starting the session, then start it from \
+             the orb or the hotkey"
+                .into(),
+        ))
     }
 }
 
@@ -185,15 +179,13 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
-    use crate::os::SavedClipboard;
 
     // -- fake ----------------------------------------------------------------
 
     #[derive(Debug, Clone, PartialEq)]
     enum OsCall {
-        Save,
+        NoteTarget,
         SetText(String),
-        Restore(SavedClipboard),
         Activate(bool),
         Paste,
         Char(char),
@@ -201,11 +193,10 @@ mod tests {
         Wait(u64),
     }
 
-    /// Records every call; programmable save results and one-shot
-    /// failures per operation name.
+    /// Records every call; programmable own-foreground/activate results
+    /// and one-shot failures per operation name.
     struct FakeOs {
         calls: std::sync::Mutex<Vec<OsCall>>,
-        save_result: std::sync::Mutex<SavedClipboard>,
         activate_result: AtomicBool,
         own_foreground: AtomicBool,
         failures: std::sync::Mutex<VecDeque<(&'static str, String)>>,
@@ -215,20 +206,10 @@ mod tests {
         fn new() -> Self {
             Self {
                 calls: std::sync::Mutex::new(Vec::new()),
-                save_result: std::sync::Mutex::new(SavedClipboard::Formats(vec![(
-                    13,
-                    b"old text".to_vec(),
-                )])),
                 activate_result: AtomicBool::new(true),
                 own_foreground: AtomicBool::new(false),
                 failures: std::sync::Mutex::new(VecDeque::new()),
             }
-        }
-
-        fn with_save(save: SavedClipboard) -> Self {
-            let fake = Self::new();
-            *fake.save_result.lock().unwrap() = save;
-            fake
         }
 
         fn arm_failure(&self, op: &'static str, message: &str) {
@@ -252,14 +233,6 @@ mod tests {
     }
 
     impl InputOs for FakeOs {
-        fn clipboard_save(&self) -> Result<SavedClipboard, String> {
-            self.calls.lock().unwrap().push(OsCall::Save);
-            if let Some(message) = self.take_failure("save") {
-                return Err(message);
-            }
-            Ok(self.save_result.lock().unwrap().clone())
-        }
-
         fn clipboard_set_text(&self, text: &str) -> Result<(), String> {
             self.calls
                 .lock()
@@ -271,16 +244,8 @@ mod tests {
             Ok(())
         }
 
-        fn clipboard_restore(&self, saved: SavedClipboard) -> Result<(), String> {
-            self.calls.lock().unwrap().push(OsCall::Restore(saved));
-            if let Some(message) = self.take_failure("restore") {
-                return Err(message);
-            }
-            Ok(())
-        }
-
         fn note_target(&self) {
-            unreachable!("note_target is a pass-through, not part of insert flows");
+            self.calls.lock().unwrap().push(OsCall::NoteTarget);
         }
 
         fn activate_target(&self) -> bool {
@@ -341,14 +306,16 @@ mod tests {
         inserter(fake, mode).insert(text).await
     }
 
-    fn old_clipboard() -> SavedClipboard {
-        SavedClipboard::Formats(vec![(13, b"old text".to_vec())])
-    }
-
     // -- paste mode ----------------------------------------------------------
 
     #[tokio::test]
-    async fn paste_flow_saves_pastes_at_the_target_and_restores_in_order() {
+    async fn paste_flow_targets_the_current_foreign_foreground_not_the_remembered_window() {
+        // The user clicked into the window they want while the preview
+        // was up, so a foreign window holds the keyboard — even though a
+        // target from the session start IS remembered and would activate
+        // (the fake's defaults). Activating it would stomp the fresh
+        // choice and paste into the stale window while the user watches
+        // their own: the foreground check must win, no activation at all.
         let fake = Arc::new(FakeOs::new());
         insert(&fake, InsertionMode::Paste, "第一行\n第二行")
             .await
@@ -357,14 +324,11 @@ mod tests {
         assert_eq!(
             fake.calls(),
             vec![
-                OsCall::Save,
-                OsCall::Activate(true),
                 // LF became CRLF: the Windows clipboard convention.
                 OsCall::SetText("第一行\r\n第二行".into()),
                 OsCall::Wait(50),
                 OsCall::Paste,
                 OsCall::Wait(250),
-                OsCall::Restore(old_clipboard()),
             ]
         );
     }
@@ -376,45 +340,47 @@ mod tests {
         assert_eq!(
             fake.calls(),
             vec![
-                OsCall::Save,
-                OsCall::Activate(true),
                 OsCall::SetText("a\r\nb".into()),
                 OsCall::Wait(50),
                 OsCall::Paste,
                 OsCall::Wait(250),
-                OsCall::Restore(old_clipboard()),
             ]
         );
     }
 
     #[tokio::test]
-    async fn an_empty_clipboard_is_restored_as_empty() {
-        let fake = Arc::new(FakeOs::with_save(SavedClipboard::Empty));
+    async fn our_own_foreground_renotes_the_target_then_activates_it() {
+        // The preview field still holds the keyboard (an orb confirm):
+        // the remembered target is re-noted first — the live tracker may
+        // name a window the user focused after the session began — then
+        // activated, and only then does the clipboard work begin.
+        let fake = Arc::new(FakeOs::new());
+        fake.own_foreground.store(true, Ordering::SeqCst);
         insert(&fake, InsertionMode::Paste, "话").await.unwrap();
+
         assert_eq!(
-            fake.calls().last(),
-            Some(&OsCall::Restore(SavedClipboard::Empty))
+            fake.calls(),
+            vec![
+                OsCall::NoteTarget,
+                OsCall::Activate(true),
+                OsCall::SetText("话".into()),
+                OsCall::Wait(50),
+                OsCall::Paste,
+                OsCall::Wait(250),
+            ]
         );
     }
 
     #[tokio::test]
-    async fn a_failed_paste_still_restores_the_clipboard_and_reports_the_error() {
+    async fn a_failed_paste_reports_the_error_and_leaves_the_text_on_the_clipboard() {
         let fake = Arc::new(FakeOs::new());
         fake.arm_failure("paste", "no target window");
 
         let err = insert(&fake, InsertionMode::Paste, "话").await.unwrap_err();
         assert!(err.0.contains("paste keystroke failed"), "got: {}", err.0);
-        // The restore ran before the error surfaced.
-        assert_eq!(fake.calls().last(), Some(&OsCall::Restore(old_clipboard())));
-    }
-
-    #[tokio::test]
-    async fn a_restore_failure_after_a_successful_paste_is_not_an_insert_failure() {
-        let fake = Arc::new(FakeOs::new());
-        fake.arm_failure("restore", "clipboard busy");
-
-        insert(&fake, InsertionMode::Paste, "话").await.unwrap();
-        assert!(fake.calls().contains(&OsCall::Paste));
+        // No restore follows the failure: the text stays on the clipboard
+        // as the newest entry — the user's manual Ctrl+V fallback.
+        assert_eq!(fake.calls().last(), Some(&OsCall::Paste));
     }
 
     #[tokio::test]
@@ -425,15 +391,10 @@ mod tests {
 
         let err = insert(&fake, InsertionMode::Paste, "话").await.unwrap_err();
         assert!(err.0.contains("no target window"), "got: {}", err.0);
-        // Refused before touching the clipboard contents or pasting; the
-        // saved snapshot is still restored (a no-op net effect).
+        // Refused before any clipboard write or keystroke went out.
         assert_eq!(
             fake.calls(),
-            vec![
-                OsCall::Save,
-                OsCall::Activate(false),
-                OsCall::Restore(old_clipboard()),
-            ]
+            vec![OsCall::NoteTarget, OsCall::Activate(false)]
         );
     }
 
@@ -447,27 +408,9 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.0.contains("no target window"), "got: {}", err.0);
-        assert_eq!(fake.calls(), vec![OsCall::Activate(false)]);
-    }
-
-    #[tokio::test]
-    async fn failed_focus_activation_does_not_abort_the_paste() {
-        let fake = Arc::new(FakeOs::new());
-        fake.activate_result.store(false, Ordering::SeqCst);
-
-        insert(&fake, InsertionMode::Paste, "话").await.unwrap();
-        // The paste still went out — to whatever held the foreground.
         assert_eq!(
             fake.calls(),
-            vec![
-                OsCall::Save,
-                OsCall::Activate(false),
-                OsCall::SetText("话".into()),
-                OsCall::Wait(50),
-                OsCall::Paste,
-                OsCall::Wait(250),
-                OsCall::Restore(old_clipboard()),
-            ]
+            vec![OsCall::NoteTarget, OsCall::Activate(false)]
         );
     }
 
@@ -483,7 +426,6 @@ mod tests {
         assert_eq!(
             fake.calls(),
             vec![
-                OsCall::Activate(true),
                 OsCall::Wait(50),
                 OsCall::Char('你'),
                 OsCall::Wait(8),
@@ -534,13 +476,10 @@ mod tests {
         assert_eq!(
             fake.calls(),
             vec![
-                OsCall::Save,
-                OsCall::Activate(true),
                 OsCall::SetText("话".into()),
                 OsCall::Wait(50),
                 OsCall::Paste,
                 OsCall::Wait(250),
-                OsCall::Restore(old_clipboard()),
             ]
         );
 
@@ -555,9 +494,8 @@ mod tests {
         });
         inserter.insert("好").await.unwrap();
         assert_eq!(
-            fake.calls()[7..],
+            fake.calls()[4..],
             vec![
-                OsCall::Activate(true),
                 OsCall::Wait(70),
                 OsCall::Char('好'),
                 OsCall::Wait(15),
