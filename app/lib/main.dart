@@ -387,7 +387,12 @@ class _ShellState extends State<_Shell> with TrayListener {
       case _clearHistoryKey:
         await controller.clearHistory();
       case _exitKey:
-        await windowManager.destroy();
+        // close() drives the canonical WM_CLOSE -> DestroyWindow chain
+        // inside the still-running message pump; destroy() only posts
+        // WM_QUIT, leaving the window and the Flutter engine to be torn
+        // down from post-loop stack destructors - the slowest teardown
+        // path on Windows (tens of seconds in debug).
+        await windowManager.close();
     }
   }
 
