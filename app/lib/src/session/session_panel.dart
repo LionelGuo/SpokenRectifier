@@ -399,8 +399,15 @@ class _SessionPanelState extends State<SessionPanel> {
             kbd: 'Esc',
             onTap: c.escapeAction,
           ),
-          // Anchor zone: the orb button lives here, above this row.
-          const SizedBox(width: SrGeometry.anchorInset * 2),
+          // Anchor zone: the orb button lives here, above this row. One
+          // anchorInset, not two: the ball's left edge sits anchorInset +
+          // orbBall/2 = 76 from the window's right edge, while this row's
+          // content ends cardMargin + hairline + cornerInset = 33 from it —
+          // the true overlap is 43, and 48 keeps a 5px gap. The old 96
+          // (the ball's full diameter) over-reserved and left the preview
+          // footer's three capsules no room: the row overflowed ~48px and
+          // the debug stripe painted right under the ball.
+          const SizedBox(width: SrGeometry.anchorInset),
         ],
       ),
     );
@@ -500,7 +507,9 @@ class _GhostButtonState extends State<_GhostButton> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: SrMotion.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          // 8px horizontal: the preview footer's three capsules must fit
+          // beside the anchor reserve inside the 420px panel footprint.
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
             color: _hover ? pal.surfaceOverlay : pal.surfaceRaised,
             // Capsule: the footer buttons live in the corner band — pill

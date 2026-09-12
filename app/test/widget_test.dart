@@ -513,6 +513,40 @@ void main() {
     await windDown(tester, controller);
   });
 
+  testWidgets(
+    'the preview footer fits the panel footprint — nothing hides under the ball',
+    (tester) async {
+      // The real window is the panel footprint (420x560 logical); the test
+      // surface defaults to 800x600, which is why the footer's overflow
+      // only ever showed on the device (the red debug stripe painted under
+      // the ball). Pin the real size before pumping.
+      tester.view.physicalSize = SrGeometry.panelSize;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final gateway = FakeGateway();
+      final controller = await pumpController(tester, gateway);
+      await pumpToPreview(tester, controller, gateway);
+
+      // The full preview footer (对照原文 / 重新生成 / 取消 Esc) laid out at
+      // the real width overflows nothing.
+      expect(tester.takeException(), isNull);
+
+      // The last capsule also stays clear of the ball's left edge
+      // (anchorInset + orbBall/2 from the window's right).
+      final ballLeft =
+          SrGeometry.panelSize.width -
+          SrGeometry.anchorInset -
+          SrGeometry.orbBall / 2;
+      expect(
+        tester.getTopRight(find.byKey(const Key('session-cancel'))).dx,
+        lessThanOrEqualTo(ballLeft),
+      );
+      await windDown(tester, controller);
+    },
+  );
+
   testWidgets('editing the preview pushes updates after the debounce', (
     tester,
   ) async {
