@@ -128,15 +128,22 @@ const GLOBAL_REMINDER: &str =
 /// absorption bullet therefore leads with the default action and demotes
 /// the bare form to an exception, cut-and-paste framing ("移不是抄")
 /// against the duplication failure.
+///
+/// Ticket 37's C arm rewrote the wording for the model's eyes only
+/// (ticket 36, ruling 4): jargon tied to invisible key actions
+/// (钉入/钉前/钉后) became text positions the model can see
+/// (记号之前/之后), grammar-internal terms (裸形, 内联形态, 分辖,
+/// 机械普查) became plain descriptions, and explanations were expanded
+/// rather than compressed — semantics unchanged item by item.
 const PLACEHOLDER_RULE: &str = "\
-【占位符】(与【保真铁律】分辖:铁律辖事实与意思,本条辖槽;高于其他一切规则)
-- 转写里的 ‡数字‡ 记号(如 ‡1‡)是用户钉入的待填槽:不是措辞、不是冗余、不是标点、不是数字读法。
-- 修正文本里每个槽在原位写成内联形态 ‡编号:值‡,冒号后直接写预填值,值内不得出现 ‡、不得换行。
-- 拿不准不吸的槽写裸形 ‡编号‡(空值);编号原样保留,不改写、不翻译、不规范化、不加引号或代码块等任何包裹。
-- 各槽相互不是冗余:不合并、不删减、不新增转写中没有的记号;编号不受【中文数字规范化】约束。
-- 占位符是普通句法成分:重组不得把它从所锚定的相邻内容上撕开。
-- 口头更正合并不得把槽当引导语或被替代值清掉;更正改预填值,不删槽。
-- 吸收:默认把钉前紧挨着槽的名词短语整块移进该槽的预填值,原样照写——是移不是抄,移进之后正文里不得再出现它。指示语、专名、名称性短语、文件名、路径、编号都算;路径与文件名移进预填不算【逐字保留】说的改写。钉后紧挨的词是正文,永远不回吸。仅当钉前没有完整的名词短语(比如只有没把事物名出来的定语)、或确实拿不准时,才不吸,槽写裸形 ‡编号‡(空值)。吸收只写预填值,不写正文。";
+【占位符】(【保真铁律】管事实与意思,本条管槽;本条高于其他一切规则)
+- 转写里的 ‡数字‡ 记号(如 ‡1‡)是用户特意放进转写的待填槽:不是措辞、不是冗余、不是标点,也不是数字读法。
+- 修正文本里,每个槽在转写中原来的位置写成 ‡编号:值‡,其中编号就是记号里的数字,冒号后直接写预填值;预填值里不得出现 ‡,也不得换行。
+- 决定不吸收的槽只写记号本身 ‡编号‡(冒号与值都不写,预填为空);编号原样保留:不改写、不翻译、不规范化,也不加引号或代码块等任何包裹。
+- 槽与槽之间不算冗余:不合并、不删减,也不新增转写里没有的记号;编号不按【中文数字规范化】转换。
+- 占位符是普通的句法成分:重组句子时,不得把它从紧挨着的内容上撕开。
+- 应用口头更正时,不得把槽当成更正引导语或被替代的内容删掉;更正只改预填值,不删槽。
+- 吸收:默认把记号之前紧挨着槽的名词短语整块移进该槽的预填值,原样照写——是移不是抄,移进之后正文里不得再出现它。指示语、专名、名称性短语、文件名、路径、编号都算;路径与文件名移进预填不算【逐字保留】说的改写。记号之后紧挨着的词是正文,永远不回吸。仅当记号之前没有完整的名词短语(比如只有没把事物名出来的定语)、或确实拿不准时,才不吸收,槽只写记号本身 ‡编号‡(空值)。吸收只写预填值,不写正文。";
 
 /// The sentence appended to the HEADER with pins: the sentinel survives
 /// the header's own written-form and no-wrapping demands. The 【预填】
@@ -153,7 +160,7 @@ const PLACEHOLDER_HEADER_TAIL: &str = "记号不受本段书面化与包裹禁�
 /// the absorbed referent by name. The only intensity variant: full
 /// rectify never forbids adding or dropping information.
 const INTENSITY_LIGHT_TOUCH_PLACEHOLDERS: &str = "\
-【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息。钉前紧挨着槽的名词短语照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留。用户的原措辞与表达顺序尽量原样保留,被吸走的指称不算在内。";
+【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息。记号之前紧挨着槽的名词短语照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留。用户的原措辞与表达顺序尽量原样保留,被吸走的指称不算在内。";
 
 /// The directive-precedence line with pins: the placeholder rule joins the
 /// fidelity rule in the exception list — a directive may not restyle or
@@ -178,14 +185,18 @@ const GLOBAL_REMINDER_PLACEHOLDERS: &str =
 /// it, so the rows are bare sentinels — the authoritative set against
 /// fabrication. No values ride the request, ever: the first round has
 /// nothing to carry, and a regen round never carries the user's current
-/// values (ticket 13: 恒空, both rounds).
-const PLACEHOLDER_CENSUS_HEADER: &str = "【占位符普查】(机械普查,升序)";
+/// values (ticket 13: 恒空, both rounds). Ticket 37's C arm turned the
+/// header from the internal "机械普查,升序" phrasing into a direct
+/// address to the model — an exhaustive, authoritative list — with the
+/// authority semantics preserved (ticket 36, ruling 4).
+const PLACEHOLDER_CENSUS_HEADER: &str =
+    "【占位符清单】(上面转写里出现的占位符编号都在这里,从小到大排列;修正文本里的槽以这份清单为准)";
 
 /// The placeholder reminder closing the user message with pins — always
 /// the LAST block, below even the scenario's reminder: recency goes to
 /// the strongest rule (ticket 12). The compressed demand is the inline
 /// grammar itself (ADR-0013).
-const PLACEHOLDER_REMINDER: &str = "【占位符】(必须执行:槽在原位写成 ‡编号:值‡,不吸收写裸形 ‡编号‡;高于一切语体与格式规则,仅保真铁律例外)";
+const PLACEHOLDER_REMINDER: &str = "【占位符】(必须执行:槽在原位写成 ‡编号:值‡,不吸收就只写记号本身 ‡编号‡;高于一切语体与格式规则,仅保真铁律例外)";
 
 /// The placeholder sentinel: ‡ + ASCII digits + ‡ (ticket 07). U+2021, so
 /// every scan walks chars, never bytes.
@@ -603,7 +614,9 @@ mod tests {
         req.paragraphs = vec!["参考文档里的‡9‡记号".into()];
         let prompt = compose_prompt(&req, Intensity::Full);
         assert!(prompt.system.contains(PLACEHOLDER_RULE));
-        assert!(prompt.user.contains("【占位符普查】(机械普查,升序)\n- ‡9‡"));
+        assert!(prompt
+            .user
+            .contains(&format!("{PLACEHOLDER_CENSUS_HEADER}\n- ‡9‡")));
     }
 
     #[test]
@@ -620,7 +633,7 @@ mod tests {
             let prompt = compose_prompt(&request(style, global, vec![]), Intensity::LightTouch);
             for text in [&prompt.system, &prompt.user] {
                 assert!(!text.contains("【占位符】"), "placeholder trace: {text}");
-                assert!(!text.contains("【占位符普查】"), "census trace: {text}");
+                assert!(!text.contains("【占位符清单】"), "census trace: {text}");
                 assert!(!text.contains("【预填】"), "prefill trace: {text}");
                 assert!(
                     !text.contains("照常整块吸进预填"),
@@ -669,8 +682,8 @@ mod tests {
                 assert!(!text.contains("‡:"), "block row syntax trace: {text}");
             }
             assert!(prompt.system.contains("‡编号:值‡"));
-            assert!(prompt.system.contains("写裸形 ‡编号‡"));
-            assert!(prompt.system.contains("值内不得出现 ‡、不得换行"));
+            assert!(prompt.system.contains("只写记号本身 ‡编号‡"));
+            assert!(prompt.system.contains("预填值里不得出现 ‡,也不得换行"));
             assert!(prompt.user.contains(PLACEHOLDER_REMINDER));
         }
     }
@@ -697,7 +710,7 @@ mod tests {
     fn light_touch_gains_the_absorption_command_only_with_pins() {
         let with_pins = compose_prompt(&pin_request(None, None, vec![]), Intensity::LightTouch);
         assert!(with_pins.system.contains(
-            "钉前紧挨着槽的名词短语照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留"
+            "记号之前紧挨着槽的名词短语照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留"
         ));
         // The keep-original sentence excludes the absorbed referent by
         // name, so the two demands cannot be read as conflicting.
@@ -731,8 +744,8 @@ mod tests {
                 .find(needle)
                 .unwrap_or_else(|| panic!("missing {needle} in user message:\n{}", prompt.user))
         };
-        assert!(at("【原始转写】") < at("【占位符普查】"));
-        assert!(at("【占位符普查】") < at("【术语参考】"));
+        assert!(at("【原始转写】") < at("【占位符清单】"));
+        assert!(at("【占位符清单】") < at("【术语参考】"));
         assert!(at("【术语参考】") < at(GLOBAL_REMINDER_PLACEHOLDERS));
         assert!(at(GLOBAL_REMINDER_PLACEHOLDERS) < at(DIRECTIVE_REMINDER_PLACEHOLDERS));
         assert!(at(DIRECTIVE_REMINDER_PLACEHOLDERS) < at(PLACEHOLDER_REMINDER));
@@ -749,7 +762,9 @@ mod tests {
         assert!(
             prompt
                 .user
-                .contains("【占位符普查】(机械普查,升序)\n- ‡1‡\n- ‡2‡\n- ‡10‡")
+                .contains(&format!(
+                    "{PLACEHOLDER_CENSUS_HEADER}\n- ‡1‡\n- ‡2‡\n- ‡10‡"
+                ))
         );
         assert!(!prompt.user.contains("- ‡1‡:"));
     }
