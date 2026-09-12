@@ -126,8 +126,9 @@ const GLOBAL_REMINDER: &str =
 /// absorption to nothing; decorrelated examples preserved it) — whatever
 /// passes the suite now is genuine generalization, nothing else. The
 /// absorption bullet therefore leads with the default action and demotes
-/// the bare form to an exception, cut-and-paste framing ("移不是抄")
-/// against the duplication failure.
+/// the bare form to an exception (the later cut-and-paste framing
+/// "移不是抄" was itself replaced by the two-step action plus the
+/// self-check ban in the C+AB arm below).
 ///
 /// Ticket 37's C arm rewrote the wording for the model's eyes only
 /// (ticket 36, ruling 4): jargon tied to invisible key actions
@@ -135,6 +136,19 @@ const GLOBAL_REMINDER: &str =
 /// (记号之前/之后), grammar-internal terms (裸形, 内联形态, 分辖,
 /// 机械普查) became plain descriptions, and explanations were expanded
 /// rather than compressed — semantics unchanged item by item.
+///
+/// The C+AB arm (ticket 36, rulings 1-3) then rebuilt the absorption
+/// bullet on that wording: both sides of the mark are equal candidates
+/// (the 31-1 direction clause 「钉后不回吸」 retired — pressing the key
+/// before or after saying the referent is equally likely), a two-sided
+/// race is decided by which side names the thing more completely, and a
+/// genuine ambiguity (different things, both complete) absorbs nothing.
+/// The noun-phrase criterion is operationalized: a noun or proper-name
+/// head must close the phrase, its modifiers ride whole; bare modifiers,
+/// bare demonstratives and pronouns never qualify. Execution became two
+/// explicit steps — delete the phrase from the body, write it verbatim
+/// as the prefill — closed by the output self-check ban, which replaces
+/// the 移不是抄 metaphor against the duplication failure.
 const PLACEHOLDER_RULE: &str = "\
 【占位符】(【保真铁律】管事实与意思,本条管槽;本条高于其他一切规则)
 - 转写里的 ‡数字‡ 记号(如 ‡1‡)是用户特意放进转写的待填槽:不是措辞、不是冗余、不是标点,也不是数字读法。
@@ -143,7 +157,11 @@ const PLACEHOLDER_RULE: &str = "\
 - 槽与槽之间不算冗余:不合并、不删减,也不新增转写里没有的记号;编号不按【中文数字规范化】转换。
 - 占位符是普通的句法成分:重组句子时,不得把它从紧挨着的内容上撕开。
 - 应用口头更正时,不得把槽当成更正引导语或被替代的内容删掉;更正只改预填值,不删槽。
-- 吸收:默认把记号之前紧挨着槽的名词短语整块移进该槽的预填值,原样照写——是移不是抄,移进之后正文里不得再出现它。指示语、专名、名称性短语、文件名、路径、编号都算;路径与文件名移进预填不算【逐字保留】说的改写。记号之后紧挨着的词是正文,永远不回吸。仅当记号之前没有完整的名词短语(比如只有没把事物名出来的定语)、或确实拿不准时,才不吸收,槽只写记号本身 ‡编号‡(空值)。吸收只写预填值,不写正文。";
+- 吸收:记号两侧平等对待——哪一侧紧挨着槽有完整的名词短语,就把那一侧的名词短语整块吸进该槽的预填值。
+  - 名词短语的判定:短语以名词或专有名字收尾,连同它的全部定语(指示、数量、领属、形容、小句定语)整块算一个名词短语——指示语、专名、名称性短语、文件名、路径、编号都属此类;路径与文件名移进预填不算【逐字保留】说的改写。只有定语(「项目里的」这类只说范围、没把事物名出来的修饰语)、光杆指示词(「那个」)、代词——没有名词中心语的——都不算,不吸。
+  - 两侧都紧挨着完整的名词短语时:吸把事物名得更完整的一侧,落选的一侧留在正文(同一事物的不同说法,取说得全的一侧);两侧各说的是不同事物、又都说得完整——真歧义,拿不准就不吸。
+  - 吸收是两个动作:第一步,从正文里删掉该短语;第二步,预填值=该短语原文照写。自查:预填值里的内容,正文中一个字都不得再出现。吸收只写预填值,不写正文。
+  - 确实拿不准时不吸收,槽只写记号本身 ‡编号‡(空值)。";
 
 /// The sentence appended to the HEADER with pins: the sentinel survives
 /// the header's own written-form and no-wrapping demands. The 【预填】
@@ -158,9 +176,13 @@ const PLACEHOLDER_HEADER_TAIL: &str = "记号不受本段书面化与包裹禁�
 /// usual, the absorbed referent leaves the body, and that is neither
 /// 增删信息 nor a 原样保留 breach; the keep-original sentence excludes
 /// the absorbed referent by name. The only intensity variant: full
-/// rectify never forbids adding or dropping information.
+/// rectify never forbids adding or dropping information. Ticket 37's
+/// C+AB arm mirrored the ticket 36 rulings into this command: both sides
+/// of the mark are candidates, completeness decides a two-sided race,
+/// and a genuine ambiguity absorbs nothing (the criterion detail lives
+/// in the placeholder rule, always present with pins).
 const INTENSITY_LIGHT_TOUCH_PLACEHOLDERS: &str = "\
-【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息。记号之前紧挨着槽的名词短语照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留。用户的原措辞与表达顺序尽量原样保留,被吸走的指称不算在内。";
+【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息。记号两侧紧挨着槽的名词短语照常整块吸进预填——以把事物名得更完整的一侧为准,两侧各说的是不同事物且都完整就不吸;被吸走的不留在正文——吸收不算增删,也不违背原样保留。用户的原措辞与表达顺序尽量原样保留,被吸走的指称不算在内。";
 
 /// The directive-precedence line with pins: the placeholder rule joins the
 /// fidelity rule in the exception list — a directive may not restyle or
@@ -710,7 +732,7 @@ mod tests {
     fn light_touch_gains_the_absorption_command_only_with_pins() {
         let with_pins = compose_prompt(&pin_request(None, None, vec![]), Intensity::LightTouch);
         assert!(with_pins.system.contains(
-            "记号之前紧挨着槽的名词短语照常整块吸进预填,被吸走的不留在正文——吸收不算增删,也不违背原样保留"
+            "记号两侧紧挨着槽的名词短语照常整块吸进预填——以把事物名得更完整的一侧为准,两侧各说的是不同事物且都完整就不吸"
         ));
         // The keep-original sentence excludes the absorbed referent by
         // name, so the two demands cannot be read as conflicting.
