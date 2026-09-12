@@ -26,7 +26,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     TranslateMessage, WINEVENT_OUTOFCONTEXT, WM_TIMER,
 };
 
-use crate::os::{InjectedKey, InputOs, SavedClipboard, paced_paste_script};
+use crate::os::{InjectedKey, InputOs, paced_paste_script};
 
 // The Unicode-text clipboard format id (a documented Win32 constant,
 // stable ABI; declared locally so the Ole feature is not pulled in for
