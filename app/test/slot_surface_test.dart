@@ -1650,6 +1650,104 @@ void main() {
     await windDown(tester, h.controller);
   });
 
+  testWidgets('text wrapped past a near-line-end capsule starts flush left', (
+    tester,
+  ) async {
+    // 停车场 04 (2026-09-12): a capsule value ending within one
+    // reservation's width (valuePad + sidePad = 16) of the column's
+    // right edge — the unbreakable reservation wrapped itself, LED the
+    // next line, and the content following the capsule trailed it,
+    // starting indented by its width (真机: 后续内容不顶格, 空出一段距
+    // 离). The reservation is now fitted to the line's own leftover, so
+    // wrapped content starts flush at x=0, its seat never ruled by the
+    // capsule above.
+    //
+    // The metrics are probed first (a glyph's advance and the chip's
+    // reservation from the probe pump's own boxes), then k leading
+    // glyphs are chosen so the capsule's value ends with [0.75, 16) px
+    // to spare — the exact trigger zone — and the SAME pins are rerolled
+    // with the crafted body.
+    final h = await pumpSlotPreview(tester);
+    final probe = previewParagraph(tester);
+    final column = probe.constraints.maxWidth;
+    final advance = probe
+        .getBoxesForSelection(const TextSelection(baseOffset: 0, extentOffset: 1))
+        .first
+        .toRect()
+        .width;
+    final chipWidth = probe
+        .getBoxesForSelection(const TextSelection(baseOffset: 2, extentOffset: 3))
+        .first
+        .toRect()
+        .width;
+    final k = ((column - chipWidth - advance - 0.75) / advance).floor();
+
+    await h.gateway.reroll();
+    await tester.pump(const Duration(milliseconds: 400));
+    h.gateway.emit(
+      BridgeEvent.rectifiedTextChunk(delta: '话' * k + '‡1‡' + '乙丙丁'),
+    );
+    h.gateway.emit(
+      const BridgeEvent.previewPrefills(
+        prefills: [BridgePrefillRow(number: 1, value: '测')],
+      ),
+    );
+    h.gateway.emit(
+      const BridgeEvent.sessionStateChanged(
+        from: BridgeSessionState.rectifying,
+        to: BridgeSessionState.preview,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    final surface =
+        tester.state(find.byKey(const Key('session-text')))
+            as SlotSurfaceState;
+
+    final paragraph = previewParagraph(tester);
+    final flat = surface.flatBaseText; // 话*k ￼ 测 ￼ 乙丙丁
+    final valueStart = flat.indexOf('测');
+    final valueBox = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: valueStart, extentOffset: valueStart + 1),
+        )
+        .first
+        .toRect();
+    // The capsule ends near the line's edge as designed.
+    expect(paragraph.constraints.maxWidth - valueBox.right, lessThan(16));
+
+    // The following text wrapped below the capsule's line…
+    final followStart = flat.indexOf('乙');
+    final followBox = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: followStart, extentOffset: followStart + 1),
+        )
+        .first
+        .toRect();
+    expect(followBox.top, greaterThan(valueBox.top + 1));
+    // …flush: the wrap's start owes the capsule nothing.
+    expect(followBox.left, closeTo(0, 0.5));
+
+    // The reservation itself stayed on the capsule's line (its 4-px
+    // middle-aligned box sits below a glyph's top on the SAME line —
+    // centres, not tops), fitted to exactly the leftover its line held.
+    final reservationAt = flat.lastIndexOf('￼');
+    final reservationBox = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: reservationAt, extentOffset: reservationAt + 1),
+        )
+        .first
+        .toRect();
+    final pitch = paragraph.getFullHeightForCaret(
+      TextPosition(offset: reservationAt),
+    );
+    expect(
+      (reservationBox.center.dy - valueBox.center.dy).abs(),
+      lessThan(pitch / 2),
+    );
+    expect(reservationBox.right, closeTo(paragraph.constraints.maxWidth, 0.6));
+    await windDown(tester, h.controller);
+  });
+
   testWidgets('Home and End walk the visual line across auto-wrapped text', (
     tester,
   ) async {
@@ -1678,16 +1776,20 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('the caret at a soft-wrap boundary renders on the current line', (
+  testWidgets('while typing at the value end the caret and the reservation ride the line', (
     tester,
   ) async {
-    // 反馈六: the wrapper breaks a line at the next UNBREAKABLE unit
-    // (the reservation placeholder after the value), not at the caret's
-    // own character — so the caret's offset can sit exactly on a
-    // soft-wrap boundary while the next typed character still lands on
-    // the current line. The framework's default downstream affinity
-    // would paint it a line early; it renders upstream, on the line its
-    // preceding character lives on (2026-09-09 ruling).
+    // 反馈六 (2026-09-09): while an insertion tail trails the caret, the
+    // caret renders on the line its preceding character is on — the
+    // wrapper breaks at the next unbreakable unit, not at the caret's
+    // own character. 停车场 04 (2026-09-12) retires that unit on this
+    // path: the reservation after the value is fitted to the line's own
+    // leftover, so it never wraps ahead of the text and the boundary it
+    // used to create — the real engine seating the caret at the next
+    // line's start while the next glyph still fit — no longer arises.
+    // The caret rides the line because nothing has wrapped past it; the
+    // upstream rule itself keeps its chip- and body-boundary homes
+    // (F1/F7 below).
     final h = await pumpSlotPreview(tester, prefill: 'a');
     final paragraph = previewParagraph(tester);
     h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
@@ -1695,9 +1797,8 @@ void main() {
 
     // Grow one long unbroken word letter by letter, the way it is typed:
     // at every step the caret must ride the line the value's last
-    // character is on — including the boundary step, where the
-    // reservation has already wrapped but one more letter still fits.
-    var sawBoundary = false;
+    // character is on, and the reservation must never trail onto a
+    // later line ahead of the following content.
     for (var n = 0; n < 110; n++) {
       await h.type('a');
       final flat = h.surface.flatBaseText;
@@ -1706,25 +1807,32 @@ void main() {
           .getBoxesForSelection(
             TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
           )
-          .last;
+          .last
+          .toRect();
       final caret = h.surface.caretRect()!;
       expect(
-        (caret.center.dy - (lastChar.top + lastChar.bottom) / 2).abs(),
+        (caret.center.dy - lastChar.center.dy).abs(),
         lessThan(10),
         reason: 'the caret rides the line its preceding character is on '
             '(letter $n)',
       );
-      final upstream = paragraph.getOffsetForCaret(
-        TextPosition(offset: valueEnd, affinity: TextAffinity.upstream),
-        Rect.zero,
-      );
-      final downstream = paragraph.getOffsetForCaret(
+      final reservation = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: valueEnd, extentOffset: valueEnd + 1),
+          )
+          .last
+          .toRect();
+      // Line membership by box CENTRES (the 4-px middle-aligned
+      // placeholder sits a few px below a glyph's top on the SAME line).
+      final pitch = paragraph.getFullHeightForCaret(
         TextPosition(offset: valueEnd),
-        Rect.zero,
       );
-      if (upstream.dy != downstream.dy) sawBoundary = true;
+      expect(
+        (reservation.center.dy - lastChar.center.dy).abs(),
+        lessThan(pitch / 2),
+        reason: 'the reservation stays on the value\'s line (letter $n)',
+      );
     }
-    expect(sawBoundary, isTrue, reason: 'the walk crossed the wrap boundary');
     await windDown(tester, h.controller);
   });
 
@@ -1856,43 +1964,49 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('End inside a line-filling value stays inside, on the line', (
+  testWidgets('End on a line-filling value lands at the line\'s end, on the line', (
     tester,
   ) async {
-    // The value's glyphs fill the line and only the (invisible)
-    // reservation wrapped: the line's end IS the value's inside end —
-    // not the outside dock past the reservation, whose seat sits on
-    // the next line. End resolves the boundary into the capsule.
+    // The value's glyphs fill the line and the (invisible) reservation
+    // is fitted to the line's leftover (停车场 04, 2026-09-12): the
+    // reservation stays beside the value's last glyph, the outside dock
+    // past it seats on the SAME line, and End walks to the line's end
+    // without ever jumping ahead of the text. (The state this test used
+    // to walk — the reservation trailing onto the next line, a divergent
+    // boundary the outside dock seated beyond — is retired at its
+    // source; the line's end is now honestly the position past the
+    // capsule.)
     final h = await pumpSlotPreview(tester, prefill: 'a');
     final paragraph = previewParagraph(tester);
     h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
     await tester.pump();
 
-    bool divergent(int valueEnd) {
-      final upstream = paragraph.getOffsetForCaret(
-        TextPosition(offset: valueEnd, affinity: TextAffinity.upstream),
-        Rect.zero,
-      );
-      final downstream = paragraph.getOffsetForCaret(
-        TextPosition(offset: valueEnd),
-        Rect.zero,
-      );
-      return upstream.dy != downstream.dy;
-    }
-
-    var boundary = false;
-    for (var n = 0; n < 110 && !boundary; n++) {
+    // Type until the value's glyphs themselves span two lines.
+    var wrapped = false;
+    for (var n = 0; n < 110 && !wrapped; n++) {
       await h.type('a');
-      boundary = divergent(h.surface.flatBaseText.lastIndexOf('￼'));
+      final flat = h.surface.flatBaseText;
+      final valueEnd = flat.lastIndexOf('￼');
+      final first = paragraph
+          .getBoxesForSelection(
+            const TextSelection(baseOffset: 3, extentOffset: 4),
+          )
+          .first;
+      final last = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
+          )
+          .last;
+      wrapped = last.top > first.top + 1;
     }
-    expect(boundary, isTrue, reason: 'the walk reached the wrap boundary');
+    expect(wrapped, isTrue, reason: 'the walk reached the glyph wrap');
 
     await h.key(LogicalKeyboardKey.end);
-    final valueLen = h.surface.editor.doc.valueOf(1).length;
+    final editor = h.surface.editor;
     expect(
-      h.surface.editor.caret,
-      SlotCursor.inside(at: 2, offset: valueLen),
-      reason: 'the line\'s end is the value\'s own end',
+      editor.caret,
+      editor.stops.last,
+      reason: 'the line\'s end is the document\'s last stop',
     );
     final flat = h.surface.flatBaseText;
     final valueEnd = flat.lastIndexOf('￼');

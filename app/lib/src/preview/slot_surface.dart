@@ -87,6 +87,18 @@
 /// binding returns — Home onto a wrapped line's start renders at that
 /// line's start — and right after a hard newline downstream is the
 /// correct binding anyway (D3 反馈六, 2026-09-09 ruling).
+/// The capsule's trailing reservation is FITTED to its line's own
+/// leftover (停车场 04, 2026-09-12): a reservation placeholder is
+/// unbreakable, and when the capsule's value ends within one
+/// reservation's width of the column's right edge it used to wrap
+/// itself — leading the next line and indenting the content that
+/// follows the capsule by its width (真机: 后续内容不顶格, 空出一段
+/// 距离). Every span tree's reservation widths now come from a measured
+/// pre-pass; a would-wrap reservation takes exactly the leftover
+/// advance its line still holds, so it stays on the capsule's line (the
+/// pill paints its own parking tail past the value regardless) and the
+/// content that wraps anyway starts flush at x=0, its seat never ruled
+/// by the capsule above.
 
 library;
 
@@ -487,31 +499,47 @@ class SlotSurfaceState extends State<SlotSurface>
   Widget _buildStream(BuildContext context) {
     final text = widget.text ?? '';
     final pal = srPalette(context);
+    final style = widget.streamStyle ?? SrType.bodyLarge;
     final markers = projectStream(text);
+    // The strut pins every line to the style's own metrics: line
+    // heights never vary with what a line happens to contain (mixed
+    // fallback runs, IME composing runs), so lines — and the capsules
+    // anchored to them — never shift as content changes (23 号验收轮:
+    // typing a character visibly re-seated the lines).
+    final strut = StrutStyle.fromTextStyle(style, forceStrutHeight: true);
     return SingleChildScrollView(
       controller: widget.scrollController,
       child: CustomPaint(
         painter: _StreamPillPainter(this, pal),
         foregroundPainter: _StreamCapsulesPainter(this, pal),
-        child: Builder(
-          builder: (paragraphContext) {
-            _streamParagraph = paragraphContext;
-            return Text.rich(
-              key: const Key('session-stream'),
-              // The strut pins every line to the style's own metrics:
-              // line heights never vary with what a line happens to
-              // contain (mixed fallback runs, IME composing runs), so
-              // lines — and the capsules anchored to them — never shift
-              // as content changes (23 号验收轮: typing a character
-              // visibly re-seated the lines).
-              strutStyle: StrutStyle.fromTextStyle(
-                widget.streamStyle ?? SrType.bodyLarge,
-                forceStrutHeight: true,
-              ),
-              TextSpan(
-                style: widget.streamStyle ?? SrType.bodyLarge,
-                children: _streamSpanTree(markers),
-              ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final widths = fittedReservationWidths(
+              maxWidth: constraints.maxWidth,
+              ambientStyle: DefaultTextStyle.of(context).style,
+              style: style,
+              strut: strut,
+              textScaler: MediaQuery.textScalerOf(context),
+              locale: Localizations.maybeLocaleOf(context),
+              standardWidth: pillRightPad + capsuleSidePad,
+              slots: markers.capsules,
+              valueEndsWithNewline: (slot) => markers.flat
+                  .substring(slot.valueStart, slot.valueEnd)
+                  .endsWith('\n'),
+              buildSpans: (widths) => _streamSpanTree(markers, widths),
+            );
+            return Builder(
+              builder: (paragraphContext) {
+                _streamParagraph = paragraphContext;
+                return Text.rich(
+                  key: const Key('session-stream'),
+                  strutStyle: strut,
+                  TextSpan(
+                    style: style,
+                    children: _streamSpanTree(markers, widths),
+                  ),
+                );
+              },
             );
           },
         ),
@@ -528,7 +556,10 @@ class SlotSurfaceState extends State<SlotSurface>
   /// reservation riding a value that ends with 回车 widens past the
   /// parking stub by sidePad exactly as the preview's does (反馈十九) —
   /// whatever streams in after it keeps its breathing.
-  List<InlineSpan> _streamSpanTree(StreamMarkers markers) {
+  List<InlineSpan> _streamSpanTree(
+    StreamMarkers markers,
+    Map<int, double> reservationWidths,
+  ) {
     final flat = markers.flat;
     final circleAt = {for (final circle in markers.circles) circle.at: circle};
     final chipAt = {for (final slot in markers.capsules) slot.chipAt: slot};
@@ -581,9 +612,11 @@ class SlotSurfaceState extends State<SlotSurface>
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: SizedBox(
-              width: emptyTail
-                  ? _stubFloor + capsuleSidePad
-                  : pillRightPad + capsuleSidePad,
+              width:
+                  reservationWidths[slot.id] ??
+                  (emptyTail
+                      ? _stubFloor + capsuleSidePad
+                      : pillRightPad + capsuleSidePad),
               height: 4,
             ),
           ),
@@ -687,6 +720,14 @@ class SlotSurfaceState extends State<SlotSurface>
 
   Widget _buildPreview(BuildContext context) {
     final pal = srPalette(context);
+    final style = SrType.bodyLarge.copyWith(color: pal.textPrimary);
+    // Same strut as the stream face: line heights never vary with a
+    // line's content (mixed fallback runs, IME composing runs), so lines
+    // never shift as text is typed.
+    final strut = StrutStyle.fromTextStyle(
+      SrType.bodyLarge,
+      forceStrutHeight: true,
+    );
     return Focus(
       focusNode: widget.focusNode,
       onKeyEvent: _onKey,
@@ -702,19 +743,30 @@ class SlotSurfaceState extends State<SlotSurface>
           child: CustomPaint(
             foregroundPainter: _ForegroundPainter(this, pal),
             painter: _BackgroundPainter(this, pal),
-            child: Text.rich(
-              key: _paragraphKey,
-              // Same strut as the stream face: line heights never vary
-              // with a line's content (mixed fallback runs, IME
-              // composing runs), so lines never shift as text is typed.
-              strutStyle: StrutStyle.fromTextStyle(
-                SrType.bodyLarge,
-                forceStrutHeight: true,
-              ),
-              TextSpan(
-                style: SrType.bodyLarge.copyWith(color: pal.textPrimary),
-                children: _spanTree(pal),
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final widths = fittedReservationWidths(
+                  maxWidth: constraints.maxWidth,
+                  ambientStyle: DefaultTextStyle.of(context).style,
+                  style: style,
+                  strut: strut,
+                  textScaler: MediaQuery.textScalerOf(context),
+                  locale: Localizations.maybeLocaleOf(context),
+                  standardWidth: pillRightPad + capsuleSidePad,
+                  slots: _projection.slots,
+                  valueEndsWithNewline: (slot) =>
+                      _editor.doc.valueOf(slot.id).endsWith('\n'),
+                  buildSpans: (widths) => _spanTree(pal, widths),
+                );
+                return Text.rich(
+                  key: _paragraphKey,
+                  strutStyle: strut,
+                  TextSpan(
+                    style: style,
+                    children: _spanTree(pal, widths),
+                  ),
+                );
+              },
             ),
           ),
         ),
@@ -729,7 +781,7 @@ class SlotSurfaceState extends State<SlotSurface>
   /// leading [capsuleSidePad] plus the cap circle's width; the digits are
   /// painted by the foreground layer onto the pill's cap, so they can
   /// never disagree with the pill's own geometry.
-  List<InlineSpan> _spanTree(SrPalette pal) {
+  List<InlineSpan> _spanTree(SrPalette pal, Map<int, double> reservationWidths) {
     final projection = _projection;
     final base = projection.base;
     final composing = _composing.isNotEmpty;
@@ -799,9 +851,12 @@ class SlotSurfaceState extends State<SlotSurface>
             child: SizedBox(
               width: chip != null
                   ? capsuleSidePad + chipCircle + chipGap
-                  : emptyTail
-                  ? _stubFloor + capsuleSidePad
-                  : pillRightPad + capsuleSidePad,
+                  : (reservation != null
+                        ? reservationWidths[reservation.id]
+                        : null) ??
+                    (emptyTail
+                        ? _stubFloor + capsuleSidePad
+                        : pillRightPad + capsuleSidePad),
               height: chip != null ? capsuleHeight : 4,
             ),
           ),
@@ -1802,6 +1857,126 @@ List<({double top, double height})> truncateCoveredLines(
   }
   if (lastHeld == covered.length - 1) return covered;
   return covered.sublist(0, lastHeld + 1);
+}
+
+/// The per-slot reservation widths that keep the capsule's invisible
+/// tail from LEADING a wrapped line (停车场 04, 2026-09-12). A
+/// reservation placeholder is unbreakable: when the capsule's value
+/// ends within one reservation's width of the column's right edge and
+/// content follows, the placeholder itself wraps and that content
+/// trails it — starting the next line indented by the reservation's
+/// width (真机: 后续内容不顶格, 空出一段距离), its seat ruled by the
+/// capsule above. The reservation's one layout duty is breathing for
+/// SAME-LINE following text; a reservation that wraps has no same-line
+/// follower, so the duty is vacuous and only the indent remains.
+///
+/// The measure lays the caller's own span tree out first in a
+/// TextPainter over the same ambient root style, strut, scaler and
+/// width the real paragraph resolves (Text.rich nests our styled span
+/// under the ambient DefaultTextStyle — the family the runs resolve
+/// hangs off that root — and the same engine breaks the same input the
+/// same way); every reservation the measure finds on a LATER line than
+/// its reference box (the value's last glyph, or the chip when the
+/// value is empty) is fitted to exactly the leftover advance its line
+/// still holds, minus a hair against float equality. Fitted, it stays
+/// on the capsule's line — the pill paints its own parking tail past
+/// the value regardless — and the content that wraps anyway starts
+/// flush at x=0. Values that end with 回车 are excluded: their
+/// reservation rides the value's own empty line (反馈十九's widened
+/// stub) and never wraps. The measure iterates to a fixed point
+/// (capped): one slot's fit reflows the lines below it, so a downstream
+/// slot's leftover is only final once the slots before it are fitted.
+Map<int, double> fittedReservationWidths({
+  required double maxWidth,
+  required TextStyle ambientStyle,
+  required TextStyle style,
+  required StrutStyle strut,
+  required TextScaler textScaler,
+  Locale? locale,
+  required double standardWidth,
+  required List<ProjectedSlot> slots,
+  required bool Function(ProjectedSlot slot) valueEndsWithNewline,
+  required List<InlineSpan> Function(Map<int, double> widths) buildSpans,
+}) {
+  if (slots.isEmpty || !maxWidth.isFinite || maxWidth <= 0) {
+    return const {};
+  }
+  var widths = const <int, double>{};
+  for (var pass = 0; pass < 3; pass++) {
+    final spans = buildSpans(widths);
+    final painter = TextPainter(
+      text: TextSpan(
+        style: ambientStyle,
+        children: [TextSpan(style: style, children: spans)],
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+      strutStyle: strut,
+      locale: locale,
+    )..setPlaceholderDimensions([
+        for (final span in spans)
+          if (span is WidgetSpan)
+            PlaceholderDimensions(
+              size: Size(
+                (span.child as SizedBox).width!,
+                (span.child as SizedBox).height!,
+              ),
+              alignment: PlaceholderAlignment.middle,
+            ),
+      ]);
+    painter.layout(maxWidth: maxWidth);
+    var changed = false;
+    for (final slot in slots) {
+      if (valueEndsWithNewline(slot)) continue;
+      final reservationBoxes = painter.getBoxesForSelection(
+        TextSelection(baseOffset: slot.valueEnd, extentOffset: slot.valueEnd + 1),
+      );
+      final referenceBoxes = slot.valueStart < slot.valueEnd
+          ? painter.getBoxesForSelection(
+              TextSelection(
+                baseOffset: slot.valueStart,
+                extentOffset: slot.valueEnd,
+              ),
+            )
+          : painter.getBoxesForSelection(
+              TextSelection(baseOffset: slot.chipAt, extentOffset: slot.chipAt + 1),
+            );
+      if (reservationBoxes.isEmpty || referenceBoxes.isEmpty) continue;
+      // Line membership, never raw tops: a reservation is a 4-px
+      // placeholder MIDDLE-aligned — its box sits a few px below a
+      // glyph's even on the same line — so the line test compares box
+      // CENTRES against half a line's pitch (same line drifts a px or
+      // two; a wrap is a full pitch).
+      final reservation = reservationBoxes.first.toRect();
+      final reference = referenceBoxes.last.toRect();
+      final pitch = painter.getFullHeightForCaret(
+        TextPosition(offset: slot.valueEnd),
+        Rect.zero,
+      );
+      if ((reservation.center.dy - reference.center.dy).abs() <
+          (pitch > 0 ? pitch / 2 : 8)) {
+        continue; // fits its line
+      }
+      // The fit keeps half a pixel of slack: the standalone measure can
+      // drift a hair from the live paragraph's own accumulation, and a
+      // would-wrap reservation has no same-line follower for the hair
+      // to squeeze — invisible by construction.
+      final leftover = maxWidth - reference.right - 0.5;
+      widths = {
+        ...widths,
+        slot.id: math.max(0, math.min(standardWidth, leftover)),
+      };
+      changed = true;
+    }
+    painter.dispose();
+    // A fit STICKS: the pass that measured with it in place saw no wrap
+    // (that is the repair working), so shrinks are only ever added or
+    // tightened, never withdrawn — withdrawing would oscillate (fit →
+    // no wrap seen → withdraw → wrap seen → …) and end on the wrong
+    // parity with nothing applied.
+    if (!changed) break;
+  }
+  return widths;
 }
 
 /// The paragraph's own ink-vs-caret bias: a TEXT line's ink-box
