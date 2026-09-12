@@ -19,8 +19,10 @@ use crate::vendor::Vendor;
 /// Everything the rectify pipeline needs to call the model.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmConfig {
-    /// Thinking mode. Off by default: rewriting tasks lose latency and
-    /// risk over-rectifying with it on.
+    /// Thinking mode. On by default: with the zero-example rectify
+    /// prompt, placeholder absorption depends on it (v4-flash probe,
+    /// 工单 33: family 10/10 with thinking, 3/10 without); turning it
+    /// off buys back 1–2s of light-band latency at that cost.
     pub thinking: bool,
     /// Utterances strictly below this many characters take light-touch
     /// rectify; at or above, full rectify. Same model either way.
@@ -73,12 +75,12 @@ pub struct ModelConfig {
 }
 
 impl LlmConfig {
-    /// The v1 default: DeepSeek V4-Flash, thinking off, 40-character
+    /// The v1 default: DeepSeek V4-Flash, thinking on, 40-character
     /// light-touch threshold. Every vendor's key slot starts empty (the
     /// conventional environment names apply at resolution).
     pub fn defaults() -> Self {
         LlmConfig {
-            thinking: false,
+            thinking: true,
             light_touch_max_chars: 40,
             endpoint_configured: false,
             legacy_flat: VendorKeys::default(),
@@ -396,7 +398,7 @@ mod tests {
     #[test]
     fn defaults_are_single_model_deepseek() {
         let config = LlmConfig::defaults();
-        assert!(!config.thinking);
+        assert!(config.thinking);
         assert_eq!(config.light_touch_max_chars, 40);
         assert_eq!(config.model.model, "deepseek-v4-flash");
         assert_eq!(config.model.vendor, Vendor::DeepSeek);
@@ -412,7 +414,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("spokenrectifier.toml"),
-            "[llm]\nthinking = true\nmodel = \"deepseek-v4-pro\"\n",
+            "[llm]\nthinking = false\nmodel = \"deepseek-v4-pro\"\n",
         )
         .unwrap();
         std::fs::write(
@@ -422,7 +424,7 @@ mod tests {
         .unwrap();
 
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-        assert!(config.thinking); // from the shared file
+        assert!(!config.thinking); // shared file overrides the on default
         assert_eq!(config.model.model, "deepseek-v4-pro"); // shared file
         assert_eq!(config.model.api_key.as_deref(), Some("sk-local")); // local wins
         assert_eq!(config.model.base_url, "https://api.deepseek.com"); // untouched default

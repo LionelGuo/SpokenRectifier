@@ -7,7 +7,7 @@
 //!   the intensity/style/term directives.
 //! - [`OpenAiCompatLlm`] streams token deltas from any OpenAI-compatible
 //!   `/chat/completions` endpoint (DeepSeek, Volcengine Ark, DashScope, ...),
-//!   with thinking mode off by default.
+//!   with thinking mode on by default.
 
 mod client;
 mod config;

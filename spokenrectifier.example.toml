@@ -126,13 +126,18 @@ retention_days = 30         # sessions older than this are swept on launch
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
 # One model per mode: light-touch vs full rectify is decided by length
 # (below light_touch_max_chars takes light-touch) and changes only the
-# prompt, never the model. Rewrite wants thinking OFF by default (latency
-# and over-rectify risk); flip `thinking` to true if you want it.
+# prompt, never the model. Thinking is ON by default: with the
+# zero-example rectify prompt, placeholder absorption depends on it
+# (v4-flash probe: family 10/10 with thinking, 3/10 without). Turning
+# it off saves ~1–2s on the light-touch band and leaves no-pin short
+# utterances unchanged, but prefill goes empty. Watch item, not guarded
+# against: thinking on may occasionally add an editorial note (seen
+# once in 23 mixed-product runs).
 # Configuring a model/base_url/api_key without a resolvable key is an
 # error at startup (never a silent fallback to the demo script); an
 # unknown vendor or an empty model/base_url is rejected too.
 [llm]
-thinking = false
+thinking = true
 light_touch_max_chars = 40
 vendor = "deepseek"                     # deepseek | volcengine | qwen | openai
 base_url = "https://api.deepseek.com"   # everything before /chat/completions

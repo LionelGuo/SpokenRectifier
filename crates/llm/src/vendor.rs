@@ -1,6 +1,7 @@
 //! Which OpenAI-compatible vendor an endpoint speaks, and how each one
-//! toggles thinking mode. Rewriting tasks want thinking off (latency and
-//! over-rectify risk), so off is the default everywhere.
+//! toggles thinking mode. On by default (工单 33): under the zero-example
+//! prompt, placeholder absorption needs it — v4-flash probed 10/10 with,
+//! 3/10 without; off only buys back light-band latency.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
