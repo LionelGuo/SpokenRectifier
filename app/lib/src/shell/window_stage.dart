@@ -234,7 +234,7 @@ class _StageHostState extends State<StageHost> {
     _exiting = false;
     _dir = GrowthDirection.upLeft;
     _seq++;
-    _panelSize = null;
+    _panelSize.value = null;
     _rectKnown = false;
     _grabArmed = false;
     _grabLive = false;
@@ -248,6 +248,7 @@ class _StageHostState extends State<StageHost> {
   void dispose() {
     c.removeListener(_onChanged);
     _keyboardNode.dispose();
+    _panelSize.dispose();
     super.dispose();
   }
 
@@ -329,7 +330,7 @@ class _StageHostState extends State<StageHost> {
     final area = _areaHolding(anchor, _areas ?? const []);
     final plan = expandPlan(anchor, c.panelFootprint, area);
     _dir = plan.dir;
-    _panelSize = plan.size;
+    _panelSize.value = plan.size;
     await _applyBounds(
       panelRectFor(anchor, maxPanelSize(anchor, plan.dir, area), plan.dir),
     );
@@ -369,8 +370,10 @@ class _StageHostState extends State<StageHost> {
       await _applyBounds(
         panelRectFor(anchorOf(_rect, _dir), SrGeometry.orbFootprint, _dir),
       );
-      // The orb window is whole again (ADR 0017).
-      _panelSize = null;
+      // The orb window is whole again (ADR 0017). Region first; the
+      // slot notifier stays until the panel unmounts below — notifying
+      // null while the card is still in the tree would flash it
+      // full-bleed for a frame.
       unawaited(_pushCardRegion(null));
     }
     if (!mounted || seq != _seq) return;
@@ -379,6 +382,7 @@ class _StageHostState extends State<StageHost> {
       _displayed = StageKind.orb;
       _exiting = false;
     });
+    _panelSize.value = null;
   }
 
   // ---- ticket-20 geometry gestures: drag / move / resize -----------------
@@ -407,7 +411,13 @@ class _StageHostState extends State<StageHost> {
   /// gestures — the freeze keeps it while the HWND sits at the growth
   /// ceiling, and the release keeps it until the shrunk view lands
   /// (identical to full-bleed by then).
-  Size? _panelSize;
+  ///
+  /// A [ValueNotifier] so a resize can grow the slot without
+  /// [setState] on this host: StageHost.setState rebuilt SessionPanel /
+  /// QuickPanel (and SlotSurface re-measured) on every pointer move,
+  /// which is the remaining frame-rate tax once the HWND is frozen
+  /// (window-gesture-perf H3).
+  final ValueNotifier<Size?> _panelSize = ValueNotifier(null);
 
   /// Pointer minus the moving target at grab. Screen-stable when the
   /// platform can report one; otherwise the view-relative event position
@@ -596,7 +606,7 @@ class _StageHostState extends State<StageHost> {
     _resizeAnchor = anchorOf(_rect, _dir);
     // The gesture's size base is the CARD (the slot), not the window —
     // the window sits at the growth ceiling while a panel is open.
-    _resizeSize = _panelSize ?? _rect.size;
+    _resizeSize = _panelSize.value ?? _rect.size;
     _resizeSize0 = _resizeSize;
     _resizeSign = growSign;
     _latchPointerSource(pointer);
@@ -624,8 +634,9 @@ class _StageHostState extends State<StageHost> {
     );
     if (size == _resizeSize) return; // a bound edge eats the motion
     _resizeSize = size;
-    // Layout only — zero setBounds for the whole gesture.
-    setState(() => _panelSize = size);
+    // Layout only — zero setBounds, and no StageHost.setState: the
+    // slot's ValueListenableBuilder is the only subscriber.
+    _panelSize.value = size;
     c.noteGeometryLive(panel: size);
   }
 
@@ -656,7 +667,7 @@ class _StageHostState extends State<StageHost> {
   Future<void> _pushPanelRegion() => _pushCardRegion(_panelRegion());
 
   Rect? _panelRegion() {
-    final size = _panelSize;
+    final size = _panelSize.value;
     if (size == null) return null;
     final anchor = anchorOf(_rect, _dir);
     return panelRectFor(anchor, size, _dir).shift(-_rect.topLeft);
@@ -727,20 +738,30 @@ class _StageHostState extends State<StageHost> {
   /// reached yet paints those frames at the wrong offset; the
   /// constraints are always exactly what this frame renders at, so the
   /// card stays anchor-pinned through the freeze and release jumps.
+  ///
+  /// The card itself is the [ValueListenableBuilder]'s `child`, so a
+  /// resize notifies only this builder (the Positioned) — StageHost
+  /// does not setState, and the panel Element is reused.
   Widget _panelSlot({required Widget child}) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final view = constraints.biggest;
-        final size = _panelSize ?? view;
-        final anchor = anchorOf(Offset.zero & view, _dir);
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            Positioned.fromRect(
-              rect: panelRectFor(anchor, size, _dir),
-              child: child,
-            ),
-          ],
+        return ValueListenableBuilder<Size?>(
+          valueListenable: _panelSize,
+          child: child,
+          builder: (context, panelSize, slot) {
+            final view = constraints.biggest;
+            final size = panelSize ?? view;
+            final anchor = anchorOf(Offset.zero & view, _dir);
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned.fromRect(
+                  rect: panelRectFor(anchor, size, _dir),
+                  child: slot!,
+                ),
+              ],
+            );
+          },
         );
       },
     );

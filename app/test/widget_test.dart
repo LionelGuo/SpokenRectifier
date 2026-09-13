@@ -27,6 +27,7 @@ import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
 import 'package:spokenrectifier_app/src/shell/orb_button.dart';
+import 'package:spokenrectifier_app/src/session/session_panel.dart';
 import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
     show QuickPanel, formatHistoryStamp;
 import 'package:spokenrectifier_app/src/shell/session_flow.dart' show StageKind;
@@ -1937,6 +1938,70 @@ void main() {
         expect(window.regions.last, isNull);
       },
     );
+
+    testWidgets('a resize gesture does not rebuild the panel (layout only)', (
+      tester,
+    ) async {
+      // H3: StageHost.setState on every pointer move rebuilt QuickPanel /
+      // SessionPanel (and SlotSurface re-measured) even though the HWND is
+      // frozen. The slot's Positioned is the only thing that should update.
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await pumpQuickOpen(tester, controller);
+
+      final before = tester.widget(find.byType(QuickPanel));
+      final corner = tester.getCenter(
+        find.byKey(const Key('panel-resize-corner')),
+      );
+      final g = await tester.startGesture(corner);
+      await tester.pump();
+      await g.moveBy(const Offset(-60, -80));
+      await tester.pump();
+      await g.moveBy(const Offset(-30, 0));
+      await tester.pump();
+
+      expect(
+        identical(tester.widget(find.byType(QuickPanel)), before),
+        isTrue,
+        reason:
+            'resize must not rebuild the panel; only the slot Positioned moves',
+      );
+      expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 596));
+      await g.up();
+      await tester.pump();
+      expect(identical(tester.widget(find.byType(QuickPanel)), before), isTrue);
+      await controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+    });
+
+    testWidgets('a resize during a session does not rebuild SessionPanel', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await controller.startSession();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      final before = tester.widget(find.byType(SessionPanel));
+      final corner = tester.getCenter(
+        find.byKey(const Key('panel-resize-corner')),
+      );
+      final g = await tester.startGesture(corner);
+      await tester.pump();
+      await g.moveBy(const Offset(-40, 0));
+      await tester.pump();
+
+      expect(
+        identical(tester.widget(find.byType(SessionPanel)), before),
+        isTrue,
+        reason: 'session-panel rebuild is the SlotSurface remeasure tax',
+      );
+      await g.up();
+      await tester.pump();
+      await windDown(tester, controller);
+    });
 
     testWidgets('the expand direction follows the anchor\'s quadrant', (
       tester,
