@@ -68,6 +68,11 @@ class RecordingStageWindow implements stage.StageWindow {
   Size size = SrGeometry.orbFootprint;
   final bounds = <Rect>[];
 
+  /// Widget tests advance the fake clock; a non-zero delay lets a
+  /// burst of drag updates land while a setBounds is still in flight
+  /// (the production flicker: stale SetWindowPos completing late).
+  Duration setBoundsDelay = Duration.zero;
+
   /// The work areas the expand chooser and the clamps see; tests pin it
   /// to place the orb in a quadrant or squeeze a fit. (Named `screens` —
   /// a field cannot share the interface method's name.)
@@ -84,6 +89,9 @@ class RecordingStageWindow implements stage.StageWindow {
 
   @override
   Future<void> setBounds(Rect bounds) async {
+    if (setBoundsDelay > Duration.zero) {
+      await Future<void>.delayed(setBoundsDelay);
+    }
     this.bounds.add(bounds);
     position = bounds.topLeft;
     size = bounds.size;
@@ -91,6 +99,14 @@ class RecordingStageWindow implements stage.StageWindow {
 
   @override
   Future<List<Rect>> workAreas() async => screens;
+
+  /// When set, the host tracks this as the screen cursor (production
+  /// path). Null keeps the test-view's `PointerEvent.position` as the
+  /// screen-stable stand-in — `setBounds` never moves the test view.
+  Offset? Function()? screenPointer;
+
+  @override
+  Offset? pointerOnScreen() => screenPointer?.call();
 
   @override
   Future<void> focus() async => focuses += 1;
@@ -1615,6 +1631,71 @@ void main() {
       addTearDown(() => d.deleteSync(recursive: true));
       return d;
     }
+
+    testWidgets(
+      'an idle drag tracks the screen cursor 1:1, not the view-relative delta',
+      (tester) async {
+        // Production: PointerEvent.position is view-relative, so moving the
+        // window under a still mouse shrinks the next delta (often ~half)
+        // and can reverse it — the orb lags and flickers. The host must
+        // follow pointerOnScreen (GetCursorPos) instead.
+        final window = RecordingStageWindow();
+        // Down is on the ball center: default window (1000, 500) + inset.
+        var screen = const Offset(1048, 548);
+        window.screenPointer = () => screen;
+        final dir = scratch();
+        await pumpGeometry(tester, window: window, dir: dir);
+
+        final center = tester.getCenter(find.byIcon(Icons.mic_none_rounded));
+        final g = await tester.startGesture(center);
+        // Arming move: screen and view still agree (window has not jumped).
+        screen = const Offset(1048 + 20, 548);
+        await g.moveBy(const Offset(20, 0));
+        // Production shrink: the window already chased ~half the pointer,
+        // so the view-relative event is only +40 while the mouse moved +80.
+        screen = const Offset(1048 + 100, 548);
+        await g.moveBy(const Offset(40, 0));
+        await g.up();
+        await tester.pump();
+
+        // 1:1 with the screen cursor: anchor 1148 → footprint origin 1100.
+        expect(window.position, const Offset(1100, 500));
+        expect(window.size, SrGeometry.orbFootprint);
+      },
+    );
+
+    testWidgets('in-flight setBounds coalesces; the window never jumps back', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      window.setBoundsDelay = const Duration(milliseconds: 40);
+      var screen = const Offset(1048, 548);
+      window.screenPointer = () => screen;
+      final dir = scratch();
+      await pumpGeometry(tester, window: window, dir: dir);
+
+      final center = tester.getCenter(find.byIcon(Icons.mic_none_rounded));
+      final g = await tester.startGesture(center);
+      screen = const Offset(1048 + 20, 548);
+      await g.moveBy(const Offset(20, 0));
+      screen = const Offset(1048 + 60, 548);
+      await g.moveBy(const Offset(8, 0));
+      screen = const Offset(1048 + 100, 548);
+      await g.moveBy(const Offset(8, 0));
+      await tester.pump(const Duration(milliseconds: 160));
+      await g.up();
+      await tester.pump(const Duration(milliseconds: 80));
+
+      expect(window.position, const Offset(1100, 500));
+      final xs = window.bounds.map((b) => b.left).toList();
+      for (var i = 1; i < xs.length; i++) {
+        expect(
+          xs[i],
+          greaterThanOrEqualTo(xs[i - 1]),
+          reason: 'a late setBounds must not pull the orb backwards ($xs)',
+        );
+      }
+    });
 
     testWidgets('an idle drag moves the orb clamped and persists the anchor', (
       tester,

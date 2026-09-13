@@ -39,6 +39,7 @@ import 'orb_button.dart';
 import 'panel_gestures.dart';
 import 'quick_panel.dart';
 import '../session/session_panel.dart';
+import 'screen_cursor.dart';
 import 'session_flow.dart' show StageKind;
 import 'window_geometry.dart';
 
@@ -56,6 +57,15 @@ abstract class StageWindow {
   /// Every display's work area, logical coordinates — the drag/resize
   /// clamps and the expand-direction chooser consume these (ticket 20).
   Future<List<Rect>> workAreas();
+
+  /// Live pointer in logical screen coordinates. Synchronous: a drag
+  /// update has no await budget, and a method-channel read would race
+  /// the window the same way view-relative deltas do.
+  ///
+  /// Null when the platform cannot report one (widget tests): the host
+  /// then treats `PointerEvent.position` as screen-stable, which is
+  /// what the test view actually is — `setBounds` never moves it.
+  Offset? pointerOnScreen();
 
   /// Bring the window to the foreground so its keyboard affordances
   /// (Esc, Enter) are live.
@@ -93,6 +103,10 @@ class WindowManagerStageWindow implements StageWindow {
           ),
     ];
   }
+
+  @override
+  Offset? pointerOnScreen() =>
+      logicalCursorScreen(windowManager.getDevicePixelRatio());
 
   @override
   Future<void> focus() => windowManager.focus();
@@ -196,6 +210,11 @@ class _StageHostState extends State<StageHost> {
     _dir = GrowthDirection.upLeft;
     _seq++;
     _rectKnown = false;
+    _grabArmed = false;
+    _grabLive = false;
+    _pendingBounds = null;
+    _boundsIdle = null;
+    _pumping = false;
     unawaited(_primeGeometry());
   }
 
@@ -243,6 +262,8 @@ class _StageHostState extends State<StageHost> {
   Future<void> _expand(StageKind target) async {
     final seq = ++_seq;
     _settling = target;
+    _grabArmed = false;
+    _grabLive = false;
     // Jump the window first: everything visible is pinned to the anchor
     // corner, so this is invisible on screen; the body entrance starts
     // right after.
@@ -304,6 +325,8 @@ class _StageHostState extends State<StageHost> {
   Future<void> _collapse() async {
     final seq = ++_seq;
     _settling = StageKind.orb;
+    _grabArmed = false;
+    _grabLive = false;
     // 1. Body exit animation on the still-open panel.
     setState(() => _exiting = true);
     await Future<void>.delayed(SrMotion.exit + _collapseSlack);
@@ -341,6 +364,30 @@ class _StageHostState extends State<StageHost> {
   Rect _moveRect = Rect.zero; // header drag: the moving window rect
   Offset _resizeAnchor = Offset.zero; // resize: the anchor stays put…
   Size _resizeSize = Size.zero; // …the footprint does the moving
+  Size _resizeSize0 = Size.zero; // resize: size at grab, growth is absolute
+  Offset _resizeSign = Offset.zero;
+
+  /// Pointer minus the moving target at grab. Screen-stable when the
+  /// platform can report one; otherwise the view-relative event position
+  /// (widget tests — `setBounds` never moves that view).
+  Offset _grabOffset = Offset.zero;
+  Offset _grabPointer = Offset.zero;
+  bool _useScreenPointer = false;
+
+  /// In-flight setBounds coalescing: pointer events outrun the platform
+  /// channel, and a queue of stale rects flickers the window backwards.
+  /// One pump sends the latest pending rect each lap; expand/collapse
+  /// await until the pump is idle so their jump lands before the swap.
+  Rect? _pendingBounds;
+  Future<void>? _boundsIdle;
+  bool _pumping = false;
+
+  /// Press sampled a grab; updates no-op until then. Cleared on expand
+  /// so a click-that-opens cannot keep moving the window.
+  bool _grabArmed = false;
+
+  /// A real drag update ran (past the 8px slop); end persists only then.
+  bool _grabLive = false;
 
   /// Gestures need the real window; pure-UI tests run without one.
   bool get _gesturesLive => widget.stageWindow != null;
@@ -364,80 +411,170 @@ class _StageHostState extends State<StageHost> {
   }
 
   /// Every bounds this host commands goes through here: the cache and
-  /// the OS window never disagree about where the window is.
+  /// the OS window never disagree about where the window is. In-flight
+  /// calls coalesce to the latest rect — a queue of stale SetWindowPos
+  /// is what flickered the orb backwards mid-drag. Expand/collapse await
+  /// until this rect (or a later one) has been sent, including a leftover
+  /// pump spawned after the previous future already completed.
   Future<void> _applyBounds(Rect bounds) async {
     _rect = bounds;
     _rectKnown = true;
-    await widget.stageWindow?.setBounds(bounds);
+    _pendingBounds = bounds;
+    if (!_pumping) {
+      _boundsIdle = _pumpBounds();
+    }
+    while (_pumping) {
+      final wait = _boundsIdle;
+      if (wait == null) break;
+      await wait;
+    }
+  }
+
+  Future<void> _pumpBounds() async {
+    _pumping = true;
+    try {
+      while (_pendingBounds != null) {
+        final next = _pendingBounds!;
+        _pendingBounds = null;
+        await widget.stageWindow?.setBounds(next);
+      }
+    } finally {
+      if (_pendingBounds != null) {
+        // A nudge arrived after the loop's last null-check: keep
+        // pumping so `_applyBounds` waiters (expand) still land.
+        // Stay `_pumping` so those waiters don't exit between laps.
+        _boundsIdle = _pumpBounds();
+      } else {
+        _pumping = false;
+        _boundsIdle = null;
+      }
+    }
   }
 
   Rect _gestureArea(Offset point) => _areaHolding(point, _areas ?? const []);
 
-  // -- orb drag (idle only; the orb button gates arming) -------------------
-
-  void _orbDragStart() {
-    if (!_rectKnown || c.stage != StageKind.orb) return;
-    _dragAnchor = anchorOf(_rect, _dir);
+  /// Screen-stable cursor when the platform has one; otherwise the
+  /// view-relative event position (the test view does not move).
+  Offset? _livePointer(Offset fallback) {
+    if (!_useScreenPointer) return fallback;
+    return widget.stageWindow?.pointerOnScreen();
   }
 
-  void _orbDragUpdate(Offset delta) {
-    if (c.stage != StageKind.orb) return;
-    // The clamp's landing feeds back: a blocked edge stops the anchor,
-    // it never accumulates debt for the return trip.
-    _dragAnchor = clampAnchor(_dragAnchor + delta, _gestureArea(_dragAnchor));
+  void _latchPointerSource(Offset fallback) {
+    final screen = widget.stageWindow?.pointerOnScreen();
+    _useScreenPointer = screen != null;
+    _grabPointer = screen ?? fallback;
+  }
+
+  // -- orb drag (idle only; the orb button gates arming) -------------------
+
+  void _orbDragStart(Offset pointer) {
+    if (!_rectKnown || c.stage != StageKind.orb) return;
+    _dragAnchor = anchorOf(_rect, _dir);
+    _latchPointerSource(pointer);
+    _grabOffset = _grabPointer - _dragAnchor;
+    _grabArmed = true;
+    // Live only once the 8px slop arms — a click must not persist.
+  }
+
+  void _orbDragUpdate(Offset pointer) {
+    if (!_grabArmed || c.stage != StageKind.orb) return;
+    final p = _livePointer(pointer);
+    if (p == null) return;
+    _grabLive = true;
+    // Absolute (pointer − grab), not accumulated deltas: a clamped
+    // edge does not build debt for the return trip, and a window
+    // moving under the cursor does not shrink the next event.
+    _dragAnchor = clampAnchor(p - _grabOffset, _gestureArea(_dragAnchor));
     unawaited(_applyBounds(orbFootprintAt(_dragAnchor)));
     c.noteGeometryLive(anchor: _dragAnchor);
   }
 
   void _orbDragEnd() {
-    if (c.stage != StageKind.orb) return;
+    if (!_grabArmed || c.stage != StageKind.orb) return;
+    _grabArmed = false;
+    if (!_grabLive) return;
+    _grabLive = false;
     c.noteGeometryDone(anchor: _dragAnchor);
     unawaited(_primeGeometry()); // fresh areas for the next gesture
   }
 
   // -- header drag: the whole unit (panel + orb) moves ---------------------
 
-  void _panelMoveStart() {
+  void _panelMoveStart(Offset pointer) {
     if (!_rectKnown) return;
     _moveRect = _rect;
+    _latchPointerSource(pointer);
+    _grabOffset = _grabPointer - _moveRect.topLeft;
+    _grabArmed = true;
+    // Live only once the 8px slop arms — a header click persists nothing.
   }
 
-  void _panelMoveUpdate(Offset delta) {
-    if (!_rectKnown) return;
+  void _panelMoveUpdate(Offset pointer) {
+    if (!_grabArmed) return;
+    final p = _livePointer(pointer);
+    if (p == null) return;
+    _grabLive = true;
     final area = _gestureArea(anchorOf(_moveRect, _dir));
-    _moveRect = clampRectIntoWorkArea(_moveRect.shift(delta), area);
+    _moveRect = clampRectIntoWorkArea(
+      Rect.fromLTWH(
+        p.dx - _grabOffset.dx,
+        p.dy - _grabOffset.dy,
+        _moveRect.width,
+        _moveRect.height,
+      ),
+      area,
+    );
     unawaited(_applyBounds(_moveRect));
     c.noteGeometryLive(anchor: anchorOf(_moveRect, _dir));
   }
 
   void _panelMoveEnd() {
+    if (!_grabArmed) return;
+    _grabArmed = false;
+    if (!_grabLive) return;
+    _grabLive = false;
     c.noteGeometryDone(anchor: anchorOf(_moveRect, _dir));
     unawaited(_primeGeometry());
   }
 
   // -- resize: the anchor corner never moves, the panel grows away ---------
 
-  void _resizeStart() {
+  void _resizeStart(Offset pointer, Offset growSign) {
     if (!_rectKnown) return;
     _resizeAnchor = anchorOf(_rect, _dir);
     _resizeSize = _rect.size;
+    _resizeSize0 = _rect.size;
+    _resizeSign = growSign;
+    _latchPointerSource(pointer);
+    _grabArmed = true;
+    _grabLive = true; // press-to-resize: every press is a gesture
   }
 
-  void _resizeGrow(Offset growth) {
-    if (!_rectKnown) return;
+  void _resizeGrow(Offset pointer) {
+    if (!_grabArmed) return;
+    final p = _livePointer(pointer);
+    if (p == null) return;
+    final growth = Offset(
+      (p.dx - _grabPointer.dx) * _resizeSign.dx,
+      (p.dy - _grabPointer.dy) * _resizeSign.dy,
+    );
     final size = clampPanelSize(
-      _resizeSize + growth,
+      _resizeSize0 + growth,
       _resizeAnchor,
       _dir,
       _gestureArea(_resizeAnchor),
     );
-    if (size == _resizeSize) return; // a bound edge eats the delta
+    if (size == _resizeSize) return; // a bound edge eats the motion
     _resizeSize = size;
     unawaited(_applyBounds(panelRectFor(_resizeAnchor, size, _dir)));
     c.noteGeometryLive(panel: size);
   }
 
   void _resizeEnd() {
+    if (!_grabArmed) return;
+    _grabArmed = false;
+    _grabLive = false;
     c.noteGeometryDone(panel: _resizeSize);
     unawaited(_primeGeometry());
   }
@@ -459,8 +596,7 @@ class _StageHostState extends State<StageHost> {
         width: SrGeometry.resizeEdgeHit,
         child: PanelResizeHandle(
           cursor: SystemMouseCursors.resizeLeftRight,
-          growSign: Offset(left ? -1 : 1, 0),
-          onStart: _resizeStart,
+          onStart: (p) => _resizeStart(p, Offset(left ? -1 : 1, 0)),
           onGrow: _resizeGrow,
           onEnd: _resizeEnd,
         ),
@@ -474,8 +610,7 @@ class _StageHostState extends State<StageHost> {
         height: SrGeometry.resizeEdgeHit,
         child: PanelResizeHandle(
           cursor: SystemMouseCursors.resizeUpDown,
-          growSign: Offset(0, up ? -1 : 1),
-          onStart: _resizeStart,
+          onStart: (p) => _resizeStart(p, Offset(0, up ? -1 : 1)),
           onGrow: _resizeGrow,
           onEnd: _resizeEnd,
         ),
@@ -492,8 +627,7 @@ class _StageHostState extends State<StageHost> {
           cursor: left == up
               ? SystemMouseCursors.resizeUpLeftDownRight
               : SystemMouseCursors.resizeUpRightDownLeft,
-          growSign: Offset(left ? -1 : 1, up ? -1 : 1),
-          onStart: _resizeStart,
+          onStart: (p) => _resizeStart(p, Offset(left ? -1 : 1, up ? -1 : 1)),
           onGrow: _resizeGrow,
           onEnd: _resizeEnd,
         ),

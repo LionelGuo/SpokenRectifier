@@ -1,8 +1,9 @@
 /// Stage-level gesture affordances for ticket 20: the header-row move
 /// grip (面板上沿拖动=整体移动) and the invisible resize handles on the
-/// open panel's free edges and free corner. Handlers speak DELTAS, not
-/// absolutes — the stage host owns the window geometry, the work-area
-/// clamps and the persistence; these widgets only resolve the gesture.
+/// open panel's free edges and free corner. Handlers speak POSITIONS,
+/// not deltas — the stage host maps them against a screen-stable cursor
+/// so the window can move under the pointer without eating the next
+/// event. These widgets only resolve the gesture.
 ///
 /// All pointer tracking is raw-`Listener`, deliberately outside the
 /// gesture arena: the arena's own slop (~18px) cannot express the
@@ -16,12 +17,14 @@ import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
 
-/// Header-grip callbacks: [start] fires once when the threshold is
-/// crossed, [update] carries the pointer delta since the previous
-/// event, [end] on release (only after a real drag).
+/// Header-grip callbacks: [start] fires on press (the host samples the
+/// grab), [update] carries the pointer's current position, [end] on
+/// release (only after a real drag). Positions, not deltas — the host
+/// maps them against a screen-stable cursor so the window can move
+/// under the pointer without eating the next event.
 typedef PanelGrip = ({
-  void Function() start,
-  void Function(Offset delta) update,
+  void Function(Offset pointer) start,
+  void Function(Offset pointer) update,
   void Function() end,
 });
 
@@ -42,14 +45,13 @@ class PanelGripBar extends StatefulWidget {
 
 class _PanelGripBarState extends State<PanelGripBar> {
   Offset? _down;
-  Offset _last = Offset.zero;
   bool _dragging = false;
 
   void _onDown(PointerDownEvent e) {
     if (e.buttons != kPrimaryButton) return;
     _down = e.position;
-    _last = e.position;
     _dragging = false;
+    widget.grip.start(e.position);
   }
 
   void _onMove(PointerMoveEvent e) {
@@ -58,10 +60,8 @@ class _PanelGripBarState extends State<PanelGripBar> {
     if (!_dragging) {
       if ((e.position - down).distance <= SrGeometry.dragThreshold) return;
       _dragging = true;
-      widget.grip.start();
     }
-    widget.grip.update(e.position - _last);
-    _last = e.position;
+    widget.grip.update(e.position);
   }
 
   void _onUp(PointerUpEvent e) => _finish();
@@ -69,7 +69,9 @@ class _PanelGripBarState extends State<PanelGripBar> {
   void _onCancel(PointerCancelEvent e) => _finish();
 
   void _finish() {
-    if (_dragging) widget.grip.end();
+    // End any grab sampled on down, even a sub-threshold press that
+    // never armed — otherwise the host keeps a live grab.
+    if (_down != null) widget.grip.end();
     _down = null;
     _dragging = false;
   }
@@ -91,15 +93,15 @@ class _PanelGripBarState extends State<PanelGripBar> {
 }
 
 /// One invisible resize handle: a strip along a free edge or a square
-/// at the free corner. Pointer deltas map to footprint growth through
-/// [growSign] — dragging away from the orb grows the panel, toward it
-/// shrinks — and the host clamps. Press-to-resize: no threshold and no
-/// click semantics to protect.
+/// at the free corner. The handle reports the pointer's current
+/// position; the host maps it against a screen-stable cursor (growing
+/// left/up moves the window origin, which would eat view-relative
+/// deltas). Press-to-resize: no threshold and no click semantics to
+/// protect.
 class PanelResizeHandle extends StatefulWidget {
   const PanelResizeHandle({
     super.key,
     required this.cursor,
-    required this.growSign,
     required this.onStart,
     required this.onGrow,
     required this.onEnd,
@@ -108,10 +110,7 @@ class PanelResizeHandle extends StatefulWidget {
   /// The hover hint (edge: one axis; corner: the matching diagonal).
   final MouseCursor cursor;
 
-  /// Per-axis sign: footprint growth = pointer delta * growSign.
-  final Offset growSign;
-
-  final VoidCallback onStart;
+  final ValueChanged<Offset> onStart;
   final ValueChanged<Offset> onGrow;
   final VoidCallback onEnd;
 
@@ -120,22 +119,17 @@ class PanelResizeHandle extends StatefulWidget {
 }
 
 class _PanelResizeHandleState extends State<PanelResizeHandle> {
-  Offset? _last;
+  bool _held = false;
 
   void _onDown(PointerDownEvent e) {
     if (e.buttons != kPrimaryButton) return;
-    _last = e.position;
-    widget.onStart();
+    _held = true;
+    widget.onStart(e.position);
   }
 
   void _onMove(PointerMoveEvent e) {
-    final last = _last;
-    if (last == null) return;
-    final delta = e.position - last;
-    _last = e.position;
-    widget.onGrow(
-      Offset(delta.dx * widget.growSign.dx, delta.dy * widget.growSign.dy),
-    );
+    if (!_held) return;
+    widget.onGrow(e.position);
   }
 
   void _onUp(PointerUpEvent e) => _finish();
@@ -143,8 +137,8 @@ class _PanelResizeHandleState extends State<PanelResizeHandle> {
   void _onCancel(PointerCancelEvent e) => _finish();
 
   void _finish() {
-    if (_last == null) return;
-    _last = null;
+    if (!_held) return;
+    _held = false;
     widget.onEnd();
   }
 

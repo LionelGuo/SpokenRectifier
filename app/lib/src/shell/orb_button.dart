@@ -42,11 +42,13 @@ class OrbButton extends StatefulWidget {
 
   /// Orb-drag intents (ticket 20), resolved by the raw-pointer tracker
   /// below: the press crossed [SrGeometry.dragThreshold] while the orb
-  /// was free to move (idle, no panel). Deltas, not absolutes — the
-  /// stage host maps them onto the window. Null (pure-UI tests)
-  /// disables dragging; clicks are unaffected.
-  final void Function()? onDragStart;
-  final void Function(Offset delta)? onDragUpdate;
+  /// was free to move (idle, no panel). Positions, not deltas — the
+  /// stage host maps them onto the window against a screen-stable
+  /// cursor (view-relative deltas lag and bounce as the window chases
+  /// the pointer). Null (pure-UI tests) disables dragging; clicks are
+  /// unaffected.
+  final void Function(Offset pointer)? onDragStart;
+  final void Function(Offset pointer)? onDragUpdate;
   final void Function()? onDragEnd;
 
   @override
@@ -57,10 +59,9 @@ class _OrbButtonState extends State<OrbButton> {
   bool _hover = false;
   bool _pressing = false;
 
-  /// The primary press under threshold resolution: where it went down,
-  /// the previous move, and whether it resolved into a drag.
+  /// The primary press under threshold resolution: where it went down
+  /// and whether it resolved into a drag.
   Offset? _down;
-  Offset _last = Offset.zero;
   bool _dragging = false;
 
   SpeechController get c => widget.controller;
@@ -71,9 +72,12 @@ class _OrbButtonState extends State<OrbButton> {
   void _onPointerDown(PointerDownEvent e) {
     if (e.buttons != kPrimaryButton) return;
     _down = e.position;
-    _last = e.position;
     _dragging = false;
     setState(() => _pressing = true);
+    // Grab is sampled on down so the 8px slop still rides with the
+    // first armed update (the host prefers a screen-stable cursor
+    // when the platform has one).
+    if (_draggable) widget.onDragStart?.call(e.position);
   }
 
   void _onPointerMove(PointerMoveEvent e) {
@@ -83,10 +87,8 @@ class _OrbButtonState extends State<OrbButton> {
       if ((e.position - down).distance <= SrGeometry.dragThreshold) return;
       if (!_draggable) return;
       _dragging = true;
-      widget.onDragStart?.call();
     }
-    widget.onDragUpdate?.call(e.position - _last);
-    _last = e.position;
+    widget.onDragUpdate?.call(e.position);
   }
 
   void _onPointerUp(PointerUpEvent e) {
@@ -95,9 +97,10 @@ class _OrbButtonState extends State<OrbButton> {
     _down = null;
     _dragging = false;
     setState(() => _pressing = false);
-    if (wasDragging) {
-      widget.onDragEnd?.call();
-    } else if (wasPress && _OrbLook.of(c).clickable) {
+    // End any grab sampled on down (even a click that never armed), so
+    // the host does not keep a live grab across the session expand.
+    if (wasPress) widget.onDragEnd?.call();
+    if (!wasDragging && wasPress && _OrbLook.of(c).clickable) {
       // A release inside the slop: the click path — the same table the
       // hotkey steps through.
       c.orbPrimary();
@@ -105,11 +108,11 @@ class _OrbButtonState extends State<OrbButton> {
   }
 
   void _onPointerCancel(PointerCancelEvent e) {
-    final wasDragging = _dragging;
+    final wasPress = _down != null;
     _down = null;
     _dragging = false;
     setState(() => _pressing = false);
-    if (wasDragging) widget.onDragEnd?.call();
+    if (wasPress) widget.onDragEnd?.call();
   }
 
   @override
