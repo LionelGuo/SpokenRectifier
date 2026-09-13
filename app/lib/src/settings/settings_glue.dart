@@ -12,6 +12,7 @@
 
 library;
 
+import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -176,6 +177,26 @@ class DesktopSettingsWindow {
       _lastTheme = null;
       _lastSelection = null;
       _lastOrbVisible = null;
+    }
+  }
+
+  /// Close the settings window through the proper chain, ahead of the
+  /// main window's own close (tray exit). A sub-window left alive at
+  /// process exit is torn down by post-loop static destructors with no
+  /// message pump — seconds of a visibly frozen window (the small-fix
+  /// 03 family). Closing it here runs its teardown inside the live pump
+  /// (the title-bar X path), and we wait for the windows-changed prune
+  /// to confirm it is really gone before the caller quits; a stuck
+  /// window falls through after the bounded wait rather than blocking
+  /// exit forever.
+  Future<void> close() async {
+    final window = _window;
+    if (window == null) return;
+    unawaited(window.invokeMethod('close', null).catchError((Object _) {}));
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (_window != null && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _pruneWindow();
     }
   }
 }

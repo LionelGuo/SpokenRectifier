@@ -199,6 +199,13 @@ class DesktopSettingsChannel implements SettingsChannel {
         // which does not raise a background window; focus() restores a
         // minimized one, raises it, and brings it to the foreground.
         unawaited(windowManager.focus());
+      case 'close':
+        // Tray exit closes the settings window FIRST, through its own
+        // WM_CLOSE -> DestroyWindow chain (the title-bar X path). Riding
+        // process teardown instead parks this engine's shutdown in
+        // post-loop static destructors — seconds of a visibly frozen
+        // window. Fire-and-forget: this isolate dies inside the call.
+        unawaited(windowManager.close());
     }
   }
 }

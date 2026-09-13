@@ -184,6 +184,7 @@ Future<void> main(List<String> args) async {
       controller: controller,
       stageWindow: const WindowManagerStageWindow(),
       onOpenSettings: settingsWindow.open,
+      closeSettings: settingsWindow.close,
     ),
   );
 }
@@ -283,11 +284,17 @@ class _Shell extends StatefulWidget {
     required this.controller,
     required this.stageWindow,
     required this.onOpenSettings,
+    required this.closeSettings,
   });
 
   final SpeechController controller;
   final StageWindow stageWindow;
   final Future<void> Function(SettingsDomain domain) onOpenSettings;
+
+  /// Tray exit closes the settings window through this before the main
+  /// window quits — a sub-window left alive rides process teardown
+  /// (post-loop static destructors, seconds of a frozen window).
+  final Future<void> Function() closeSettings;
 
   @override
   State<_Shell> createState() => _ShellState();
@@ -418,6 +425,11 @@ class _ShellState extends State<_Shell> with TrayListener {
         // A live gesture's trailing save dies with the timer at exit;
         // flush what it was about to write first.
         controller.flushGeometry();
+        // The settings window goes first, through its own WM_CLOSE ->
+        // DestroyWindow chain; left alive, its engine rides process
+        // teardown in post-loop static destructors - the same slowest
+        // path the main window's close() below exists to avoid.
+        await widget.closeSettings();
         // close() drives the canonical WM_CLOSE -> DestroyWindow chain
         // inside the still-running message pump; destroy() only posts
         // WM_QUIT, leaving the window and the Flutter engine to be torn
