@@ -107,7 +107,7 @@ pub fn load_section_layers<T: DeserializeOwned>(
             continue; // no such layer anywhere: fine
         };
         let Some(table) = read_layer_file(&path)? else {
-            continue; // unreadable: treat as absent, like a missing file
+            continue; // vanished between the search and the read: as good as absent
         };
         if source == LayerSource::Shared {
             guard_against_secrets(&path, &table)?;
@@ -151,13 +151,26 @@ pub fn settings_home(dirs: &[PathBuf]) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Read and parse one layer file. `Ok(None)` for a file that cannot be
-/// read: layers are optional, and an unreadable one is as good as absent.
-/// Parse failures name the file with a line and column — never the TOML
-/// source, whose offending line may carry a secret from another section.
+/// Read and parse one layer file. `Ok(None)` only when the file is no
+/// longer there — it vanished between the search's `is_file` and this
+/// read (the settings editor rewrites layer files), which is as good as
+/// absent. Any other read failure — permissions, a transient I/O error,
+/// non-UTF-8 bytes — is a loud error naming the file: a layer that
+/// exists but cannot be read must not silently drop what it carries, or
+/// its credentials evaporate and the failure surfaces later as a
+/// misleading "no API key" (ticket 06). Parse failures name the file
+/// with a line and column — never the TOML source, whose offending line
+/// may carry a secret from another section.
 fn read_layer_file(path: &Path) -> Result<Option<toml::Table>, ConfigError> {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Ok(None);
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(ConfigError(format!(
+                "{}: cannot read layer file: {err}",
+                path.display()
+            )))
+        }
     };
     let table = toml::from_str(&text).map_err(|err| {
         let (line, column) = span_line_column(&text, err.span());
@@ -495,6 +508,43 @@ mod tests {
         assert!(err.contains("toy"), "got: {err}");
         // Single line only: a multi-line error is a quoted source snippet.
         assert!(!err.contains('\n'), "quoted the source: {err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A layer file that exists but cannot be read (permissions here; a
+    /// transient I/O error in the wild) must fail loud naming the file —
+    /// swallowing it silently drops the layer's credentials and surfaces
+    /// later as a misleading "no API key" (ticket 06).
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_layer_file_fails_loud_naming_the_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = scratch("sr-config-unreadable");
+        let path = dir.join(LOCAL_FILE);
+        std::fs::write(&path, "[toy]\nname = \"x\"\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let err = load_section_layers::<ToySection>(std::slice::from_ref(&dir), "toy")
+            .unwrap_err()
+            .0;
+        assert!(err.contains(LOCAL_FILE), "got: {err}");
+        assert!(err.contains("cannot read"), "got: {err}");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The one tolerated read failure: the file vanished between the
+    /// search's `is_file` and the read (the settings editor's rewrite
+    /// window) — as good as absent, not an error.
+    #[test]
+    fn a_vanished_layer_file_reads_as_absent() {
+        let dir = scratch("sr-config-vanished");
+        assert!(
+            read_layer_file(&dir.join(LOCAL_FILE))
+                .unwrap()
+                .is_none()
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
