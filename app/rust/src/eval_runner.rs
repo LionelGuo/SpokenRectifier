@@ -90,19 +90,37 @@ fn run(
         );
     }
     let model = llm_config.model.model.clone();
-    let llm: Arc<dyn RectifyLlm> = Arc::new(
-        spokenrectifier_llm::OpenAiCompatLlm::new(llm_config)
+    // Two form-clients (ADR-0014): the production client applies
+    // `[llm] prefill` from its own config, so the eval arm states the
+    // value here rather than writing the request field the client
+    // would overwrite. The settings-window run is the on-form
+    // baseline plus the bundled off-form cases, same as `sr-eval`.
+    let mut on_config = llm_config.clone();
+    on_config.prefill = true;
+    let mut off_config = llm_config.clone();
+    off_config.prefill = false;
+    let on_llm: Arc<dyn RectifyLlm> = Arc::new(
+        spokenrectifier_llm::OpenAiCompatLlm::new(on_config)
+            .map_err(|err| format!("LLM {}", err.0))?,
+    );
+    let off_llm: Arc<dyn RectifyLlm> = Arc::new(
+        spokenrectifier_llm::OpenAiCompatLlm::new(off_config)
             .map_err(|err| format!("LLM {}", err.0))?,
     );
 
-    let suite = embedded_suite().map_err(|err| format!("内置评测套件无效:{err}"))?;
+    // The settings-window run is the on-form regression net (the 94.3%
+    // anchor, ADR-0014): off-form cases live in the same suite for the
+    // CLI probe (`--form off` / `--only placeholder-off`) and must not
+    // mix into this number. The prefill switch has no settings UI yet.
+    let mut suite = embedded_suite().map_err(|err| format!("内置评测套件无效:{err}"))?;
+    suite.cases.retain(|c| !c.pass_through);
     let total = suite.cases.len() as u32;
     if sink.add(BridgeEvalEvent::Started { total }).is_err() {
         return Err(RUN_ABORTED.into());
     }
 
     let outcomes = runtime
-        .block_on(run_suite(llm, &suite, &|event| {
+        .block_on(run_suite(on_llm, off_llm, &suite, &|event| {
             let outgoing = match event {
                 RunEvent::CaseStarted { index, total, id } => BridgeEvalEvent::CaseStarted {
                     index: index as u32,

@@ -20,6 +20,11 @@
 #             form resolves to; bare ‡N‡ reads empty) must contain one
 #             alternative; "" demands an empty value (拿不准不吸)
 #             → 吸收失败
+#   pass_through  bool, default false. true = prefill-off (ADR-0014):
+#             the runner swaps in the off-form client, absorption
+#             assertions are refused at load, and the body must carry
+#             bare ‡N‡ with no ‡N:值‡ mix-in. Select with
+#             `--only placeholder-off` or `--form off`.
 #
 # Any transcript carrying ‡N‡ additionally asserts the derived
 # placeholder contract, no list needed: every number present exactly
@@ -29,7 +34,8 @@
 # their bare shapes before the body probes run (engine semantics), so
 # body probes never see prefill values and prefill expectations never
 # read body text; a habit 【预填】 tail stays plain residue and the
-# derived contract catches its duplicate number.
+# derived contract catches its duplicate number. A pass-through case
+# additionally forbids any inline value in the raw body (零吸收).
 #
 # Coverage families (the id prefix): correction-, supplement-, stutter-,
 # mixed-, terms-, numeral-, short-, placeholder-. Length discipline:
@@ -329,3 +335,69 @@ absorbed = ["本科生培养方案"]
 prefill = [{ pin = 1, any = ["本科生培养方案"] }]
 convey = [["转交"], ["张老师", "老师"]]
 purge = ["嗯"]
+
+# -- 预填关(ADR-0014) -----------------------------------------------------
+#
+# Five mirrors of the original pin family (same transcripts, absorption
+# lists withdrawn): marks ride the body as-is, referents stay in the
+# body, no ‡N:值‡. Two exclusives cover the off-form's remaining loss
+# paths — a long-form reorganization that must not drop marks, and a
+# spoken-correction beat that must not eat the mark as a lead-in.
+# Prefix placeholder-off- so `--only placeholder-off` selects the arm.
+
+[[case]]
+id = "placeholder-off-file"
+transcript = "嗯我想让你打开这个文件‡1‡,就是先看一眼里面的配置项,数据库连接那块重点看一下,超时时间是不是太短了,顺便把缓存的大小也记一下,回头我们一起过一遍,先别动里面的东西"
+pass_through = true
+convey = [["配置"], ["数据库"], ["超时"], ["缓存"]]
+purge = ["嗯"]
+
+[[case]]
+id = "placeholder-off-name"
+transcript = "那个下午的评审会材料,嗯,记得发给张三‡1‡,用邮件发一份PDF过去,主题写清楚项目名,别用简称,抄送一份给项目组,让大家留个底,发之前再检查一遍有没有漏页"
+pass_through = true
+preserve = ["张三"]
+convey = [["评审会", "评审"], ["邮件"], ["PDF"], ["抄送"], ["项目组"]]
+purge = ["嗯", "那个"]
+fabricate = ["李四", "王五"]
+
+[[case]]
+id = "placeholder-off-correction"
+transcript = "嗯上线之前那个通知,先发给小王‡1‡,哦不对,说错了,是发给李四,内容就是明天早上十点封网,时间别改,发完在群里说一声,让大家心里有数,值班表也同步更新一下"
+pass_through = true
+preserve = ["李四"]
+purge = ["小王", "不对", "说错了", "哦"]
+convey = [["封网"], ["十点", "10点"], ["群里"], ["值班表"]]
+fabricate = ["张三"]
+
+[[case]]
+id = "placeholder-off-uncertain"
+transcript = "这个项目目前还在评审阶段,项目里的‡1‡你先别填,等定稿以后再说,现在填了也要改,评审的意见周五出,出来以后我们再对一遍口径,统一了再往下走,先不要自己拍板"
+pass_through = true
+preserve = ["项目"]
+convey = [["评审"], ["定稿"], ["周五"], ["口径"]]
+
+[[case]]
+id = "placeholder-off-multi"
+transcript = "嗯这次的迁移分三步,第一步先做备份,备份到‡1‡,第二步切流量,灰度从百分之十起,不对,改成百分之二十起,观察两天再扩大,第三步清理旧库,旧库的连接串单独记在‡2‡,照着清单删,别误删新库"
+pass_through = true
+convey = [["备份"], ["灰度"], ["20%", "百分之二十"], ["观察"], ["旧库"], ["连接串"], ["新库"]]
+purge = ["嗯", "不对", "百分之十"]
+fabricate = ["30%", "50%"]
+
+# 关态专属:全量修正会重组长句,记号不得在重组里丢号/造号/被撕开。
+[[case]]
+id = "placeholder-off-reorder"
+transcript = "嗯那个方案吧,我想说的是,就是,先把开题报告‡1‡发给导师过一眼,然后再把中期检查的材料‡2‡整理一下放到共享盘,对了补充一点,答辩那天的幻灯片也提前准备,别等到最后一周才动手,材料齐了我们再约时间过一遍"
+pass_through = true
+convey = [["开题报告"], ["导师"], ["中期"], ["共享盘"], ["幻灯片"], ["答辩"]]
+purge = ["嗯", "那个"]
+
+# 关态专属:口头更正紧挨着槽,不得把槽当引导语或被替代内容删掉。
+[[case]]
+id = "placeholder-off-leadin"
+transcript = "嗯上线通知先发给‡1‡,哦不对,不是改收件人哈,是把内容改成明天早上十点封网,发完在群里说一声,让大家心里有数,值班表也同步更新一下,别等到临出门才想起来这件事"
+pass_through = true
+convey = [["封网"], ["十点", "10点"], ["群里"], ["值班表"]]
+purge = ["嗯", "不对", "哦"]
+fabricate = ["张三", "李四"]

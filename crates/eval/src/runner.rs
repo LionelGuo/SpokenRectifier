@@ -166,10 +166,18 @@ async fn rectify_case(
     }
 }
 
-/// Run the whole suite against `llm`, reporting every case's start and
-/// finish through `on_event`. Returning `false` from the callback aborts
-/// at the next case boundary; the run then fails with [`RUN_ABORTED`]
-/// instead of half a suite (the caller asked for the stop).
+/// Run the whole suite against the two form-clients, reporting every
+/// case's start and finish through `on_event`. Returning `false` from
+/// the callback aborts at the next case boundary; the run then fails
+/// with [`RUN_ABORTED`] instead of half a suite (the caller asked for
+/// the stop).
+///
+/// `on_llm` / `off_llm` are the two prompt forms (ADR-0014): the
+/// production client applies `[llm] prefill` from its own config, so
+/// the eval arm states the value by handing in two clients rather than
+/// writing the request field the client would overwrite. A case with
+/// `pass_through` swaps to `off_llm` for that attempt (and back); the
+/// in-flight call always keeps the LLM it started with.
 ///
 /// The engine instance is the runner's own — the caller's engine (the
 /// app's singleton, say) is never touched, which is what makes the run
@@ -178,7 +186,8 @@ async fn rectify_case(
 pub const RUN_ABORTED: &str = "aborted by the listener";
 
 pub async fn run_suite(
-    llm: Arc<dyn RectifyLlm>,
+    on_llm: Arc<dyn RectifyLlm>,
+    off_llm: Arc<dyn RectifyLlm>,
     suite: &EvalSuite,
     on_event: &(dyn Fn(RunEvent<'_>) -> bool + Send + Sync),
 ) -> Result<Vec<CaseOutcome>, String> {
@@ -187,7 +196,7 @@ pub async fn run_suite(
         EngineConfig::default(),
         EngineDeps {
             asr,
-            llm,
+            llm: on_llm.clone(),
             inserter: Arc::new(NoopInserter),
             history: None,
             terms: Some(Arc::new(FixedTermSource {
@@ -197,6 +206,10 @@ pub async fn run_suite(
         },
     );
     let mut rx = engine.subscribe();
+    // The engine starts on the on-form client; swap only when the
+    // next case's form disagrees, so a homogeneous suite never
+    // touches the slot.
+    let mut using_off = false;
 
     let total = suite.cases.len();
     let mut outcomes = Vec::with_capacity(total);
@@ -208,6 +221,14 @@ pub async fn run_suite(
             id: &case.id,
         }) {
             return Err(RUN_ABORTED.to_string());
+        }
+        if case.pass_through != using_off {
+            engine.set_llm_provider(if case.pass_through {
+                off_llm.clone()
+            } else {
+                on_llm.clone()
+            });
+            using_off = case.pass_through;
         }
         let started = Instant::now();
         let outcome = match rectify_case(&engine, &mut rx, &case.transcript).await {
@@ -308,14 +329,11 @@ mod tests {
         // assertion, the second cannot (its keyword never appears).
         let suite = suite_of(&["alpha", "beta"]);
         let seen = std::sync::Mutex::new(Vec::new());
-        let outcomes = run_suite(
-            scripted(&["alpha 的书面语", "别的词的书面语"]),
-            &suite,
-            &|event| {
-                seen.lock().unwrap().push(mark(event));
-                true
-            },
-        )
+        let llm = scripted(&["alpha 的书面语", "别的词的书面语"]);
+        let outcomes = run_suite(llm.clone(), llm, &suite, &|event| {
+            seen.lock().unwrap().push(mark(event));
+            true
+        })
         .await
         .unwrap();
 
@@ -341,7 +359,8 @@ mod tests {
     #[tokio::test]
     async fn a_false_callback_aborts_before_the_next_case() {
         let suite = suite_of(&["alpha", "beta"]);
-        let outcomes = run_suite(scripted(&["alpha", "beta"]), &suite, &|event| {
+        let llm = scripted(&["alpha", "beta"]);
+        let outcomes = run_suite(llm.clone(), llm, &suite, &|event| {
             !matches!(event, RunEvent::CaseStarted { index: 2, .. })
         })
         .await;
@@ -352,13 +371,10 @@ mod tests {
     #[tokio::test]
     async fn an_llm_failure_lands_as_an_execution_error_not_a_pass() {
         let suite = suite_of(&["alpha"]);
-        let outcomes = run_suite(
-            ScriptedLlm::new(vec![vec![LlmStep::Fail("上游 502".into())]]),
-            &suite,
-            &|_| true,
-        )
-        .await
-        .unwrap();
+        let llm = ScriptedLlm::new(vec![vec![LlmStep::Fail("上游 502".into())]]);
+        let outcomes = run_suite(llm.clone(), llm, &suite, &|_| true)
+            .await
+            .unwrap();
 
         assert_eq!(outcomes.len(), 1);
         let outcome = &outcomes[0];
@@ -402,13 +418,10 @@ mod tests {
             terms: vec![],
             cases: vec![pinned_case("with-row"), pinned_case("bare-only")],
         };
-        let outcomes = run_suite(
-            scripted(&["发给‡1:李四‡一份材料。", "发给‡1‡一份材料。"]),
-            &suite,
-            &|_| true,
-        )
-        .await
-        .unwrap();
+        let llm = scripted(&["发给‡1:李四‡一份材料。", "发给‡1‡一份材料。"]);
+        let outcomes = run_suite(llm.clone(), llm, &suite, &|_| true)
+            .await
+            .unwrap();
 
         assert_eq!(outcomes.len(), 2);
         assert!(outcomes[0].passed(), "{:?}", outcomes[0].failures);
@@ -418,5 +431,47 @@ mod tests {
             outcomes[1].failures[0].category,
             FailureCategory::AbsorbFailed
         );
+    }
+
+    #[tokio::test]
+    async fn a_pass_through_case_swaps_to_the_off_client_and_back() {
+        // The production client overwrites request.prefill from its
+        // config, so the eval arm states the form by swapping clients
+        // (ADR-0014). A mixed suite must hit the off client for the
+        // flagged case and restore the on client afterwards — call
+        // counts, not the request field, are the hop this locks.
+        let on = scripted(&["开态书面语", "开态书面语"]);
+        let off = scripted(&["关态书面语"]);
+        let suite = EvalSuite {
+            terms: vec![],
+            cases: vec![
+                EvalCase {
+                    id: "on-first".into(),
+                    transcript: "开态书面语 的原话,足够当作一次转写".into(),
+                    convey: vec![vec!["开态书面语".into()]],
+                    ..EvalCase::default()
+                },
+                EvalCase {
+                    id: "off-middle".into(),
+                    transcript: "关态书面语 的原话,足够当作一次转写".into(),
+                    convey: vec![vec!["关态书面语".into()]],
+                    pass_through: true,
+                    ..EvalCase::default()
+                },
+                EvalCase {
+                    id: "on-last".into(),
+                    transcript: "开态书面语 的原话,足够当作一次转写".into(),
+                    convey: vec![vec!["开态书面语".into()]],
+                    ..EvalCase::default()
+                },
+            ],
+        };
+        let outcomes = run_suite(on.clone(), off.clone(), &suite, &|_| true)
+            .await
+            .unwrap();
+        assert!(outcomes.iter().all(|o| o.passed()), "{outcomes:?}");
+        assert_eq!(on.call_count(), 2);
+        assert_eq!(off.call_count(), 1);
+        assert_eq!(outcomes[1].output, "关态书面语");
     }
 }

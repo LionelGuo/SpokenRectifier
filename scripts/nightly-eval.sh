@@ -28,7 +28,9 @@ report=".scratch/eval/nightly-${date_tag}.md"
 # Propagate sr-eval's own exit code (0 pass / 1 failures / 2 setup
 # error) — the scheduler's pass/fail signal.
 rc=0
-cargo run -q -p sr-replay --bin sr-eval -- --report "$report" >> .scratch/eval/nightly.log 2>&1 || rc=$?
+# On-form only: the 94.3% anchor must not mix with the off-form arm
+# (ADR-0014). Off-form probes go `--form off` by hand.
+cargo run -q -p sr-replay --bin sr-eval -- --form on --report "$report" >> .scratch/eval/nightly.log 2>&1 || rc=$?
 if [ "$rc" -eq 0 ]; then
     verdict=PASS
 else

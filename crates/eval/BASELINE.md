@@ -3,9 +3,10 @@
 首跑记录(工单 10);二跑入册占位符族(28 例分母);三跑入册轻修带两例
 (30 例分母);四跑入册方向+扩类例(31 例分母);五跑入册名词短语原则例
 (33 例分母);六跑=零例句裁定(33 例分母);七跑=思考模式默认开
-(33 例分母);八跑=36 号裁定换装(35 例分母,现锚点)。此后每次
-prompt 改动后重跑
-`cargo run -p sr-replay --bin sr-eval`,与最新基线对照通过率与失败类别分布。
+(33 例分母);八跑=36 号裁定换装(35 例分母,**开态现锚**);关态锚
+(ADR-0014,7 例分母)与开态分立、不混合。此后每次 prompt 改动后重跑
+`cargo run -p sr-replay --bin sr-eval -- --form on`(开态)或 `--form off`
+(关态),与对应锚对照通过率与失败类别分布。
 
 ## 首跑(2026-08-26 22:30)
 
@@ -178,6 +179,25 @@ absorb-name=臂无关波动。
 **本轮失败**:numeral-percent 丢失「新用户」(改写形态「新增用户」未中
 convey 组,numeral- 档偶发);short-number 历跑已知缺口同形态。
 
+## 关态锚(2026-09-13,ADR-0014 · 7 例分母,与八跑开态锚分立)
+
+- 模型:deepseek-v4-flash(轻修阈值 40 字)
+- 套件:5 个钉例镜像 + 2 个关态专属(`placeholder-off-*`);`--form off`
+- 开态 94.3%(35 例)不动、不混合;设置窗评测仍只跑开态
+- 报告:`.scratch/eval/prefill-switch/`
+
+**关 × 思考开**(默认思考,两轮连过):7/7、7/7 = 100%。首轮
+`placeholder-off-file` 曾因 convey 要「这个文件」挂丢失——关态允许把
+空指称书面化成「文件」,记号本身由派生契约锁住;放宽后未复现。零吸收、
+零 `‡N:值‡` 混入。
+
+**关 × 思考关**(本地层临时翻 `[llm] thinking = false`,跑毕即恢复):
+6/7、7/7。唯一失败=`placeholder-off-name`「那个」残留(开态已知波动,
+未连续);记号保真稳——零少号、零多号、零值形。不联动裁定的实证注脚:
+关思考不伤关态记号保真,失败落在口头语清除而非丢槽。
+
+**开 × 思考关**不重跑:工单 38 关思考对照已入册。
+
 ## 用例断言的既定裁量(评分语义,非缺陷)
 
 - 大小写属语体范畴(ADR-0004):不在术语词表内的英文词(envoy/rust)
@@ -190,9 +210,12 @@ convey 组,numeral- 档偶发);short-number 历跑已知缺口同形态。
 ## 运行
 
 ```
-cargo run -p sr-replay --bin sr-eval                    # 全量,报告打印 stdout
-cargo run -p sr-replay --bin sr-eval -- --only short-   # 只跑某前缀/某条
-cargo run -p sr-replay --bin sr-eval -- --report out.md # 另存 markdown
+cargo run -p sr-replay --bin sr-eval                         # 全量(开+关,两锚勿混比)
+cargo run -p sr-replay --bin sr-eval -- --form on            # 开态锚(35 例,94.3%)
+cargo run -p sr-replay --bin sr-eval -- --form off           # 关态锚(7 例)
+cargo run -p sr-replay --bin sr-eval -- --only placeholder-off
+cargo run -p sr-replay --bin sr-eval -- --only short         # 只跑某前缀/某条(不带尾横杠)
+cargo run -p sr-replay --bin sr-eval -- --report out.md      # 另存 markdown
 ```
 
 注意:真 LLM 逐条调用,存在采样方差;个别用例偶发失败属正常,连续

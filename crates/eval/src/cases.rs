@@ -9,7 +9,10 @@
 //!
 //! A transcript carrying `‡N‡` sentinels asserts the placeholder
 //! contract whether or not the case authors a list for it: the checks
-//! derive from the transcript itself (shape is truth).
+//! derive from the transcript itself (shape is truth). A case with
+//! `pass_through = true` is the prefill-off form (ADR-0014): the runner
+//! swaps in a client whose `[llm] prefill` is off, and the assertions
+//! demand bare marks, empty values, and no `‡N:值‡` shape.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -48,6 +51,11 @@ struct CaseFile {
     absorbed: Vec<String>,
     #[serde(default)]
     prefill: Vec<PrefillFile>,
+    /// Prefill-off (ADR-0014). Default false = today's on-form, so every
+    /// existing case is zero-migration. Named apart from the `prefill`
+    /// assertion list — that list is the on-form's value expectations.
+    #[serde(default)]
+    pass_through: bool,
 }
 
 /// The on-disk shape of one prefill expectation (serde mirror of
@@ -105,8 +113,12 @@ pub struct EvalCase {
     /// Prefill expectations: each pin's effective value (the row its
     /// inline form resolves to; a bare `‡N‡` reads empty) must contain
     /// one alternative; the empty alternative demands an empty value
-    /// (拿不准不吸).
+    /// (拿不准不吸). Meaningless on a pass-through case (zero absorption;
+    /// load-time refuses a non-empty alternative).
     pub prefill: Vec<PrefillExpectation>,
+    /// Prefill-off (ADR-0014): the case runs the pass-through prompt and
+    /// asserts bare marks / empty values / no `‡N:值‡`. Default false.
+    pub pass_through: bool,
 }
 
 /// One authored prefill expectation: the pin's number (its identity —
@@ -245,6 +257,34 @@ fn parse_suite(source: &str, origin: &str) -> Result<EvalSuite, String> {
                 ));
             }
         }
+        if raw.pass_through {
+            // Off-mode (ADR-0014) is a pinned-form switch: without
+            // sentinels the composition is byte-identical either way, so
+            // a pass-through flag on a pinless case is a typo. Absorption
+            // assertions cannot hold (the model must not absorb); a
+            // non-empty prefill alternative would demand a value the
+            // form forbids writing.
+            if sentinels.is_empty() {
+                return Err(format!(
+                    "case {id} is pass-through but its transcript carries no ‡N‡ sentinel"
+                ));
+            }
+            if !absorbed.is_empty() {
+                return Err(format!(
+                    "case {id} is pass-through but authors absorbed assertions — \
+                     those must not hold off-mode (ADR-0014)"
+                ));
+            }
+            if prefill
+                .iter()
+                .any(|expectation| expectation.any.iter().any(|alt| !alt.is_empty()))
+            {
+                return Err(format!(
+                    "case {id} is pass-through but authors a non-empty prefill \
+                     alternative — off-mode writes no values"
+                ));
+            }
+        }
         if preserve.is_empty()
             && convey.is_empty()
             && fabricate.is_empty()
@@ -270,6 +310,7 @@ fn parse_suite(source: &str, origin: &str) -> Result<EvalSuite, String> {
             order,
             absorbed,
             prefill,
+            pass_through: raw.pass_through,
         });
     }
     if cases.is_empty() {
@@ -330,6 +371,65 @@ prefill = [{ pin = 1, any = [\"那个文件\", \"该文件\"] }]
                 any: vec!["那个文件".into(), "该文件".into()],
             }]
         );
+        assert!(!case.pass_through);
+    }
+
+    #[test]
+    fn pass_through_defaults_off_and_parses_when_set() {
+        let path = write_tmp(
+            "\
+[[case]]
+id = \"placeholder-off-file\"
+transcript = \"打开这个文件‡1‡看配置,别的先不动,超时和缓存回头一起过\"
+convey = [[\"配置\"]]
+pass_through = true
+",
+        );
+        let suite = load_suite(&path).unwrap();
+        assert!(suite.cases[0].pass_through);
+    }
+
+    #[test]
+    fn pass_through_on_a_pinless_case_is_rejected() {
+        let path = write_tmp(
+            "\
+[[case]]
+id = \"short-01\"
+transcript = \"嗯我先走了\"
+convey = [[\"我\"]]
+pass_through = true
+",
+        );
+        let err = load_suite(&path).unwrap_err();
+        assert!(err.contains("pass-through"), "{err}");
+        assert!(err.contains("sentinel"), "{err}");
+    }
+
+    #[test]
+    fn pass_through_cannot_author_absorption_or_a_valued_prefill() {
+        let path = write_tmp(
+            "\
+[[case]]
+id = \"placeholder-off-file\"
+transcript = \"打开这个文件‡1‡看配置\"
+pass_through = true
+absorbed = [\"这个文件\"]
+",
+        );
+        let err = load_suite(&path).unwrap_err();
+        assert!(err.contains("absorbed"), "{err}");
+
+        let path = write_tmp(
+            "\
+[[case]]
+id = \"placeholder-off-file\"
+transcript = \"打开这个文件‡1‡看配置\"
+pass_through = true
+prefill = [{ pin = 1, any = [\"这个文件\"] }]
+",
+        );
+        let err = load_suite(&path).unwrap_err();
+        assert!(err.contains("non-empty prefill"), "{err}");
     }
 
     #[test]
@@ -546,6 +646,21 @@ prefill = [{ pin = 1, any = [\" \"] }]
             );
         }
 
+        let off = suite
+            .cases
+            .iter()
+            .filter(|c| c.pass_through)
+            .collect::<Vec<_>>();
+        assert!(
+            off.len() >= 7,
+            "need the five off-form mirrors plus two exclusives, has {}",
+            off.len()
+        );
+        assert!(
+            off.iter().all(|c| c.id.starts_with("placeholder-off-")),
+            "off-form cases share the placeholder-off- prefix so --only can select them"
+        );
+
         // The light-touch threshold defaults to 40 characters and is
         // config-adjustable; author short cases with a wide margin
         // below it and everything else well above, so threshold drift
@@ -596,7 +711,7 @@ prefill = [{ pin = 1, any = [\" \"] }]
                 style_directive: None,
                 global_directive: None,
                 terms: suite.terms.clone(),
-                prefill: true,
+                prefill: !case.pass_through,
             };
             let prompt = compose_prompt(&request, select_intensity(&case.transcript, 40));
             let pinned = !sentinel_counts(&case.transcript).is_empty();
@@ -607,12 +722,25 @@ prefill = [{ pin = 1, any = [\" \"] }]
                     "{}: pinned case missing the placeholder clause",
                     case.id
                 );
-                for (digits, _) in sentinel_counts(&case.transcript) {
+                if case.pass_through {
                     assert!(
-                        prompt.user.contains(&format!("\n- ‡{digits}‡\n")),
-                        "{}: census row for ‡{digits}‡ missing",
+                        !prompt.user.contains("【占位符清单】"),
+                        "{}: pass-through form must not carry the census table",
                         case.id
                     );
+                    assert!(
+                        !prompt.system.contains("‡编号:值‡") && !prompt.user.contains("‡编号:值‡"),
+                        "{}: pass-through form leaked the value grammar",
+                        case.id
+                    );
+                } else {
+                    for (digits, _) in sentinel_counts(&case.transcript) {
+                        assert!(
+                            prompt.user.contains(&format!("\n- ‡{digits}‡\n")),
+                            "{}: census row for ‡{digits}‡ missing",
+                            case.id
+                        );
+                    }
                 }
                 assert!(
                     prompt.user.trim_end().ends_with("仅保真铁律例外)"),

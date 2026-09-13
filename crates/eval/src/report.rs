@@ -46,12 +46,13 @@ const CATEGORIES: [FailureCategory; 6] = [
     FailureCategory::AbsorbFailed,
 ];
 
-/// The pass rate the recorded baseline earned (BASELINE.md beside the
-/// suite: run at commit 2124783 on deepseek-v4-flash, 24/28 = 85.7%,
-/// the 28-case denominator with the placeholder family) —
-/// the number an interactive run in the settings window is compared
-/// against. Update it whenever a new baseline is recorded there.
-pub const BASELINE_PASS_RATE: f64 = 85.7;
+/// The pass rate the recorded on-form baseline earned (BASELINE.md
+/// beside the suite: eight-run at commit 4cf1444 on deepseek-v4-flash,
+/// 33/35 = 94.3% — the on-form denominator, ADR-0014). The settings
+/// window compares against this number; the off-form arm is a separate
+/// line and must not mix in. Update it whenever a new on-form baseline
+/// is recorded there.
+pub const BASELINE_PASS_RATE: f64 = 94.3;
 
 /// The structured summary behind the markdown report — what the
 /// settings window paints as the 通过率 + 失败类别摘要. Pure over the

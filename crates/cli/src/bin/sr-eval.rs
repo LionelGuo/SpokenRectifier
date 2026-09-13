@@ -2,7 +2,7 @@
 //! 保真铁律's machine acceptance and the regression net for prompt
 //! iterations.
 //!
-//! Usage: sr-eval [--suite <file>] [--only <id-or-prefix>] [--report <file>]
+//! Usage: sr-eval [--suite <file>] [--only <id-or-prefix>] [--form on|off] [--report <file>]
 //!
 //! The harness itself lives in `spokenrectifier-eval` (`runner::run_suite`)
 //! and rides the engine seam: every case's transcript goes in as
@@ -48,6 +48,10 @@ async fn run() -> Result<(), String> {
     let mut suite_path = default_suite_path();
     let mut only: Option<String> = None;
     let mut report_path: Option<String> = None;
+    // None = both forms (the file as authored). `on`/`off` keep the two
+    // BASELINE anchors from mixing (ADR-0014): 94.3% stays the on-form
+    // 35, the off-form arm is its own line.
+    let mut form: Option<bool> = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -62,6 +66,16 @@ async fn run() -> Result<(), String> {
                     args.next()
                         .ok_or_else(|| "--only needs a value".to_string())?,
                 );
+            }
+            "--form" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--form needs on or off".to_string())?;
+                form = Some(match value.as_str() {
+                    "on" => true,
+                    "off" => false,
+                    _ => return Err(format!("--form expected on or off, got {value:?}")),
+                });
             }
             "--report" => {
                 report_path = Some(
@@ -81,6 +95,10 @@ async fn run() -> Result<(), String> {
             None => true,
             Some(prefix) => c.id == *prefix || c.id.starts_with(&format!("{prefix}-")),
         })
+        .filter(|c| match form {
+            None => true,
+            Some(on) => c.pass_through != on,
+        })
         .collect();
     if cases.is_empty() {
         return Err(format!("no cases match in {}", suite_path.display()));
@@ -96,10 +114,22 @@ async fn run() -> Result<(), String> {
     // the git-ignored local layer.
     let dirs = spokenrectifier_config::search_dirs();
     let llm_config = load_llm_config(&dirs).map_err(|err| err.to_string())?;
-    let llm: Arc<dyn RectifyLlm> =
-        Arc::new(OpenAiCompatLlm::new(llm_config.clone()).map_err(|err| err.0)?);
+    // Two form-clients (ADR-0014): the production client applies
+    // `[llm] prefill` from its own config, so the eval arm states the
+    // value here rather than writing the request field the client
+    // would overwrite. Thinking and the rest of the loaded config
+    // stay as-is on both — the probe's thinking flip is a layer-file
+    // change, not a per-case one.
+    let mut on_config = llm_config.clone();
+    on_config.prefill = true;
+    let mut off_config = llm_config.clone();
+    off_config.prefill = false;
+    let on_llm: Arc<dyn RectifyLlm> =
+        Arc::new(OpenAiCompatLlm::new(on_config).map_err(|err| err.0)?);
+    let off_llm: Arc<dyn RectifyLlm> =
+        Arc::new(OpenAiCompatLlm::new(off_config).map_err(|err| err.0)?);
 
-    let outcomes = run_suite(llm, &selected, &|event| {
+    let outcomes = run_suite(on_llm, off_llm, &selected, &|event| {
         match event {
             RunEvent::CaseStarted { index, total, id } => {
                 eprintln!("[{index}/{total}] {id} …");

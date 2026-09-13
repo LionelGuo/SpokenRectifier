@@ -13,9 +13,11 @@
 //! inline forms collapsed back to bare `‡N‡` shapes — so a prefill
 //! value can never trip a body probe (and vice versa), the sentinel
 //! contract counts a slot's every spelling, and the absorption
-//! expectations read exactly the rows the engine would show.
+//! expectations read exactly the rows the engine would show. A
+//! pass-through case (ADR-0014) skips absorption and instead forbids
+//! any inline value in the raw body: marks ride as bare `‡N‡`.
 
-use spokenrectifier_engine::prefill::{scan_form_occurrences, ResponseSplitter};
+use spokenrectifier_engine::prefill::{ResponseSplitter, scan_form_occurrences};
 
 use super::cases::EvalCase;
 
@@ -160,9 +162,32 @@ pub fn check_parts(
     }
 
     check_sentinels(pinned, body, &mut failures);
-    check_absorption(case, body, prefill, &mut failures);
+    if case.pass_through {
+        // Off-mode (ADR-0014): the derived sentinel contract still
+        // demands the number multiset, and on top the body must carry
+        // those numbers as bare `‡N‡` — a `‡N:值‡` is absorption the
+        // form forbids, whether or not the collapsed probes would
+        // still see the right count.
+        check_pass_through(raw_body, &mut failures);
+    } else {
+        check_absorption(case, body, prefill, &mut failures);
+    }
 
     failures
+}
+
+/// Off-mode anti-absorption: every form in the raw body must be the
+/// bare `‡N‡` shape. An inline value is the on-form grammar leaking
+/// through (零吸收, 正文不得混入 `‡编号:值‡`).
+fn check_pass_through(raw_body: &str, failures: &mut Vec<Failure>) {
+    for form in scan_form_occurrences(raw_body) {
+        if !form.value.is_empty() {
+            failures.push(Failure {
+                category: FailureCategory::AbsorbFailed,
+                detail: format!("关态混入值形:‡{}:{}‡", form.number, form.value),
+            });
+        }
+    }
 }
 
 /// The derived placeholder contract over the collapsed body (every
@@ -428,9 +453,11 @@ mod tests {
         case.fabricate = strs(&["周五", "下午"]);
         let failures = check(&case, "会议改到周五下午两点。");
         assert_eq!(failures.len(), 2);
-        assert!(failures
-            .iter()
-            .all(|f| f.category == FailureCategory::Fabricated));
+        assert!(
+            failures
+                .iter()
+                .all(|f| f.category == FailureCategory::Fabricated)
+        );
     }
 
     #[test]
@@ -439,9 +466,11 @@ mod tests {
         case.purge = strs(&["海淀区", "8899", "不对"]);
         let failures = check(&case, "地址是海淀区,不对,是朝阳区,尾号8899。");
         assert_eq!(failures.len(), 3);
-        assert!(failures
-            .iter()
-            .all(|f| f.category == FailureCategory::Residual));
+        assert!(
+            failures
+                .iter()
+                .all(|f| f.category == FailureCategory::Residual)
+        );
     }
 
     #[test]
@@ -668,9 +697,35 @@ mod tests {
         assert!(failures
             .iter()
             .any(|f| f.category == FailureCategory::Fabricated && f.detail.contains("哨兵多号")));
-        assert!(failures
-            .iter()
-            .any(|f| f.category == FailureCategory::AbsorbFailed && f.detail.contains("实得「」")));
+        assert!(
+            failures
+                .iter()
+                .any(|f| f.category == FailureCategory::AbsorbFailed
+                    && f.detail.contains("实得「」"))
+        );
+    }
+
+    #[test]
+    fn pass_through_accepts_bare_marks_and_rejects_inline_values() {
+        // Off-mode (ADR-0014): the number multiset still has to match,
+        // and the raw body may not mix in a `‡N:值‡`. Collapse would
+        // hide the value from every other probe — this check is the
+        // one that sees it.
+        let mut case = pin_case("placeholder-off-name", "记得发给张三‡1‡,别抄送");
+        case.pass_through = true;
+        case.preserve = strs(&["张三"]);
+        assert!(check(&case, "记得发给张三‡1‡,别抄送。").is_empty());
+
+        let failures = check(&case, "记得发给‡1:张三‡,别抄送。");
+        assert_eq!(failures.len(), 2, "{failures:?}");
+        assert!(failures.iter().any(|f| {
+            f.category == FailureCategory::AbsorbFailed && f.detail.contains("关态混入值形")
+        }));
+        // The value left the collapsed body, so the preserve net
+        // fires too — the referent was absorbed.
+        assert!(failures.iter().any(|f| {
+            f.category == FailureCategory::PreservationFailed && f.detail.contains("张三")
+        }));
     }
 
     #[test]
