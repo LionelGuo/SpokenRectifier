@@ -9,9 +9,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `token_scripts`
+// These functions are ignored because they are not marked as `pub`: `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `parse_policy`, `rectify_view`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config carries credentials, the configured
@@ -194,13 +194,16 @@ Future<BridgeLlmConnection> setLlmConnection({
   apiKey: apiKey,
 );
 
-/// Adopt the saved `[asr]` and `[llm]` connections into the live engine at
-/// once (ADR-0010): the settings window calls this right after a save
-/// lands, so the next session opens with the new ASR provider and the next
-/// rectify attempt with the new LLM — no restart. Re-reads the layer
-/// files and rebuilds both collaborators through the same factory the
-/// startup path uses (mic-only fallback included: clearing the provider's
-/// credentials really does drop back to mic+VAD at runtime).
+/// Adopt the saved `[asr]` / `[llm]` connections — and, riding the same
+/// rebuilt client, every `[rectify]` key (ADR-0010, scope extended by
+/// ADR-0015) — into the live engine at once: the settings window calls
+/// this right after a save lands, so the next session opens with the new
+/// ASR provider and the next rectify attempt with the new LLM and the new
+/// rectify behavior (thinking policy, prefill, the light-touch gate, the
+/// extra directive), no restart. Re-reads the layer files and rebuilds
+/// both collaborators through the same factory the startup path uses
+/// (mic-only fallback included: clearing the provider's credentials
+/// really does drop back to mic+VAD at runtime).
 ///
 /// The rebuild happens before any handover, so any refusal (an incomplete
 /// credential set, an unadapted provider, the demo-mode LLM that has no
@@ -211,6 +214,27 @@ Future<BridgeLlmConnection> setLlmConnection({
 /// (tests and demos hold no production collaborators to swap).
 Future<void> applyConnectionConfigs() =>
     RustLib.instance.api.crateApiApplyConnectionConfigs();
+
+/// The effective `[rectify]` behavior from the layer files — the
+/// rectify pane's initial paint, legacy `[llm]` keys already folded in
+/// through the grandfather (ADR-0015). File-level and
+/// engine-independent: the client adopts the keys at its (re)build, and
+/// the window's save re-adopts at once via [`apply_connection_configs`].
+Future<BridgeRectifyBehavior> rectifyBehavior() =>
+    RustLib.instance.api.crateApiRectifyBehavior();
+
+/// Write the rectify editor's whole model back into the layer files (see
+/// `save_rectify_behavior`: the owning layers, the per-layer legacy-key
+/// translation on the first save, the extra directive's blank-removal)
+/// and return the re-read view — the files' truth, not the ask. No
+/// combination validation rides this path: a thinking-off × prefill-on
+/// tier saves fine, the pane's live warning is presentation only
+/// (`.scratch/settings-window/issues/08`, ruling 4). The window calls
+/// [`apply_connection_configs`] right after — the next attempt runs the
+/// new behavior.
+Future<BridgeRectifyBehavior> setRectifyBehavior({
+  required BridgeRectifyBehavior edit,
+}) => RustLib.instance.api.crateApiSetRectifyBehavior(edit: edit);
 
 /// Rename a term in the dictionary, in place (the settings editor's 改;
 /// the quick panel's quick-add and quick-remove stay the same calls).
@@ -1142,6 +1166,57 @@ class BridgePrefillRow {
           runtimeType == other.runtimeType &&
           number == other.number &&
           value == other.value;
+}
+
+/// The `[rectify]` behavior as the settings pane paints and saves it:
+/// both tiers' thinking policy and prefill, the light-touch master
+/// switch, threshold, and extra directive (ADR-0015/0016). One struct
+/// both ways — the read paints the initial form, the save writes exactly
+/// the model it receives. The thinking policy rides the wire as its
+/// lowercase string; `light_touch_extra_directive` is `None` when unset
+/// (empty saves remove the key).
+class BridgeRectifyBehavior {
+  /// `always` | `placeholders` | `off` (ADR-0015).
+  final String fullThinkingPolicy;
+  final bool fullPrefill;
+  final bool lightTouchEnabled;
+  final BigInt lightTouchMaxChars;
+  final String lightTouchThinkingPolicy;
+  final bool lightTouchPrefill;
+  final String? lightTouchExtraDirective;
+
+  const BridgeRectifyBehavior({
+    required this.fullThinkingPolicy,
+    required this.fullPrefill,
+    required this.lightTouchEnabled,
+    required this.lightTouchMaxChars,
+    required this.lightTouchThinkingPolicy,
+    required this.lightTouchPrefill,
+    this.lightTouchExtraDirective,
+  });
+
+  @override
+  int get hashCode =>
+      fullThinkingPolicy.hashCode ^
+      fullPrefill.hashCode ^
+      lightTouchEnabled.hashCode ^
+      lightTouchMaxChars.hashCode ^
+      lightTouchThinkingPolicy.hashCode ^
+      lightTouchPrefill.hashCode ^
+      lightTouchExtraDirective.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeRectifyBehavior &&
+          runtimeType == other.runtimeType &&
+          fullThinkingPolicy == other.fullThinkingPolicy &&
+          fullPrefill == other.fullPrefill &&
+          lightTouchEnabled == other.lightTouchEnabled &&
+          lightTouchMaxChars == other.lightTouchMaxChars &&
+          lightTouchThinkingPolicy == other.lightTouchThinkingPolicy &&
+          lightTouchPrefill == other.lightTouchPrefill &&
+          lightTouchExtraDirective == other.lightTouchExtraDirective;
 }
 
 /// Dart-side mirror of one scenario (场景): a user-named style directive

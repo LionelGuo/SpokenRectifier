@@ -90,15 +90,20 @@ fn run(
         );
     }
     let model = llm_config.model.model.clone();
-    // Two form-clients (ADR-0014): the production client applies
-    // `[llm] prefill` from its own config, so the eval arm states the
-    // value here rather than writing the request field the client
-    // would overwrite. The settings-window run is the on-form
-    // baseline plus the bundled off-form cases, same as `sr-eval`.
-    let mut on_config = llm_config.clone();
-    on_config.prefill = true;
-    let mut off_config = llm_config.clone();
-    off_config.prefill = false;
+    // Two form-clients (ADR-0014): the production client applies the
+    // tiers' prefill keys from its own config, so the eval arm states
+    // the value here rather than writing the request field the client
+    // would overwrite. Both clients are eval-isolated copies: the
+    // light-touch extra directive never rides a run (ADR-0016), like
+    // style/global = None by construction. The settings-window run is
+    // the on-form baseline plus the bundled off-form cases, same as
+    // `sr-eval`.
+    let mut on_config = llm_config.clone().for_eval();
+    on_config.rectify.full.prefill = true;
+    on_config.rectify.light_touch.tier.prefill = true;
+    let mut off_config = llm_config.clone().for_eval();
+    off_config.rectify.full.prefill = false;
+    off_config.rectify.light_touch.tier.prefill = false;
     let on_llm: Arc<dyn RectifyLlm> = Arc::new(
         spokenrectifier_llm::OpenAiCompatLlm::new(on_config)
             .map_err(|err| format!("LLM {}", err.0))?,

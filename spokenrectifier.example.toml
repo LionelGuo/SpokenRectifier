@@ -123,24 +123,42 @@ retention_days = 30         # sessions older than this are swept on launch
 # hide). Style directives shape form and tone only; the fidelity rule
 # always outranks them.
 
+# Rectify behavior (ADR-0015/0016): one tier per intensity, the two
+# never inheriting from each other. thinking_policy is one of the three
+# lowercase strings — "always" (the default: with the zero-example
+# rectify prompt, placeholder absorption depends on thinking; a v4-flash
+# probe scored 10/10 with, 3/10 without), "placeholders" (thinking only
+# when the transcript's census finds a pin), or "off" (saves ~1–2s on
+# the light band; prefill goes mostly empty). prefill selects the pinned
+# prompt's form: on teaches the ‡N:值‡ inline grammar, off lets marks
+# ride the text as-is (ADR-0014). The light-touch tier adds the master
+# switch (enabled = false forces full rectify for every length; the
+# keys stay stored, just unadopted), the threshold, and the extra
+# directive (blank = not injected; injected only on light-touch
+# attempts, as its own section after the intensity one).
+# Every key below is optional: defaults are today's behavior. The
+# settings window's 修正 domain edits this section; its first save
+# translates the retired legacy [llm] thinking / prefill /
+# light_touch_max_chars keys (still read today) into this shape, layer
+# by layer, and strips them.
+[rectify.full]
+thinking_policy = "always"              # always | placeholders | off
+prefill = true
+
+[rectify.light_touch]
+enabled = true
+max_chars = 40                          # strictly below: light-touch; at or above: full
+thinking_policy = "always"
+prefill = true
+# extra_directive = "短句尽量保留口语节奏" # light-touch attempts only (ADR-0016)
+
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
-# One model per mode: light-touch vs full rectify is decided by length
-# (below light_touch_max_chars takes light-touch) and changes only the
-# prompt, never the model. Thinking is ON by default: with the
-# zero-example rectify prompt, placeholder absorption depends on it
-# (v4-flash probe: family 10/10 with thinking, 3/10 without). Turning
-# it off saves ~1–2s on the light-touch band and leaves no-pin short
-# utterances unchanged, but prefill goes empty. Watch item, not guarded
-# against: thinking on may occasionally add an editorial note (seen
-# once in 23 mixed-product runs).
+# One model per mode: light-touch vs full rectify is decided by
+# [rectify.light_touch] and changes only the prompt, never the model.
 # Configuring a model/base_url/api_key without a resolvable key is an
 # error at startup (never a silent fallback to the demo script); an
 # unknown vendor or an empty model/base_url is rejected too.
 [llm]
-thinking = true
-prefill = true                         # on: teach the ‡N:值‡ inline grammar;
-#                                       #  off: marks ride the text as-is (ADR-0014)
-light_touch_max_chars = 40
 vendor = "deepseek"                     # deepseek | volcengine | qwen | openai
 base_url = "https://api.deepseek.com"   # everything before /chat/completions
 model = "deepseek-v4-flash"

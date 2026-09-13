@@ -114,16 +114,19 @@ async fn run() -> Result<(), String> {
     // the git-ignored local layer.
     let dirs = spokenrectifier_config::search_dirs();
     let llm_config = load_llm_config(&dirs).map_err(|err| err.to_string())?;
-    // Two form-clients (ADR-0014): the production client applies
-    // `[llm] prefill` from its own config, so the eval arm states the
-    // value here rather than writing the request field the client
-    // would overwrite. Thinking and the rest of the loaded config
-    // stay as-is on both — the probe's thinking flip is a layer-file
-    // change, not a per-case one.
-    let mut on_config = llm_config.clone();
-    on_config.prefill = true;
-    let mut off_config = llm_config.clone();
-    off_config.prefill = false;
+    // Two form-clients (ADR-0014): the production client applies the
+    // tiers' prefill keys from its own config, so the eval arm states
+    // the value here rather than writing the request field the client
+    // would overwrite. Both are eval-isolated copies — the light-touch
+    // extra directive never rides a run (ADR-0016). Thinking and the
+    // rest of the loaded config stay as-is on both — the probe's
+    // thinking flip is a layer-file change, not a per-case one.
+    let mut on_config = llm_config.clone().for_eval();
+    on_config.rectify.full.prefill = true;
+    on_config.rectify.light_touch.tier.prefill = true;
+    let mut off_config = llm_config.clone().for_eval();
+    off_config.rectify.full.prefill = false;
+    off_config.rectify.light_touch.tier.prefill = false;
     let on_llm: Arc<dyn RectifyLlm> =
         Arc::new(OpenAiCompatLlm::new(on_config).map_err(|err| err.0)?);
     let off_llm: Arc<dyn RectifyLlm> =
@@ -153,7 +156,7 @@ async fn run() -> Result<(), String> {
     let meta = ReportMeta {
         date: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
         model: llm_config.model.model.clone(),
-        light_touch_max_chars: llm_config.light_touch_max_chars,
+        light_touch_max_chars: llm_config.rectify.light_touch.max_chars,
         commit: short_commit(),
     };
     let report = build_report(&meta, &outcomes);

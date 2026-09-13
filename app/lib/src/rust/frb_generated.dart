@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 665126530;
+  int get rustContentHash => 646164828;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -124,6 +124,8 @@ abstract class RustLibApi extends BaseApi {
 
   Future<bool> crateApiPassageMode();
 
+  Future<BridgeRectifyBehavior> crateApiRectifyBehavior();
+
   Future<void> crateApiRemoveTerm({required String term});
 
   Future<void> crateApiRestoreFocus();
@@ -162,6 +164,10 @@ abstract class RustLibApi extends BaseApi {
     required String baseUrl,
     required String model,
     required BridgeKeyEdit apiKey,
+  });
+
+  Future<BridgeRectifyBehavior> crateApiSetRectifyBehavior({
+    required BridgeRectifyBehavior edit,
   });
 
   Stream<BridgeEvalEvent> crateApiStartFidelityEval();
@@ -729,6 +735,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "passage_mode", argNames: []);
 
   @override
+  Future<BridgeRectifyBehavior> crateApiRectifyBehavior() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 20,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bridge_rectify_behavior,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRectifyBehaviorConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRectifyBehaviorConstMeta =>
+      const TaskConstMeta(debugName: "rectify_behavior", argNames: []);
+
+  @override
   Future<void> crateApiRemoveTerm({required String term}) {
     return handler.executeNormal(
       NormalTask(
@@ -738,7 +771,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -765,7 +798,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 22,
             port: port_,
           );
         },
@@ -793,7 +826,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 23,
             port: port_,
           );
         },
@@ -826,7 +859,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -853,7 +886,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },
@@ -883,7 +916,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -919,7 +952,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 27,
             port: port_,
           );
         },
@@ -963,7 +996,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1001,7 +1034,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1039,7 +1072,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1060,6 +1093,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<BridgeRectifyBehavior> crateApiSetRectifyBehavior({
+    required BridgeRectifyBehavior edit,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_bridge_rectify_behavior(edit, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 31,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bridge_rectify_behavior,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSetRectifyBehaviorConstMeta,
+        argValues: [edit],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSetRectifyBehaviorConstMeta => const TaskConstMeta(
+    debugName: "set_rectify_behavior",
+    argNames: ["edit"],
+  );
+
+  @override
   Stream<BridgeEvalEvent> crateApiStartFidelityEval() {
     final sink = RustStreamSink<BridgeEvalEvent>();
     unawaited(
@@ -1071,7 +1136,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 30,
+              funcId: 32,
               port: port_,
             );
           },
@@ -1100,7 +1165,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1130,7 +1195,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 32,
+              funcId: 34,
               port: port_,
             );
           },
@@ -1159,7 +1224,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1188,7 +1253,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1261,6 +1326,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BridgeKeyEdit dco_decode_box_autoadd_bridge_key_edit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_bridge_key_edit(raw);
+  }
+
+  @protected
+  BridgeRectifyBehavior dco_decode_box_autoadd_bridge_rectify_behavior(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_bridge_rectify_behavior(raw);
   }
 
   @protected
@@ -1736,6 +1809,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgeRectifyBehavior dco_decode_bridge_rectify_behavior(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return BridgeRectifyBehavior(
+      fullThinkingPolicy: dco_decode_String(arr[0]),
+      fullPrefill: dco_decode_bool(arr[1]),
+      lightTouchEnabled: dco_decode_bool(arr[2]),
+      lightTouchMaxChars: dco_decode_u_64(arr[3]),
+      lightTouchThinkingPolicy: dco_decode_String(arr[4]),
+      lightTouchPrefill: dco_decode_bool(arr[5]),
+      lightTouchExtraDirective: dco_decode_opt_String(arr[6]),
+    );
+  }
+
+  @protected
   BridgeScenario dco_decode_bridge_scenario(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1937,6 +2027,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_bridge_key_edit(deserializer));
+  }
+
+  @protected
+  BridgeRectifyBehavior sse_decode_box_autoadd_bridge_rectify_behavior(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_bridge_rectify_behavior(deserializer));
   }
 
   @protected
@@ -2468,6 +2566,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgeRectifyBehavior sse_decode_bridge_rectify_behavior(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_fullThinkingPolicy = sse_decode_String(deserializer);
+    var var_fullPrefill = sse_decode_bool(deserializer);
+    var var_lightTouchEnabled = sse_decode_bool(deserializer);
+    var var_lightTouchMaxChars = sse_decode_u_64(deserializer);
+    var var_lightTouchThinkingPolicy = sse_decode_String(deserializer);
+    var var_lightTouchPrefill = sse_decode_bool(deserializer);
+    var var_lightTouchExtraDirective = sse_decode_opt_String(deserializer);
+    return BridgeRectifyBehavior(
+      fullThinkingPolicy: var_fullThinkingPolicy,
+      fullPrefill: var_fullPrefill,
+      lightTouchEnabled: var_lightTouchEnabled,
+      lightTouchMaxChars: var_lightTouchMaxChars,
+      lightTouchThinkingPolicy: var_lightTouchThinkingPolicy,
+      lightTouchPrefill: var_lightTouchPrefill,
+      lightTouchExtraDirective: var_lightTouchExtraDirective,
+    );
+  }
+
+  @protected
   BridgeScenario sse_decode_bridge_scenario(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
@@ -2748,6 +2869,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_bridge_key_edit(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_bridge_rectify_behavior(
+    BridgeRectifyBehavior self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bridge_rectify_behavior(self, serializer);
   }
 
   @protected
@@ -3186,6 +3316,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_32(self.number, serializer);
     sse_encode_String(self.value, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_rectify_behavior(
+    BridgeRectifyBehavior self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.fullThinkingPolicy, serializer);
+    sse_encode_bool(self.fullPrefill, serializer);
+    sse_encode_bool(self.lightTouchEnabled, serializer);
+    sse_encode_u_64(self.lightTouchMaxChars, serializer);
+    sse_encode_String(self.lightTouchThinkingPolicy, serializer);
+    sse_encode_bool(self.lightTouchPrefill, serializer);
+    sse_encode_opt_String(self.lightTouchExtraDirective, serializer);
   }
 
   @protected

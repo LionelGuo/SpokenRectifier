@@ -26,6 +26,12 @@ pub enum WriteLayer {
     /// The git-ignored local file — the only legal home for a secret,
     /// whatever layer owns the section.
     Local,
+    /// The committable shared file, named explicitly — for writes that
+    /// mirror a value beside its existing shared home rather than the
+    /// owning layer (the `[llm]` → `[rectify]` grandfather translation
+    /// writes each layer's translation into that same layer, so a local
+    /// preference is never promoted into the shared file).
+    Shared,
 }
 
 /// One field write inside a section.
@@ -249,6 +255,7 @@ pub fn write_section_fields(
 
     let target = match layer {
         WriteLayer::Local => local_path(dirs),
+        WriteLayer::Shared => shared_path(dirs),
         WriteLayer::Owning => documents
             .iter()
             .rev()
@@ -531,6 +538,43 @@ mod tests {
         assert_eq!(shared, "[toy]\nname = \"shared\"\n");
         let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
         assert!(local.contains("api_key = \"sk-local\""), "got: {local}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The named shared write lands beside the shared home even when a
+    /// deeper layer owns the section — the grandfather translation's
+    /// placement (a value that lived in shared stays in shared).
+    #[test]
+    fn a_named_shared_write_targets_the_shared_file_whatever_owns_the_section() {
+        let dir = scratch("sr-write-named-shared");
+        std::fs::write(dir.join(SHARED_FILE), "[llm]\nthinking = false\n").unwrap();
+        std::fs::write(dir.join(LOCAL_FILE), "[llm]\nmodel = \"m\"\n").unwrap();
+
+        write_section_fields(
+            std::slice::from_ref(&dir),
+            "rectify.full",
+            &[SectionField::str("thinking_policy", "off")],
+            WriteLayer::Shared,
+        )
+        .unwrap();
+
+        // Local owns [llm] and says nothing about [rectify]: the named
+        // write still lands in shared, and local stays untouched.
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(
+            shared.contains("thinking = false"),
+            "sibling lost: {shared}"
+        );
+        assert!(
+            shared.contains("[rectify.full]"),
+            "section missing: {shared}"
+        );
+        assert!(
+            shared.contains("thinking_policy = \"off\""),
+            "got: {shared}"
+        );
+        let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
+        assert_eq!(local, "[llm]\nmodel = \"m\"\n");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

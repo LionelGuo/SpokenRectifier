@@ -1066,13 +1066,16 @@ pub fn set_llm_connection(
     Ok(llm_view(config))
 }
 
-/// Adopt the saved `[asr]` and `[llm]` connections into the live engine at
-/// once (ADR-0010): the settings window calls this right after a save
-/// lands, so the next session opens with the new ASR provider and the next
-/// rectify attempt with the new LLM — no restart. Re-reads the layer
-/// files and rebuilds both collaborators through the same factory the
-/// startup path uses (mic-only fallback included: clearing the provider's
-/// credentials really does drop back to mic+VAD at runtime).
+/// Adopt the saved `[asr]` / `[llm]` connections — and, riding the same
+/// rebuilt client, every `[rectify]` key (ADR-0010, scope extended by
+/// ADR-0015) — into the live engine at once: the settings window calls
+/// this right after a save lands, so the next session opens with the new
+/// ASR provider and the next rectify attempt with the new LLM and the new
+/// rectify behavior (thinking policy, prefill, the light-touch gate, the
+/// extra directive), no restart. Re-reads the layer files and rebuilds
+/// both collaborators through the same factory the startup path uses
+/// (mic-only fallback included: clearing the provider's credentials
+/// really does drop back to mic+VAD at runtime).
 ///
 /// The rebuild happens before any handover, so any refusal (an incomplete
 /// credential set, an unadapted provider, the demo-mode LLM that has no
@@ -1091,6 +1094,108 @@ pub fn apply_connection_configs() -> anyhow::Result<()> {
     g.engine.set_asr_provider(asr);
     g.engine.set_llm_provider(llm);
     Ok(())
+}
+
+// -- the rectify domain (修正, ticket 13) --------------------------------------
+
+/// The `[rectify]` behavior as the settings pane paints and saves it:
+/// both tiers' thinking policy and prefill, the light-touch master
+/// switch, threshold, and extra directive (ADR-0015/0016). One struct
+/// both ways — the read paints the initial form, the save writes exactly
+/// the model it receives. The thinking policy rides the wire as its
+/// lowercase string; `light_touch_extra_directive` is `None` when unset
+/// (empty saves remove the key).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeRectifyBehavior {
+    /// `always` | `placeholders` | `off` (ADR-0015).
+    pub full_thinking_policy: String,
+    pub full_prefill: bool,
+    pub light_touch_enabled: bool,
+    pub light_touch_max_chars: u64,
+    pub light_touch_thinking_policy: String,
+    pub light_touch_prefill: bool,
+    pub light_touch_extra_directive: Option<String>,
+}
+
+fn rectify_view(rectify: &spokenrectifier_llm::RectifyConfig) -> BridgeRectifyBehavior {
+    BridgeRectifyBehavior {
+        full_thinking_policy: rectify.full.thinking_policy.as_str().to_string(),
+        full_prefill: rectify.full.prefill,
+        light_touch_enabled: rectify.light_touch.enabled,
+        light_touch_max_chars: rectify.light_touch.max_chars as u64,
+        light_touch_thinking_policy: rectify
+            .light_touch
+            .tier
+            .thinking_policy
+            .as_str()
+            .to_string(),
+        light_touch_prefill: rectify.light_touch.tier.prefill,
+        light_touch_extra_directive: rectify.light_touch.extra_directive.clone(),
+    }
+}
+
+fn parse_policy(section: &str, name: &str) -> anyhow::Result<spokenrectifier_llm::ThinkingPolicy> {
+    spokenrectifier_llm::ThinkingPolicy::from_str_name(name).ok_or_else(|| {
+        anyhow!(
+            "[{section}] thinking_policy \"{name}\" is unknown: pick one of \
+             \"always\", \"placeholders\", \"off\""
+        )
+    })
+}
+
+/// The effective `[rectify]` behavior from the layer files — the
+/// rectify pane's initial paint, legacy `[llm]` keys already folded in
+/// through the grandfather (ADR-0015). File-level and
+/// engine-independent: the client adopts the keys at its (re)build, and
+/// the window's save re-adopts at once via [`apply_connection_configs`].
+pub fn rectify_behavior() -> anyhow::Result<BridgeRectifyBehavior> {
+    let dirs = spokenrectifier_config::search_dirs();
+    let config =
+        spokenrectifier_llm::load_llm_config(&dirs).map_err(|err| anyhow!("LLM {}", err.0))?;
+    Ok(rectify_view(&config.rectify))
+}
+
+/// Write the rectify editor's whole model back into the layer files (see
+/// `save_rectify_behavior`: the owning layers, the per-layer legacy-key
+/// translation on the first save, the extra directive's blank-removal)
+/// and return the re-read view — the files' truth, not the ask. No
+/// combination validation rides this path: a thinking-off × prefill-on
+/// tier saves fine, the pane's live warning is presentation only
+/// (`.scratch/settings-window/issues/08`, ruling 4). The window calls
+/// [`apply_connection_configs`] right after — the next attempt runs the
+/// new behavior.
+pub fn set_rectify_behavior(edit: BridgeRectifyBehavior) -> anyhow::Result<BridgeRectifyBehavior> {
+    let dirs = spokenrectifier_config::search_dirs();
+    let full = spokenrectifier_llm::TierEdit {
+        thinking_policy: parse_policy("rectify.full", &edit.full_thinking_policy)?,
+        prefill: edit.full_prefill,
+    };
+    let light = spokenrectifier_llm::LightTouchEdit {
+        enabled: edit.light_touch_enabled,
+        max_chars: usize::try_from(edit.light_touch_max_chars).map_err(|_| {
+            anyhow!(
+                "[rectify.light_touch] max_chars {} is out of range",
+                edit.light_touch_max_chars
+            )
+        })?,
+        tier: spokenrectifier_llm::TierEdit {
+            thinking_policy: parse_policy(
+                "rectify.light_touch",
+                &edit.light_touch_thinking_policy,
+            )?,
+            prefill: edit.light_touch_prefill,
+        },
+        extra_directive: edit.light_touch_extra_directive,
+    };
+    spokenrectifier_llm::save_rectify_behavior(
+        &dirs,
+        &spokenrectifier_llm::RectifyBehaviorEdit {
+            full,
+            light_touch: light,
+        },
+    )
+    .map_err(|err| anyhow!("LLM {}", err.0))?;
+    rectify_behavior()
 }
 
 // -- the terms domain (术语, ticket 19) ----------------------------------------
@@ -1705,6 +1810,48 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap();
         setup();
         apply_connection_configs().unwrap();
+    }
+
+    /// The rectify pane's wire mirror maps every config field, the
+    /// policies as their lowercase strings, and the extra directive
+    /// as-is (the file-touching paths are tested at the llm crate's
+    /// config layer; this locks the bridge mapping itself).
+    #[test]
+    fn the_rectify_view_mirrors_the_config_field_by_field() {
+        use spokenrectifier_llm::{LightTouchConfig, RectifyConfig, RectifyTier, ThinkingPolicy};
+        let rectify = RectifyConfig {
+            full: RectifyTier {
+                thinking_policy: ThinkingPolicy::Placeholders,
+                prefill: false,
+            },
+            light_touch: LightTouchConfig {
+                enabled: false,
+                max_chars: 12,
+                tier: RectifyTier {
+                    thinking_policy: ThinkingPolicy::Off,
+                    prefill: true,
+                },
+                extra_directive: Some("短句保留节奏".into()),
+            },
+        };
+        let view = rectify_view(&rectify);
+        assert_eq!(view.full_thinking_policy, "placeholders");
+        assert!(!view.full_prefill);
+        assert!(!view.light_touch_enabled);
+        assert_eq!(view.light_touch_max_chars, 12);
+        assert_eq!(view.light_touch_thinking_policy, "off");
+        assert!(view.light_touch_prefill);
+        assert_eq!(
+            view.light_touch_extra_directive.as_deref(),
+            Some("短句保留节奏")
+        );
+        // An unknown policy name is refused naming the section — the
+        // wire never accepts a fourth tier.
+        let err = parse_policy("rectify.full", "sometimes")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("rectify.full"), "got: {err}");
+        assert!(err.contains("sometimes"), "got: {err}");
     }
 
     /// The quick panel's close-restore is a quiet no-op on the fake

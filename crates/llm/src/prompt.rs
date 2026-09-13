@@ -211,6 +211,16 @@ const PLACEHOLDER_RULE_OFF: &str = "\
 const INTENSITY_LIGHT_TOUCH_PLACEHOLDERS: &str = "\
 【整理强度】轻修(本次输入较短):只做第 1、2、3 类变换与数字规范化、标点修正。禁止改变句序,禁止合并或拆分句子,禁止改写措辞风格,禁止增删任何信息。记号两侧紧挨着槽的名词短语照常整块吸进预填——以把事物名得更完整的一侧为准,两侧各说的是不同事物且都完整就不吸;被吸走的不留在正文——吸收不算增删,也不违背原样保留。用户的原措辞与表达顺序尽量原样保留,被吸走的指称不算在内。";
 
+/// The scope line riding the light-touch extra directive (ADR-0016): the
+/// directive is mounted on the light-touch intensity tier — one scope
+/// sentence plus the user's text as its own section right after the
+/// intensity section, no precedence row of its own, no trailing
+/// reminder. The sentence carries the whole stance: form and tone only,
+/// always under the fidelity rule, and it yields to the scenario and
+/// global directives (the tier below ADR-0006's stack, above the
+/// remaining form rules).
+const LIGHT_TOUCH_EXTRA_SCOPE: &str = "(仅轻修时生效的额外指令,必须严格执行;只塑形式与语气,恒受保真铁律约束;与【目标语体】或【全局指令】冲突时,以后者为准)";
+
 /// The directive-precedence line with pins: the placeholder rule joins the
 /// fidelity rule in the exception list — a directive may not restyle or
 /// absorb a slot (ticket 12's injection-time rewrites). Grammar-agnostic,
@@ -294,8 +304,33 @@ fn census_placeholder_numbers(text: &str) -> Vec<&str> {
     found
 }
 
-/// Compose the full chat prompt for one rectify request.
+/// Whether the placeholder census finds a pin in the transcript — the
+/// one-question census shell the thinking policy's `placeholders` tier
+/// runs (ADR-0015): the SAME census the prompt's injection gate below
+/// keys on, so "thinking on for pins" can never disagree with "the
+/// placeholder branch injected".
+pub(crate) fn has_pins(text: &str) -> bool {
+    !census_placeholder_numbers(text).is_empty()
+}
+
+/// Compose the full chat prompt for one rectify request. The
+/// light-touch extra directive rides the client's config (ADR-0016), so
+/// the no-argument entry point composes without one — today's prompt
+/// byte for byte.
 pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPrompt {
+    compose_prompt_with_extra(request, intensity, None)
+}
+
+/// Compose with a light-touch extra directive (`None` or blank = the
+/// section is absent entirely, both pinned forms included — the
+/// injection is orthogonal to the pin state; ADR-0016). Full rectify
+/// never carries the section: the directive hangs on the light-touch
+/// intensity tier alone.
+pub fn compose_prompt_with_extra(
+    request: &RectifyRequest,
+    intensity: Intensity,
+    extra_directive: Option<&str>,
+) -> ChatPrompt {
     // The injection gate: a mechanical census of the frozen transcript,
     // never a count of pin events — `RectifyRequest` carries none, and a
     // shape that merely occurs in the spoken text counts all the same
@@ -356,6 +391,16 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
         .into(),
     );
     system_sections.push(String::new());
+    // The light-touch extra directive's own section, right after the
+    // intensity section it hangs on (ADR-0016): absent when unset or
+    // blank, present in both pinned forms (orthogonal to the pin state),
+    // never in full rectify. No precedence row, no user-message reminder.
+    if let Intensity::LightTouch = intensity
+        && let Some(text) = extra_directive.filter(|text| !text.trim().is_empty())
+    {
+        system_sections.push(format!("【轻修额外指令】{LIGHT_TOUCH_EXTRA_SCOPE}\n{text}"));
+        system_sections.push(String::new());
+    }
     // The global directive's own block, one step above 【目标语体】 in the
     // precedence order — absent entirely when unset, so the prompt stays
     // byte-identical to the pre-global composition. With pins both
@@ -707,9 +752,11 @@ mod tests {
         req.paragraphs = vec!["参考文档里的‡9‡记号".into()];
         let prompt = compose_prompt(&req, Intensity::Full);
         assert!(prompt.system.contains(PLACEHOLDER_RULE));
-        assert!(prompt
-            .user
-            .contains(&format!("{PLACEHOLDER_CENSUS_HEADER}\n- ‡9‡")));
+        assert!(
+            prompt
+                .user
+                .contains(&format!("{PLACEHOLDER_CENSUS_HEADER}\n- ‡9‡"))
+        );
     }
 
     #[test]
@@ -852,13 +899,9 @@ mod tests {
         // One bare-sentinel row per number (the repeated ‡1‡ is one row),
         // numeric order, no value column at all — a pure number anchor.
         let prompt = compose_prompt(&pin_request(None, None, vec![]), Intensity::Full);
-        assert!(
-            prompt
-                .user
-                .contains(&format!(
-                    "{PLACEHOLDER_CENSUS_HEADER}\n- ‡1‡\n- ‡2‡\n- ‡10‡"
-                ))
-        );
+        assert!(prompt.user.contains(&format!(
+            "{PLACEHOLDER_CENSUS_HEADER}\n- ‡1‡\n- ‡2‡\n- ‡10‡"
+        )));
         assert!(!prompt.user.contains("- ‡1‡:"));
     }
 
@@ -882,7 +925,10 @@ mod tests {
                 let on = request(style, global, vec![]);
                 let off_prompt = compose_prompt(&off, intensity);
                 let on_prompt = compose_prompt(&on, intensity);
-                assert_eq!(off_prompt, on_prompt, "prefill leaked into no-pin: {style:?} {global:?}");
+                assert_eq!(
+                    off_prompt, on_prompt,
+                    "prefill leaked into no-pin: {style:?} {global:?}"
+                );
             }
         }
     }
@@ -902,7 +948,11 @@ mod tests {
         // containment is decisive.
         assert!(prompt.system.contains(PLACEHOLDER_RULE_OFF));
         assert!(!prompt.system.contains(PLACEHOLDER_RULE));
-        assert!(prompt.system.starts_with(&format!("{HEADER}{PLACEHOLDER_HEADER_TAIL}")));
+        assert!(
+            prompt
+                .system
+                .starts_with(&format!("{HEADER}{PLACEHOLDER_HEADER_TAIL}"))
+        );
         // The shared exception rewrites: pin variants in, base lines out.
         assert!(prompt.system.contains(DIRECTIVE_PRECEDENCE_PLACEHOLDERS));
         assert!(prompt.system.contains(GLOBAL_PRECEDENCE_PLACEHOLDERS));
@@ -946,5 +996,101 @@ mod tests {
         assert!(!light.system.contains("被吸走的指称不算在内"));
         let full = compose_prompt(&pin_request_off(None, None, vec![]), Intensity::Full);
         assert!(full.system.contains(INTENSITY_FULL));
+    }
+
+    // -- the light-touch extra directive (ADR-0016) ------------------------
+
+    const EXTRA: &str = "短句尽量保留口语的节奏。";
+
+    #[test]
+    fn an_unset_extra_directive_leaves_no_trace_anywhere() {
+        // Both entry points compose byte-identically without one: the
+        // section is absent entirely, golden contract untouched.
+        for intensity in [Intensity::LightTouch, Intensity::Full] {
+            let plain = compose_prompt(&request(None, Some(GLOBAL), vec![]), intensity);
+            let blank = compose_prompt_with_extra(
+                &request(None, Some(GLOBAL), vec![]),
+                intensity,
+                Some("   "),
+            );
+            for prompt in [&plain, &blank] {
+                assert!(
+                    !prompt.system.contains("【轻修额外指令】"),
+                    "trace: {}",
+                    prompt.system
+                );
+                assert!(!prompt.system.contains(LIGHT_TOUCH_EXTRA_SCOPE));
+                assert!(!prompt.user.contains("【轻修额外指令】"));
+            }
+            assert_eq!(plain, blank);
+        }
+    }
+
+    #[test]
+    fn the_extra_directive_gets_its_own_section_after_the_intensity() {
+        let prompt = compose_prompt_with_extra(
+            &request(None, Some(GLOBAL), vec![]),
+            Intensity::LightTouch,
+            Some(EXTRA),
+        );
+        assert!(prompt.system.contains("【轻修额外指令】"));
+        assert!(prompt.system.contains(LIGHT_TOUCH_EXTRA_SCOPE));
+        // The scope sentence rides above the text; the section sits
+        // between the intensity section and the global directive's block.
+        let intensity_at = prompt.system.find("【整理强度】").expect("intensity");
+        let extra_at = prompt.system.find(EXTRA).expect("extra text");
+        let scope_at = prompt
+            .system
+            .find(LIGHT_TOUCH_EXTRA_SCOPE)
+            .expect("scope line");
+        let global_at = prompt.system.find(GLOBAL).expect("global directive");
+        assert!(intensity_at < scope_at);
+        assert!(scope_at < extra_at, "the scope line rides above the text");
+        assert!(
+            extra_at < global_at,
+            "the section precedes the global block"
+        );
+        // No trailing reminder in the user message.
+        assert!(!prompt.user.contains("【轻修额外指令】"));
+    }
+
+    #[test]
+    fn the_extra_directive_is_orthogonal_to_the_pin_state() {
+        // Both pinned forms carry the section, pinned-in and pass-through
+        // alike — the directive hangs on the intensity, not the pins.
+        let inline = compose_prompt_with_extra(
+            &pin_request(None, None, vec![]),
+            Intensity::LightTouch,
+            Some(EXTRA),
+        );
+        assert!(inline.system.contains("【轻修额外指令】"));
+        let pass_through = compose_prompt_with_extra(
+            &pin_request_off(None, None, vec![]),
+            Intensity::LightTouch,
+            Some(EXTRA),
+        );
+        assert!(pass_through.system.contains("【轻修额外指令】"));
+    }
+
+    #[test]
+    fn full_rectify_never_carries_the_extra_directive() {
+        let prompt =
+            compose_prompt_with_extra(&request(None, None, vec![]), Intensity::Full, Some(EXTRA));
+        assert!(!prompt.system.contains("【轻修额外指令】"));
+        assert!(!prompt.system.contains(EXTRA));
+    }
+
+    #[test]
+    fn has_pins_agrees_with_the_injection_gate() {
+        // One census, two consumers: the same transcripts that trigger
+        // the placeholder branch report pins, and vice versa.
+        for (text, pins) in [
+            ("记一下‡1‡的安排", true),
+            ("相邻‡1‡‡2‡与多位‡12‡", true),
+            ("没有记号的短句", false),
+            ("‡ 1‡ ‡１‡ ‡1a‡", false),
+        ] {
+            assert_eq!(has_pins(text), pins, "{text}");
+        }
     }
 }

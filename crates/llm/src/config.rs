@@ -11,27 +11,24 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde_json::Value;
+use spokenrectifier_config::LayerSource;
 use spokenrectifier_config::load_section_layers;
-use spokenrectifier_config::section_write::{KeyEdit, KeyStatus, SectionField, WriteLayer};
+use spokenrectifier_config::section_write::{
+    KeyEdit, KeyStatus, SectionField, WriteLayer, write_section_fields,
+};
 
+use crate::intensity::Intensity;
 use crate::vendor::Vendor;
 
 /// Everything the rectify pipeline needs to call the model.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmConfig {
-    /// Thinking mode. On by default: with the zero-example rectify
-    /// prompt, placeholder absorption depends on it (v4-flash probe,
-    /// 工单 33: family 10/10 with thinking, 3/10 without); turning it
-    /// off buys back 1–2s of light-band latency at that cost.
-    pub thinking: bool,
-    /// Whether pinned prompts teach the inline prefill grammar. On by
-    /// default (today's behavior); `false` composes the pass-through
-    /// form — marks ride the rectified text as-is, no census table
-    /// (ADR-0014). Independent of `thinking`: separate knobs.
-    pub prefill: bool,
-    /// Utterances strictly below this many characters take light-touch
-    /// rectify; at or above, full rectify. Same model either way.
-    pub light_touch_max_chars: usize,
+    /// The rectify behavior face — the `[rectify]` section's keys
+    /// (thinking policy, prefill, the light-touch gate and extra
+    /// directive; ADR-0015/0016). Every key is a `LlmConfig` layer-file
+    /// key: a rebuilt client carries a change for free, which is the
+    /// whole runtime-adoption story for the rectify domain (ADR-0010).
+    pub rectify: RectifyConfig,
     /// The one model the mode calls, for every intensity.
     pub model: ModelConfig,
     /// One key pair per vendor, from the `[llm.<vendor>]` sub-sections —
@@ -60,6 +57,129 @@ pub struct VendorKeys {
     pub api_key_env: Option<String>,
 }
 
+// -- the rectify behavior face ([rectify], ADR-0015/0016) --------------------
+
+/// When the model thinks (glossary: 思考策略). Three tiers, serialized as
+/// the three lowercase strings — never a bool; the legacy `[llm]`
+/// `thinking` bool maps onto `Always`/`Off` through the grandfather.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThinkingPolicy {
+    /// Thinking on for every rectify (today's default: placeholder
+    /// absorption depends on it — v4-flash probe, 工单 33).
+    Always,
+    /// Thinking on only when the transcript's placeholder census finds
+    /// a pin — the same census the prompt's injection gate runs
+    /// (ADR-0012); the two must never disagree.
+    Placeholders,
+    /// Thinking off for every rectify — buys back light-band latency
+    /// and leaves prefill mostly empty.
+    Off,
+}
+
+impl ThinkingPolicy {
+    /// The file/wire name — one of the three lowercase strings.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ThinkingPolicy::Always => "always",
+            ThinkingPolicy::Placeholders => "placeholders",
+            ThinkingPolicy::Off => "off",
+        }
+    }
+
+    /// Parse the file/wire name, strictly: the three lowercase strings
+    /// and nothing else — no bools, no case variants (ADR-0015).
+    pub fn from_str_name(name: &str) -> Option<Self> {
+        match name {
+            "always" => Some(ThinkingPolicy::Always),
+            "placeholders" => Some(ThinkingPolicy::Placeholders),
+            "off" => Some(ThinkingPolicy::Off),
+            _ => None,
+        }
+    }
+
+    /// The save-time translation of the legacy `[llm] thinking` bool:
+    /// `true` is today's default (always), `false` its opposite.
+    fn from_legacy_bool(on: bool) -> Self {
+        if on {
+            ThinkingPolicy::Always
+        } else {
+            ThinkingPolicy::Off
+        }
+    }
+}
+
+/// One intensity tier's prompt knobs — the shape of `[rectify.full]`,
+/// and of `[rectify.light_touch]`'s policy/prefill pair. The two tiers
+/// never inherit from each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RectifyTier {
+    /// When the model thinks for this tier's rectifies.
+    pub thinking_policy: ThinkingPolicy,
+    /// Whether pinned prompts teach the inline prefill grammar (on) or
+    /// compose the pass-through form (off; ADR-0014). Independent of
+    /// the policy: separate knobs.
+    pub prefill: bool,
+}
+
+/// The `[rectify.light_touch]` tier: the two prompt knobs plus the
+/// light-touch gate and the extra directive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LightTouchConfig {
+    /// The light-touch master switch. Off means every utterance takes
+    /// full rectify at runtime — the keys below stay stored, just
+    /// unadopted (ADR-0015), and the extra directive never injects.
+    pub enabled: bool,
+    /// Utterances strictly below this many characters take light-touch
+    /// rectify; at or above, full rectify. Same model either way.
+    pub max_chars: usize,
+    pub tier: RectifyTier,
+    /// The light-touch extra directive (ADR-0016): injected as its own
+    /// section after the light-touch intensity section, light-touch
+    /// attempts only. `None` (key absent, empty, or all-whitespace) =
+    /// not injected — today's prompt byte for byte.
+    pub extra_directive: Option<String>,
+}
+
+/// The folded `[rectify]` section: the full and light-touch tiers.
+/// Missing section, missing keys = today's behavior on every field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RectifyConfig {
+    pub full: RectifyTier,
+    pub light_touch: LightTouchConfig,
+}
+
+impl RectifyConfig {
+    /// Today's defaults: both tiers think always with prefill on, the
+    /// light-touch gate open at 40 characters, no extra directive —
+    /// existing users migrate nothing.
+    fn today() -> Self {
+        RectifyConfig {
+            full: RectifyTier {
+                thinking_policy: ThinkingPolicy::Always,
+                prefill: true,
+            },
+            light_touch: LightTouchConfig {
+                enabled: true,
+                max_chars: 40,
+                tier: RectifyTier {
+                    thinking_policy: ThinkingPolicy::Always,
+                    prefill: true,
+                },
+                extra_directive: None,
+            },
+        }
+    }
+
+    /// The chosen intensity's prompt knobs (the evaluation order's step
+    /// ②: intensity first, then that tier's policy/prefill — ADR-0015).
+    pub fn tier(&self, intensity: Intensity) -> &RectifyTier {
+        match intensity {
+            Intensity::LightTouch => &self.light_touch.tier,
+            Intensity::Full => &self.full,
+        }
+    }
+}
+
 /// One OpenAI-compatible endpoint.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelConfig {
@@ -80,14 +200,13 @@ pub struct ModelConfig {
 }
 
 impl LlmConfig {
-    /// The v1 default: DeepSeek V4-Flash, thinking on, 40-character
-    /// light-touch threshold. Every vendor's key slot starts empty (the
-    /// conventional environment names apply at resolution).
+    /// The v1 default: DeepSeek V4-Flash over today's rectify behavior
+    /// (thinking always, prefill on, light-touch gate open at 40
+    /// characters, no extra directive). Every vendor's key slot starts
+    /// empty (the conventional environment names apply at resolution).
     pub fn defaults() -> Self {
         LlmConfig {
-            thinking: true,
-            prefill: true,
-            light_touch_max_chars: 40,
+            rectify: RectifyConfig::today(),
             endpoint_configured: false,
             legacy_flat: VendorKeys::default(),
             vendor_keys: Vendor::ALL
@@ -125,6 +244,16 @@ impl LlmConfig {
                     .unwrap_or_else(|| vendor.default_env().to_string()),
             ),
         }
+    }
+
+    /// The fidelity-eval copy of this config: the eval never runs user
+    /// directive text (ADR-0006 posture; ADR-0016 for this key), so the
+    /// light-touch extra directive is stripped whatever the layers
+    /// carry — style and global are already `None` per request by
+    /// construction.
+    pub fn for_eval(mut self) -> Self {
+        self.rectify.light_touch.extra_directive = None;
+        self
     }
 }
 
@@ -209,14 +338,21 @@ impl LlmSection {
 }
 
 fn apply(config: &mut LlmConfig, llm: LlmSection, flat: &mut FlatPair) {
+    // The three legacy prompt knobs are grandfather keys (ADR-0015):
+    // they map onto BOTH tiers here, within this layer's fold — a same
+    // layer's `[rectify]` overlay then wins (applied after), and a
+    // deeper layer's overlay wins by the fold order below.
     if let Some(v) = llm.thinking {
-        config.thinking = v;
+        let policy = ThinkingPolicy::from_legacy_bool(v);
+        config.rectify.full.thinking_policy = policy;
+        config.rectify.light_touch.tier.thinking_policy = policy;
     }
     if let Some(v) = llm.prefill {
-        config.prefill = v;
+        config.rectify.full.prefill = v;
+        config.rectify.light_touch.tier.prefill = v;
     }
     if let Some(v) = llm.light_touch_max_chars {
-        config.light_touch_max_chars = v;
+        config.rectify.light_touch.max_chars = v;
     }
     if let Some(v) = llm.base_url {
         config.model.base_url = v;
@@ -259,32 +395,51 @@ fn apply(config: &mut LlmConfig, llm: LlmSection, flat: &mut FlatPair) {
     }
 }
 
-/// Load the `[llm]` config from the layer files, wherever they live among
-/// `dirs`: defaults, overlaid with `spokenrectifier.toml`, then
-/// `spokenrectifier.local.toml` (which wins). Missing files are fine;
-/// malformed ones are an error naming the file.
+/// Load the `[llm]` and `[rectify]` config from the layer files,
+/// wherever they live among `dirs`: defaults, overlaid with
+/// `spokenrectifier.toml`, then `spokenrectifier.local.toml` (which
+/// wins). Missing files are fine; malformed ones are an error naming
+/// the file. The grandfather (ADR-0015) folds per layer, shared first:
+/// within one layer the legacy `[llm]` prompt knobs land before that
+/// layer's `[rectify]` overlay, so a same-layer new key beats the old
+/// one, and across layers local wins whatever it says.
 pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
     let mut config = LlmConfig::defaults();
     let mut flat = FlatPair::default();
-    let layers =
+    let mut llm_layers =
         load_section_layers::<LlmSection>(dirs, "llm").map_err(|err| ConfigError(err.0))?;
-    for layer in layers {
-        // Endpoint fields carry real-model intent (api_key_env alone does
-        // not: it only names where a key would come from, which the
-        // built-in defaults do too).
-        if layer.value.model.is_some()
-            || layer.value.base_url.is_some()
-            || layer
-                .value
-                .api_key
-                .as_deref()
-                .is_some_and(|k| !k.is_empty())
-            || layer.value.any_slot_key()
-        {
-            config.endpoint_configured = true;
+    let rectify_layers = load_rectify_layers(dirs)?;
+    for source in [LayerSource::Shared, LayerSource::Local] {
+        if let Some(at) = llm_layers.iter().position(|layer| layer.source == source) {
+            let layer = llm_layers.swap_remove(at);
+            // Endpoint fields carry real-model intent (api_key_env alone
+            // does not: it only names where a key would come from, which
+            // the built-in defaults do too).
+            if layer.value.model.is_some()
+                || layer.value.base_url.is_some()
+                || layer
+                    .value
+                    .api_key
+                    .as_deref()
+                    .is_some_and(|k| !k.is_empty())
+                || layer.value.any_slot_key()
+            {
+                config.endpoint_configured = true;
+            }
+            apply(&mut config, layer.value, &mut flat);
         }
-        apply(&mut config, layer.value, &mut flat);
+        if let Some(layer) = rectify_layers.iter().find(|layer| layer.source == source) {
+            apply_rectify(&mut config.rectify, &layer.value);
+        }
     }
+    // A blank extra directive is no directive (ADR-0016) — folded last
+    // so a local blank still overrides a shared text into nothing.
+    config.rectify.light_touch.extra_directive = config
+        .rectify
+        .light_touch
+        .extra_directive
+        .take()
+        .filter(|text| !text.trim().is_empty());
     // The save path's migration input: the flat pair as left behind.
     config.legacy_flat = flat;
     // Resolve the ACTIVE vendor's pair: its own slot first, the legacy
@@ -305,6 +460,232 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
         ));
     }
     Ok(config)
+}
+
+// -- the [rectify] overlay: strict shape, hand-validated ---------------------
+
+/// One layer's `[rectify]` overlay, already validated: every field the
+/// section allows, none it does not.
+#[derive(Debug, Default)]
+struct RectifyOverlay {
+    full: TierOverlay,
+    light_touch: LightTouchOverlay,
+}
+
+#[derive(Debug, Default)]
+struct TierOverlay {
+    thinking_policy: Option<ThinkingPolicy>,
+    prefill: Option<bool>,
+}
+
+#[derive(Debug, Default)]
+struct LightTouchOverlay {
+    enabled: Option<bool>,
+    max_chars: Option<usize>,
+    tier: TierOverlay,
+    extra_directive: Option<String>,
+}
+
+/// Fold one validated `[rectify]` overlay onto the config, field by
+/// field — the two tiers never touch each other (ADR-0015).
+fn apply_rectify(config: &mut RectifyConfig, overlay: &RectifyOverlay) {
+    if let Some(v) = overlay.full.thinking_policy {
+        config.full.thinking_policy = v;
+    }
+    if let Some(v) = overlay.full.prefill {
+        config.full.prefill = v;
+    }
+    if let Some(v) = overlay.light_touch.enabled {
+        config.light_touch.enabled = v;
+    }
+    if let Some(v) = overlay.light_touch.max_chars {
+        config.light_touch.max_chars = v;
+    }
+    if let Some(v) = overlay.light_touch.tier.thinking_policy {
+        config.light_touch.tier.thinking_policy = v;
+    }
+    if let Some(v) = overlay.light_touch.tier.prefill {
+        config.light_touch.tier.prefill = v;
+    }
+    if let Some(v) = &overlay.light_touch.extra_directive {
+        config.light_touch.extra_directive = Some(v.clone());
+    }
+}
+
+/// The strict `[rectify]` read (ADR-0015/0016): the section allows only
+/// `full` / `light_touch`, each sub-section only its listed keys, and
+/// every value must be exactly its type — `thinking_policy` the three
+/// lowercase strings (never a bool), `max_chars` an integer ≥ 1,
+/// `enabled` / `prefill` booleans, `extra_directive` a string. Anything
+/// else fails the whole load, naming the file and the section. The
+/// section is loaded raw and validated here (not by serde) so the error
+/// can name the offending sub-section.
+fn load_rectify_layers(
+    dirs: &[PathBuf],
+) -> Result<Vec<spokenrectifier_config::Layer<RectifyOverlay>>, ConfigError> {
+    let layers =
+        load_section_layers::<toml::Table>(dirs, "rectify").map_err(|err| ConfigError(err.0))?;
+    layers
+        .iter()
+        .map(|layer| {
+            validate_rectify(&layer.value, layer.source.file_name()).map(|value| {
+                spokenrectifier_config::Layer {
+                    source: layer.source,
+                    value,
+                }
+            })
+        })
+        .collect()
+}
+
+/// Validate one layer's raw `[rectify]` table into an overlay.
+fn validate_rectify(table: &toml::Table, file: &str) -> Result<RectifyOverlay, ConfigError> {
+    let mut overlay = RectifyOverlay::default();
+    for (key, value) in table {
+        match key.as_str() {
+            "full" => {
+                let sub = value.as_table().ok_or_else(|| {
+                    ConfigError(format!("{file}: [rectify.full] must be a table"))
+                })?;
+                for (name, field) in sub {
+                    match name.as_str() {
+                        "thinking_policy" => {
+                            overlay.full.thinking_policy =
+                                Some(parse_policy(field, file, "rectify.full")?)
+                        }
+                        "prefill" => {
+                            overlay.full.prefill =
+                                Some(expect_bool(field, file, "rectify.full", "prefill")?)
+                        }
+                        other => {
+                            return Err(unknown_key(
+                                file,
+                                "rectify.full",
+                                other,
+                                "`thinking_policy`, `prefill`",
+                            ));
+                        }
+                    }
+                }
+            }
+            "light_touch" => {
+                let sub = value.as_table().ok_or_else(|| {
+                    ConfigError(format!("{file}: [rectify.light_touch] must be a table"))
+                })?;
+                for (name, field) in sub {
+                    match name.as_str() {
+                        "enabled" => {
+                            overlay.light_touch.enabled =
+                                Some(expect_bool(field, file, "rectify.light_touch", "enabled")?)
+                        }
+                        "max_chars" => {
+                            overlay.light_touch.max_chars =
+                                Some(expect_max_chars(field, file, "rectify.light_touch")?)
+                        }
+                        "thinking_policy" => {
+                            overlay.light_touch.tier.thinking_policy =
+                                Some(parse_policy(field, file, "rectify.light_touch")?)
+                        }
+                        "prefill" => {
+                            overlay.light_touch.tier.prefill =
+                                Some(expect_bool(field, file, "rectify.light_touch", "prefill")?)
+                        }
+                        "extra_directive" => {
+                            overlay.light_touch.extra_directive = Some(expect_string(
+                                field,
+                                file,
+                                "rectify.light_touch",
+                                "extra_directive",
+                            )?)
+                        }
+                        other => {
+                            return Err(unknown_key(
+                                file,
+                                "rectify.light_touch",
+                                other,
+                                "`enabled`, `max_chars`, `thinking_policy`, `prefill`, \
+                                 `extra_directive`",
+                            ));
+                        }
+                    }
+                }
+            }
+            other => return Err(unknown_key(file, "rectify", other, "`full`, `light_touch`")),
+        }
+    }
+    Ok(overlay)
+}
+
+/// One `thinking_policy` value: the three lowercase strings, nothing
+/// else — a bool or a case variant is a loud refusal, never a silent
+/// map (ADR-0015).
+fn parse_policy(
+    value: &toml::Value,
+    file: &str,
+    section: &str,
+) -> Result<ThinkingPolicy, ConfigError> {
+    let accepted = "the strings \"always\", \"placeholders\", or \"off\"";
+    let text = value.as_str().ok_or_else(|| {
+        ConfigError(format!(
+            "{file}: [{section}]: thinking_policy accepts only {accepted} (lowercase), \
+             never a boolean"
+        ))
+    })?;
+    ThinkingPolicy::from_str_name(text).ok_or_else(|| {
+        ConfigError(format!(
+            "{file}: [{section}]: thinking_policy accepts only {accepted} (lowercase); \
+             got \"{text}\""
+        ))
+    })
+}
+
+fn expect_bool(
+    value: &toml::Value,
+    file: &str,
+    section: &str,
+    field: &str,
+) -> Result<bool, ConfigError> {
+    value.as_bool().ok_or_else(|| {
+        ConfigError(format!(
+            "{file}: [{section}]: {field} must be a boolean (true/false)"
+        ))
+    })
+}
+
+fn expect_max_chars(value: &toml::Value, file: &str, section: &str) -> Result<usize, ConfigError> {
+    let n = value.as_integer().ok_or_else(|| {
+        ConfigError(format!(
+            "{file}: [{section}]: max_chars must be a positive integer"
+        ))
+    })?;
+    if n < 1 {
+        return Err(ConfigError(format!(
+            "{file}: [{section}]: max_chars must be a positive integer (at least 1); got {n}"
+        )));
+    }
+    usize::try_from(n).map_err(|_| {
+        ConfigError(format!(
+            "{file}: [{section}]: max_chars {n} is out of range"
+        ))
+    })
+}
+
+fn expect_string(
+    value: &toml::Value,
+    file: &str,
+    section: &str,
+    field: &str,
+) -> Result<String, ConfigError> {
+    value
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| ConfigError(format!("{file}: [{section}]: {field} must be a string")))
+}
+
+fn unknown_key(file: &str, section: &str, key: &str, allowed: &str) -> ConfigError {
+    ConfigError(format!(
+        "{file}: [{section}]: unknown key `{key}`; allowed: {allowed}"
+    ))
 }
 
 // -- the settings editor's write path (ticket 19) ----------------------------
@@ -401,6 +782,171 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
     Ok(())
 }
 
+// -- the rectify editor's write path (ticket 13) ------------------------------
+
+/// One tier's editor fields, mirroring `[rectify.full]` (and the
+/// light-touch tier's policy/prefill pair).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TierEdit {
+    pub thinking_policy: ThinkingPolicy,
+    pub prefill: bool,
+}
+
+/// The light-touch tier's editor fields, mirroring
+/// `[rectify.light_touch]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LightTouchEdit {
+    pub enabled: bool,
+    pub max_chars: usize,
+    pub tier: TierEdit,
+    /// The extra directive's text; `None` or blank = unset (the key is
+    /// removed — empty is the off form, ADR-0016).
+    pub extra_directive: Option<String>,
+}
+
+/// What the rectify editor writes back: the whole `[rectify]` model —
+/// both tiers, the gate, and the extra directive. Saving writes exactly
+/// this, so the next load returns what the user saw.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RectifyBehaviorEdit {
+    pub full: TierEdit,
+    pub light_touch: LightTouchEdit,
+}
+
+impl RectifyBehaviorEdit {
+    fn tier_fields(tier: &TierEdit) -> Vec<SectionField> {
+        vec![
+            SectionField::str("thinking_policy", tier.thinking_policy.as_str()),
+            SectionField::bool("prefill", tier.prefill),
+        ]
+    }
+}
+
+/// Write the rectify editor's model back into the layer files. The
+/// model lands in the layer that owns each `[rectify.*]` sub-section
+/// (the shared file when none does); the extra directive's blank form
+/// removes the key.
+///
+/// The first rectify-domain save also retires the legacy `[llm]`
+/// `thinking` / `prefill` / `light_touch_max_chars` keys, per layer
+/// (ADR-0015): whichever layer file carries an old key gets its
+/// translation written into that same layer (a local `thinking =
+/// false` becomes local `[rectify]` policy "off", never promoted into
+/// the committable shared file), then the old keys are stripped from
+/// every layer. A same-layer new key already present is not clobbered
+/// by the translation. Never opening the rectify domain leaves the old
+/// keys readable forever — zero migration.
+pub fn save_rectify_behavior(
+    dirs: &[PathBuf],
+    edit: &RectifyBehaviorEdit,
+) -> Result<(), ConfigError> {
+    if edit.light_touch.max_chars < 1 {
+        return Err(ConfigError(
+            "[rectify.light_touch] max_chars must be a positive integer (at least 1)".into(),
+        ));
+    }
+    // The migration scan: which layers carry which legacy keys, and
+    // which same-layer new keys already shadow them.
+    let llm_layers =
+        load_section_layers::<LlmSection>(dirs, "llm").map_err(|err| ConfigError(err.0))?;
+    let rectify_layers = load_rectify_layers(dirs)?;
+    for source in [LayerSource::Shared, LayerSource::Local] {
+        let layer = match source {
+            LayerSource::Shared => WriteLayer::Shared,
+            LayerSource::Local => WriteLayer::Local,
+        };
+        let Some(llm) = llm_layers.iter().find(|l| l.source == source) else {
+            continue;
+        };
+        let rectify = rectify_layers
+            .iter()
+            .find(|l| l.source == source)
+            .map(|l| &l.value);
+        let mut full_fields = Vec::new();
+        let mut light_fields = Vec::new();
+        if let Some(on) = llm.value.thinking {
+            let policy = ThinkingPolicy::from_legacy_bool(on);
+            if rectify.and_then(|r| r.full.thinking_policy).is_none() {
+                full_fields.push(SectionField::str("thinking_policy", policy.as_str()));
+            }
+            if rectify
+                .and_then(|r| r.light_touch.tier.thinking_policy)
+                .is_none()
+            {
+                light_fields.push(SectionField::str("thinking_policy", policy.as_str()));
+            }
+        }
+        if let Some(on) = llm.value.prefill {
+            if rectify.and_then(|r| r.full.prefill).is_none() {
+                full_fields.push(SectionField::bool("prefill", on));
+            }
+            if rectify.and_then(|r| r.light_touch.tier.prefill).is_none() {
+                light_fields.push(SectionField::bool("prefill", on));
+            }
+        }
+        if let Some(n) = llm.value.light_touch_max_chars
+            && rectify.and_then(|r| r.light_touch.max_chars).is_none()
+        {
+            light_fields.push(SectionField::int("max_chars", n as i64));
+        }
+        if !full_fields.is_empty() {
+            write_section_fields(dirs, "rectify.full", &full_fields, layer)
+                .map_err(|err| ConfigError(err.0))?;
+        }
+        if !light_fields.is_empty() {
+            write_section_fields(dirs, "rectify.light_touch", &light_fields, layer)
+                .map_err(|err| ConfigError(err.0))?;
+        }
+    }
+    // The old keys go, from every layer (a reset strips them all).
+    write_section_fields(
+        dirs,
+        "llm",
+        &[
+            SectionField::reset("thinking"),
+            SectionField::reset("prefill"),
+            SectionField::reset("light_touch_max_chars"),
+        ],
+        WriteLayer::Owning,
+    )
+    .map_err(|err| ConfigError(err.0))?;
+    // The editor's whole model, into the owning layers (now possibly
+    // the layer the translation just created).
+    write_section_fields(
+        dirs,
+        "rectify.full",
+        &RectifyBehaviorEdit::tier_fields(&edit.full),
+        WriteLayer::Owning,
+    )
+    .map_err(|err| ConfigError(err.0))?;
+    let extra = edit
+        .light_touch
+        .extra_directive
+        .as_deref()
+        .filter(|text| !text.trim().is_empty());
+    let extra_field = match extra {
+        Some(text) => SectionField::str("extra_directive", text),
+        None => SectionField::reset("extra_directive"),
+    };
+    write_section_fields(
+        dirs,
+        "rectify.light_touch",
+        &[
+            SectionField::bool("enabled", edit.light_touch.enabled),
+            SectionField::int("max_chars", edit.light_touch.max_chars as i64),
+            SectionField::str(
+                "thinking_policy",
+                edit.light_touch.tier.thinking_policy.as_str(),
+            ),
+            SectionField::bool("prefill", edit.light_touch.tier.prefill),
+            extra_field,
+        ],
+        WriteLayer::Owning,
+    )
+    .map_err(|err| ConfigError(err.0))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,9 +954,17 @@ mod tests {
     #[test]
     fn defaults_are_single_model_deepseek() {
         let config = LlmConfig::defaults();
-        assert!(config.thinking);
-        assert!(config.prefill);
-        assert_eq!(config.light_touch_max_chars, 40);
+        // Today's rectify behavior on every field (zero migration).
+        assert_eq!(config.rectify.full.thinking_policy, ThinkingPolicy::Always);
+        assert!(config.rectify.full.prefill);
+        assert!(config.rectify.light_touch.enabled);
+        assert_eq!(config.rectify.light_touch.max_chars, 40);
+        assert_eq!(
+            config.rectify.light_touch.tier.thinking_policy,
+            ThinkingPolicy::Always
+        );
+        assert!(config.rectify.light_touch.tier.prefill);
+        assert_eq!(config.rectify.light_touch.extra_directive, None);
         assert_eq!(config.model.model, "deepseek-v4-flash");
         assert_eq!(config.model.vendor, Vendor::DeepSeek);
         assert_eq!(
@@ -435,7 +989,12 @@ mod tests {
         .unwrap();
 
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-        assert!(!config.thinking); // shared file overrides the on default
+        // The grandfather: shared thinking=false maps onto BOTH tiers.
+        assert_eq!(config.rectify.full.thinking_policy, ThinkingPolicy::Off);
+        assert_eq!(
+            config.rectify.light_touch.tier.thinking_policy,
+            ThinkingPolicy::Off
+        ); // shared file overrides the on default
         assert_eq!(config.model.model, "deepseek-v4-pro"); // shared file
         assert_eq!(config.model.api_key.as_deref(), Some("sk-local")); // local wins
         assert_eq!(config.model.base_url, "https://api.deepseek.com"); // untouched default
@@ -443,9 +1002,9 @@ mod tests {
     }
 
     /// The prefill key defaults on (today's behavior, zero migration),
-    /// layers like every prompt knob — shared off, local back on, local
-    /// wins — and never marks endpoint intent: a user toggling the
-    /// prompt form has not configured a real model.
+    /// layers like every prompt knob through the grandfather — shared
+    /// off, local back on, local wins — and never marks endpoint intent:
+    /// a user toggling the prompt form has not configured a real model.
     #[test]
     fn prefill_defaults_on_and_layers_without_endpoint_intent() {
         let dir = std::env::temp_dir().join("sr-llm-config-test-prefill");
@@ -454,15 +1013,11 @@ mod tests {
         let dirs = std::slice::from_ref(&dir);
 
         // No files at all: the default is on.
-        assert!(load_llm_config(dirs).unwrap().prefill);
+        assert!(load_llm_config(dirs).unwrap().rectify.full.prefill);
 
-        std::fs::write(
-            dir.join("spokenrectifier.toml"),
-            "[llm]\nprefill = false\n",
-        )
-        .unwrap();
+        std::fs::write(dir.join("spokenrectifier.toml"), "[llm]\nprefill = false\n").unwrap();
         let config = load_llm_config(dirs).unwrap();
-        assert!(!config.prefill); // shared overrides the on default
+        assert!(!config.rectify.full.prefill); // shared overrides the on default
         assert!(!config.endpoint_configured); // a prompt knob, not intent
 
         std::fs::write(
@@ -470,7 +1025,7 @@ mod tests {
             "[llm]\nprefill = true\n",
         )
         .unwrap();
-        assert!(load_llm_config(dirs).unwrap().prefill); // local wins
+        assert!(load_llm_config(dirs).unwrap().rectify.full.prefill); // local wins
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -491,6 +1046,469 @@ mod tests {
         // Single line only: a multi-line error is a quoted source snippet.
         assert!(!err.contains('\n'), "multi-line error: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // -- the [rectify] section (ADR-0015/0016) ----------------------------
+
+    #[test]
+    fn rectify_sections_layer_field_by_field_and_local_wins() {
+        let dir = scratch("sr-llm-rectify-layers");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.full]\nthinking_policy = \"off\"\nprefill = false\n\
+             [rectify.light_touch]\nmax_chars = 80\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[rectify.full]\nthinking_policy = \"placeholders\"\n",
+        )
+        .unwrap();
+
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        // Local wins where it speaks; shared carries the rest; the two
+        // tiers never inherit from each other.
+        assert_eq!(
+            config.rectify.full.thinking_policy,
+            ThinkingPolicy::Placeholders
+        ); // local wins
+        assert!(!config.rectify.full.prefill); // shared only
+        assert_eq!(config.rectify.light_touch.max_chars, 80); // shared only
+        assert_eq!(
+            config.rectify.light_touch.tier.thinking_policy,
+            ThinkingPolicy::Always
+        ); // untouched default
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A same layer's new key beats its own legacy key; the tier without
+    /// a new key still takes the grandfather value — nothing is copied
+    /// across tiers.
+    #[test]
+    fn a_same_layer_new_key_beats_the_legacy_key_per_tier() {
+        let dir = scratch("sr-llm-rectify-same-layer");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[llm]\nthinking = false\n\
+             [rectify.full]\nthinking_policy = \"always\"\n",
+        )
+        .unwrap();
+
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(config.rectify.full.thinking_policy, ThinkingPolicy::Always);
+        assert_eq!(
+            config.rectify.light_touch.tier.thinking_policy,
+            ThinkingPolicy::Off
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A deeper layer's legacy key beats a shallower layer's new key:
+    /// the fold is per layer, shared first, so local wins whatever it
+    /// says (ADR-0015's layering, applied across the two sections).
+    #[test]
+    fn a_deeper_legacy_key_beats_a_shallower_new_key() {
+        let dir = scratch("sr-llm-rectify-deep-legacy");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.full]\nthinking_policy = \"off\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[llm]\nthinking = true\n",
+        )
+        .unwrap();
+
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(config.rectify.full.thinking_policy, ThinkingPolicy::Always);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_boolean_thinking_policy_is_rejected_naming_file_and_section() {
+        let dir = scratch("sr-llm-rectify-policy-bool");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.full]\nthinking_policy = true\n",
+        )
+        .unwrap();
+        let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+        assert!(err.contains("spokenrectifier.toml"), "got: {err}");
+        assert!(err.contains("[rectify.full]"), "got: {err}");
+        assert!(err.contains("never a boolean"), "got: {err}");
+        assert!(!err.contains('\n'), "multi-line error: {err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn policy_case_variants_and_unknown_names_are_rejected() {
+        for bad in ["Always", "ALWAYS", "", "sometimes"] {
+            let dir = scratch("sr-llm-rectify-policy-name");
+            std::fs::write(
+                dir.join("spokenrectifier.local.toml"),
+                format!("[rectify.light_touch]\nthinking_policy = \"{bad}\"\n"),
+            )
+            .unwrap();
+            let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+            assert!(err.contains("[rectify.light_touch]"), "{bad}: got: {err}");
+            assert!(!err.contains('\n'), "{bad}: multi-line: {err}");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn unknown_sub_sections_and_keys_are_rejected() {
+        for (name, body) in [
+            (
+                "sub-section",
+                "[rectify.middle]\nthinking_policy = \"off\"\n",
+            ),
+            ("full key", "[rectify.full]\nextra = 1\n"),
+            ("light_touch key", "[rectify.light_touch]\nthreshold = 40\n"),
+        ] {
+            let dir = scratch("sr-llm-rectify-unknown");
+            std::fs::write(dir.join("spokenrectifier.toml"), body).unwrap();
+            let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+            assert!(err.contains("unknown key"), "{name}: got: {err}");
+            assert!(err.contains("spokenrectifier.toml"), "{name}: got: {err}");
+            assert!(!err.contains('\n'), "{name}: multi-line: {err}");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_non_positive_or_non_integer_max_chars_is_rejected() {
+        for (name, value) in [
+            ("zero", "0"),
+            ("negative", "-5"),
+            ("float", "1.5"),
+            ("text", "\"x\""),
+        ] {
+            let dir = scratch("sr-llm-rectify-max-chars");
+            std::fs::write(
+                dir.join("spokenrectifier.toml"),
+                format!("[rectify.light_touch]\nmax_chars = {value}\n"),
+            )
+            .unwrap();
+            let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+            assert!(err.contains("[rectify.light_touch]"), "{name}: got: {err}");
+            assert!(err.contains("max_chars"), "{name}: got: {err}");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn non_boolean_gates_are_rejected() {
+        for (name, body) in [
+            ("enabled", "[rectify.light_touch]\nenabled = \"on\"\n"),
+            ("prefill", "[rectify.full]\nprefill = 1\n"),
+        ] {
+            let dir = scratch("sr-llm-rectify-gate-type");
+            std::fs::write(dir.join("spokenrectifier.toml"), body).unwrap();
+            let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+            assert!(err.contains("must be a boolean"), "{name}: got: {err}");
+            assert!(!err.contains('\n'), "{name}: multi-line: {err}");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_non_string_extra_directive_is_rejected() {
+        let dir = scratch("sr-llm-rectify-extra-type");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.light_touch]\nextra_directive = 3\n",
+        )
+        .unwrap();
+        let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+        assert!(err.contains("[rectify.light_touch]"), "got: {err}");
+        assert!(
+            err.contains("extra_directive must be a string"),
+            "got: {err}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Missing, empty, and all-whitespace extra directives all read as
+    /// unset; a local blank still overrides a shared text into nothing
+    /// (the field-by-field layering applies to the blank form too).
+    #[test]
+    fn blank_extra_directives_read_as_unset_and_layer_like_any_field() {
+        let dir = scratch("sr-llm-rectify-extra-blank");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.light_touch]\nextra_directive = \"短句尽量保留术语\"\n",
+        )
+        .unwrap();
+        let loaded = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(
+            loaded.rectify.light_touch.extra_directive.as_deref(),
+            Some("短句尽量保留术语")
+        );
+
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[rectify.light_touch]\nextra_directive = \"  \"\n",
+        )
+        .unwrap();
+        let loaded = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(loaded.rectify.light_touch.extra_directive, None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The eval copy never carries the user's directive text (ADR-0016).
+    #[test]
+    fn for_eval_strips_the_extra_directive() {
+        let mut config = LlmConfig::defaults();
+        config.rectify.light_touch.extra_directive = Some("用户的私货".into());
+        let eval = config.clone().for_eval();
+        assert_eq!(eval.rectify.light_touch.extra_directive, None);
+        // The source config is untouched.
+        assert_eq!(
+            config.rectify.light_touch.extra_directive.as_deref(),
+            Some("用户的私货")
+        );
+    }
+
+    // -- the rectify editor's write path (ticket 13) ----------------------
+
+    use super::{LightTouchEdit, RectifyBehaviorEdit, TierEdit, save_rectify_behavior};
+
+    fn behavior_edit() -> RectifyBehaviorEdit {
+        RectifyBehaviorEdit {
+            full: TierEdit {
+                thinking_policy: ThinkingPolicy::Always,
+                prefill: true,
+            },
+            light_touch: LightTouchEdit {
+                enabled: true,
+                max_chars: 40,
+                tier: TierEdit {
+                    thinking_policy: ThinkingPolicy::Always,
+                    prefill: true,
+                },
+                extra_directive: None,
+            },
+        }
+    }
+
+    /// A save with no layers at all creates the shared file carrying
+    /// the whole model, and the load returns exactly what was saved.
+    #[test]
+    fn a_fresh_rectify_save_round_trips_through_the_shared_file() {
+        let dir = scratch("sr-llm-rectify-save-fresh");
+        let mut edit = behavior_edit();
+        edit.light_touch.max_chars = 60;
+        edit.light_touch.tier.thinking_policy = ThinkingPolicy::Placeholders;
+        edit.light_touch.extra_directive = Some("短句更口语一点".into());
+
+        save_rectify_behavior(std::slice::from_ref(&dir), &edit).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join("spokenrectifier.toml")).unwrap();
+        assert!(shared.contains("[rectify.full]"), "got: {shared}");
+        assert!(
+            shared.contains("thinking_policy = \"placeholders\""),
+            "got: {shared}"
+        );
+        assert!(shared.contains("max_chars = 60"), "got: {shared}");
+        assert!(
+            shared.contains("extra_directive = \"短句更口语一点\""),
+            "got: {shared}"
+        );
+        assert!(!dir.join("spokenrectifier.local.toml").exists());
+        let loaded = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(loaded.rectify.light_touch.max_chars, 60);
+        assert_eq!(
+            loaded.rectify.light_touch.tier.thinking_policy,
+            ThinkingPolicy::Placeholders
+        );
+        assert_eq!(
+            loaded.rectify.light_touch.extra_directive.as_deref(),
+            Some("短句更口语一点")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The first rectify-domain save retires the legacy keys per layer:
+    /// a local `thinking = false` becomes local `[rectify]` policy
+    /// "off" — never promoted into the committable shared file — and
+    /// the old keys are stripped from every layer. The editor's model
+    /// is the loaded (grandfathered) state, so translation and whole-
+    /// model write agree; the translation's job is PLACEMENT, making
+    /// the owning resolution land the model in the legacy key's layer.
+    #[test]
+    fn a_first_save_translates_legacy_keys_in_their_own_layer() {
+        let dir = scratch("sr-llm-rectify-save-translate");
+        std::fs::write(dir.join("spokenrectifier.toml"), "[llm]\nmodel = \"m\"\n").unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[llm]\nthinking = false\nprefill = false\nlight_touch_max_chars = 25\n",
+        )
+        .unwrap();
+        // What the pane painted from the load: the grandfathered state.
+        let mut edit = behavior_edit();
+        edit.full.thinking_policy = ThinkingPolicy::Off;
+        edit.full.prefill = false;
+        edit.light_touch.tier.thinking_policy = ThinkingPolicy::Off;
+        edit.light_touch.tier.prefill = false;
+        edit.light_touch.max_chars = 25;
+
+        save_rectify_behavior(std::slice::from_ref(&dir), &edit).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join("spokenrectifier.toml")).unwrap();
+        assert!(
+            !shared.contains("[rectify"),
+            "local values promoted into shared: {shared}"
+        );
+        assert!(shared.contains("model = \"m\""), "sibling lost: {shared}");
+        let local = std::fs::read_to_string(dir.join("spokenrectifier.local.toml")).unwrap();
+        assert!(
+            local.contains("thinking_policy = \"off\""),
+            "policy not translated: {local}"
+        );
+        assert!(local.contains("prefill = false"), "got: {local}");
+        assert!(local.contains("max_chars = 25"), "got: {local}");
+        assert!(
+            !local.contains("thinking ="),
+            "legacy key survived: {local}"
+        );
+        assert!(
+            !local.contains("light_touch_max_chars"),
+            "legacy key survived: {local}"
+        );
+        // The load no longer leans on the grandfather: the translated
+        // keys alone carry the behavior.
+        let loaded = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(loaded.rectify.full.thinking_policy, ThinkingPolicy::Off);
+        assert!(!loaded.rectify.full.prefill);
+        assert_eq!(loaded.rectify.light_touch.max_chars, 25);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A same-layer new key already present is not clobbered by the
+    /// translation; only the tiers without a new key inherit the
+    /// translated legacy value. The whole-model write then carries the
+    /// loaded state verbatim — pre-existing new key included.
+    #[test]
+    fn a_translation_never_clobbers_a_same_layer_new_key() {
+        let dir = scratch("sr-llm-rectify-save-no-clobber");
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[llm]\nthinking = false\n\
+             [rectify.light_touch]\nthinking_policy = \"placeholders\"\n",
+        )
+        .unwrap();
+        // The loaded state: light-touch keeps its own policy, full takes
+        // the grandfather's.
+        let mut edit = behavior_edit();
+        edit.full.thinking_policy = ThinkingPolicy::Off;
+        edit.light_touch.tier.thinking_policy = ThinkingPolicy::Placeholders;
+
+        save_rectify_behavior(std::slice::from_ref(&dir), &edit).unwrap();
+
+        let local = std::fs::read_to_string(dir.join("spokenrectifier.local.toml")).unwrap();
+        // Exactly one policy line per tier, the loaded values.
+        assert_eq!(
+            local.matches("thinking_policy").count(),
+            2,
+            "expected one per tier: {local}"
+        );
+        assert!(
+            local.contains("thinking_policy = \"placeholders\""),
+            "new key clobbered: {local}"
+        );
+        assert!(
+            local.contains("thinking_policy = \"off\""),
+            "translation missing: {local}"
+        );
+        assert!(
+            !local.contains("thinking ="),
+            "legacy key survived: {local}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A blank extra directive save removes the key: empty is the off
+    /// form, not a stored empty string.
+    #[test]
+    fn a_blank_extra_directive_save_removes_the_key() {
+        let dir = scratch("sr-llm-rectify-save-blank-extra");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.light_touch]\nextra_directive = \"旧指令\"\n",
+        )
+        .unwrap();
+
+        save_rectify_behavior(std::slice::from_ref(&dir), &behavior_edit()).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join("spokenrectifier.toml")).unwrap();
+        assert!(!shared.contains("extra_directive"), "not removed: {shared}");
+        assert_eq!(
+            load_llm_config(std::slice::from_ref(&dir))
+                .unwrap()
+                .rectify
+                .light_touch
+                .extra_directive,
+            None
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A disabled master switch still saves every light-touch key: off
+    /// is a runtime stance, not a deletion (ADR-0015).
+    #[test]
+    fn a_disabled_master_switch_still_stores_the_tier() {
+        let dir = scratch("sr-llm-rectify-save-disabled");
+        let mut edit = behavior_edit();
+        edit.light_touch.enabled = false;
+        edit.light_touch.max_chars = 15;
+
+        save_rectify_behavior(std::slice::from_ref(&dir), &edit).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join("spokenrectifier.toml")).unwrap();
+        assert!(shared.contains("enabled = false"), "got: {shared}");
+        assert!(shared.contains("max_chars = 15"), "got: {shared}");
+        let loaded = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert!(!loaded.rectify.light_touch.enabled);
+        assert_eq!(loaded.rectify.light_touch.max_chars, 15);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_zero_max_chars_save_is_refused_writing_nothing() {
+        let dir = scratch("sr-llm-rectify-save-bad");
+        let mut edit = behavior_edit();
+        edit.light_touch.max_chars = 0;
+
+        let err = save_rectify_behavior(std::slice::from_ref(&dir), &edit)
+            .unwrap_err()
+            .0;
+        assert!(err.contains("max_chars"), "got: {err}");
+        assert!(
+            !dir.join("spokenrectifier.toml").exists(),
+            "wrote on refusal"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The connection editor never touches the rectify keys: a vendor
+    /// switch save leaves a legacy `thinking` exactly where it was.
+    #[test]
+    fn a_connection_save_leaves_the_rectify_keys_alone() {
+        let dir = scratch("sr-llm-rectify-connection-untouched");
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[llm]\nthinking = false\nmodel = \"deepseek-v4-flash\"\n",
+        )
+        .unwrap();
+
+        save_llm_connection(std::slice::from_ref(&dir), &edit(KeyEdit::Keep)).unwrap();
+
+        let local = std::fs::read_to_string(dir.join("spokenrectifier.local.toml")).unwrap();
+        assert!(local.contains("thinking = false"), "touched: {local}");
+        assert!(!local.contains("[rectify"), "rectify written: {local}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -522,7 +1540,8 @@ mod tests {
 
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
         assert!(!config.endpoint_configured); // prompt knobs only
-        assert!(config.thinking);
+        assert_eq!(config.rectify.full.thinking_policy, ThinkingPolicy::Always);
+        assert_eq!(config.rectify.light_touch.max_chars, 60); // grandfathered threshold
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -15,9 +15,9 @@ use spokenrectifier_engine::provider::llm::{
     RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
 };
 
-use crate::config::{LlmConfig, ModelConfig};
+use crate::config::{LlmConfig, ModelConfig, ThinkingPolicy};
 use crate::intensity::{Intensity, select_intensity};
-use crate::prompt::{ChatPrompt, compose_prompt};
+use crate::prompt::{ChatPrompt, compose_prompt_with_extra, has_pins};
 
 /// A rectify LLM backed by any OpenAI-compatible endpoint.
 pub struct OpenAiCompatLlm {
@@ -34,30 +34,45 @@ impl OpenAiCompatLlm {
         Ok(Self { config, http })
     }
 
-    /// The request's prompt under this client's config: the `[llm]`
-    /// prefill key rides onto the request here — the same hop thinking
-    /// and the intensity threshold take, the one place the config meets
-    /// the composition. The engine's value is the seam default; the
-    /// client owns the truth, so a runtime re-adoption (a rebuilt
-    /// client) carries a changed key for free (ADR-0014).
-    fn composed_prompt(
-        &self,
-        request: &RectifyRequest,
-        intensity: Intensity,
-    ) -> ChatPrompt {
+    /// The request's prompt under this client's config: the chosen
+    /// tier's prefill key rides onto the request here — the same hop
+    /// the thinking policy and the intensity gate take, the one place
+    /// the config meets the composition. The engine's value is the seam
+    /// default; the client owns the truth, so a runtime re-adoption (a
+    /// rebuilt client) carries a changed key for free (ADR-0014/0015).
+    fn composed_prompt(&self, request: &RectifyRequest, intensity: Intensity) -> ChatPrompt {
+        let tier = self.config.rectify.tier(intensity);
         let mut shaped = request.clone();
-        shaped.prefill = self.config.prefill;
-        compose_prompt(&shaped, intensity)
+        shaped.prefill = tier.prefill;
+        let extra = match intensity {
+            Intensity::LightTouch => self.config.rectify.light_touch.extra_directive.as_deref(),
+            Intensity::Full => None,
+        };
+        compose_prompt_with_extra(&shaped, intensity, extra)
+    }
+
+    /// The chosen tier's thinking policy folded to the boolean the
+    /// request body carries (ADR-0015's evaluation): `placeholders`
+    /// runs the census the prompt's injection gate runs — the two can
+    /// never disagree (one census, two consumers).
+    fn thinking_enabled(&self, raw_transcript: &str, intensity: Intensity) -> bool {
+        match self.config.rectify.tier(intensity).thinking_policy {
+            ThinkingPolicy::Always => true,
+            ThinkingPolicy::Off => false,
+            ThinkingPolicy::Placeholders => has_pins(raw_transcript),
+        }
     }
 }
 
 #[async_trait]
 impl RectifyLlm for OpenAiCompatLlm {
     async fn rectify(&self, request: RectifyRequest) -> Result<RectifyTokenStream, RectifyError> {
-        // Length picks the intensity — how the prompt asks for rectify —
-        // never the model: one endpoint serves both.
-        let intensity =
-            select_intensity(&request.raw_transcript, self.config.light_touch_max_chars);
+        // The gate plus length pick the intensity — how the prompt asks
+        // for rectify — never the model: one endpoint serves both
+        // (ADR-0015's evaluation order: intensity first, then that
+        // tier's policy and prefill).
+        let gate = &self.config.rectify.light_touch;
+        let intensity = select_intensity(&request.raw_transcript, gate.enabled, gate.max_chars);
         let model = &self.config.model;
         let key = model.resolve_key().ok_or_else(|| {
             let env_hint = model
@@ -72,12 +87,13 @@ impl RectifyLlm for OpenAiCompatLlm {
             ))
         })?;
         let prompt = self.composed_prompt(&request, intensity);
+        let thinking = self.thinking_enabled(&request.raw_transcript, intensity);
         let url = format!("{}/chat/completions", model.base_url.trim_end_matches('/'));
         let response = self
             .http
             .post(&url)
             .bearer_auth(&key)
-            .json(&request_body(model, &prompt, self.config.thinking))
+            .json(&request_body(model, &prompt, thinking))
             .send()
             .await
             .map_err(|err| RectifyError(format!("request to {url} failed: {err}")))?;
@@ -289,7 +305,7 @@ mod tests {
 
     /// The wiring hop the prefill key lands through: the config — not
     /// the engine's seam default — decides the pinned prompt's form
-    /// (census table on, pass-through off; ADR-0014).
+    /// (census table on, pass-through off; ADR-0014), per tier.
     #[test]
     fn the_prefill_config_decides_the_pinned_prompt_form() {
         let pinned = RectifyRequest {
@@ -301,7 +317,7 @@ mod tests {
             prefill: true, // the engine's seam default
         };
         let mut off_config = LlmConfig::defaults();
-        off_config.prefill = false;
+        off_config.rectify.full.prefill = false;
         let on = OpenAiCompatLlm::new(LlmConfig::defaults()).unwrap();
         let off = OpenAiCompatLlm::new(off_config).unwrap();
 
@@ -313,6 +329,29 @@ mod tests {
             !off_prompt.user.contains("【占位符清单】"),
             "census leaked into the pass-through form"
         );
+    }
+
+    /// The thinking policy's three tiers fold at this client (ADR-0015's
+    /// evaluation): always/off directly, placeholders through the census
+    /// — the same census the prompt's injection gate keys on, so a pin
+    /// that injects the placeholder branch also turns thinking on, and a
+    /// pinless transcript never does.
+    #[test]
+    fn the_thinking_policy_folds_through_the_census() {
+        let mut config = LlmConfig::defaults();
+        config.rectify.full.thinking_policy = ThinkingPolicy::Placeholders;
+        let llm = OpenAiCompatLlm::new(config).unwrap();
+        assert!(llm.thinking_enabled("记一下‡1‡的安排", Intensity::Full));
+        assert!(!llm.thinking_enabled("没有记号的短句", Intensity::Full));
+        // The tiers never inherit: the untouched light-touch tier stays
+        // always-on, and each tier reads its own policy.
+        assert!(llm.thinking_enabled("没有记号的短句", Intensity::LightTouch));
+
+        let mut off = LlmConfig::defaults();
+        off.rectify.light_touch.tier.thinking_policy = ThinkingPolicy::Off;
+        let off = OpenAiCompatLlm::new(off).unwrap();
+        assert!(!off.thinking_enabled("记一下‡1‡的安排", Intensity::LightTouch));
+        assert!(off.thinking_enabled("记一下‡1‡的安排", Intensity::Full));
     }
 
     fn feed_all(chunks: &[&str]) -> Vec<String> {

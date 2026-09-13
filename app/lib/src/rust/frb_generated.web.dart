@@ -54,6 +54,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeKeyEdit dco_decode_box_autoadd_bridge_key_edit(dynamic raw);
 
   @protected
+  BridgeRectifyBehavior dco_decode_box_autoadd_bridge_rectify_behavior(
+    dynamic raw,
+  );
+
+  @protected
   BridgeSessionStyle dco_decode_box_autoadd_bridge_session_style(dynamic raw);
 
   @protected
@@ -142,6 +147,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BridgePrefillRow dco_decode_bridge_prefill_row(dynamic raw);
+
+  @protected
+  BridgeRectifyBehavior dco_decode_bridge_rectify_behavior(dynamic raw);
 
   @protected
   BridgeScenario dco_decode_bridge_scenario(dynamic raw);
@@ -237,6 +245,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BridgeKeyEdit sse_decode_box_autoadd_bridge_key_edit(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeRectifyBehavior sse_decode_box_autoadd_bridge_rectify_behavior(
     SseDeserializer deserializer,
   );
 
@@ -367,6 +380,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgePrefillRow sse_decode_bridge_prefill_row(SseDeserializer deserializer);
 
   @protected
+  BridgeRectifyBehavior sse_decode_bridge_rectify_behavior(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BridgeScenario sse_decode_bridge_scenario(SseDeserializer deserializer);
 
   @protected
@@ -484,6 +502,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_bridge_key_edit(
     BridgeKeyEdit self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_bridge_rectify_behavior(
+    BridgeRectifyBehavior self,
     SseSerializer serializer,
   );
 
@@ -649,6 +673,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_bridge_prefill_row(
     BridgePrefillRow self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_rectify_behavior(
+    BridgeRectifyBehavior self,
     SseSerializer serializer,
   );
 
