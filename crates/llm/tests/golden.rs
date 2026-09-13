@@ -5,7 +5,9 @@
 //! own register line. Each no-pin case has a `-pins` twin with sentinels
 //! in the transcript — diffing a pair shows exactly the placeholder
 //! branch's injection (ADR-0012), and the no-pin files staying untouched
-//! is the byte-identity contract.
+//! is the byte-identity contract. Each `-pins` case has a `-pins-off`
+//! twin with prefill off — the raw pass-through form (ADR-0014) — so
+//! diffing those two shows exactly what the switch swaps.
 
 use spokenrectifier_engine::provider::llm::RectifyRequest;
 use spokenrectifier_llm::{Intensity, compose_prompt};
@@ -41,7 +43,21 @@ fn request(
         style_directive: style_directive.map(str::to_string),
         global_directive: global_directive.map(str::to_string),
         terms: terms.iter().map(|t| t.to_string()).collect(),
+        prefill: true,
     }
+}
+
+// NOTE: also duplicated in examples/gen_golden.rs; the pass-through twin
+// of `request` (ADR-0014).
+fn request_off(
+    style_directive: Option<&str>,
+    global_directive: Option<&str>,
+    terms: &[&str],
+    paragraphs: &[&str],
+) -> RectifyRequest {
+    let mut request = request(style_directive, global_directive, terms, paragraphs);
+    request.prefill = false;
+    request
 }
 
 #[test]
@@ -227,5 +243,105 @@ fn full_rectify_with_pins_and_both_directives_is_golden() {
     assert_eq!(
         prompt.user,
         include_str!("golden/full-global-directive-pins-user.txt")
+    );
+}
+
+// -- the pass-through twins (ADR-0014) -------------------------------------
+//
+// Each mirrors its `-pins` counterpart with prefill off: same transcript,
+// same directives — only the pinned branch's form differs.
+
+#[test]
+fn light_touch_with_pins_off_is_golden() {
+    let prompt = compose_prompt(
+        &request_off(None, None, &[], PIN_PARAGRAPHS_LIGHT),
+        Intensity::LightTouch,
+    );
+    assert_eq!(
+        prompt.system,
+        include_str!("golden/light-general-pins-off-system.txt")
+    );
+    assert_eq!(
+        prompt.user,
+        include_str!("golden/light-general-pins-off-user.txt")
+    );
+}
+
+#[test]
+fn full_rectify_with_pins_off_and_the_default_register_is_golden() {
+    let prompt = compose_prompt(
+        &request_off(None, None, &["Kubernetes", "QRS 波群"], PIN_PARAGRAPHS_FULL),
+        Intensity::Full,
+    );
+    assert_eq!(
+        prompt.system,
+        include_str!("golden/full-default-pins-off-system.txt")
+    );
+    assert_eq!(
+        prompt.user,
+        include_str!("golden/full-default-pins-off-user.txt")
+    );
+}
+
+#[test]
+fn full_rectify_with_pins_off_and_a_directive_is_golden() {
+    let prompt = compose_prompt(
+        &request_off(
+            Some(DIRECTIVE),
+            None,
+            &["Kubernetes", "QRS 波群"],
+            PIN_PARAGRAPHS_FULL,
+        ),
+        Intensity::Full,
+    );
+    assert_eq!(
+        prompt.system,
+        include_str!("golden/full-directive-pins-off-system.txt")
+    );
+    assert_eq!(
+        prompt.user,
+        include_str!("golden/full-directive-pins-off-user.txt")
+    );
+}
+
+#[test]
+fn full_rectify_with_pins_off_and_a_global_directive_is_golden() {
+    let prompt = compose_prompt(
+        &request_off(
+            None,
+            Some(GLOBAL),
+            &["Kubernetes", "QRS 波群"],
+            PIN_PARAGRAPHS_FULL,
+        ),
+        Intensity::Full,
+    );
+    assert_eq!(
+        prompt.system,
+        include_str!("golden/full-global-pins-off-system.txt")
+    );
+    assert_eq!(
+        prompt.user,
+        include_str!("golden/full-global-pins-off-user.txt")
+    );
+}
+
+#[test]
+fn full_rectify_with_pins_off_and_both_directives_is_golden() {
+    let prompt = compose_prompt(
+        &request_off(
+            Some(DIRECTIVE),
+            Some(GLOBAL),
+            &["Kubernetes", "QRS 波群"],
+            PIN_PARAGRAPHS_FULL,
+        ),
+        Intensity::Full,
+    );
+    assert_eq!(
+        prompt.system,
+        include_str!("golden/full-global-directive-pins-off-system.txt")
+    );
+    assert_eq!(
+        prompt.user,
+        include_str!("golden/full-global-directive-pins-off-user.txt")
     );
 }

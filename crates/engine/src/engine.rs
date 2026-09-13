@@ -467,6 +467,9 @@ impl Engine {
                     style_directive,
                     global_directive,
                     terms,
+                    // Config wiring lands with the prefill key; the
+                    // default matches today's behavior (ADR-0014).
+                    prefill: true,
                 },
                 timings,
             )
@@ -786,6 +789,9 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         style_directive,
                         global_directive,
                         terms,
+                        // Config wiring lands with the prefill key; the
+                        // default matches today's behavior (ADR-0014).
+                        prefill: true,
                     },
                     timings,
                 )
@@ -807,6 +813,9 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         style_directive,
                         global_directive,
                         terms,
+                        // Config wiring lands with the prefill key; the
+                        // default matches today's behavior (ADR-0014).
+                        prefill: true,
                     },
                     timings,
                 )

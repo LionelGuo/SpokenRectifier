@@ -40,7 +40,21 @@ fn request(
         style_directive: style_directive.map(str::to_string),
         global_directive: global_directive.map(str::to_string),
         terms: terms.iter().map(|t| t.to_string()).collect(),
+        prefill: true,
     }
+}
+
+// NOTE: kept in sync with the copy in tests/golden.rs; the pass-through
+// twin of `request` (ADR-0014).
+fn request_off(
+    style_directive: Option<&str>,
+    global_directive: Option<&str>,
+    terms: &[&str],
+    paragraphs: &[&str],
+) -> RectifyRequest {
+    let mut request = request(style_directive, global_directive, terms, paragraphs);
+    request.prefill = false;
+    request
 }
 
 fn main() {
@@ -198,6 +212,98 @@ fn main() {
     fs::write(
         dir.join("full-global-directive-pins-user.txt"),
         &full_global_directive_pins.user,
+    )
+    .unwrap();
+
+    // The pass-through twins (ADR-0014): same shapes as the `-pins` set
+    // with prefill off — the raw pass-through form.
+    let light_pins_off = compose_prompt(
+        &request_off(None, None, &[], PIN_PARAGRAPHS_LIGHT),
+        Intensity::LightTouch,
+    );
+    fs::write(
+        dir.join("light-general-pins-off-system.txt"),
+        &light_pins_off.system,
+    )
+    .unwrap();
+    fs::write(
+        dir.join("light-general-pins-off-user.txt"),
+        &light_pins_off.user,
+    )
+    .unwrap();
+
+    let full_default_pins_off = compose_prompt(
+        &request_off(None, None, &["Kubernetes", "QRS 波群"], PIN_PARAGRAPHS_FULL),
+        Intensity::Full,
+    );
+    fs::write(
+        dir.join("full-default-pins-off-system.txt"),
+        &full_default_pins_off.system,
+    )
+    .unwrap();
+    fs::write(
+        dir.join("full-default-pins-off-user.txt"),
+        &full_default_pins_off.user,
+    )
+    .unwrap();
+
+    let full_directive_pins_off = compose_prompt(
+        &request_off(
+            Some(DIRECTIVE),
+            None,
+            &["Kubernetes", "QRS 波群"],
+            PIN_PARAGRAPHS_FULL,
+        ),
+        Intensity::Full,
+    );
+    fs::write(
+        dir.join("full-directive-pins-off-system.txt"),
+        &full_directive_pins_off.system,
+    )
+    .unwrap();
+    fs::write(
+        dir.join("full-directive-pins-off-user.txt"),
+        &full_directive_pins_off.user,
+    )
+    .unwrap();
+
+    let full_global_pins_off = compose_prompt(
+        &request_off(
+            None,
+            Some(GLOBAL),
+            &["Kubernetes", "QRS 波群"],
+            PIN_PARAGRAPHS_FULL,
+        ),
+        Intensity::Full,
+    );
+    fs::write(
+        dir.join("full-global-pins-off-system.txt"),
+        &full_global_pins_off.system,
+    )
+    .unwrap();
+    fs::write(
+        dir.join("full-global-pins-off-user.txt"),
+        &full_global_pins_off.user,
+    )
+    .unwrap();
+
+    let full_global_directive_pins_off = compose_prompt(
+        &request_off(
+            Some(DIRECTIVE),
+            Some(GLOBAL),
+            &["Kubernetes", "QRS 波群"],
+            PIN_PARAGRAPHS_FULL,
+        ),
+        Intensity::Full,
+    );
+    fs::write(
+        dir.join("full-global-directive-pins-off-system.txt"),
+        &full_global_directive_pins_off.system,
+    )
+    .unwrap();
+    fs::write(
+        dir.join("full-global-directive-pins-off-user.txt"),
+        &full_global_directive_pins_off.user,
     )
     .unwrap();
 

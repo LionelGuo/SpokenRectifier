@@ -32,6 +32,12 @@ pub struct RectifyRequest {
     /// rectified text. Filled by the hotword pipeline; the rectify prompt
     /// renders them as a reference list.
     pub terms: Vec<String>,
+    /// Whether a pinned prompt teaches the inline prefill grammar
+    /// (absorption, `‡N:值‡`). `false` selects the raw pass-through form:
+    /// zero absorption, marks riding the rectified text as-is, no census
+    /// table (ADR-0014). Meaningless without pins — a no-pin composition
+    /// is byte-identical either way (ADR-0012).
+    pub prefill: bool,
 }
 
 /// Stream of rectified-text token deltas.

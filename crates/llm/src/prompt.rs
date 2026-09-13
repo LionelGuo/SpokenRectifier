@@ -9,7 +9,10 @@
 //! the frozen transcript the composition is byte-identical to the
 //! pre-placeholder prompt (ADR-0012). With pins the response grammar is
 //! inline — the model writes each slot where it rides as `‡N:值‡`, bare
-//! `‡N‡` meaning an empty prefill (ADR-0013).
+//! `‡N‡` meaning an empty prefill (ADR-0013). With pins and prefill off
+//! the pinned branch swaps to the raw pass-through form — zero
+//! absorption, marks riding the rectified text as-is, no census table
+//! (ADR-0014); the prefill flag never touches a no-pin composition.
 
 use spokenrectifier_engine::provider::llm::RectifyRequest;
 
@@ -166,8 +169,32 @@ const PLACEHOLDER_RULE: &str = "\
 /// The sentence appended to the HEADER with pins: the sentinel survives
 /// the header's own written-form and no-wrapping demands. The 【预填】
 /// block demand retired with the block itself (ADR-0013) — the response is
-/// the rectified text alone, slots inline.
+/// the rectified text alone, slots inline. Grammar-agnostic, so both
+/// pinned forms carry it verbatim (ADR-0014).
 const PLACEHOLDER_HEADER_TAIL: &str = "记号不受本段书面化与包裹禁令约束。";
+
+/// The placeholder rule's raw pass-through variant (ADR-0014, prefill
+/// off): the model absorbs nothing and writes no values — each mark rides
+/// the rectified text exactly as censused, the user fills the slots
+/// afterwards. Five of the on-form's bullets survive, each guarding one
+/// loss path: the definition (deliberate slot, not noise the transforms
+/// may eat), verbatim pass-through (no rewriting, translation,
+/// normalization or wrapping), no dedup between slots (no merging,
+/// trimming, or fabricating numbers), ordinary syntax (reorganization
+/// must not tear a mark from what it hugs), and self-correction (a mark
+/// is neither a correction lead-in nor the replaced content). The value
+/// grammar, the empty-prefill bare form, and the whole absorption subtree
+/// are gone — in this form there is no value to write and nothing to
+/// absorb, and teaching the grammar would invite the model to invent one.
+/// The ticket's grilling round settled each bullet by recommendation
+/// (`.scratch/prefill-switch/issues/01-prefill-off-variant.md`).
+const PLACEHOLDER_RULE_OFF: &str = "\
+【占位符】(【保真铁律】管事实与意思,本条管槽;本条高于其他一切规则)
+- 转写里的 ‡数字‡ 记号(如 ‡1‡)是用户特意放进转写的待填槽:不是措辞、不是冗余、不是标点,也不是数字读法。
+- 记号原样保留:照转写里的原样输出记号本身,不改写、不翻译、不规范化,也不加引号或代码块等任何包裹。
+- 槽与槽之间不算冗余:不合并、不删减,也不新增转写里没有的记号;编号不按【中文数字规范化】转换。
+- 占位符是普通的句法成分:重组句子时,不得把它从紧挨着的内容上撕开。
+- 应用口头更正时,不得把槽当成更正引导语或被替代的内容删掉。";
 
 /// Light-touch with pins commands absorption outright (ticket 32): the
 /// real machine showed the model widening 原样保留 over the slot
@@ -186,7 +213,8 @@ const INTENSITY_LIGHT_TOUCH_PLACEHOLDERS: &str = "\
 
 /// The directive-precedence line with pins: the placeholder rule joins the
 /// fidelity rule in the exception list — a directive may not restyle or
-/// absorb a slot (ticket 12's injection-time rewrites).
+/// absorb a slot (ticket 12's injection-time rewrites). Grammar-agnostic,
+/// so both pinned forms carry it verbatim (ADR-0014).
 const DIRECTIVE_PRECEDENCE_PLACEHOLDERS: &str = "(优先级:本指令高于其他一切语体、格式与拼写形态规则——包括【逐字保留】与【术语参考】的大小写与拼写形态;仅【保真铁律】与【占位符】高于本指令:不得因此捏造信息或丢失用户明确表达的意思)";
 
 /// The global-precedence line with pins: the placeholder rule joins the
@@ -219,6 +247,12 @@ const PLACEHOLDER_CENSUS_HEADER: &str =
 /// the strongest rule (ticket 12). The compressed demand is the inline
 /// grammar itself (ADR-0013).
 const PLACEHOLDER_REMINDER: &str = "【占位符】(必须执行:槽在原位写成 ‡编号:值‡,不吸收就只写记号本身 ‡编号‡;高于一切语体与格式规则,仅保真铁律例外)";
+
+/// The pass-through form's closing reminder (ADR-0014): same position,
+/// same precedence framing, only the demand swapped — verbatim
+/// preservation instead of the inline grammar. No census table backs it
+/// up in this form, so the reminder is the anti-loss net's last word.
+const PLACEHOLDER_REMINDER_OFF: &str = "【占位符】(必须执行:记号按原样保留,不改写、不翻译、不规范化、不包裹、不删除;高于一切语体与格式规则,仅保真铁律例外)";
 
 /// The placeholder sentinel: ‡ + ASCII digits + ‡ (ticket 07). U+2021, so
 /// every scan walks chars, never bytes.
@@ -270,6 +304,14 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
     // prompt, frozen by the untouched golden files.
     let slots = census_placeholder_numbers(&request.raw_transcript);
     let pins = !slots.is_empty();
+    // The two pinned forms (ADR-0014): prefill on teaches the inline
+    // grammar — the C+AB absorption wording untouched; prefill off is the
+    // raw pass-through variant. Both share the header tail and the
+    // exception-list rewrites, which teach no grammar; the rule body, the
+    // light-touch variant and the closing reminder are form-specific, and
+    // the census table exists only with the inline grammar to anchor.
+    let inline = pins && request.prefill;
+    let pass_through = pins && !request.prefill;
 
     let mut system_sections: Vec<String> = vec![
         if pins {
@@ -283,9 +325,13 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
     ];
     // The placeholder rule slots between the fidelity rule and the five
     // transforms — its own precedence tier (ADR-0012: 铁律 > 占位符专条
-    // > 场景 > 全局 > 形式规则); absent entirely without pins.
-    if pins {
+    // > 场景 > 全局 > 形式规则); absent entirely without pins. The two
+    // forms never coexist — the request's prefill flag picks one.
+    if inline {
         system_sections.push(PLACEHOLDER_RULE.into());
+        system_sections.push(String::new());
+    } else if pass_through {
+        system_sections.push(PLACEHOLDER_RULE_OFF.into());
         system_sections.push(String::new());
     }
     system_sections.push(TRANSFORMS.into());
@@ -297,10 +343,12 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
     system_sections.push(NUMERALS.into());
     system_sections.push(String::new());
     // Light-touch is the only intensity variant: absorption only writes
-    // the prefill, so with pins it is carved out of the
-    // no-adding-or-dropping ban.
+    // the prefill, so with the inline grammar it is carved out of the
+    // no-adding-or-dropping ban. The pass-through form never absorbs, so
+    // its light-touch is the plain rule verbatim — no variant of its own
+    // (ADR-0014).
     system_sections.push(
-        match (intensity, pins) {
+        match (intensity, inline) {
             (Intensity::LightTouch, true) => INTENSITY_LIGHT_TOUCH_PLACEHOLDERS,
             (Intensity::LightTouch, false) => INTENSITY_LIGHT_TOUCH,
             (Intensity::Full, _) => INTENSITY_FULL,
@@ -340,10 +388,13 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
     let system = system_sections.join("\n");
 
     let mut user = format!("【原始转写】\n{}", request.paragraphs.join("\n\n"));
-    if pins {
+    if inline {
         // The census table right after the transcript: every number a
         // bare-sentinel row, ascending — a pure number anchor, teaching
         // no response syntax (ADR-0013: the response grammar is inline).
+        // The pass-through form carries no table (ADR-0014): the marks in
+        // the transcript are the only anchor the model needs, and the
+        // user ruled the off-form prompt stays as thin as that.
         let rows = slots
             .iter()
             .map(|n| format!("- ‡{n}‡"))
@@ -378,10 +429,16 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
         };
         user.push_str(&format!("\n\n{reminder}\n{text}"));
     }
-    if pins {
+    if inline || pass_through {
         // Always the last block of the user message — below even the
-        // scenario's reminder, recency to the strongest rule.
-        user.push_str(&format!("\n\n{PLACEHOLDER_REMINDER}"));
+        // scenario's reminder, recency to the strongest rule. Each form
+        // carries its own demand (ADR-0014).
+        let reminder = if inline {
+            PLACEHOLDER_REMINDER
+        } else {
+            PLACEHOLDER_REMINDER_OFF
+        };
+        user.push_str(&format!("\n\n{reminder}"));
     }
 
     ChatPrompt { system, user }
@@ -402,6 +459,7 @@ mod tests {
             style_directive: style_directive.map(String::from),
             global_directive: global_directive.map(String::from),
             terms: terms.into_iter().map(String::from).collect(),
+            prefill: true,
         }
     }
 
@@ -605,7 +663,20 @@ mod tests {
             style_directive: style_directive.map(String::from),
             global_directive: global_directive.map(String::from),
             terms: terms.into_iter().map(String::from).collect(),
+            prefill: true,
         }
+    }
+
+    /// The pass-through twin of [`pin_request`] — same transcript, prefill
+    /// off (ADR-0014).
+    fn pin_request_off(
+        style_directive: Option<&str>,
+        global_directive: Option<&str>,
+        terms: Vec<&str>,
+    ) -> RectifyRequest {
+        let mut request = pin_request(style_directive, global_directive, terms);
+        request.prefill = false;
+        request
     }
 
     #[test]
@@ -789,5 +860,91 @@ mod tests {
                 ))
         );
         assert!(!prompt.user.contains("- ‡1‡:"));
+    }
+
+    // -- the pass-through form (ADR-0014) ------------------------------------
+
+    #[test]
+    fn prefill_never_touches_the_no_pin_composition() {
+        // The hard invariant of the prefill switch: without pins the flag
+        // selects nothing — every directive combination and both
+        // intensities compose byte-identically either way. ADR-0012's
+        // no-pin contract cannot regress through the new key.
+        for (style, global) in [
+            (None, None),
+            (Some("以 Markdown 分条输出"), None),
+            (None, Some(GLOBAL)),
+            (Some("以 Markdown 分条输出"), Some(GLOBAL)),
+        ] {
+            for intensity in [Intensity::LightTouch, Intensity::Full] {
+                let mut off = request(style, global, vec![]);
+                off.prefill = false;
+                let on = request(style, global, vec![]);
+                let off_prompt = compose_prompt(&off, intensity);
+                let on_prompt = compose_prompt(&on, intensity);
+                assert_eq!(off_prompt, on_prompt, "prefill leaked into no-pin: {style:?} {global:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn prefill_off_composes_the_pass_through_variant_with_zero_inline_trace() {
+        // The off form carries its five-bullet rule, the shared header
+        // tail and exception rewrites, and its own closing reminder — and
+        // not one glyph of the inline grammar: no `‡编号:值‡` anywhere,
+        // no census table, no absorption language at all.
+        let prompt = compose_prompt(
+            &pin_request_off(Some("以 Markdown 分条输出"), Some(GLOBAL), vec![]),
+            Intensity::Full,
+        );
+        // The pass-through rule in, the inline rule out — the two consts
+        // differ from the value-grammar bullet down, so full-string
+        // containment is decisive.
+        assert!(prompt.system.contains(PLACEHOLDER_RULE_OFF));
+        assert!(!prompt.system.contains(PLACEHOLDER_RULE));
+        assert!(prompt.system.starts_with(&format!("{HEADER}{PLACEHOLDER_HEADER_TAIL}")));
+        // The shared exception rewrites: pin variants in, base lines out.
+        assert!(prompt.system.contains(DIRECTIVE_PRECEDENCE_PLACEHOLDERS));
+        assert!(prompt.system.contains(GLOBAL_PRECEDENCE_PLACEHOLDERS));
+        assert!(!prompt.system.contains(DIRECTIVE_PRECEDENCE));
+        assert!(!prompt.system.contains(GLOBAL_PRECEDENCE));
+        assert!(prompt.user.contains(DIRECTIVE_REMINDER_PLACEHOLDERS));
+        assert!(prompt.user.contains(GLOBAL_REMINDER_PLACEHOLDERS));
+        assert!(!prompt.user.contains(DIRECTIVE_REMINDER));
+        assert!(!prompt.user.contains(GLOBAL_REMINDER));
+        // Zero inline-grammar trace in either message: the value shape,
+        // the census table, and every absorption word — the off rule, the
+        // plain light-touch rule and the precedence lines carry none.
+        for text in [&prompt.system, &prompt.user] {
+            assert!(!text.contains("‡编号:值‡"), "value grammar trace: {text}");
+            assert!(!text.contains("【占位符清单】"), "census trace: {text}");
+            assert!(!text.contains("吸收"), "absorption trace: {text}");
+            assert!(!text.contains("预填"), "prefill trace: {text}");
+        }
+        // The pass-through reminder closes the user message, still below
+        // the scenario's reminder.
+        assert!(prompt.user.ends_with(PLACEHOLDER_REMINDER_OFF));
+        assert!(!prompt.user.contains(PLACEHOLDER_REMINDER));
+        // Same precedence tier as the inline form: fidelity < the rule <
+        // the transforms.
+        let fidelity_at = prompt.system.find("【保真铁律】").expect("fidelity rule");
+        let placeholder_at = prompt.system.find("【占位符】").expect("off rule");
+        let transforms_at = prompt.system.find("【五类变换】").expect("transforms");
+        assert!(fidelity_at < placeholder_at);
+        assert!(placeholder_at < transforms_at);
+    }
+
+    #[test]
+    fn prefill_off_light_touch_is_the_plain_rule_verbatim() {
+        // No absorption, nothing to carve out of the no-adding-or-dropping
+        // ban: the off form's light-touch is the plain rule word for word,
+        // both intensities carrying no placeholder variant of their own.
+        let light = compose_prompt(&pin_request_off(None, None, vec![]), Intensity::LightTouch);
+        assert!(light.system.contains(INTENSITY_LIGHT_TOUCH));
+        assert!(light.system.contains("禁止增删任何信息。"));
+        assert!(!light.system.contains("照常整块吸进预填"));
+        assert!(!light.system.contains("被吸走的指称不算在内"));
+        let full = compose_prompt(&pin_request_off(None, None, vec![]), Intensity::Full);
+        assert!(full.system.contains(INTENSITY_FULL));
     }
 }

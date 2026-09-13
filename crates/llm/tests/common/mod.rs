@@ -33,6 +33,7 @@ pub fn request(text: &str) -> RectifyRequest {
         style_directive: None,
         global_directive: None,
         terms: vec![],
+        prefill: true,
     }
 }
 
