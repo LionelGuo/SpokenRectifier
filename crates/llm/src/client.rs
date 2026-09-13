@@ -16,7 +16,7 @@ use spokenrectifier_engine::provider::llm::{
 };
 
 use crate::config::{LlmConfig, ModelConfig};
-use crate::intensity::select_intensity;
+use crate::intensity::{Intensity, select_intensity};
 use crate::prompt::{ChatPrompt, compose_prompt};
 
 /// A rectify LLM backed by any OpenAI-compatible endpoint.
@@ -32,6 +32,22 @@ impl OpenAiCompatLlm {
             .build()
             .map_err(|err| RectifyError(format!("HTTP client build failed: {err}")))?;
         Ok(Self { config, http })
+    }
+
+    /// The request's prompt under this client's config: the `[llm]`
+    /// prefill key rides onto the request here — the same hop thinking
+    /// and the intensity threshold take, the one place the config meets
+    /// the composition. The engine's value is the seam default; the
+    /// client owns the truth, so a runtime re-adoption (a rebuilt
+    /// client) carries a changed key for free (ADR-0014).
+    fn composed_prompt(
+        &self,
+        request: &RectifyRequest,
+        intensity: Intensity,
+    ) -> ChatPrompt {
+        let mut shaped = request.clone();
+        shaped.prefill = self.config.prefill;
+        compose_prompt(&shaped, intensity)
     }
 }
 
@@ -55,7 +71,7 @@ impl RectifyLlm for OpenAiCompatLlm {
                 model.model
             ))
         })?;
-        let prompt = compose_prompt(&request, intensity);
+        let prompt = self.composed_prompt(&request, intensity);
         let url = format!("{}/chat/completions", model.base_url.trim_end_matches('/'));
         let response = self
             .http
@@ -270,6 +286,34 @@ impl SseDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The wiring hop the prefill key lands through: the config — not
+    /// the engine's seam default — decides the pinned prompt's form
+    /// (census table on, pass-through off; ADR-0014).
+    #[test]
+    fn the_prefill_config_decides_the_pinned_prompt_form() {
+        let pinned = RectifyRequest {
+            raw_transcript: "记一下‡1‡的安排".into(),
+            paragraphs: vec!["记一下‡1‡的安排".into()],
+            style_directive: None,
+            global_directive: None,
+            terms: Vec::new(),
+            prefill: true, // the engine's seam default
+        };
+        let mut off_config = LlmConfig::defaults();
+        off_config.prefill = false;
+        let on = OpenAiCompatLlm::new(LlmConfig::defaults()).unwrap();
+        let off = OpenAiCompatLlm::new(off_config).unwrap();
+
+        let on_prompt = on.composed_prompt(&pinned, Intensity::Full);
+        assert!(on_prompt.user.contains("【占位符清单】"), "census missing");
+
+        let off_prompt = off.composed_prompt(&pinned, Intensity::Full);
+        assert!(
+            !off_prompt.user.contains("【占位符清单】"),
+            "census leaked into the pass-through form"
+        );
+    }
 
     fn feed_all(chunks: &[&str]) -> Vec<String> {
         let mut decoder = SseDecoder::new();

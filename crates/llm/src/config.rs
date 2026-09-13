@@ -24,6 +24,11 @@ pub struct LlmConfig {
     /// 工单 33: family 10/10 with thinking, 3/10 without); turning it
     /// off buys back 1–2s of light-band latency at that cost.
     pub thinking: bool,
+    /// Whether pinned prompts teach the inline prefill grammar. On by
+    /// default (today's behavior); `false` composes the pass-through
+    /// form — marks ride the rectified text as-is, no census table
+    /// (ADR-0014). Independent of `thinking`: separate knobs.
+    pub prefill: bool,
     /// Utterances strictly below this many characters take light-touch
     /// rectify; at or above, full rectify. Same model either way.
     pub light_touch_max_chars: usize,
@@ -81,6 +86,7 @@ impl LlmConfig {
     pub fn defaults() -> Self {
         LlmConfig {
             thinking: true,
+            prefill: true,
             light_touch_max_chars: 40,
             endpoint_configured: false,
             legacy_flat: VendorKeys::default(),
@@ -155,6 +161,7 @@ pub struct ConfigError(pub String);
 #[derive(Debug, Default, Deserialize)]
 struct LlmSection {
     thinking: Option<bool>,
+    prefill: Option<bool>,
     light_touch_max_chars: Option<usize>,
     base_url: Option<String>,
     model: Option<String>,
@@ -204,6 +211,9 @@ impl LlmSection {
 fn apply(config: &mut LlmConfig, llm: LlmSection, flat: &mut FlatPair) {
     if let Some(v) = llm.thinking {
         config.thinking = v;
+    }
+    if let Some(v) = llm.prefill {
+        config.prefill = v;
     }
     if let Some(v) = llm.light_touch_max_chars {
         config.light_touch_max_chars = v;
@@ -399,6 +409,7 @@ mod tests {
     fn defaults_are_single_model_deepseek() {
         let config = LlmConfig::defaults();
         assert!(config.thinking);
+        assert!(config.prefill);
         assert_eq!(config.light_touch_max_chars, 40);
         assert_eq!(config.model.model, "deepseek-v4-flash");
         assert_eq!(config.model.vendor, Vendor::DeepSeek);
@@ -428,6 +439,57 @@ mod tests {
         assert_eq!(config.model.model, "deepseek-v4-pro"); // shared file
         assert_eq!(config.model.api_key.as_deref(), Some("sk-local")); // local wins
         assert_eq!(config.model.base_url, "https://api.deepseek.com"); // untouched default
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The prefill key defaults on (today's behavior, zero migration),
+    /// layers like every prompt knob — shared off, local back on, local
+    /// wins — and never marks endpoint intent: a user toggling the
+    /// prompt form has not configured a real model.
+    #[test]
+    fn prefill_defaults_on_and_layers_without_endpoint_intent() {
+        let dir = std::env::temp_dir().join("sr-llm-config-test-prefill");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dirs = std::slice::from_ref(&dir);
+
+        // No files at all: the default is on.
+        assert!(load_llm_config(dirs).unwrap().prefill);
+
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[llm]\nprefill = false\n",
+        )
+        .unwrap();
+        let config = load_llm_config(dirs).unwrap();
+        assert!(!config.prefill); // shared overrides the on default
+        assert!(!config.endpoint_configured); // a prompt knob, not intent
+
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[llm]\nprefill = true\n",
+        )
+        .unwrap();
+        assert!(load_llm_config(dirs).unwrap().prefill); // local wins
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_non_boolean_prefill_is_rejected_naming_the_file_and_section() {
+        let dir = std::env::temp_dir().join("sr-llm-config-test-prefill-type");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[llm]\nprefill = \"yes\"\n",
+        )
+        .unwrap();
+
+        let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+        assert!(err.contains("spokenrectifier.toml"), "got: {err}");
+        assert!(err.contains("llm"), "got: {err}");
+        // Single line only: a multi-line error is a quoted source snippet.
+        assert!(!err.contains('\n'), "multi-line error: {err}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

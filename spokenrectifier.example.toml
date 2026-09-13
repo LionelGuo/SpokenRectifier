@@ -138,6 +138,8 @@ retention_days = 30         # sessions older than this are swept on launch
 # unknown vendor or an empty model/base_url is rejected too.
 [llm]
 thinking = true
+prefill = true                         # on: teach the ‡N:值‡ inline grammar;
+#                                       #  off: marks ride the text as-is (ADR-0014)
 light_touch_max_chars = 40
 vendor = "deepseek"                     # deepseek | volcengine | qwen | openai
 base_url = "https://api.deepseek.com"   # everything before /chat/completions
