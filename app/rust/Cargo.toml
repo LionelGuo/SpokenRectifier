@@ -12,6 +12,7 @@ crate-type = ["cdylib", "staticlib"]
 anyhow = "1"
 flutter_rust_bridge = "=2.13.0"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 spokenrectifier-aliyun = { path = "../../crates/aliyun" }
 spokenrectifier-asr = { path = "../../crates/asr" }
 spokenrectifier-audio = { path = "../../crates/audio" }

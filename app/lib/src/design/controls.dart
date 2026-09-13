@@ -104,6 +104,7 @@ class SrField extends StatelessWidget {
     this.obscure = false,
     this.monospace = false,
     this.onSubmitted,
+    this.maxLines,
   });
 
   final TextEditingController controller;
@@ -113,9 +114,14 @@ class SrField extends StatelessWidget {
   final bool monospace;
   final ValueChanged<String>? onSubmitted;
 
+  /// A multiline field (the request-body JSON box): grows with content
+  /// from three lines up to the cap instead of the fixed one-line box.
+  final int? maxLines;
+
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
+    final multiline = maxLines != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -124,18 +130,23 @@ class SrField extends StatelessWidget {
           const SizedBox(height: 4),
         ],
         Container(
-          height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          height: multiline ? null : 34,
+          padding: EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: multiline ? 8 : 0,
+          ),
           decoration: BoxDecoration(
             color: pal.surfaceOverlay,
             borderRadius: BorderRadius.circular(SrRadius.control),
             border: Border.all(color: pal.hairline),
           ),
-          alignment: Alignment.centerLeft,
+          alignment: multiline ? null : Alignment.centerLeft,
           child: TextField(
             controller: controller,
             obscureText: obscure,
             onSubmitted: onSubmitted,
+            maxLines: maxLines ?? 1,
+            minLines: multiline ? 3 : null,
             style: SrType.body.copyWith(
               color: pal.textPrimary,
               fontFamily: monospace ? 'monospace' : null,

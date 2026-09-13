@@ -20,16 +20,23 @@ pub enum Vendor {
     /// Plain OpenAI shape; only `reasoning_effort` exists, so thinking-off
     /// sends no extra field.
     OpenAi,
+    /// The user's own OpenAI-compatible endpoint (ADR-0018): no preset
+    /// URL, no conventional environment variable, and no thinking-field
+    /// shape of its own — the stored `thinking_dialect` picks one of the
+    /// four above (default `openai`). A vendor value, not a dialect: the
+    /// dialect parser excludes it.
+    Custom,
 }
 
 impl Vendor {
     /// Every vendor, in declaration order — keying the per-vendor key
-    /// slots (ADR-0011).
-    pub const ALL: [Vendor; 4] = [
+    /// slots (ADR-0011) and the settings pane's chip row (custom last).
+    pub const ALL: [Vendor; 5] = [
         Vendor::DeepSeek,
         Vendor::Volcengine,
         Vendor::Qwen,
         Vendor::OpenAi,
+        Vendor::Custom,
     ];
 }
 
@@ -42,6 +49,7 @@ impl Vendor {
             Vendor::Volcengine => "volcengine",
             Vendor::Qwen => "qwen",
             Vendor::OpenAi => "openai",
+            Vendor::Custom => "custom",
         }
     }
 
@@ -53,19 +61,33 @@ impl Vendor {
             "volcengine" => Some(Vendor::Volcengine),
             "qwen" => Some(Vendor::Qwen),
             "openai" => Some(Vendor::OpenAi),
+            "custom" => Some(Vendor::Custom),
+            _ => None,
+        }
+    }
+
+    /// Parse a thinking-dialect name: the four adapted shapes only —
+    /// `custom` names an endpoint, never a dialect (its own dialect is
+    /// stored separately, ADR-0018).
+    pub fn dialect_from_name(name: &str) -> Option<Self> {
+        match name.trim() {
+            "deepseek" | "volcengine" | "qwen" | "openai" => Self::from_str_name(name),
             _ => None,
         }
     }
 
     /// The conventional environment variable this vendor's key falls
     /// back to when no local-file key exists (each vendor keeps its own
-    /// slot, so each names its own variable, ADR-0011).
-    pub fn default_env(self) -> &'static str {
+    /// slot, so each names its own variable, ADR-0011). `None` for
+    /// custom: an unadapted endpoint has no conventional name — the
+    /// local file or a hand-written `api_key_env` is the only road.
+    pub fn default_env(self) -> Option<&'static str> {
         match self {
-            Vendor::DeepSeek => "DEEPSEEK_API_KEY",
-            Vendor::Volcengine => "ARK_API_KEY",
-            Vendor::Qwen => "DASHSCOPE_API_KEY",
-            Vendor::OpenAi => "OPENAI_API_KEY",
+            Vendor::DeepSeek => Some("DEEPSEEK_API_KEY"),
+            Vendor::Volcengine => Some("ARK_API_KEY"),
+            Vendor::Qwen => Some("DASHSCOPE_API_KEY"),
+            Vendor::OpenAi => Some("OPENAI_API_KEY"),
+            Vendor::Custom => None,
         }
     }
 
@@ -84,6 +106,11 @@ impl Vendor {
             (Vendor::Qwen, false) => vec![("enable_thinking", json!(false))],
             (Vendor::OpenAi, true) => vec![("reasoning_effort", json!("medium"))],
             (Vendor::OpenAi, false) => vec![],
+            // Never reached through the model's dialect resolution (the
+            // parser above excludes custom); the openai shape is the
+            // safety default a raw custom vendor value falls to.
+            (Vendor::Custom, true) => vec![("reasoning_effort", json!("medium"))],
+            (Vendor::Custom, false) => vec![],
         }
     }
 }
@@ -99,6 +126,7 @@ mod tests {
             (Vendor::Volcengine, "volcengine"),
             (Vendor::Qwen, "qwen"),
             (Vendor::OpenAi, "openai"),
+            (Vendor::Custom, "custom"),
         ] {
             assert_eq!(vendor.as_str(), name);
             // What a save writes must be what a load reads back.
@@ -109,6 +137,38 @@ mod tests {
             assert_eq!(Vendor::from_str_name(name), Some(vendor));
         }
         assert_eq!(Vendor::from_str_name("nonsense"), None);
+    }
+
+    /// The dialect names are the four adapted shapes: custom names an
+    /// endpoint, never a dialect, and every other name is refused.
+    #[test]
+    fn the_dialect_parser_accepts_the_four_shapes_only() {
+        for name in ["deepseek", "volcengine", "qwen", "openai"] {
+            assert_eq!(
+                Vendor::dialect_from_name(name),
+                Vendor::from_str_name(name),
+                "{name}"
+            );
+        }
+        assert_eq!(Vendor::dialect_from_name("custom"), None);
+        assert_eq!(Vendor::dialect_from_name("nonsense"), None);
+    }
+
+    /// Custom is in the slot registry but has no conventional
+    /// environment variable and no thinking shape of its own.
+    #[test]
+    fn custom_has_no_env_and_the_openai_shape_as_safety() {
+        assert_eq!(Vendor::ALL.len(), 5);
+        assert!(Vendor::ALL.contains(&Vendor::Custom));
+        assert_eq!(Vendor::Custom.default_env(), None);
+        assert_eq!(
+            Vendor::Custom.thinking_fields(true),
+            Vendor::OpenAi.thinking_fields(true)
+        );
+        assert_eq!(
+            Vendor::Custom.thinking_fields(false),
+            Vendor::OpenAi.thinking_fields(false)
+        );
     }
 
     #[test]

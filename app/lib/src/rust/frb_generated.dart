@@ -160,10 +160,7 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<BridgeLlmConnection> crateApiSetLlmConnection({
-    required String vendor,
-    required String baseUrl,
-    required String model,
-    required BridgeKeyEdit apiKey,
+    required BridgeLlmEdit edit,
   });
 
   Future<BridgeRectifyBehavior> crateApiSetRectifyBehavior({
@@ -1056,19 +1053,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<BridgeLlmConnection> crateApiSetLlmConnection({
-    required String vendor,
-    required String baseUrl,
-    required String model,
-    required BridgeKeyEdit apiKey,
+    required BridgeLlmEdit edit,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(vendor, serializer);
-          sse_encode_String(baseUrl, serializer);
-          sse_encode_String(model, serializer);
-          sse_encode_box_autoadd_bridge_key_edit(apiKey, serializer);
+          sse_encode_box_autoadd_bridge_llm_edit(edit, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1081,16 +1072,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiSetLlmConnectionConstMeta,
-        argValues: [vendor, baseUrl, model, apiKey],
+        argValues: [edit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSetLlmConnectionConstMeta => const TaskConstMeta(
-    debugName: "set_llm_connection",
-    argNames: ["vendor", "baseUrl", "model", "apiKey"],
-  );
+  TaskConstMeta get kCrateApiSetLlmConnectionConstMeta =>
+      const TaskConstMeta(debugName: "set_llm_connection", argNames: ["edit"]);
 
   @override
   Future<BridgeRectifyBehavior> crateApiSetRectifyBehavior({
@@ -1323,9 +1312,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  BridgeKeyEdit dco_decode_box_autoadd_bridge_key_edit(dynamic raw) {
+  BridgeLlmEdit dco_decode_box_autoadd_bridge_llm_edit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_bridge_key_edit(raw);
+    return dco_decode_bridge_llm_edit(raw);
   }
 
   @protected
@@ -1773,14 +1762,56 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BridgeLlmConnection dco_decode_bridge_llm_connection(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return BridgeLlmConnection(
       vendor: dco_decode_String(arr[0]),
       baseUrl: dco_decode_String(arr[1]),
       model: dco_decode_String(arr[2]),
       key: dco_decode_bridge_key_status(arr[3]),
       keys: dco_decode_list_bridge_llm_vendor_key(arr[4]),
+      custom: dco_decode_bridge_llm_custom(arr[5]),
+    );
+  }
+
+  @protected
+  BridgeLlmCustom dco_decode_bridge_llm_custom(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return BridgeLlmCustom(
+      baseUrl: dco_decode_opt_String(arr[0]),
+      model: dco_decode_opt_String(arr[1]),
+      thinkingDialect: dco_decode_String(arr[2]),
+      extraBodyJson: dco_decode_opt_String(arr[3]),
+    );
+  }
+
+  @protected
+  BridgeLlmCustomEdit dco_decode_bridge_llm_custom_edit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return BridgeLlmCustomEdit(
+      thinkingDialect: dco_decode_String(arr[0]),
+      extraBodyJson: dco_decode_opt_String(arr[1]),
+    );
+  }
+
+  @protected
+  BridgeLlmEdit dco_decode_bridge_llm_edit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return BridgeLlmEdit(
+      vendor: dco_decode_String(arr[0]),
+      baseUrl: dco_decode_String(arr[1]),
+      model: dco_decode_String(arr[2]),
+      apiKey: dco_decode_bridge_key_edit(arr[3]),
+      custom: dco_decode_bridge_llm_custom_edit(arr[4]),
     );
   }
 
@@ -2022,11 +2053,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  BridgeKeyEdit sse_decode_box_autoadd_bridge_key_edit(
+  BridgeLlmEdit sse_decode_box_autoadd_bridge_llm_edit(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_bridge_key_edit(deserializer));
+    return (sse_decode_bridge_llm_edit(deserializer));
   }
 
   @protected
@@ -2538,12 +2569,59 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_model = sse_decode_String(deserializer);
     var var_key = sse_decode_bridge_key_status(deserializer);
     var var_keys = sse_decode_list_bridge_llm_vendor_key(deserializer);
+    var var_custom = sse_decode_bridge_llm_custom(deserializer);
     return BridgeLlmConnection(
       vendor: var_vendor,
       baseUrl: var_baseUrl,
       model: var_model,
       key: var_key,
       keys: var_keys,
+      custom: var_custom,
+    );
+  }
+
+  @protected
+  BridgeLlmCustom sse_decode_bridge_llm_custom(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_baseUrl = sse_decode_opt_String(deserializer);
+    var var_model = sse_decode_opt_String(deserializer);
+    var var_thinkingDialect = sse_decode_String(deserializer);
+    var var_extraBodyJson = sse_decode_opt_String(deserializer);
+    return BridgeLlmCustom(
+      baseUrl: var_baseUrl,
+      model: var_model,
+      thinkingDialect: var_thinkingDialect,
+      extraBodyJson: var_extraBodyJson,
+    );
+  }
+
+  @protected
+  BridgeLlmCustomEdit sse_decode_bridge_llm_custom_edit(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_thinkingDialect = sse_decode_String(deserializer);
+    var var_extraBodyJson = sse_decode_opt_String(deserializer);
+    return BridgeLlmCustomEdit(
+      thinkingDialect: var_thinkingDialect,
+      extraBodyJson: var_extraBodyJson,
+    );
+  }
+
+  @protected
+  BridgeLlmEdit sse_decode_bridge_llm_edit(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_vendor = sse_decode_String(deserializer);
+    var var_baseUrl = sse_decode_String(deserializer);
+    var var_model = sse_decode_String(deserializer);
+    var var_apiKey = sse_decode_bridge_key_edit(deserializer);
+    var var_custom = sse_decode_bridge_llm_custom_edit(deserializer);
+    return BridgeLlmEdit(
+      vendor: var_vendor,
+      baseUrl: var_baseUrl,
+      model: var_model,
+      apiKey: var_apiKey,
+      custom: var_custom,
     );
   }
 
@@ -2863,12 +2941,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_box_autoadd_bridge_key_edit(
-    BridgeKeyEdit self,
+  void sse_encode_box_autoadd_bridge_llm_edit(
+    BridgeLlmEdit self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_bridge_key_edit(self, serializer);
+    sse_encode_bridge_llm_edit(self, serializer);
   }
 
   @protected
@@ -3296,6 +3374,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.model, serializer);
     sse_encode_bridge_key_status(self.key, serializer);
     sse_encode_list_bridge_llm_vendor_key(self.keys, serializer);
+    sse_encode_bridge_llm_custom(self.custom, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_llm_custom(
+    BridgeLlmCustom self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.baseUrl, serializer);
+    sse_encode_opt_String(self.model, serializer);
+    sse_encode_String(self.thinkingDialect, serializer);
+    sse_encode_opt_String(self.extraBodyJson, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_llm_custom_edit(
+    BridgeLlmCustomEdit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.thinkingDialect, serializer);
+    sse_encode_opt_String(self.extraBodyJson, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_llm_edit(
+    BridgeLlmEdit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.vendor, serializer);
+    sse_encode_String(self.baseUrl, serializer);
+    sse_encode_String(self.model, serializer);
+    sse_encode_bridge_key_edit(self.apiKey, serializer);
+    sse_encode_bridge_llm_custom_edit(self.custom, serializer);
   }
 
   @protected

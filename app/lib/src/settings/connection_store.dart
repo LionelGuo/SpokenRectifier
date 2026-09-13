@@ -295,7 +295,9 @@ class AsrAzureEdit {
 /// ACTIVE vendor's resolved pair; [keys] carries every vendor's — a key
 /// authenticates exactly one vendor, so the pane re-binds its key block
 /// per vendor chip and a switch never shows another vendor's key
-/// (ADR-0011).
+/// (ADR-0011). [custom] is the `[llm.custom]` slot (ADR-0018): the
+/// restore cache the custom chip paints on its return, plus the dialect
+/// and overlay fields only that chip edits.
 class LlmConnection {
   const LlmConnection({
     required this.vendor,
@@ -303,6 +305,7 @@ class LlmConnection {
     required this.model,
     required this.key,
     required this.keys,
+    required this.custom,
   });
 
   final String vendor;
@@ -312,6 +315,7 @@ class LlmConnection {
 
   /// Every vendor's resolved key pair, keyed by vendor name.
   final Map<String, KeyInfo> keys;
+  final LlmCustom custom;
 
   @override
   bool operator ==(Object other) =>
@@ -320,10 +324,58 @@ class LlmConnection {
       other.baseUrl == baseUrl &&
       other.model == model &&
       other.key == key &&
-      MapEquality().equals(other.keys, keys);
+      MapEquality().equals(other.keys, keys) &&
+      other.custom == custom;
 
   @override
-  int get hashCode => Object.hash(vendor, baseUrl, model, key, keys.length);
+  int get hashCode =>
+      Object.hash(vendor, baseUrl, model, key, keys.length, custom);
+}
+
+/// The `[llm.custom]` slot as the pane paints it (ADR-0018): the
+/// endpoint's restore cache, the thinking dialect (always resolved — a
+/// missing key reads as openai), and the request-body overlay as the
+/// JSON text the box holds.
+class LlmCustom {
+  const LlmCustom({
+    required this.baseUrl,
+    required this.model,
+    required this.thinkingDialect,
+    required this.extraBodyJson,
+  });
+
+  /// The restore cache; empty while never configured.
+  final String? baseUrl;
+  final String? model;
+
+  /// One of the four adapted shape names.
+  final String thinkingDialect;
+
+  /// The stored overlay as pretty JSON; null when unset.
+  final String? extraBodyJson;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LlmCustom &&
+      other.baseUrl == baseUrl &&
+      other.model == model &&
+      other.thinkingDialect == thinkingDialect &&
+      other.extraBodyJson == extraBodyJson;
+
+  @override
+  int get hashCode =>
+      Object.hash(baseUrl, model, thinkingDialect, extraBodyJson);
+}
+
+/// The custom slot's editable fields (ADR-0018): the dialect and the
+/// overlay's JSON text (blank/`{}` = unset). The slot's base_url/model
+/// are not edits — an active-custom save mirrors the common fields; a
+/// save from another chip leaves the slot alone.
+class LlmCustomEdit {
+  const LlmCustomEdit({required this.thinkingDialect, this.extraBodyJson});
+
+  final String thinkingDialect;
+  final String? extraBodyJson;
 }
 
 /// Connection persistence as the connection domain needs it.
@@ -347,12 +399,15 @@ abstract class ConnectionStore {
     String? appId,
   });
 
-  /// Write the editor's `[llm]` model; returns the re-read view.
+  /// Write the editor's `[llm]` model; returns the re-read view. The
+  /// custom edit rides along but is read only when the vendor chip is
+  /// custom (ADR-0018).
   Future<LlmConnection> saveLlm({
     required String vendor,
     required String baseUrl,
     required String model,
     required ApiKeyEdit apiKey,
+    required LlmCustomEdit custom,
   });
 
   /// Adopt the saved connections into the live engine at once
@@ -401,12 +456,19 @@ class RustConnectionStore implements ConnectionStore {
     required String baseUrl,
     required String model,
     required ApiKeyEdit apiKey,
+    required LlmCustomEdit custom,
   }) => rust
       .setLlmConnection(
-        vendor: vendor,
-        baseUrl: baseUrl,
-        model: model,
-        apiKey: _keyToWire(apiKey),
+        edit: rust.BridgeLlmEdit(
+          vendor: vendor,
+          baseUrl: baseUrl,
+          model: model,
+          apiKey: _keyToWire(apiKey),
+          custom: rust.BridgeLlmCustomEdit(
+            thinkingDialect: custom.thinkingDialect,
+            extraBodyJson: custom.extraBodyJson,
+          ),
+        ),
       )
       .then(_llmFromWire);
 
@@ -494,5 +556,11 @@ class RustConnectionStore implements ConnectionStore {
         keys: {
           for (final entry in llm.keys) entry.vendor: _keyFromWire(entry.key),
         },
+        custom: LlmCustom(
+          baseUrl: llm.custom.baseUrl,
+          model: llm.custom.model,
+          thinkingDialect: llm.custom.thinkingDialect,
+          extraBodyJson: llm.custom.extraBodyJson,
+        ),
       );
 }

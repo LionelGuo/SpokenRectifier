@@ -24,6 +24,8 @@ pub fn config_with_base(base_url: String, thinking: bool) -> LlmConfig {
         api_key: Some("sk-test".into()),
         api_key_env: None,
         vendor: Vendor::DeepSeek,
+        thinking_dialect: Vendor::DeepSeek,
+        custom_extra_body: None,
         extra_body: None,
     };
     config

@@ -18,6 +18,7 @@ use spokenrectifier_engine::provider::llm::{
 use crate::config::{LlmConfig, ModelConfig, ThinkingPolicy};
 use crate::intensity::{Intensity, select_intensity};
 use crate::prompt::{ChatPrompt, compose_prompt_with_extra, has_pins};
+use crate::vendor::Vendor;
 
 /// A rectify LLM backed by any OpenAI-compatible endpoint.
 pub struct OpenAiCompatLlm {
@@ -126,8 +127,19 @@ fn request_body(model: &ModelConfig, prompt: &ChatPrompt, thinking: bool) -> Val
         // Rewriting wants stable output, not creativity.
         "temperature": 0.2,
     });
-    for (field, value) in model.vendor.thinking_fields(thinking) {
+    // The merge order (ADR-0018): the dialect fields first, then the
+    // custom overlay — only while custom is active; dormant otherwise —
+    // then the hand-edit hold `[llm.extra_body]`, which keeps the last
+    // word over both.
+    for (field, value) in model.thinking_dialect.thinking_fields(thinking) {
         body[field] = value;
+    }
+    if model.vendor == Vendor::Custom
+        && let Some(extra) = &model.custom_extra_body
+    {
+        for (field, value) in extra {
+            body[field.as_str()] = value.clone();
+        }
     }
     if let Some(extra) = &model.extra_body {
         for (field, value) in extra {
@@ -458,5 +470,44 @@ mod tests {
         // extra_body merges last, so it can override anything.
         assert_eq!(body["top_p"], 0.9);
         assert_eq!(body["thinking"], json!({"type": "enabled"}));
+    }
+
+    /// The custom overlay's merge order (ADR-0018): the dialect fields
+    /// first, the custom overlay between, the hold `[llm.extra_body]`
+    /// last — and the overlay sleeps entirely while another vendor is
+    /// active, whatever the slot stores.
+    #[test]
+    fn the_custom_overlay_merges_between_the_dialect_and_the_hold() {
+        fn overlay(text: &str) -> serde_json::Map<String, Value> {
+            serde_json::from_str::<serde_json::Map<String, Value>>(text).unwrap()
+        }
+        let prompt = ChatPrompt {
+            system: "sys".into(),
+            user: "usr".into(),
+        };
+        let mut model = LlmConfig::defaults().model;
+        model.vendor = Vendor::Custom;
+        model.thinking_dialect = Vendor::Volcengine;
+        model.custom_extra_body = Some(overlay(
+            r#"{"thinking": {"type": "enabled"}, "top_p": 0.9}"#,
+        ));
+        model.extra_body = Some(overlay(r#"{"top_p": 0.5}"#));
+
+        let body = request_body(&model, &prompt, false);
+        // The dialect wrote disabled; the custom overlay overrode it; the
+        // hold kept the last word on top_p.
+        assert_eq!(body["thinking"], json!({"type": "enabled"}));
+        assert_eq!(body["top_p"], 0.5);
+
+        // Dormancy: the same slot on a deepseek vendor leaves the body
+        // stock deepseek (disabled thinking, no top_p but the hold's).
+        let mut dormant = model.clone();
+        dormant.vendor = Vendor::DeepSeek;
+        dormant.thinking_dialect = Vendor::DeepSeek;
+        dormant.custom_extra_body = Some(overlay(r#"{"thinking": {"type": "enabled"}}"#));
+        dormant.extra_body = None;
+        let body = request_body(&dormant, &prompt, false);
+        assert_eq!(body["thinking"], json!({"type": "disabled"}));
+        assert!(body.get("top_p").is_none());
     }
 }

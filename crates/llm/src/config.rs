@@ -37,6 +37,10 @@ pub struct LlmConfig {
     /// (ADR-0011; `model.api_key` mirrors the ACTIVE vendor's pair for
     /// the client, this map is the whole truth the settings view paints).
     pub vendor_keys: BTreeMap<Vendor, VendorKeys>,
+    /// The `[llm.custom]` sub-section (ADR-0018): restore cache, dialect,
+    /// and the custom request-body overlay. The slot's key pair lives in
+    /// `vendor_keys[Vendor::Custom]` like every vendor's.
+    pub custom: CustomSlot,
     /// The legacy flat `[llm] api_key`/`api_key_env` pair as the layers
     /// left it (save-time migration only; ADR-0011).
     pub(crate) legacy_flat: VendorKeys,
@@ -194,8 +198,36 @@ pub struct ModelConfig {
     pub api_key_env: Option<String>,
     /// Dialect quirks of the endpoint (thinking-mode field shape).
     pub vendor: Vendor,
+    /// The thinking-field shape the request body actually speaks: the
+    /// vendor's own for the four adapted vendors, the custom slot's
+    /// stored dialect when custom is active (default `openai`;
+    /// ADR-0018). Carried resolved, so the request builder never
+    /// re-derives it.
+    pub thinking_dialect: Vendor,
+    /// The custom request-body overlay (`[llm.custom.extra_body]`),
+    /// merged between the dialect fields and the hold — and dormant
+    /// while another vendor is active (ADR-0018).
+    pub custom_extra_body: Option<serde_json::Map<String, Value>>,
     /// Merged verbatim into the request body last — the escape hatch for
     /// anything this config does not model.
+    pub extra_body: Option<serde_json::Map<String, Value>>,
+}
+
+/// The `[llm.custom]` sub-section (ADR-0018): the custom endpoint's
+/// restore cache plus its thinking dialect and request-body overlay.
+/// While another vendor is active these keys sit stored, just unadopted
+/// — switching away and back restores everything (the same
+/// switch-preserving rule as the ASR sub-sections, ADR-0009).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomSlot {
+    /// The custom endpoint, cached for the chip's return; the ACTIVE
+    /// endpoint always lives in the common `[llm]` segment.
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    /// One of the four adapted shapes; a missing key reads as `openai`
+    /// and the next custom save writes it down.
+    pub thinking_dialect: Vendor,
+    /// `[llm.custom.extra_body]`; an empty table reads as absent.
     pub extra_body: Option<serde_json::Map<String, Value>>,
 }
 
@@ -209,6 +241,12 @@ impl LlmConfig {
             rectify: RectifyConfig::today(),
             endpoint_configured: false,
             legacy_flat: VendorKeys::default(),
+            custom: CustomSlot {
+                base_url: None,
+                model: None,
+                thinking_dialect: Vendor::OpenAi,
+                extra_body: None,
+            },
             vendor_keys: Vendor::ALL
                 .iter()
                 .map(|&vendor| (vendor, VendorKeys::default()))
@@ -217,8 +255,15 @@ impl LlmConfig {
                 base_url: "https://api.deepseek.com".into(),
                 model: "deepseek-v4-flash".into(),
                 api_key: None,
-                api_key_env: Some(Vendor::DeepSeek.default_env().into()),
+                api_key_env: Some(
+                    Vendor::DeepSeek
+                        .default_env()
+                        .expect("deepseek names an env")
+                        .into(),
+                ),
                 vendor: Vendor::DeepSeek,
+                thinking_dialect: Vendor::DeepSeek,
+                custom_extra_body: None,
                 extra_body: None,
             },
         }
@@ -226,9 +271,10 @@ impl LlmConfig {
 
     /// One vendor's resolved key pair for display and resolution: its
     /// own slot first, then (the ACTIVE vendor only) the legacy flat
-    /// pair, then the vendor's conventional environment name. An
-    /// inactive vendor never borrows the flat pair — it authenticated
-    /// whatever vendor the files named, not this one.
+    /// pair, then the vendor's conventional environment name — `None`
+    /// for custom, which has none (ADR-0018). An inactive vendor never
+    /// borrows the flat pair — it authenticated whatever vendor the
+    /// files named, not this one.
     pub fn resolved_keys(&self, vendor: Vendor) -> VendorKeys {
         let slot = self.vendor_keys.get(&vendor).cloned().unwrap_or_default();
         let flat = if vendor == self.model.vendor {
@@ -238,11 +284,10 @@ impl LlmConfig {
         };
         VendorKeys {
             api_key: slot.api_key.or(flat.api_key),
-            api_key_env: Some(
-                slot.api_key_env
-                    .or(flat.api_key_env)
-                    .unwrap_or_else(|| vendor.default_env().to_string()),
-            ),
+            api_key_env: slot
+                .api_key_env
+                .or(flat.api_key_env)
+                .or_else(|| vendor.default_env().map(str::to_string)),
         }
     }
 
@@ -307,12 +352,28 @@ struct LlmSection {
     volcengine: Option<VendorKeysOverlay>,
     qwen: Option<VendorKeysOverlay>,
     openai: Option<VendorKeysOverlay>,
+    /// The custom endpoint's sub-section (ADR-0018) — a key slot like
+    /// every vendor's, plus the restore cache, dialect, and overlay.
+    custom: Option<CustomKeysOverlay>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct VendorKeysOverlay {
     api_key: Option<String>,
     api_key_env: Option<String>,
+}
+
+/// The `[llm.custom]` overlay shape (ADR-0018). `thinking_dialect`
+/// rides as the raw string and validates after the load (naming the
+/// file): the four adapted shapes only, never "custom".
+#[derive(Debug, Default, Deserialize)]
+struct CustomKeysOverlay {
+    api_key: Option<String>,
+    api_key_env: Option<String>,
+    base_url: Option<String>,
+    model: Option<String>,
+    thinking_dialect: Option<String>,
+    extra_body: Option<serde_json::Map<String, Value>>,
 }
 
 /// The legacy flat pair's TOML shape — same as a vendor slot's.
@@ -325,14 +386,18 @@ impl LlmSection {
             Vendor::Volcengine => self.volcengine.as_ref(),
             Vendor::Qwen => self.qwen.as_ref(),
             Vendor::OpenAi => self.openai.as_ref(),
+            Vendor::Custom => None, // a different shape; folded separately
         }
     }
 
     /// Whether any vendor's sub-section carries a non-empty key.
     fn any_slot_key(&self) -> bool {
         Vendor::ALL.iter().any(|vendor| {
-            self.slot(*vendor)
-                .is_some_and(|o| o.api_key.as_deref().is_some_and(|k| !k.is_empty()))
+            let key = match vendor {
+                Vendor::Custom => self.custom.as_ref().and_then(|o| o.api_key.as_deref()),
+                _ => self.slot(*vendor).and_then(|o| o.api_key.as_deref()),
+            };
+            key.is_some_and(|k| !k.is_empty())
         })
     }
 }
@@ -393,6 +458,36 @@ fn apply(config: &mut LlmConfig, llm: LlmSection, flat: &mut FlatPair) {
             slot.api_key_env = Some(v);
         }
     }
+    // The custom slot (ADR-0018): the key pair into its vendor slot, the
+    // rest into the restore cache. An empty overlay table reads as no
+    // overlay — empty is the off form, like the blank extra directive.
+    if let Some(custom) = llm.custom {
+        let slot = config
+            .vendor_keys
+            .get_mut(&Vendor::Custom)
+            .expect("defaults seed every vendor");
+        if let Some(v) = custom.api_key {
+            slot.api_key = Some(v);
+        }
+        if let Some(v) = custom.api_key_env {
+            slot.api_key_env = Some(v);
+        }
+        if let Some(v) = custom.base_url {
+            config.custom.base_url = Some(v);
+        }
+        if let Some(v) = custom.model {
+            config.custom.model = Some(v);
+        }
+        if let Some(v) = custom.thinking_dialect {
+            // The loader validated the string against its file before
+            // folding; an impossible miss keeps the slot's default.
+            config.custom.thinking_dialect =
+                Vendor::dialect_from_name(&v).unwrap_or(config.custom.thinking_dialect);
+        }
+        if let Some(v) = custom.extra_body.filter(|map| !map.is_empty()) {
+            config.custom.extra_body = Some(v);
+        }
+    }
 }
 
 /// Load the `[llm]` and `[rectify]` config from the layer files,
@@ -408,6 +503,24 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
     let mut flat = FlatPair::default();
     let mut llm_layers =
         load_section_layers::<LlmSection>(dirs, "llm").map_err(|err| ConfigError(err.0))?;
+    // The custom dialect validates before any folding, naming its file:
+    // the four adapted shapes only — "custom" names an endpoint, never
+    // a dialect (ADR-0018).
+    for layer in &llm_layers {
+        if let Some(text) = layer
+            .value
+            .custom
+            .as_ref()
+            .and_then(|custom| custom.thinking_dialect.as_deref())
+            && Vendor::dialect_from_name(text).is_none()
+        {
+            return Err(ConfigError(format!(
+                "{}: [llm.custom]: thinking_dialect accepts only \"deepseek\", \
+                 \"volcengine\", \"qwen\", or \"openai\" (lowercase); got \"{text}\"",
+                layer.source.file_name()
+            )));
+        }
+    }
     let rectify_layers = load_rectify_layers(dirs)?;
     for source in [LayerSource::Shared, LayerSource::Local] {
         if let Some(at) = llm_layers.iter().position(|layer| layer.source == source) {
@@ -442,6 +555,17 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
         .filter(|text| !text.trim().is_empty());
     // The save path's migration input: the flat pair as left behind.
     config.legacy_flat = flat;
+    // Resolve the ACTIVE face (ADR-0018): a custom endpoint speaks the
+    // slot's stored dialect and carries the custom overlay; every other
+    // vendor speaks its own shape, and the custom overlay sleeps.
+    config.model.thinking_dialect = if config.model.vendor == Vendor::Custom {
+        config.custom.thinking_dialect
+    } else {
+        config.model.vendor
+    };
+    config.model.custom_extra_body = (config.model.vendor == Vendor::Custom)
+        .then(|| config.custom.extra_body.clone())
+        .flatten();
     // Resolve the ACTIVE vendor's pair: its own slot first, the legacy
     // flat pair as the grandfather, the vendor's conventional env last.
     let resolved = config.resolved_keys(config.model.vendor);
@@ -699,6 +823,23 @@ pub struct LlmConnectionEdit {
     pub base_url: String,
     pub model: String,
     pub api_key: KeyEdit,
+    /// The custom chip's fields (ADR-0018). Read only when `vendor` is
+    /// `Custom`: a save from another chip never touches the slot.
+    pub custom: CustomConnectionEdit,
+}
+
+/// The custom slot's editor fields (ADR-0018): the thinking dialect and
+/// the request-body overlay as the JSON text the pane's box holds. The
+/// slot's base_url/model are not edits — an active-custom save mirrors
+/// the common segment's values into the slot (the invariant "the same
+/// value, written to both places together"), so the common pair is the
+/// one source of truth. `extra_body_json` blank, `{}`, or `None` = no
+/// overlay (the key is removed); anything not a JSON object root
+/// refuses the save before a single file is touched.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomConnectionEdit {
+    pub thinking_dialect: Vendor,
+    pub extra_body_json: Option<String>,
 }
 
 /// The sub-section a vendor's key slot lives in (`[llm.deepseek]`, …).
@@ -712,6 +853,13 @@ fn slot_section(vendor: Vendor) -> String {
 /// the local file only — never the committable shared file, whose loader
 /// rejects a key outright (the layering ironclad, ADR-0008; per-vendor
 /// slots per ADR-0011).
+///
+/// A save with `vendor = custom` writes the slot too (ADR-0018): the
+/// common segment's base_url/model mirrored into `[llm.custom]`, the
+/// thinking dialect always, and the request-body overlay as a TOML
+/// table (blank/`{}`/unset removes it; a non-object root or shapeless
+/// JSON refuses the whole save up front). A save from any other chip
+/// leaves the slot untouched.
 ///
 /// The legacy flat `[llm] api_key` pair is migrated first: it
 /// authenticated the vendor the files named, so it parks in that
@@ -731,6 +879,15 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
             "[llm] base_url is empty: name a real endpoint".into(),
         ));
     }
+    // The custom overlay parses and shape-checks up front (ADR-0018): a
+    // bad overlay refuses the whole save before a single file is
+    // touched. Read only when custom is ACTIVE — a save from another
+    // chip leaves the slot exactly as stored.
+    let custom_overlay = if edit.vendor == Vendor::Custom {
+        parse_custom_overlay(edit.custom.extra_body_json.as_deref())?
+    } else {
+        None
+    };
     // The migration needs to know which vendor the flat pair
     // authenticated; a malformed layer refuses the whole save, exactly
     // like the write path below.
@@ -775,11 +932,57 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
         WriteLayer::Owning,
     )
     .map_err(|err| ConfigError(err.0))?;
+    // The custom slot write (ADR-0018), active saves only: the common
+    // segment's values mirrored into the restore cache, the dialect
+    // always written down (a missing key's openai default included),
+    // the overlay as a TOML table or removed. An inactive save writes
+    // nothing here — the slot rides along untouched. Like the ASR save,
+    // the non-secret fields go BEFORE the key write, so the owning
+    // resolution isn't captured by the local section the key creates.
+    if edit.vendor == Vendor::Custom {
+        let mut fields = vec![
+            SectionField::str("base_url", base_url),
+            SectionField::str("model", model),
+            SectionField::str("thinking_dialect", edit.custom.thinking_dialect.as_str()),
+        ];
+        fields.push(match &custom_overlay {
+            Some(map) => SectionField::Table {
+                name: "extra_body".into(),
+                value: map.clone(),
+            },
+            None => SectionField::reset("extra_body"),
+        });
+        write_section_fields(dirs, "llm.custom", &fields, WriteLayer::Owning)
+            .map_err(|err| ConfigError(err.0))?;
+    }
     edit.api_key
         .clone()
         .write_to_local(dirs, &slot_section(edit.vendor), "api_key")
         .map_err(|err| ConfigError(err.0))?;
     Ok(())
+}
+
+/// One custom overlay's JSON text (ADR-0018): blank = no overlay; a
+/// non-object root or a JSON shape TOML cannot render refuses the save.
+fn parse_custom_overlay(
+    text: Option<&str>,
+) -> Result<Option<serde_json::Map<String, Value>>, ConfigError> {
+    let Some(text) = text.map(str::trim).filter(|text| !text.is_empty()) else {
+        return Ok(None);
+    };
+    let value: Value = serde_json::from_str(text)
+        .map_err(|err| ConfigError(format!("[llm.custom] extra_body is not valid JSON: {err}")))?;
+    let map = value.as_object().ok_or_else(|| {
+        ConfigError(
+            "[llm.custom] extra_body must be a JSON object (the request-body overlay)".into(),
+        )
+    })?;
+    if map.is_empty() {
+        return Ok(None); // the empty object is the off form, like blank
+    }
+    spokenrectifier_config::section_write::validate_json_table_shape(map)
+        .map_err(|err| ConfigError(format!("[llm.custom] extra_body: {}", err.0)))?;
+    Ok(Some(map.clone()))
 }
 
 // -- the rectify editor's write path (ticket 13) ------------------------------
@@ -1599,6 +1802,10 @@ mod tests {
             base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
             model: "doubao-seed-2.0-lite".into(),
             api_key,
+            custom: CustomConnectionEdit {
+                thinking_dialect: Vendor::OpenAi,
+                extra_body_json: None,
+            },
         }
     }
 
@@ -1843,6 +2050,257 @@ mod tests {
                 config.resolved_keys(vendor).api_key_env.as_deref(),
                 Some(env)
             );
+        }
+        // Custom has no conventional name (ADR-0018): unset means unset.
+        assert_eq!(config.resolved_keys(Vendor::Custom).api_key_env, None);
+    }
+
+    // -- the custom slot (ADR-0018) ---------------------------------------
+
+    /// The slot sits DORMANT while another vendor is active — cached, not
+    /// adopted — and wakes (dialect + overlay onto the active face) when
+    /// the files name custom. The endpoint itself always lives in the
+    /// common segment; the slot's URL is a cache the save mirrors.
+    #[test]
+    fn a_custom_slot_loads_dormant_until_custom_is_active() {
+        let dir = scratch("sr-llm-custom-dormant");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nvendor = \"deepseek\"\n\
+             [llm.custom]\nbase_url = \"https://my-endpoint\"\nmodel = \"my-model\"\n\
+             thinking_dialect = \"qwen\"\n\
+             [llm.custom.extra_body]\ntop_p = 0.9\n",
+        )
+        .unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        // Dormant: the active face speaks deepseek, the slot caches.
+        assert_eq!(config.model.vendor, Vendor::DeepSeek);
+        assert_eq!(config.model.thinking_dialect, Vendor::DeepSeek);
+        assert!(config.model.custom_extra_body.is_none());
+        assert_eq!(
+            config.custom.base_url.as_deref(),
+            Some("https://my-endpoint")
+        );
+        assert_eq!(config.custom.model.as_deref(), Some("my-model"));
+        assert_eq!(config.custom.thinking_dialect, Vendor::Qwen);
+        assert_eq!(
+            config.custom.extra_body.as_ref().unwrap()["top_p"],
+            serde_json::json!(0.9)
+        );
+
+        std::fs::write(dir.join(LOCAL_FILE), "[llm]\nvendor = \"custom\"\n").unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(config.model.thinking_dialect, Vendor::Qwen);
+        assert_eq!(
+            config.model.custom_extra_body.as_ref().unwrap()["top_p"],
+            serde_json::json!(0.9)
+        );
+        // The common segment stays the endpoint's truth (the default URL
+        // here): the slot's cache never feeds the active endpoint.
+        assert_eq!(config.model.base_url, "https://api.deepseek.com");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A missing dialect key reads as openai; an unknown one — "custom"
+    /// included, which names an endpoint, never a shape — refuses the
+    /// load naming the file.
+    #[test]
+    fn a_custom_dialect_defaults_to_openai_and_rejects_unknown_names() {
+        let dir = scratch("sr-llm-custom-dialect-default");
+        std::fs::write(dir.join(SHARED_FILE), "[llm.custom]\nmodel = \"m\"\n").unwrap();
+        assert_eq!(
+            load_llm_config(std::slice::from_ref(&dir))
+                .unwrap()
+                .custom
+                .thinking_dialect,
+            Vendor::OpenAi
+        );
+
+        for bad in ["custom", "Always", "anthropic"] {
+            std::fs::write(
+                dir.join(LOCAL_FILE),
+                format!("[llm.custom]\nthinking_dialect = \"{bad}\"\n"),
+            )
+            .unwrap();
+            let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+            assert!(err.contains("spokenrectifier.local.toml"), "{bad}: {err}");
+            assert!(err.contains("[llm.custom]"), "{bad}: {err}");
+            assert!(err.contains("thinking_dialect"), "{bad}: {err}");
+            assert!(!err.contains('\n'), "{bad}: multi-line: {err}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A custom slot key marks endpoint intent like every vendor's slot;
+    /// without one, custom is simply keyless (no env fallback to hide
+    /// behind), so an active custom endpoint with no key is the caller's
+    /// error to surface — the same rule as the four.
+    #[test]
+    fn a_custom_slot_key_marks_intent_and_there_is_no_env_fallback() {
+        let dir = scratch("sr-llm-custom-intent");
+        std::fs::write(
+            dir.join(LOCAL_FILE),
+            "[llm.custom]\napi_key = \"sk-mine\"\n",
+        )
+        .unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert!(config.endpoint_configured);
+        assert_eq!(
+            config.resolved_keys(Vendor::Custom).api_key.as_deref(),
+            Some("sk-mine")
+        );
+        // The slot's URL alone is a cache, not intent.
+        std::fs::write(
+            dir.join(LOCAL_FILE),
+            "[llm.custom]\nbase_url = \"https://my-endpoint\"\n",
+        )
+        .unwrap();
+        assert!(
+            !load_llm_config(std::slice::from_ref(&dir))
+                .unwrap()
+                .endpoint_configured
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An active-custom save mirrors the common segment into the slot and
+    /// writes the dialect down (ADR-0018): two places, same values, one
+    /// save. The key lands in the slot's local sub-section only.
+    #[test]
+    fn a_custom_save_mirrors_the_common_segment_into_the_slot() {
+        let dir = scratch("sr-llm-custom-save-mirror");
+        let mut custom_edit = edit(KeyEdit::Set("sk-mine".into()));
+        custom_edit.vendor = Vendor::Custom;
+        custom_edit.base_url = "https://my-endpoint".into();
+        custom_edit.model = "my-model".into();
+        custom_edit.custom.thinking_dialect = Vendor::Qwen;
+        custom_edit.custom.extra_body_json = Some(r#"{"top_p": 0.9, "stop": ["嗯"]}"#.into());
+
+        save_llm_connection(std::slice::from_ref(&dir), &custom_edit).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(shared.contains("vendor = \"custom\""), "got: {shared}");
+        assert!(shared.contains("https://my-endpoint"), "got: {shared}");
+        assert!(shared.contains("[llm.custom]"), "got: {shared}");
+        assert!(
+            shared.contains("thinking_dialect = \"qwen\""),
+            "dialect not written: {shared}"
+        );
+        assert!(shared.contains("[llm.custom.extra_body]"), "got: {shared}");
+        assert!(shared.contains("top_p = 0.9"), "got: {shared}");
+        assert!(
+            !shared.contains("api_key"),
+            "key leaked into shared: {shared}"
+        );
+        let local = std::fs::read_to_string(dir.join(LOCAL_FILE)).unwrap();
+        assert!(
+            local.contains("[llm.custom]") && local.contains("api_key = \"sk-mine\""),
+            "key not slotted: {local}"
+        );
+        // The load returns the whole save: active custom, dialect awake,
+        // overlay live.
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(config.model.vendor, Vendor::Custom);
+        assert_eq!(config.model.base_url, "https://my-endpoint");
+        assert_eq!(config.model.thinking_dialect, Vendor::Qwen);
+        assert_eq!(
+            config.model.custom_extra_body.as_ref().unwrap()["top_p"],
+            serde_json::json!(0.9)
+        );
+        assert_eq!(config.model.resolve_key().as_deref(), Some("sk-mine"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A save from another chip never touches the slot: the restore cache
+    /// rides along untouched, so switching away and back loses nothing.
+    #[test]
+    fn an_inactive_save_leaves_the_custom_slot_untouched() {
+        let dir = scratch("sr-llm-custom-save-untouched");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm.custom]\nbase_url = \"https://my-endpoint\"\nmodel = \"my-model\"\n\
+             thinking_dialect = \"qwen\"\n\
+             [llm.custom.extra_body]\ntop_p = 0.9\n",
+        )
+        .unwrap();
+        let mut other = edit(KeyEdit::Keep);
+        other.custom.thinking_dialect = Vendor::OpenAi; // ignored: inactive
+
+        save_llm_connection(std::slice::from_ref(&dir), &other).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(
+            shared.contains("thinking_dialect = \"qwen\""),
+            "slot dialect clobbered: {shared}"
+        );
+        assert!(shared.contains("top_p = 0.9"), "overlay lost: {shared}");
+        assert!(!shared.contains("vendor = \"custom\""), "got: {shared}");
+        // And the loaded slot still caches for the chip's return.
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(
+            config.custom.base_url.as_deref(),
+            Some("https://my-endpoint")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A bad overlay refuses the whole save before a single file is
+    /// touched: malformed JSON, a non-object root, and a JSON shape TOML
+    /// cannot render all name [llm.custom].
+    #[test]
+    fn bad_overlays_refuse_the_save_writing_nothing() {
+        for (name, json) in [
+            ("malformed", Some(r#"{"top_p": 0.9"#.into())),
+            ("non-object root", Some(r#"["top_p"]"#.into())),
+            ("shapeless", Some(r#"{"top_p": null}"#.into())),
+        ] {
+            let dir = scratch("sr-llm-custom-save-bad-json");
+            let mut custom_edit = edit(KeyEdit::Keep);
+            custom_edit.vendor = Vendor::Custom;
+            custom_edit.base_url = "https://my-endpoint".into();
+            custom_edit.model = "my-model".into();
+            custom_edit.custom.extra_body_json = json;
+
+            let err = save_llm_connection(std::slice::from_ref(&dir), &custom_edit)
+                .unwrap_err()
+                .0;
+            assert!(err.contains("[llm.custom]"), "{name}: got: {err}");
+            assert!(!dir.join(SHARED_FILE).exists(), "{name}: wrote on refusal");
+            assert!(!dir.join(LOCAL_FILE).exists(), "{name}: wrote on refusal");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    /// A blank or empty-object overlay is the OFF form: the key is
+    /// removed, not stored as an empty table.
+    #[test]
+    fn a_blank_overlay_save_removes_the_key() {
+        for blank in [None, Some("{}".to_string()), Some("   ".to_string())] {
+            let dir = scratch("sr-llm-custom-save-blank");
+            std::fs::write(
+                dir.join(SHARED_FILE),
+                "[llm.custom]\nmodel = \"m\"\n[llm.custom.extra_body]\ntop_p = 0.9\n",
+            )
+            .unwrap();
+            let mut custom_edit = edit(KeyEdit::Keep);
+            custom_edit.vendor = Vendor::Custom;
+            custom_edit.base_url = "https://my-endpoint".into();
+            custom_edit.model = "m".into();
+            custom_edit.custom.extra_body_json = blank;
+
+            save_llm_connection(std::slice::from_ref(&dir), &custom_edit).unwrap();
+
+            let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+            assert!(!shared.contains("extra_body"), "not removed: {shared}");
+            assert!(shared.contains("model = \"m\""), "sibling lost: {shared}");
+            assert_eq!(
+                load_llm_config(std::slice::from_ref(&dir))
+                    .unwrap()
+                    .custom
+                    .extra_body,
+                None
+            );
+            std::fs::remove_dir_all(dir).unwrap();
         }
     }
 

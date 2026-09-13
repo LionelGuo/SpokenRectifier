@@ -7,7 +7,15 @@
 /// default base_url (unconditionally — an endpoint switch is the point
 /// of the click) and its default model only when the current name is
 /// empty or happens to be some vendor's default, so a customized model
-/// never gets clobbered. The chip also selects the dialect (vendor).
+/// never gets clobbered. The chip also selects the dialect (vendor) —
+/// except the fifth chip, 自定义 (ADR-0018): it presets nothing, keeps
+/// its own draft fields (endpoint, thinking dialect, request-body JSON)
+/// so a switch away and back loses nothing, and only while selected
+/// paints the dialect row and the JSON box. A custom save writes the
+/// common endpoint and the `[llm.custom]` slot together; a save from
+/// another chip leaves the slot untouched. The overlay's merge order is
+/// dialect fields → custom overlay → the hand-edit `[llm.extra_body]`
+/// hold, which keeps the last word and never shows in the JSON box.
 ///
 /// The ASR card is isomorphic to the `[asr]` schema (ADR-0009): the
 /// provider chip switches which vendor sub-section paints, while the
@@ -36,12 +44,18 @@ import '../design/hover.dart';
 import '../design/tokens.dart';
 import 'connection_store.dart';
 
-/// The LLM vendor chips' labels, in display order.
-const _vendors = ['deepseek', 'volcengine', 'qwen', 'openai'];
+/// The LLM vendor chips, in display order — the custom chip last, its
+/// label 自定义 (ADR-0018): no preset, its own draft fields.
+const _vendors = ['deepseek', 'volcengine', 'qwen', 'openai', 'custom'];
+const _vendorLabels = {'custom': '自定义'};
+
+/// The thinking-dialect chips (ADR-0018): the four adapted shapes, the
+/// same names the vendor row uses. Only the custom chip paints them.
+const _dialects = ['deepseek', 'volcengine', 'qwen', 'openai'];
 
 /// What one vendor chip prefills: the endpoint to switch to, and the
 /// model to adopt only when the field is empty or holds some vendor's
-/// default.
+/// default. Custom has no entry — clicking it paints the drafts.
 const _presets = <String, ({String baseUrl, String model})>{
   'deepseek': (baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash'),
   'volcengine': (
@@ -105,7 +119,13 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   // (ADR-0011) — same rule as the ASR card's vendor sub-fields.
   late final TextEditingController _llmBaseUrl = TextEditingController();
   late final TextEditingController _llmModel = TextEditingController();
-  static const _llmVendors = ['deepseek', 'volcengine', 'qwen', 'openai'];
+  static const _llmVendors = [
+    'deepseek',
+    'volcengine',
+    'qwen',
+    'openai',
+    'custom',
+  ];
   final Map<String, TextEditingController> _llmKeys = {
     for (final vendor in _llmVendors) vendor: TextEditingController(),
   };
@@ -117,6 +137,20 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   KeyInfo get _llmKeyInfo =>
       _llmKeyInfos[_llmVendor] ?? const KeyInfo(status: KeyPlacement.unset);
   TextEditingController get _llmKey => _llmKeys[_llmVendor]!;
+
+  // The custom chip's draft slot (ADR-0018): its own endpoint fields,
+  // so the draft survives switching away and back, and a fresh slot
+  // paints empty — no preset. While custom is active these ARE the
+  // painted endpoint fields; a save writes the common segment and the
+  // slot together.
+  late final TextEditingController _customBaseUrl = TextEditingController();
+  late final TextEditingController _customModel = TextEditingController();
+  late final TextEditingController _customJson = TextEditingController();
+  String _customDialect = 'openai';
+  TextEditingController get _activeBaseUrl =>
+      _llmVendor == 'custom' ? _customBaseUrl : _llmBaseUrl;
+  TextEditingController get _activeModel =>
+      _llmVendor == 'custom' ? _customModel : _llmModel;
 
   // ASR fields: the common segment, then one group per vendor
   // sub-section — a provider switch repaints, never clears.
@@ -196,6 +230,9 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     for (final controller in [
       _llmBaseUrl,
       _llmModel,
+      _customBaseUrl,
+      _customModel,
+      _customJson,
       ..._llmKeys.values,
       _asrModel,
       _asrLanguage,
@@ -237,11 +274,23 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
 
   /// Adopt the LLM view's truth into the form: the endpoint fields, and
   /// every vendor's key pair (a local-file key echoes into that vendor's
-  /// field — the diff base; an env or unset key leaves it empty).
+  /// field — the diff base; an env or unset key leaves it empty). The
+  /// custom slot's drafts adopt too (ADR-0018): while custom is active
+  /// the endpoint fields themselves are the drafts' truth (a save
+  /// mirrors them into the slot); while dormant the slot's cache paints
+  /// for the chip's return.
   void _adoptLlm(LlmConnection llm) {
     _llmVendor = llm.vendor;
     _llmBaseUrl.text = llm.baseUrl;
     _llmModel.text = llm.model;
+    _customBaseUrl.text = llm.vendor == 'custom'
+        ? llm.baseUrl
+        : (llm.custom.baseUrl ?? '');
+    _customModel.text = llm.vendor == 'custom'
+        ? llm.model
+        : (llm.custom.model ?? '');
+    _customDialect = llm.custom.thinkingDialect;
+    _customJson.text = llm.custom.extraBodyJson ?? '';
     for (final entry in llm.keys.entries) {
       final controller = _llmKeys[entry.key];
       if (controller == null) continue;
@@ -282,11 +331,14 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   }
 
   /// A chip click: the preset's base_url unconditionally, its model only
-  /// when the current name is empty or some vendor's default.
+  /// when the current name is empty or some vendor's default. The custom
+  /// chip presets nothing — its own draft fields take the paint (a fresh
+  /// slot empty; a returning slot as left).
   void _applyVendorPreset(String vendor) {
-    final preset = _presets[vendor]!;
     setState(() {
       _llmVendor = vendor;
+      if (vendor == 'custom') return; // no preset (ADR-0018)
+      final preset = _presets[vendor]!;
       // The key block re-binds to this vendor's own controller on the
       // rebuild — another vendor's key never carries across (ADR-0011).
       _llmBaseUrl.text = preset.baseUrl;
@@ -338,12 +390,19 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   Future<void> _saveLlm() async {
     final key = await _keyDiff(_llmKey, _llmKeyInfo, '修正模型');
     if (key == null) return;
+    // The overlay's text rides verbatim (blank = unset); the Rust save
+    // refuses bad JSON before writing anything (ADR-0018).
+    final json = _customJson.text.trim();
     try {
       final saved = await widget.store.saveLlm(
         vendor: _llmVendor,
-        baseUrl: _llmBaseUrl.text,
-        model: _llmModel.text,
+        baseUrl: _activeBaseUrl.text,
+        model: _activeModel.text,
         apiKey: key,
+        custom: LlmCustomEdit(
+          thinkingDialect: _customDialect,
+          extraBodyJson: json.isEmpty ? null : _customJson.text,
+        ),
       );
       if (!mounted) return;
       setState(() {
@@ -499,8 +558,11 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
           _LlmCard(
             vendor: _llmVendor,
             onVendor: _applyVendorPreset,
-            baseUrl: _llmBaseUrl,
-            model: _llmModel,
+            baseUrl: _activeBaseUrl,
+            model: _activeModel,
+            dialect: _customDialect,
+            onDialect: (dialect) => setState(() => _customDialect = dialect),
+            json: _customJson,
             keyField: _llmKey,
             keyInfo: _llmKeyInfo,
             onSave: _saveLlm,
@@ -629,13 +691,16 @@ class _KeyBlockState extends State<_KeyBlock> {
 }
 
 /// A chip set recipe (the history pane's retention-chip shape), shared
-/// by the LLM vendor chips and the ASR provider chips.
+/// by the LLM vendor chips, the dialect chips, and the ASR provider
+/// chips. A chip's test key rides its wire name even when its label
+/// differs (the custom vendor chip).
 class _ChipRow extends StatelessWidget {
   const _ChipRow({
     required this.testKey,
     required this.chips,
     required this.selected,
     required this.onSelect,
+    this.labels = const {},
   });
 
   /// The row's own test key.
@@ -643,6 +708,9 @@ class _ChipRow extends StatelessWidget {
   final List<String> chips;
   final String selected;
   final ValueChanged<String> onSelect;
+
+  /// Display labels by wire name; chips without one label themselves.
+  final Map<String, String> labels;
 
   @override
   Widget build(BuildContext context) {
@@ -677,7 +745,7 @@ class _ChipRow extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  chip,
+                  labels[chip] ?? chip,
                   style: SrType.caption.copyWith(
                     color: chip == selected
                         ? pal.accentText
@@ -705,6 +773,9 @@ class _LlmCard extends StatelessWidget {
     required this.onVendor,
     required this.baseUrl,
     required this.model,
+    required this.dialect,
+    required this.onDialect,
+    required this.json,
     required this.keyField,
     required this.keyInfo,
     required this.onSave,
@@ -714,6 +785,13 @@ class _LlmCard extends StatelessWidget {
   final ValueChanged<String> onVendor;
   final TextEditingController baseUrl;
   final TextEditingController model;
+
+  // The custom chip's fields (ADR-0018), painted only while custom is
+  // selected.
+  final String dialect;
+  final ValueChanged<String> onDialect;
+  final TextEditingController json;
+
   final TextEditingController keyField;
   final KeyInfo keyInfo;
   final VoidCallback onSave;
@@ -721,6 +799,7 @@ class _LlmCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
+    final isCustom = vendor == 'custom';
     return SrCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -739,7 +818,12 @@ class _LlmCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            '服务商(点击预填端点)',
+            isCustom ? '自定义不预填端点' : '服务商(点击预填端点)',
+            key: Key(
+              isCustom
+                  ? 'settings-conn-llm-vendor-caption-custom'
+                  : 'settings-conn-llm-vendor-caption',
+            ),
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 6),
@@ -748,6 +832,7 @@ class _LlmCard extends StatelessWidget {
             chips: _vendors,
             selected: vendor,
             onSelect: onVendor,
+            labels: _vendorLabels,
           ),
           const SizedBox(height: 12),
           SrField(
@@ -763,6 +848,29 @@ class _LlmCard extends StatelessWidget {
             label: '模型',
             monospace: true,
           ),
+          if (isCustom) ...[
+            const SizedBox(height: 12),
+            Text(
+              '思考方言(思考策略写进请求体的字段形状)',
+              style: SrType.micro.copyWith(color: pal.textTertiary),
+            ),
+            const SizedBox(height: 6),
+            _ChipRow(
+              testKey: 'settings-conn-llm-dialect',
+              chips: _dialects,
+              selected: dialect,
+              onSelect: onDialect,
+            ),
+            const SizedBox(height: 12),
+            SrField(
+              key: const Key('settings-conn-llm-json'),
+              controller: json,
+              label: '请求体 JSON',
+              hint: '可覆盖思考字段等请求参数;[llm.extra_body] 舱仍最后合并,不在本框显示',
+              monospace: true,
+              maxLines: 8,
+            ),
+          ],
           const SizedBox(height: 12),
           _KeyBlock(id: 'llm', field: keyField, keyInfo: keyInfo),
           const SizedBox(height: 14),

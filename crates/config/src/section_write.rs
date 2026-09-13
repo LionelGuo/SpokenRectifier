@@ -49,6 +49,15 @@ pub enum SectionField {
         name: String,
         value: bool,
     },
+    /// A nested table value, replacing the key wholesale — the
+    /// request-body JSON overlay's TOML home (`[llm.custom.extra_body]`,
+    /// ADR-0018). The value is JSON-shaped: objects become sub-tables,
+    /// and a JSON shape with no TOML rendering (a null, or an array
+    /// mixing objects with scalars) refuses the save.
+    Table {
+        name: String,
+        value: serde_json::Map<String, serde_json::Value>,
+    },
     /// Remove the key — from every layer file's section, so a value a
     /// deeper layer still carries cannot resurrect behind the write.
     Reset {
@@ -106,6 +115,7 @@ impl SectionField {
             SectionField::Str { name, .. }
             | SectionField::Int { name, .. }
             | SectionField::Bool { name, .. }
+            | SectionField::Table { name, .. }
             | SectionField::Reset { name } => name,
         }
     }
@@ -276,7 +286,8 @@ pub fn write_section_fields(
         if is_target {
             let table = section_table_mut(document, &steps, path)?;
             for field in fields {
-                write_field(table, field);
+                write_field(table, field)
+                    .map_err(|err| ConfigError(format!("[{section}] {}", err.0)))?;
             }
         }
         if resets_here && let Some(table) = table_at_mut(document, &steps) {
@@ -303,7 +314,8 @@ pub fn write_section_fields(
         let mut document = toml_edit::DocumentMut::new();
         let table = section_table_mut(&mut document, &steps, &target)?;
         for field in fields {
-            write_field(table, field);
+            write_field(table, field)
+                .map_err(|err| ConfigError(format!("[{section}] {}", err.0)))?;
         }
         render_and_write(&target, &document)?;
     }
@@ -371,8 +383,9 @@ fn section_table_mut<'a>(
 }
 
 /// One field onto the table: `insert` keeps an existing key's position
-/// and formatting, and creates a plain one when absent.
-fn write_field(table: &mut toml_edit::Table, field: &SectionField) {
+/// and formatting, and creates a plain one when absent. A table value
+/// whose JSON shape has no TOML rendering refuses the write.
+fn write_field(table: &mut toml_edit::Table, field: &SectionField) -> Result<(), ConfigError> {
     match field {
         SectionField::Str { name, value } => {
             table.insert(name, toml_edit::value(value));
@@ -383,7 +396,89 @@ fn write_field(table: &mut toml_edit::Table, field: &SectionField) {
         SectionField::Bool { name, value } => {
             table.insert(name, toml_edit::value(*value));
         }
+        SectionField::Table { name, value } => {
+            let mut sub = toml_edit::Table::new();
+            for (key, item) in value {
+                sub.insert(key, json_item(item, &format!("{name}.{key}"))?);
+            }
+            table.insert(name, toml_edit::Item::Table(sub));
+        }
         SectionField::Reset { .. } => {} // handled by the removal pass
+    }
+    Ok(())
+}
+
+/// Whether a JSON object has the TOML rendering [`SectionField::Table`]
+/// writes — the up-front twin of the write's own check, so a save path
+/// can refuse a shapeless overlay before anything lands in a file. The
+/// error is the one the write would produce, key path included.
+pub fn validate_json_table_shape(
+    value: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), ConfigError> {
+    for (key, item) in value {
+        json_item(item, key)?;
+    }
+    Ok(())
+}
+
+/// One JSON value onto a toml_edit item. Objects render as sub-tables;
+/// arrays of objects as an array of tables; scalar arrays stay inline.
+/// Nulls and mixed object/scalar arrays have no TOML shape and refuse,
+/// the error naming the key path.
+fn json_item(value: &serde_json::Value, path: &str) -> Result<toml_edit::Item, ConfigError> {
+    let shape_error = |why: &str| {
+        ConfigError(format!(
+            "{path}: {why} has no TOML shape; remove it or use a TOML-representable value"
+        ))
+    };
+    match value {
+        serde_json::Value::Null => Err(shape_error("null")),
+        serde_json::Value::Bool(b) => Ok(toml_edit::value(*b)),
+        serde_json::Value::String(s) => Ok(toml_edit::value(s)),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(toml_edit::value(i))
+            } else if n.as_u64().is_some() {
+                Err(shape_error("an integer beyond TOML's 64-bit range"))
+            } else {
+                Ok(toml_edit::value(n.as_f64().unwrap_or_default()))
+            }
+        }
+        serde_json::Value::Array(items) => {
+            let objects = items.iter().any(|item| item.is_object());
+            let scalars = items.iter().any(|item| !item.is_object());
+            if objects && scalars {
+                return Err(shape_error("an array mixing objects with scalars"));
+            }
+            if objects {
+                let mut tables = toml_edit::ArrayOfTables::new();
+                for item in items {
+                    let mut sub = toml_edit::Table::new();
+                    for (child, value) in item.as_object().expect("objects only") {
+                        sub.insert(child, json_item(value, &format!("{path}.{child}"))?);
+                    }
+                    tables.push(sub);
+                }
+                Ok(toml_edit::Item::ArrayOfTables(tables))
+            } else {
+                let mut array = toml_edit::Array::new();
+                for item in items {
+                    array.push(
+                        json_item(item, path)?
+                            .into_value()
+                            .map_err(|_| shape_error("a nested array"))?,
+                    );
+                }
+                Ok(toml_edit::value(array))
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let mut sub = toml_edit::Table::new();
+            for (child, value) in map {
+                sub.insert(child, json_item(value, &format!("{path}.{child}"))?);
+            }
+            Ok(toml_edit::Item::Table(sub))
+        }
     }
 }
 
@@ -867,5 +962,78 @@ mod tests {
             .0;
         assert!(err.contains("[engine]"), "got: {err}");
         assert!(err.contains("paragraph_silence_ms"), "got: {err}");
+    }
+
+    // -- table values (the JSON overlay's TOML home, ADR-0018) -------------
+
+    fn json_map(text: &str) -> serde_json::Map<String, serde_json::Value> {
+        serde_json::from_str::<serde_json::Value>(text)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn a_table_field_lands_as_nested_toml_and_round_trips() {
+        let dir = scratch("sr-write-table-fresh");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm.custom]\nthinking_dialect = \"qwen\"\n",
+        )
+        .unwrap();
+
+        write_section_fields(
+            std::slice::from_ref(&dir),
+            "llm.custom",
+            &[SectionField::Table {
+                name: "extra_body".into(),
+                value: json_map(r#"{"top_p": 0.9, "stop": ["你好","结束"]}"#),
+            }],
+            WriteLayer::Owning,
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(
+            written.contains("thinking_dialect"),
+            "sibling lost: {written}"
+        );
+        assert!(
+            written.contains("[llm.custom.extra_body]"),
+            "got: {written}"
+        );
+        assert!(written.contains("top_p = 0.9"), "got: {written}");
+        assert!(written.contains("\"你好\""), "got: {written}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The shapes TOML cannot render — a null, a mixed array — refuse the
+    /// save and write nothing.
+    #[test]
+    fn a_json_shape_without_a_toml_rendering_refuses_the_write() {
+        for bad in [r#"{"x": null}"#, r#"{"x": [1, {"y": 2}]}"#] {
+            let dir = scratch("sr-write-table-bad-shape");
+            std::fs::write(dir.join(SHARED_FILE), "[llm.custom]\nmodel = \"m\"\n").unwrap();
+            let err = write_section_fields(
+                std::slice::from_ref(&dir),
+                "llm.custom",
+                &[SectionField::Table {
+                    name: "extra_body".into(),
+                    value: json_map(bad),
+                }],
+                WriteLayer::Owning,
+            )
+            .unwrap_err()
+            .0;
+            assert!(err.contains("no TOML shape"), "{bad}: got: {err}");
+            assert!(
+                !std::fs::read_to_string(dir.join(SHARED_FILE))
+                    .unwrap()
+                    .contains("extra_body"),
+                "{bad}: wrote on refusal"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 }

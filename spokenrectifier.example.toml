@@ -159,7 +159,7 @@ prefill = true
 # error at startup (never a silent fallback to the demo script); an
 # unknown vendor or an empty model/base_url is rejected too.
 [llm]
-vendor = "deepseek"                     # deepseek | volcengine | qwen | openai
+vendor = "deepseek"                     # deepseek | volcengine | qwen | openai | custom
 base_url = "https://api.deepseek.com"   # everything before /chat/completions
 model = "deepseek-v4-flash"
 
@@ -182,6 +182,26 @@ model = "deepseek-v4-flash"
 #   model = "doubao-seed-2.0-lite"
 #   [llm.volcengine]        # in spokenrectifier.local.toml
 #   api_key = "ark-..."
+
+# The custom chip (ADR-0018): an unadapted OpenAI-compatible endpoint.
+# vendor = "custom" switches the ACTIVE endpoint to the [llm] common
+# segment's values; this sub-section is the RESTORE CACHE (so switching
+# away and back loses nothing) plus the thinking dialect and the custom
+# request-body overlay. While another vendor is active the slot sits
+# stored, just unadopted. thinking_dialect is one of the four adapted
+# shapes (deepseek / volcengine / qwen / openai, default openai) — the
+# FIELD SHAPE the thinking policy is written into, not when to think.
+# There is no conventional environment variable: the key comes from
+# api_key here (local file only) or a hand-written api_key_env.
+# The overlay merges AFTER the dialect fields and BEFORE [llm.extra_body]
+# (which keeps the last word); it exists only while custom is active.
+# [llm.custom]
+# base_url = "https://my-gateway.example"
+# model = "my-model"
+# thinking_dialect = "openai"
+# [llm.custom.extra_body]
+# top_p = 0.9
+# thinking = { type = "enabled" }       # may override the dialect's fields
 
 # Escape hatch: merged into the request body last, so it can override
 # anything this config models.

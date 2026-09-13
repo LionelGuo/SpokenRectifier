@@ -1097,20 +1097,12 @@ fn wire__crate__api__set_llm_connection_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_vendor = <String>::sse_decode(&mut deserializer);
-            let api_base_url = <String>::sse_decode(&mut deserializer);
-            let api_model = <String>::sse_decode(&mut deserializer);
-            let api_api_key = <crate::api::BridgeKeyEdit>::sse_decode(&mut deserializer);
+            let api_edit = <crate::api::BridgeLlmEdit>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::set_llm_connection(
-                            api_vendor,
-                            api_base_url,
-                            api_model,
-                            api_api_key,
-                        )?;
+                        let output_ok = crate::api::set_llm_connection(api_edit)?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -1930,12 +1922,60 @@ impl SseDecode for crate::api::BridgeLlmConnection {
         let mut var_model = <String>::sse_decode(deserializer);
         let mut var_key = <crate::api::BridgeKeyStatus>::sse_decode(deserializer);
         let mut var_keys = <Vec<crate::api::BridgeLlmVendorKey>>::sse_decode(deserializer);
+        let mut var_custom = <crate::api::BridgeLlmCustom>::sse_decode(deserializer);
         return crate::api::BridgeLlmConnection {
             vendor: var_vendor,
             base_url: var_baseUrl,
             model: var_model,
             key: var_key,
             keys: var_keys,
+            custom: var_custom,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeLlmCustom {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_baseUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_model = <Option<String>>::sse_decode(deserializer);
+        let mut var_thinkingDialect = <String>::sse_decode(deserializer);
+        let mut var_extraBodyJson = <Option<String>>::sse_decode(deserializer);
+        return crate::api::BridgeLlmCustom {
+            base_url: var_baseUrl,
+            model: var_model,
+            thinking_dialect: var_thinkingDialect,
+            extra_body_json: var_extraBodyJson,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeLlmCustomEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_thinkingDialect = <String>::sse_decode(deserializer);
+        let mut var_extraBodyJson = <Option<String>>::sse_decode(deserializer);
+        return crate::api::BridgeLlmCustomEdit {
+            thinking_dialect: var_thinkingDialect,
+            extra_body_json: var_extraBodyJson,
+        };
+    }
+}
+
+impl SseDecode for crate::api::BridgeLlmEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_vendor = <String>::sse_decode(deserializer);
+        let mut var_baseUrl = <String>::sse_decode(deserializer);
+        let mut var_model = <String>::sse_decode(deserializer);
+        let mut var_apiKey = <crate::api::BridgeKeyEdit>::sse_decode(deserializer);
+        let mut var_custom = <crate::api::BridgeLlmCustomEdit>::sse_decode(deserializer);
+        return crate::api::BridgeLlmEdit {
+            vendor: var_vendor,
+            base_url: var_baseUrl,
+            model: var_model,
+            api_key: var_apiKey,
+            custom: var_custom,
         };
     }
 }
@@ -2897,6 +2937,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeLlmConnection {
             self.model.into_into_dart().into_dart(),
             self.key.into_into_dart().into_dart(),
             self.keys.into_into_dart().into_dart(),
+            self.custom.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2909,6 +2950,66 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeLlmConnection>
     for crate::api::BridgeLlmConnection
 {
     fn into_into_dart(self) -> crate::api::BridgeLlmConnection {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeLlmCustom {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.base_url.into_into_dart().into_dart(),
+            self.model.into_into_dart().into_dart(),
+            self.thinking_dialect.into_into_dart().into_dart(),
+            self.extra_body_json.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::BridgeLlmCustom {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeLlmCustom>
+    for crate::api::BridgeLlmCustom
+{
+    fn into_into_dart(self) -> crate::api::BridgeLlmCustom {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeLlmCustomEdit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.thinking_dialect.into_into_dart().into_dart(),
+            self.extra_body_json.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeLlmCustomEdit
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeLlmCustomEdit>
+    for crate::api::BridgeLlmCustomEdit
+{
+    fn into_into_dart(self) -> crate::api::BridgeLlmCustomEdit {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeLlmEdit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.vendor.into_into_dart().into_dart(),
+            self.base_url.into_into_dart().into_dart(),
+            self.model.into_into_dart().into_dart(),
+            self.api_key.into_into_dart().into_dart(),
+            self.custom.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::BridgeLlmEdit {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeLlmEdit> for crate::api::BridgeLlmEdit {
+    fn into_into_dart(self) -> crate::api::BridgeLlmEdit {
         self
     }
 }
@@ -3488,6 +3589,36 @@ impl SseEncode for crate::api::BridgeLlmConnection {
         <String>::sse_encode(self.model, serializer);
         <crate::api::BridgeKeyStatus>::sse_encode(self.key, serializer);
         <Vec<crate::api::BridgeLlmVendorKey>>::sse_encode(self.keys, serializer);
+        <crate::api::BridgeLlmCustom>::sse_encode(self.custom, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeLlmCustom {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.base_url, serializer);
+        <Option<String>>::sse_encode(self.model, serializer);
+        <String>::sse_encode(self.thinking_dialect, serializer);
+        <Option<String>>::sse_encode(self.extra_body_json, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeLlmCustomEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.thinking_dialect, serializer);
+        <Option<String>>::sse_encode(self.extra_body_json, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeLlmEdit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.vendor, serializer);
+        <String>::sse_encode(self.base_url, serializer);
+        <String>::sse_encode(self.model, serializer);
+        <crate::api::BridgeKeyEdit>::sse_encode(self.api_key, serializer);
+        <crate::api::BridgeLlmCustomEdit>::sse_encode(self.custom, serializer);
     }
 }
 

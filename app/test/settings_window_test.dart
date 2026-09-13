@@ -204,6 +204,14 @@ class FakeTermsStore implements TermsStore {
   Future<void> remove(String term) async => terms.remove(term);
 }
 
+/// The never-configured custom slot (ADR-0018).
+const _unsetCustomSlot = LlmCustom(
+  baseUrl: null,
+  model: null,
+  thinkingDialect: 'openai',
+  extraBodyJson: null,
+);
+
 /// The connection domain's fake: the two views in memory; a save
 /// records the ask and returns it as the re-read truth; the post-save
 /// engine adoption ([applyCalls]) is recorded and can be refused
@@ -223,7 +231,9 @@ class FakeConnectionStore implements ConnectionStore {
               'volcengine': KeyInfo(status: KeyPlacement.unset),
               'qwen': KeyInfo(status: KeyPlacement.unset),
               'openai': KeyInfo(status: KeyPlacement.unset),
+              'custom': KeyInfo(status: KeyPlacement.unset),
             },
+            custom: _unsetCustomSlot,
           );
 
   static const _defaultAsr = AsrConnection(
@@ -251,7 +261,15 @@ class FakeConnectionStore implements ConnectionStore {
   LlmConnection llm;
 
   final llmSaves =
-      <({String vendor, String baseUrl, String model, ApiKeyEdit key})>[];
+      <
+        ({
+          String vendor,
+          String baseUrl,
+          String model,
+          ApiKeyEdit key,
+          LlmCustomEdit custom,
+        })
+      >[];
   final asrSaves = <AsrEdit>[];
 
   /// When set, the next save throws (an unwritable layer file).
@@ -273,13 +291,20 @@ class FakeConnectionStore implements ConnectionStore {
     required String baseUrl,
     required String model,
     required ApiKeyEdit apiKey,
+    required LlmCustomEdit custom,
   }) async {
     if (failNextSave != null) {
       final failure = failNextSave;
       failNextSave = null;
       throw failure!;
     }
-    llmSaves.add((vendor: vendor, baseUrl: baseUrl, model: model, key: apiKey));
+    llmSaves.add((
+      vendor: vendor,
+      baseUrl: baseUrl,
+      model: model,
+      key: apiKey,
+      custom: custom,
+    ));
     // Only the saved vendor's slot moves; every other vendor's key pair
     // survives the save untouched (ADR-0011).
     final keys = Map.of(llm.keys);
@@ -291,12 +316,26 @@ class FakeConnectionStore implements ConnectionStore {
       ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
       ApiKeyKeep() => keys[vendor] ?? const KeyInfo(status: KeyPlacement.unset),
     };
+    // A custom save mirrors the endpoint into the slot and adopts the
+    // dialect/overlay; another vendor's save leaves the slot alone
+    // (ADR-0018).
+    final slot = vendor == 'custom'
+        ? LlmCustom(
+            baseUrl: baseUrl,
+            model: model,
+            thinkingDialect: custom.thinkingDialect,
+            extraBodyJson: (custom.extraBodyJson ?? '').trim().isEmpty
+                ? null
+                : custom.extraBodyJson,
+          )
+        : llm.custom;
     llm = LlmConnection(
       vendor: vendor,
       baseUrl: baseUrl,
       model: model,
       key: keys[vendor]!,
       keys: keys,
+      custom: slot,
     );
     return llm;
   }
@@ -1594,6 +1633,7 @@ void main() {
           'qwen': KeyInfo(status: KeyPlacement.unset),
           'openai': KeyInfo(status: KeyPlacement.unset),
         },
+        custom: _unsetCustomSlot,
       ),
     );
     await pumpSettings(
@@ -1645,6 +1685,7 @@ void main() {
           'qwen': KeyInfo(status: KeyPlacement.unset),
           'openai': KeyInfo(status: KeyPlacement.unset),
         },
+        custom: _unsetCustomSlot,
       ),
     );
     await pumpSettings(
@@ -1727,6 +1768,7 @@ void main() {
           'qwen': KeyInfo(status: KeyPlacement.unset),
           'openai': KeyInfo(status: KeyPlacement.unset),
         },
+        custom: _unsetCustomSlot,
       ),
     );
     await pumpSettings(
@@ -1776,6 +1818,7 @@ void main() {
           'qwen': KeyInfo(status: KeyPlacement.unset),
           'openai': KeyInfo(status: KeyPlacement.unset),
         },
+        custom: _unsetCustomSlot,
       ),
     );
     await pumpSettings(
@@ -1833,6 +1876,225 @@ void main() {
     expect(save.baseUrl, 'https://api.deepseek.com'); // untouched field rides
     expect(save.key, isA<ApiKeyKeep>()); // the echoed key, unchanged
     expect(find.byKey(const Key('settings-conn-saved')), findsOneWidget);
+  });
+
+  // -- the custom chip (ADR-0018) ---------------------------------------
+
+  testWidgets(
+    'the custom chip paints empty fields, the dialect row, and the JSON box',
+    (tester) async {
+      final store = FakeConnectionStore();
+      await pumpSettings(
+        tester,
+        connectionStore: store,
+        domain: SettingsDomain.connection,
+      );
+
+      // Dormant first: no dialect row, no JSON box, no custom caption.
+      expect(find.byKey(const Key('settings-conn-llm-dialect')), findsNothing);
+      expect(find.byKey(const Key('settings-conn-llm-json')), findsNothing);
+      expect(
+        find.byKey(const Key('settings-conn-llm-vendor-caption-custom')),
+        findsNothing,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('settings-conn-llm-vendors:custom')),
+      );
+      await tester.pump();
+
+      // No preset (ADR-0018): the fresh slot's endpoint fields are empty,
+      // the caption says so, and the dialect row (openai default) plus the
+      // JSON box appear.
+      expect(find.text('自定义'), findsOneWidget);
+      expect(
+        textOf(tester, const Key('settings-conn-llm-vendor-caption-custom')),
+        '自定义不预填端点',
+      );
+      expect(
+        fieldText(tester, const Key('settings-conn-llm-baseurl')),
+        isEmpty,
+      );
+      expect(fieldText(tester, const Key('settings-conn-llm-model')), isEmpty);
+      expect(
+        find.byKey(const Key('settings-conn-llm-dialect:openai')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('settings-conn-llm-json')), findsOneWidget);
+    },
+  );
+
+  testWidgets('a custom save carries the dialect and the JSON overlay', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:custom')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-baseurl')),
+      'https://my.example',
+    );
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-model')),
+      'my-model',
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-llm-dialect:qwen')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-json')),
+      '{"top_p": 0.9}',
+    );
+    Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('settings-conn-llm-save'))),
+      alignment: 0.5,
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+
+    final save = store.llmSaves.single;
+    expect(save.vendor, 'custom');
+    expect(save.baseUrl, 'https://my.example');
+    expect(save.model, 'my-model');
+    expect(save.custom.thinkingDialect, 'qwen');
+    expect(save.custom.extraBodyJson, '{"top_p": 0.9}');
+    // The re-read truth mirrors the slot; the form keeps painting it.
+    expect(store.llm.custom.thinkingDialect, 'qwen');
+    expect(store.llm.custom.baseUrl, 'https://my.example');
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-baseurl')),
+      'https://my.example',
+    );
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-json')),
+      contains('top_p'),
+    );
+  });
+
+  testWidgets(
+    'custom drafts survive a switch away and back; another vendor save leaves the slot alone',
+    (tester) async {
+      final store = FakeConnectionStore();
+      await pumpSettings(
+        tester,
+        connectionStore: store,
+        domain: SettingsDomain.connection,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('settings-conn-llm-vendors:custom')),
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('settings-conn-llm-baseurl')),
+        'https://my.example',
+      );
+      await tester.enterText(
+        find.byKey(const Key('settings-conn-llm-json')),
+        '{"top_p": 0.9}',
+      );
+
+      // Switch away: the shared fields paint deepseek's preset; the custom
+      // rows hide.
+      await tester.tap(
+        find.byKey(const Key('settings-conn-llm-vendors:deepseek')),
+      );
+      await tester.pump();
+      expect(
+        fieldText(tester, const Key('settings-conn-llm-baseurl')),
+        'https://api.deepseek.com',
+      );
+      expect(find.byKey(const Key('settings-conn-llm-json')), findsNothing);
+
+      // Switch back: the drafts are exactly as left, unsaved.
+      await tester.tap(
+        find.byKey(const Key('settings-conn-llm-vendors:custom')),
+      );
+      await tester.pump();
+      expect(
+        fieldText(tester, const Key('settings-conn-llm-baseurl')),
+        'https://my.example',
+      );
+      expect(
+        fieldText(tester, const Key('settings-conn-llm-json')),
+        '{"top_p": 0.9}',
+      );
+
+      // A deepseek save never writes the slot (ADR-0018: the Rust save
+      // reads the custom edit only when custom is active).
+      await tester.tap(
+        find.byKey(const Key('settings-conn-llm-vendors:deepseek')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+      await tester.pump();
+      expect(store.llmSaves.single.vendor, 'deepseek');
+      expect(store.llm.custom.baseUrl, isNull); // the slot untouched
+    },
+  );
+
+  testWidgets('a refused custom save relays the error and adopts nothing', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore()
+      ..failNextSave = Exception(
+        '[llm.custom] extra_body is not valid JSON: expected value',
+      );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:custom')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-baseurl')),
+      'https://my.example',
+    );
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-model')),
+      'my-model',
+    );
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-json')),
+      '{"top_p": ',
+    );
+    Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('settings-conn-llm-save'))),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pumpAndSettle();
+    // The taller custom card scrolled the pane down; the error row rides
+    // the lazy list's top, outside the built extent — jump back to the
+    // top so it mounts.
+    tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(SettingsConnectionPane),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
+
+    expect(
+      textOf(tester, const Key('settings-conn-error')),
+      contains('extra_body is not valid JSON'),
+    );
+    expect(find.byKey(const Key('settings-conn-saved')), findsNothing);
+    expect(store.applyCalls, 0); // no adoption after a refused save
   });
 
   testWidgets('a typed key replaces; emptying one confirms then clears', (
@@ -1946,6 +2208,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const Key('settings-conn-asr-workspace')),
       );
+      await tester.pump();
       expect(
         find.byKey(const Key('settings-conn-asr-volc-appid')),
         findsNothing,
@@ -1960,6 +2223,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const Key('settings-conn-asr-providers:volcengine')),
       );
+      await tester.pump();
       await tester.tap(
         find.byKey(const Key('settings-conn-asr-providers:volcengine')),
       );
@@ -1997,6 +2261,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const Key('settings-conn-asr-providers:tencent')),
       );
+      await tester.pump();
       await tester.tap(
         find.byKey(const Key('settings-conn-asr-providers:tencent')),
       );
@@ -2043,6 +2308,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const Key('settings-conn-asr-providers:volcengine')),
       );
+      await tester.pump();
       await tester.tap(
         find.byKey(const Key('settings-conn-asr-providers:volcengine')),
       );
@@ -2097,6 +2363,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('settings-conn-asr-providers:tencent')),
     );
+    await tester.pump();
     await tester.tap(
       find.byKey(const Key('settings-conn-asr-providers:tencent')),
     );
@@ -2166,6 +2433,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('settings-conn-asr-providers:tencent')),
     );
+    await tester.pump();
     await tester.tap(
       find.byKey(const Key('settings-conn-asr-providers:tencent')),
     );
@@ -2360,6 +2628,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('settings-conn-asr-providers:volcengine')),
     );
+    await tester.pump();
     await tester.tap(
       find.byKey(const Key('settings-conn-asr-providers:volcengine')),
     );

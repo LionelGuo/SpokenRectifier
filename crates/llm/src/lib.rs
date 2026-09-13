@@ -17,9 +17,9 @@ mod vendor;
 
 pub use client::OpenAiCompatLlm;
 pub use config::{
-    ConfigError, LightTouchConfig, LightTouchEdit, LlmConfig, LlmConnectionEdit, ModelConfig,
-    RectifyBehaviorEdit, RectifyConfig, RectifyTier, ThinkingPolicy, TierEdit, load_llm_config,
-    save_llm_connection, save_rectify_behavior,
+    ConfigError, CustomConnectionEdit, CustomSlot, LightTouchConfig, LightTouchEdit, LlmConfig,
+    LlmConnectionEdit, ModelConfig, RectifyBehaviorEdit, RectifyConfig, RectifyTier,
+    ThinkingPolicy, TierEdit, load_llm_config, save_llm_connection, save_rectify_behavior,
 };
 pub use intensity::{Intensity, select_intensity};
 pub use prompt::{ChatPrompt, compose_prompt, compose_prompt_with_extra};

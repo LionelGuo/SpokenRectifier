@@ -11,7 +11,7 @@ part 'api.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `parse_policy`, `rectify_view`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config carries credentials, the configured
@@ -181,18 +181,11 @@ Future<String?> asrEndpointPreview({
 );
 
 /// Write the editor's `[llm]` model back into the layer files (see
-/// `save_llm_connection`) and return the re-read view.
-Future<BridgeLlmConnection> setLlmConnection({
-  required String vendor,
-  required String baseUrl,
-  required String model,
-  required BridgeKeyEdit apiKey,
-}) => RustLib.instance.api.crateApiSetLlmConnection(
-  vendor: vendor,
-  baseUrl: baseUrl,
-  model: model,
-  apiKey: apiKey,
-);
+/// `save_llm_connection`) and return the re-read view. The custom slot's
+/// edit rides along but is read only when the vendor chip is custom
+/// (ADR-0018); the dialect names one of the four adapted shapes.
+Future<BridgeLlmConnection> setLlmConnection({required BridgeLlmEdit edit}) =>
+    RustLib.instance.api.crateApiSetLlmConnection(edit: edit);
 
 /// Adopt the saved `[asr]` / `[llm]` connections — and, riding the same
 /// rebuilt client, every `[rectify]` key (ADR-0010, scope extended by
@@ -1099,12 +1092,18 @@ class BridgeLlmConnection {
   final BridgeKeyStatus key;
   final List<BridgeLlmVendorKey> keys;
 
+  /// The `[llm.custom]` slot (ADR-0018): restore cache, dialect, and
+  /// the overlay as the JSON text the pane's box holds (pretty, so a
+  /// reopen reformats whatever the file's table ordering was).
+  final BridgeLlmCustom custom;
+
   const BridgeLlmConnection({
     required this.vendor,
     required this.baseUrl,
     required this.model,
     required this.key,
     required this.keys,
+    required this.custom,
   });
 
   @override
@@ -1113,7 +1112,8 @@ class BridgeLlmConnection {
       baseUrl.hashCode ^
       model.hashCode ^
       key.hashCode ^
-      keys.hashCode;
+      keys.hashCode ^
+      custom.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1124,7 +1124,107 @@ class BridgeLlmConnection {
           baseUrl == other.baseUrl &&
           model == other.model &&
           key == other.key &&
-          keys == other.keys;
+          keys == other.keys &&
+          custom == other.custom;
+}
+
+/// The `[llm.custom]` slot as the pane paints it (ADR-0018).
+class BridgeLlmCustom {
+  /// The restore cache; `None` while never configured.
+  final String? baseUrl;
+  final String? model;
+
+  /// One of the four adapted shapes; always resolved (a missing key
+  /// reads as `openai`), so a custom save always writes one down.
+  final String thinkingDialect;
+
+  /// The stored overlay as pretty JSON; `None` when unset.
+  final String? extraBodyJson;
+
+  const BridgeLlmCustom({
+    this.baseUrl,
+    this.model,
+    required this.thinkingDialect,
+    this.extraBodyJson,
+  });
+
+  @override
+  int get hashCode =>
+      baseUrl.hashCode ^
+      model.hashCode ^
+      thinkingDialect.hashCode ^
+      extraBodyJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeLlmCustom &&
+          runtimeType == other.runtimeType &&
+          baseUrl == other.baseUrl &&
+          model == other.model &&
+          thinkingDialect == other.thinkingDialect &&
+          extraBodyJson == other.extraBodyJson;
+}
+
+class BridgeLlmCustomEdit {
+  final String thinkingDialect;
+
+  /// The request-body overlay's JSON text; blank/`{}`/None = unset.
+  final String? extraBodyJson;
+
+  const BridgeLlmCustomEdit({
+    required this.thinkingDialect,
+    this.extraBodyJson,
+  });
+
+  @override
+  int get hashCode => thinkingDialect.hashCode ^ extraBodyJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeLlmCustomEdit &&
+          runtimeType == other.runtimeType &&
+          thinkingDialect == other.thinkingDialect &&
+          extraBodyJson == other.extraBodyJson;
+}
+
+/// The editor's whole `[llm]` card: the active endpoint plus the custom
+/// slot's editable fields (ADR-0018 — read only when the vendor chip is
+/// custom; a save from another chip leaves the slot untouched).
+class BridgeLlmEdit {
+  final String vendor;
+  final String baseUrl;
+  final String model;
+  final BridgeKeyEdit apiKey;
+  final BridgeLlmCustomEdit custom;
+
+  const BridgeLlmEdit({
+    required this.vendor,
+    required this.baseUrl,
+    required this.model,
+    required this.apiKey,
+    required this.custom,
+  });
+
+  @override
+  int get hashCode =>
+      vendor.hashCode ^
+      baseUrl.hashCode ^
+      model.hashCode ^
+      apiKey.hashCode ^
+      custom.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeLlmEdit &&
+          runtimeType == other.runtimeType &&
+          vendor == other.vendor &&
+          baseUrl == other.baseUrl &&
+          model == other.model &&
+          apiKey == other.apiKey &&
+          custom == other.custom;
 }
 
 /// One vendor's resolved key pair, for the pane's per-vendor key block.

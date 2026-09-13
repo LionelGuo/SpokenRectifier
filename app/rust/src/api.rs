@@ -866,6 +866,42 @@ pub struct BridgeLlmConnection {
     pub model: String,
     pub key: BridgeKeyStatus,
     pub keys: Vec<BridgeLlmVendorKey>,
+    /// The `[llm.custom]` slot (ADR-0018): restore cache, dialect, and
+    /// the overlay as the JSON text the pane's box holds (pretty, so a
+    /// reopen reformats whatever the file's table ordering was).
+    pub custom: BridgeLlmCustom,
+}
+
+/// The `[llm.custom]` slot as the pane paints it (ADR-0018).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeLlmCustom {
+    /// The restore cache; `None` while never configured.
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    /// One of the four adapted shapes; always resolved (a missing key
+    /// reads as `openai`), so a custom save always writes one down.
+    pub thinking_dialect: String,
+    /// The stored overlay as pretty JSON; `None` when unset.
+    pub extra_body_json: Option<String>,
+}
+
+/// The editor's whole `[llm]` card: the active endpoint plus the custom
+/// slot's editable fields (ADR-0018 — read only when the vendor chip is
+/// custom; a save from another chip leaves the slot untouched).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BridgeLlmEdit {
+    pub vendor: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: BridgeKeyEdit,
+    pub custom: BridgeLlmCustomEdit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeLlmCustomEdit {
+    pub thinking_dialect: String,
+    /// The request-body overlay's JSON text; blank/`{}`/None = unset.
+    pub extra_body_json: Option<String>,
 }
 
 /// One vendor's resolved key pair, for the pane's per-vendor key block.
@@ -919,12 +955,22 @@ fn llm_view(config: spokenrectifier_llm::LlmConfig) -> BridgeLlmConnection {
             }
         })
         .collect();
+    let custom = BridgeLlmCustom {
+        base_url: config.custom.base_url.clone(),
+        model: config.custom.model.clone(),
+        thinking_dialect: config.custom.thinking_dialect.as_str().to_string(),
+        extra_body_json: config.custom.extra_body.as_ref().map(|map| {
+            serde_json::to_string_pretty(&serde_json::Value::Object(map.clone()))
+                .unwrap_or_default()
+        }),
+    };
     BridgeLlmConnection {
         key: bridge_key(config.model.api_key, config.model.api_key_env),
         vendor: config.model.vendor.as_str().to_string(),
         base_url: config.model.base_url,
         model: config.model.model,
         keys,
+        custom,
     }
 }
 
@@ -1040,24 +1086,36 @@ pub fn asr_endpoint_preview(
 }
 
 /// Write the editor's `[llm]` model back into the layer files (see
-/// `save_llm_connection`) and return the re-read view.
-pub fn set_llm_connection(
-    vendor: String,
-    base_url: String,
-    model: String,
-    api_key: BridgeKeyEdit,
-) -> anyhow::Result<BridgeLlmConnection> {
+/// `save_llm_connection`) and return the re-read view. The custom slot's
+/// edit rides along but is read only when the vendor chip is custom
+/// (ADR-0018); the dialect names one of the four adapted shapes.
+pub fn set_llm_connection(edit: BridgeLlmEdit) -> anyhow::Result<BridgeLlmConnection> {
     let dirs = spokenrectifier_config::search_dirs();
-    let vendor = spokenrectifier_llm::Vendor::from_str_name(&vendor).ok_or_else(|| {
-        anyhow!("[llm] vendor \"{vendor}\" is unknown: pick one of the known endpoints")
+    let vendor = spokenrectifier_llm::Vendor::from_str_name(&edit.vendor).ok_or_else(|| {
+        anyhow!(
+            "[llm] vendor \"{}\" is unknown: pick one of the known endpoints",
+            edit.vendor
+        )
     })?;
+    let dialect = spokenrectifier_llm::Vendor::dialect_from_name(&edit.custom.thinking_dialect)
+        .ok_or_else(|| {
+            anyhow!(
+                "[llm.custom] thinking_dialect \"{}\" is unknown: pick one of \
+                     \"deepseek\", \"volcengine\", \"qwen\", \"openai\"",
+                edit.custom.thinking_dialect
+            )
+        })?;
     spokenrectifier_llm::save_llm_connection(
         &dirs,
         &spokenrectifier_llm::LlmConnectionEdit {
             vendor,
-            base_url,
-            model,
-            api_key: api_key.into(),
+            base_url: edit.base_url,
+            model: edit.model,
+            api_key: edit.api_key.into(),
+            custom: spokenrectifier_llm::CustomConnectionEdit {
+                thinking_dialect: dialect,
+                extra_body_json: edit.custom.extra_body_json,
+            },
         },
     )
     .map_err(|err| anyhow!("LLM {}", err.0))?;
@@ -1852,6 +1910,36 @@ mod tests {
             .to_string();
         assert!(err.contains("rectify.full"), "got: {err}");
         assert!(err.contains("sometimes"), "got: {err}");
+    }
+
+    /// The custom slot mirrors field by field (ADR-0018): the restore
+    /// cache, the always-resolved dialect (a missing key's openai
+    /// default included), and the overlay as pretty JSON for the pane's
+    /// box — plus a key entry for the custom chip's block.
+    #[test]
+    fn the_llm_view_mirrors_the_custom_slot_field_by_field() {
+        let mut config = spokenrectifier_llm::LlmConfig::defaults();
+        config.custom.base_url = Some("https://my-endpoint".into());
+        config.custom.model = Some("my-model".into());
+        config.custom.thinking_dialect = spokenrectifier_llm::Vendor::Qwen;
+        config.custom.extra_body =
+            Some(serde_json::from_str(r#"{"top_p": 0.9, "stop": ["嗯"]}"#).unwrap());
+        let view = llm_view(config);
+        assert_eq!(view.custom.base_url.as_deref(), Some("https://my-endpoint"));
+        assert_eq!(view.custom.model.as_deref(), Some("my-model"));
+        assert_eq!(view.custom.thinking_dialect, "qwen");
+        let json = view.custom.extra_body_json.expect("overlay present");
+        assert!(json.contains("\"top_p\": 0.9"), "got: {json}");
+        assert!(json.contains('\n'), "not pretty: {json}");
+        assert!(
+            view.keys.iter().any(|key| key.vendor == "custom"),
+            "custom key entry missing"
+        );
+        // The unset default paints the openai dialect and no JSON.
+        let view = llm_view(spokenrectifier_llm::LlmConfig::defaults());
+        assert_eq!(view.custom.thinking_dialect, "openai");
+        assert_eq!(view.custom.base_url, None);
+        assert_eq!(view.custom.extra_body_json, None);
     }
 
     /// The quick panel's close-restore is a quiet no-op on the fake
