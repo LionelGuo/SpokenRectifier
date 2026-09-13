@@ -2,6 +2,7 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <windowsx.h>
 
 #include "resource.h"
 
@@ -28,6 +29,33 @@ constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme"
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
+
+// ADR 0017 (panel window at the growth ceiling): the hit-through region
+// around the card slot. The flutter-view child answers WM_NCHITTEST with
+// HTTRANSPARENT outside the region (a child's HTTRANSPARENT bubbles the
+// hit-test up to its parent), and the top-level window then answers
+// HTTRANSPARENT too, which skips it entirely in the system hit-test
+// chain -- the click lands on whatever is below on the desktop.
+// Full-window hit testing is the default; the orb stage never narrows
+// it.
+RECT g_panel_hit_rect{};
+bool g_hit_full_window = true;
+WNDPROC g_child_original_proc = nullptr;
+
+LRESULT CALLBACK ChildHitTestProc(HWND hwnd, UINT const message,
+                                  WPARAM const wparam,
+                                  LPARAM const lparam) noexcept {
+  if (message == WM_NCHITTEST && !g_hit_full_window) {
+    POINT pt{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+    ScreenToClient(hwnd, &pt);
+    if (pt.x < g_panel_hit_rect.left || pt.x >= g_panel_hit_rect.right ||
+        pt.y < g_panel_hit_rect.top || pt.y >= g_panel_hit_rect.bottom) {
+      return HTTRANSPARENT;
+    }
+  }
+  return CallWindowProcW(g_child_original_proc, hwnd, message, wparam,
+                         lparam);
+}
 
 using EnableNonClientDpiScaling = BOOL __stdcall(HWND hwnd);
 
@@ -233,6 +261,23 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+
+    case WM_NCHITTEST: {
+      // ADR 0017: top-level HTTRANSPARENT skips this window in the
+      // system hit-test chain, so the click reaches the desktop below
+      // (the child already bubbled non-slot points up to here).
+      if (!g_hit_full_window) {
+        POINT pt{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        ScreenToClient(hwnd, &pt);
+        if (pt.x < g_panel_hit_rect.left ||
+            pt.x >= g_panel_hit_rect.right ||
+            pt.y < g_panel_hit_rect.top ||
+            pt.y >= g_panel_hit_rect.bottom) {
+          return HTTRANSPARENT;
+        }
+      }
+      break;  // DefWindowProc: plain client area
+    }
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
@@ -258,6 +303,13 @@ Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
 void Win32Window::SetChildContent(HWND content) {
   child_content_ = content;
   SetParent(content, window_handle_);
+  // ADR 0017: route the child's WM_NCHITTEST through the hit region so
+  // the transparent margin around the card slot passes clicks through.
+  if (g_child_original_proc == nullptr) {
+    g_child_original_proc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
+        content, GWLP_WNDPROC,
+        reinterpret_cast<LONG_PTR>(ChildHitTestProc)));
+  }
   RECT frame = GetClientArea();
 
   SetWindowPos(content, nullptr, frame.left, frame.top,
@@ -271,6 +323,12 @@ RECT Win32Window::GetClientArea() {
   RECT frame;
   GetClientRect(window_handle_, &frame);
   return frame;
+}
+
+// static
+void Win32Window::SetChildHitRegion(const RECT& rect, bool full) {
+  g_panel_hit_rect = rect;
+  g_hit_full_window = full;
 }
 
 HWND Win32Window::GetHandle() {

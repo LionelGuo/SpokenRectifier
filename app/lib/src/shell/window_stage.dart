@@ -54,6 +54,12 @@ abstract class StageWindow {
   Future<Size> getSize();
   Future<void> setBounds(Rect bounds);
 
+  /// While a panel stage holds the window at the panel growth ceiling
+  /// (ADR 0017), the card slot's rect in CLIENT coordinates — clicks
+  /// outside it pass through to whatever is below. Null restores
+  /// whole-window hit testing (the orb stage).
+  Future<void> setPanelHitRect(Rect? clientRect);
+
   /// Every display's work area, logical coordinates — the drag/resize
   /// clamps and the expand-direction chooser consume these (ticket 20).
   Future<List<Rect>> workAreas();
@@ -84,6 +90,23 @@ class WindowManagerStageWindow implements StageWindow {
 
   @override
   Future<void> setBounds(Rect bounds) => windowManager.setBounds(bounds);
+
+  @override
+  Future<void> setPanelHitRect(Rect? clientRect) {
+    // Native hit-testing compares physical pixels; this seam speaks
+    // logical, like every other method here.
+    const channel = MethodChannel('spokenrectifier/window');
+    if (clientRect == null) {
+      return channel.invokeMethod('setHitRect');
+    }
+    final dpr = windowManager.getDevicePixelRatio();
+    return channel.invokeMethod('setHitRect', {
+      'left': (clientRect.left * dpr).round(),
+      'top': (clientRect.top * dpr).round(),
+      'right': (clientRect.right * dpr).round(),
+      'bottom': (clientRect.bottom * dpr).round(),
+    });
+  }
 
   @override
   Future<List<Rect>> workAreas() async {
@@ -288,23 +311,27 @@ class _StageHostState extends State<StageHost> {
     });
   }
 
-  /// The ticket-20 expand: jump to the shared footprint at the CURRENT
-  /// anchor — direction derived from the anchor's quadrant in the work
-  /// area holding it, size clamped to what that anchor can host — in one
-  /// atomic setBounds that keeps the ball pixel-stationary. The anchor
-  /// survives every form, so a panel-size window mid-transition yields
-  /// the same anchor as the orb window would.
+  /// The ticket-20 expand: direction derived from the anchor's quadrant
+  /// in the work area holding it, panel size clamped to what that anchor
+  /// can host — in one atomic setBounds that keeps the ball
+  /// pixel-stationary. ADR 0017: the window jumps to the panel growth
+  /// CEILING, not the footprint — resize gestures then never touch the
+  /// HWND (the reshape ghosting lived in per-frame WM_SIZE storms, and
+  /// the residual one-frame flash in a mid-gesture size jump: the stale
+  /// child surface composites top-left-aligned for a frame when the
+  /// engine loses the present race). The card renders in the slot; the
+  /// transparent margin passes clicks through ([setPanelHitRect]).
   Future<void> _expandBounds(StageWindow window) async {
     _areas = await window.workAreas(); // refresh for the gestures to come
     final anchor = anchorOf(_rect, _dir);
-    final plan = expandPlan(
-      anchor,
-      c.panelFootprint,
-      _areaHolding(anchor, _areas ?? const []),
-    );
+    final area = _areaHolding(anchor, _areas ?? const []);
+    final plan = expandPlan(anchor, c.panelFootprint, area);
     _dir = plan.dir;
     _panelSize = plan.size;
-    await _applyBounds(plan.window);
+    await _applyBounds(
+      panelRectFor(anchor, maxPanelSize(anchor, plan.dir, area), plan.dir),
+    );
+    unawaited(_pushPanelHitRect());
   }
 
   /// The work area holding [point]; the first (primary) when none does —
@@ -340,6 +367,9 @@ class _StageHostState extends State<StageHost> {
       await _applyBounds(
         panelRectFor(anchorOf(_rect, _dir), SrGeometry.orbFootprint, _dir),
       );
+      // The orb window hit-tests whole again (ADR 0017).
+      _panelSize = null;
+      unawaited(_pushPanelHitRect());
     }
     if (!mounted || seq != _seq) return;
     // 3. Back to the standalone ball.
@@ -550,33 +580,27 @@ class _StageHostState extends State<StageHost> {
 
   // -- resize: the anchor corner never moves, the panel grows away ---------
   //
-  // The HWND never resizes mid-gesture (ticket 20's reshape ghosting:
-  // every per-frame size change forces the engine to rebuild its EGL
-  // surface, whose stale pixels DWM stretches across the client area).
-  // Press jumps the window to the growth ceiling (maxPanelSize) once —
-  // the card keeps its anchor-pinned slot, so the jump is invisible —
-  // the gesture grows the card by LAYOUT inside the frozen window, and
-  // release lands the actual footprint in one more jump.
+  // The HWND never changes during the gesture (ticket 20's reshape
+  // ghosting: every per-frame size change forces the engine to rebuild
+  // its EGL surface, and even a single mid-gesture jump flashes — the
+  // stale child surface composites top-left-aligned for one DWM frame
+  // when the engine loses the present race). The window is ALREADY at
+  // the growth ceiling (the expand jumped there, ADR 0017): the gesture
+  // grows the card by layout in the slot and touches nothing but
+  // Flutter state until the release catches the hit-through region and
+  // the persisted footprint up.
 
   void _resizeStart(Offset pointer, Offset growSign) {
     if (!_rectKnown) return;
     _resizeAnchor = anchorOf(_rect, _dir);
-    _resizeSize = _rect.size;
-    _resizeSize0 = _rect.size;
+    // The gesture's size base is the CARD (the slot), not the window —
+    // the window sits at the growth ceiling while a panel is open.
+    _resizeSize = _panelSize ?? _rect.size;
+    _resizeSize0 = _resizeSize;
     _resizeSign = growSign;
     _latchPointerSource(pointer);
     _grabArmed = true;
     _grabLive = true; // press-to-resize: every press is a gesture
-    _panelSize = _resizeSize; // the slot holds the footprint through the freeze
-    unawaited(
-      _applyBounds(
-        panelRectFor(
-          _resizeAnchor,
-          maxPanelSize(_resizeAnchor, _dir, _gestureArea(_resizeAnchor)),
-          _dir,
-        ),
-      ),
-    );
   }
 
   void _resizeGrow(Offset pointer) {
@@ -595,8 +619,7 @@ class _StageHostState extends State<StageHost> {
     );
     if (size == _resizeSize) return; // a bound edge eats the motion
     _resizeSize = size;
-    // Layout only — no setBounds mid-gesture; the window stays frozen
-    // at its ceiling until the release.
+    // Layout only — zero setBounds for the whole gesture.
     setState(() => _panelSize = size);
     c.noteGeometryLive(panel: size);
   }
@@ -605,11 +628,30 @@ class _StageHostState extends State<StageHost> {
     if (!_grabArmed) return;
     _grabArmed = false;
     _grabLive = false;
-    // One jump back to the actual footprint (same shape as collapse's
-    // shrink: it lands on a card already pinned there).
-    unawaited(_applyBounds(panelRectFor(_resizeAnchor, _resizeSize, _dir)));
+    // The card kept growing inside the frozen window; only the
+    // hit-through region and the persisted footprint catch up.
+    unawaited(_pushPanelHitRect());
     c.noteGeometryDone(panel: _resizeSize);
     unawaited(_primeGeometry());
+  }
+
+  /// The card slot in CLIENT coordinates — the hit-through region the
+  /// native side enforces (ADR 0017). Pushed when the slot moves within
+  /// a still-open window: expand and resize-settle. Window MOVES don't
+  /// change client coordinates, and mid-growth pushes are pointless
+  /// while the gesture holds the pointer capture.
+  Future<void> _pushPanelHitRect() async {
+    final window = widget.stageWindow;
+    if (window == null) return;
+    final size = _panelSize;
+    if (size == null) {
+      await window.setPanelHitRect(null);
+      return;
+    }
+    final anchor = anchorOf(_rect, _dir);
+    await window.setPanelHitRect(
+      panelRectFor(anchor, size, _dir).shift(-_rect.topLeft),
+    );
   }
 
   /// The free-edge strips and the free-corner square, mirrored to the

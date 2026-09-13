@@ -1,6 +1,9 @@
 #include "flutter_window.h"
 
+#include <cstdint>
 #include <optional>
+
+#include <flutter/standard_method_codec.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -26,6 +29,45 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+
+  // ADR 0017: while a panel stage is open the window sits at the panel
+  // growth ceiling; Dart pushes the card slot rect (physical client
+  // pixels) so native hit-testing passes clicks outside it to the
+  // desktop. An argument-less call restores whole-window hit testing.
+  hit_channel_ = std::make_unique<flutter::MethodChannel<
+      flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "spokenrectifier/window",
+      &flutter::StandardMethodCodec::GetInstance());
+  hit_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "setHitRect") {
+          result->NotImplemented();
+          return;
+        }
+        bool full = true;
+        RECT rect{};
+        const auto* args =
+            std::get_if<flutter::EncodableMap>(call.arguments());
+        if (args != nullptr) {
+          const auto left = args->find(flutter::EncodableValue("left"));
+          const auto top = args->find(flutter::EncodableValue("top"));
+          const auto right = args->find(flutter::EncodableValue("right"));
+          const auto bottom = args->find(flutter::EncodableValue("bottom"));
+          if (left != args->end() && top != args->end() &&
+              right != args->end() && bottom != args->end()) {
+            rect.left = static_cast<LONG>(std::get<int32_t>(left->second));
+            rect.top = static_cast<LONG>(std::get<int32_t>(top->second));
+            rect.right = static_cast<LONG>(std::get<int32_t>(right->second));
+            rect.bottom =
+                static_cast<LONG>(std::get<int32_t>(bottom->second));
+            full = false;
+          }
+        }
+        Win32Window::SetChildHitRegion(rect, full);
+        result->Success();
+      });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();

@@ -81,6 +81,10 @@ class RecordingStageWindow implements stage.StageWindow {
   /// How many times the window was asked to take the foreground.
   int focuses = 0;
 
+  /// The hit-through regions pushed while panels open (ADR 0017 ceiling
+  /// window; null = whole-window hit testing, the orb stage).
+  final hitRects = <Rect?>[];
+
   @override
   Future<Offset> getPosition() async => position;
 
@@ -96,6 +100,10 @@ class RecordingStageWindow implements stage.StageWindow {
     position = bounds.topLeft;
     size = bounds.size;
   }
+
+  @override
+  Future<void> setPanelHitRect(Rect? clientRect) async =>
+      hitRects.add(clientRect);
 
   @override
   Future<List<Rect>> workAreas() async => screens;
@@ -188,10 +196,12 @@ void main() {
     expect(controller.phase, BridgeSessionState.recording);
     expect(controller.stage, StageKind.session);
 
-    // The window jumped to the panel footprint in one atomic call,
-    // pinning the bottom-right corner (upLeft growth, 96 -> 420x560).
+    // The window jumped to the panel growth CEILING in one atomic call,
+    // pinning the bottom-right corner (upLeft growth, 96 -> 1096x596 —
+    // the anchor's span caps tighter than 70%; the card renders in the
+    // slot at 420x560, ADR 0017).
     expect(window.bounds, [
-      const Rect.fromLTRB(1000 + 96 - 420, 500 + 96 - 560, 1096, 596),
+      const Rect.fromLTRB(0, 0, 1096, 596),
     ]);
 
     // The session window shows the live phase; the anchor is a stop orb.
@@ -874,8 +884,9 @@ void main() {
       expect(find.byKey(const Key('quick-bottom-fade')), findsOneWidget);
       // Opening refreshed the panel's lists.
       expect(gateway.commands, containsAll(['termsList', 'historyList']));
-      // Same footprint as the session window, corner still pinned.
-      expect(window.bounds.last.size, SrGeometry.panelSize);
+      // Same ceiling as the session window (ADR 0017), corner still
+      // pinned; the card renders in the slot at the shared footprint.
+      expect(window.bounds.last.size, const Size(1096, 596));
       // The quick panel's Esc-to-close affordance needs the keyboard too.
       expect(window.focuses, greaterThanOrEqualTo(1));
       // The orb is now the close button.
@@ -1452,9 +1463,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
 
     // One expand for the whole session: rectifying and preview share the
-    // session window (修正≡预览同形).
+    // session window (修正≡预览同形). The window stays at its ceiling
+    // (ADR 0017); the CARD keeps its footprint — the pushed hit rect.
     expect(window.bounds, hasLength(1));
-    expect(window.bounds.last.size, SrGeometry.panelSize);
+    expect(window.bounds.last, const Rect.fromLTRB(0, 0, 1096, 596));
+    expect(window.hitRects.last, const Rect.fromLTRB(676, 36, 1096, 596));
     await windDown(tester, controller);
   });
 
@@ -1758,9 +1771,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
 
       expect(controller.phase, BridgeSessionState.recording);
-      // The first (and so far only) bounds call is the panel expand —
-      // no drag ever moved the orb window.
-      expect(window.bounds.single.size, SrGeometry.panelSize);
+      // The first (and so far only) bounds call is the panel expand to
+      // its growth ceiling (ADR 0017) — no drag ever moved the orb
+      // window, and no resize ran.
+      expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1096, 596));
       await windDown(tester, controller);
     });
 
@@ -1772,25 +1786,25 @@ void main() {
       final controller = await pumpGeometry(tester, window: window, dir: dir);
       await pumpQuickOpen(tester, controller);
 
-      // Panel rect at the default anchor (1048, 548): LTRB
-      // (676, 36, 1096, 596). Drag the header row up-left by (30, -20).
+      // Ceiling window at the default anchor (1048, 548): LTRB
+      // (0, 0, 1096, 596) (ADR 0017). Drag the header row by (30, -20).
       final header = tester.getCenter(find.text('快捷设置'));
       final g = await tester.startGesture(header);
       await g.moveBy(const Offset(30, -20));
       await g.up();
       await tester.pump();
 
-      expect(window.bounds.last, Rect.fromLTRB(706, 16, 1126, 576));
+      expect(window.bounds.last, Rect.fromLTRB(30, 0, 1126, 596));
       // The new anchor persisted (球的新位置成为新锚点).
       expect(
         File('${dir.path}/$uiPrefsFile').readAsStringSync(),
-        contains('orb_position = [1078, 528]'),
+        contains('orb_position = [1078, 548]'),
       );
       // The orb anchor button moved with the window and stayed socketed:
       // closing collapses onto the same anchor.
       controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 350));
-      expect(window.position, const Offset(1030, 480));
+      expect(window.position, const Offset(1030, 500));
       expect(window.size, SrGeometry.orbFootprint);
     });
 
@@ -1814,8 +1828,11 @@ void main() {
       await g.up();
       await tester.pump();
 
-      expect(window.bounds.last, Rect.fromLTRB(616, 0, 1096, 596));
+      // The window never moved (ADR 0017): the card's new size lives in
+      // the controller and the pushed hit-through region.
+      expect(window.bounds, hasLength(1));
       expect(controller.panelFootprint, const Size(480, 596));
+      expect(window.hitRects.last, const Rect.fromLTRB(616, 0, 1096, 596));
       expect(
         File('${dir.path}/$uiPrefsFile').readAsStringSync(),
         contains('panel_size = [480, 596]'),
@@ -1826,7 +1843,7 @@ void main() {
       controller.orbSecondary();
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pump(const Duration(milliseconds: 350));
-      expect(window.bounds.last.size, const Size(480, 596));
+      expect(window.hitRects.last, const Rect.fromLTRB(616, 0, 1096, 596));
       await controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 350));
     });
@@ -1849,52 +1866,54 @@ void main() {
       await g.up();
       await tester.pump();
 
-      expect(window.bounds.last.size, const Size(360, 460));
+      expect(window.bounds, hasLength(1)); // zero HWND churn (ADR 0017)
       expect(controller.panelFootprint, const Size(360, 460));
+      expect(window.hitRects.last, const Rect.fromLTRB(736, 136, 1096, 596));
       await controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 350));
     });
 
     testWidgets(
-      'a resize gesture never resizes the HWND mid-flight (freeze choreography)',
+      'a resize gesture never touches the HWND (the window sits at its ceiling)',
       (tester) async {
-        // The reshape ghosting: a per-frame HWND size change forces the
-        // engine to rebuild its EGL surface and stretch stale pixels
-        // over the client area. The gesture must touch setBounds exactly
-        // twice — freeze to the growth ceiling on press, footprint on
-        // release — growing the card by layout in between.
+        // ADR 0017: the expand already jumped the window to the growth
+        // ceiling, so a resize is pure Flutter layout — zero setBounds
+        // across the whole gesture. A mid-gesture HWND size change
+        // flashes even as a single jump: the stale child surface
+        // composites top-left-aligned for one DWM frame when the engine
+        // loses the present race (probe evidence, report section 0.1).
         final window = RecordingStageWindow();
         final dir = scratch();
         final controller = await pumpGeometry(tester, window: window, dir: dir);
         await pumpQuickOpen(tester, controller);
         expect(window.bounds, hasLength(1)); // the expand jump only
+        // The ceiling at this anchor (1048, 548): the anchor's own span
+        // (1096x596) caps tighter than the 70% of 1920x1080.
+        expect(window.bounds.last, Rect.fromLTRB(0, 0, 1096, 596));
 
         final corner = tester.getCenter(
           find.byKey(const Key('panel-resize-corner')),
         );
         final g = await tester.startGesture(corner);
-        await tester.pump(); // the freeze jump lands
-        expect(window.bounds, hasLength(2));
-        // The ceiling at this anchor (1048, 548): the anchor's own span
-        // (1096x596) caps tighter than the 70% of 1920x1080.
-        expect(window.bounds.last, Rect.fromLTRB(0, 0, 1096, 596));
-
+        await tester.pump();
         await g.moveBy(const Offset(-60, -80));
         await tester.pump();
         await g.moveBy(const Offset(-30, 0));
         await tester.pump();
-        // Growth is layout-only while held: no third setBounds.
-        expect(window.bounds, hasLength(2));
-        expect(controller.panelFootprint, const Size(510, 596));
-        // The card itself took the growth inside the frozen window.
-        expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 596));
-
         await g.up();
         await tester.pump();
-        expect(window.bounds, hasLength(3)); // one jump back to the footprint
-        expect(window.bounds.last, Rect.fromLTRB(586, 0, 1096, 596));
+
+        // Zero bounds calls for the whole gesture...
+        expect(window.bounds, hasLength(1));
+        expect(controller.panelFootprint, const Size(510, 596));
+        // ...the card itself took the growth inside the ceiling window.
+        expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 596));
+        // The hit-through region caught up to the final slot.
+        expect(window.hitRects.last, Rect.fromLTRB(586, 0, 1096, 596));
         await controller.closeQuick();
         await tester.pump(const Duration(milliseconds: 350));
+        // Back to the orb: whole-window hit testing again.
+        expect(window.hitRects.last, isNull);
       },
     );
 
@@ -1904,16 +1923,19 @@ void main() {
       // Each quadrant opens once: the window grows away from the ball
       // (ticket checklist, widget-level) and the orb mirrors to the
       // growth corner. Anchors sit flush inside the (0,0,1920,1080)
-      // area, as a clamped drag would leave them.
+      // area, as a clamped drag would leave them. ADR 0017: the jump
+      // lands at the growth CEILING, so each rect below is the ceiling
+      // (70% of the work area caps below the anchor's span on the roomy
+      // axes: 1344x756).
       for (final (pos, expectRect, expectOrbAtOrigin) in [
         // Bottom-right anchor (default): grows up-left, orb bottom-right.
-        (Offset(1824, 936), Rect.fromLTRB(1500, 472, 1920, 1032), false),
+        (Offset(1824, 936), Rect.fromLTRB(576, 276, 1920, 1032), false),
         // Bottom-left: grows up-right.
-        (Offset(30, 936), Rect.fromLTRB(30, 472, 450, 1032), false),
+        (Offset(30, 936), Rect.fromLTRB(30, 276, 1374, 1032), false),
         // Top-left: grows down-right, orb mirrors to the top-left corner.
-        (Offset(30, 40), Rect.fromLTRB(30, 40, 450, 600), true),
+        (Offset(30, 40), Rect.fromLTRB(30, 40, 1374, 796), true),
         // Top-right: grows down-left, orb mirrors up.
-        (Offset(1824, 40), Rect.fromLTRB(1500, 40, 1920, 600), true),
+        (Offset(1824, 40), Rect.fromLTRB(576, 40, 1920, 796), true),
       ]) {
         final window = RecordingStageWindow(pos);
         final dir = scratch();

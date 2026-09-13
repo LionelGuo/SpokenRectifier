@@ -3,6 +3,7 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
 
@@ -28,6 +29,12 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // ADR 0017: receives the card-slot hit region ("setHitRect", physical
+  // client pixels, or no arguments for whole-window hit testing) while
+  // a panel stage holds the window at the panel growth ceiling.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      hit_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_
