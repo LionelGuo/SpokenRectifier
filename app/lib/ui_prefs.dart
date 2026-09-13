@@ -7,7 +7,8 @@
 /// ticket 16's quick-panel switcher does the writing. Ticket 20 adds the
 /// geometry keys — `orb_position = [x, y]` (the anchor, logical
 /// coordinates) and `panel_size = [w, h]` — same file, same rules; the
-/// writer preserves every line it does not own.
+/// writer preserves every line it does not own. The orb-visibility key
+/// (`orb_visible = true/false`, a TOML boolean) rides the same family.
 
 library;
 
@@ -238,6 +239,68 @@ void saveUiGeometry(List<String> dirs, {Offset? orbPosition, Size? panelSize}) {
 /// shortest exact round-trip form.
 String _num(double v) =>
     v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+
+// ---- orb visibility -------------------------------------------------------
+
+/// Comment-stripped key start for the orb's visibility, the same rule the
+/// theme and geometry keys use.
+final _orbVisibleKeyStart = RegExp(r'^orb_visible\s*=');
+
+/// Read the orb's visibility from the first `spokenrectifier-ui.toml`
+/// among `dirs`. Tolerance family: a missing or unreadable file, a
+/// missing key, or a broken value reads as true (visible) — the same
+/// no-surprise direction as the theme's system fallback: a broken prefs
+/// file never hides the orb (the only surface with a hide switch lives
+/// in the tray, and a hidden orb has no surface to un-hide it).
+bool loadUiOrbVisible(List<String> dirs) {
+  for (final dir in dirs) {
+    final file = File('$dir/$uiPrefsFile');
+    String text;
+    try {
+      if (!file.existsSync()) continue;
+      text = file.readAsStringSync();
+    } catch (_) {
+      continue; // unreadable: as good as absent
+    }
+    for (var line in text.split('\n')) {
+      line = _stripLine(line);
+      if (!_orbVisibleKeyStart.hasMatch(line)) continue;
+      final tail = line.substring(line.indexOf('=') + 1).trim();
+      // true/false, unquoted — a quoted string or anything else is a
+      // broken value, not a hidden orb.
+      if (tail == 'false') return false;
+      return true;
+    }
+    return true; // file without the key: today's startup behavior
+  }
+  return true;
+}
+
+/// Persist the orb's visibility. The write lands in the file the reader
+/// resolves (never a shadowing copy), every other line survives verbatim.
+/// Throws when nothing is writable — same contract as the theme writer.
+void saveUiOrbVisible(List<String> dirs, bool visible) {
+  final line = 'orb_visible = ${visible ? 'true' : 'false'}';
+  for (final dir in dirs) {
+    final file = File('$dir/$uiPrefsFile');
+    if (!file.existsSync()) continue;
+    file.writeAsStringSync(
+      _withOneKey(file.readAsStringSync(), _orbVisibleKeyStart, line),
+    );
+    return;
+  }
+  for (final dir in dirs) {
+    try {
+      File('$dir/$uiPrefsFile').writeAsStringSync('$line\n');
+      return;
+    } on FileSystemException {
+      continue; // not writable: the next directory gets its chance
+    }
+  }
+  throw const FileSystemException(
+    'no writable directory for the ui prefs file',
+  );
+}
 
 /// Swap one key into `text`, preserving every other line — the rule
 /// behind [_withThemeLine], generalized.

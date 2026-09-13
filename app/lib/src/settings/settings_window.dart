@@ -5,11 +5,12 @@
 /// data seams are the file-backed stores (the bridge, direct) and its
 /// cross-window link is [SettingsChannel] (events only, never state).
 ///
-/// All seven domains are filled: scenarios (场景库), fidelity eval
-/// (保真评测) and history (历史) since ticket 18, terms (术语),
-/// connection (模型与连接), advanced (高级, read-only escape hatch) and
-/// about (关于) since ticket 19. The eval run lives in a controller here
-/// — it survives domain switches; closing the window is what stops it.
+/// All eight domains are filled: general (通用 — the theme tri-state
+/// mirror and the orb's visibility), scenarios (场景库), history (历史),
+/// terms (术语), connection (模型与连接), fidelity eval (保真评测),
+/// advanced (高级, read-only escape hatch) and about (关于). The eval run
+/// lives in a controller here — it survives domain switches; closing the
+/// window is what stops it.
 
 library;
 
@@ -30,6 +31,7 @@ import 'settings_channel.dart';
 import 'settings_connection_pane.dart';
 import 'settings_domain.dart';
 import 'settings_fidelity_pane.dart';
+import 'settings_general_pane.dart';
 import 'settings_history_pane.dart';
 import 'settings_store.dart';
 import 'settings_terms_pane.dart';
@@ -49,6 +51,7 @@ class SettingsWindowApp extends StatefulWidget {
     required this.systemStore,
     this.globalStore = const RustGlobalDirectiveStore(),
     this.initialTheme = ThemeMode.system,
+    this.initialOrbVisible = true,
     this.initialSelection,
     this.captionTheme = applyWindowsCaptionTheme,
   });
@@ -83,8 +86,10 @@ class SettingsWindowApp extends StatefulWidget {
 
   /// Theme and selection ride the window arguments (the main window
   /// cannot push into the sub-engine before its handler exists), then
-  /// follow live over the channel.
+  /// follow live over the channel. The orb's visibility rides the same
+  /// seed (the general domain's switch).
   final ThemeMode initialTheme;
+  final bool initialOrbVisible;
   final String? initialSelection;
 
   /// Paints the OS caption (title bar) with the effective brightness;
@@ -98,6 +103,7 @@ class SettingsWindowApp extends StatefulWidget {
 class _SettingsWindowAppState extends State<SettingsWindowApp>
     with WidgetsBindingObserver {
   ThemeMode _mode = ThemeMode.system;
+  bool _orbVisible = true;
   SettingsDomain _domain = SettingsDomain.scenarios;
   List<BridgeScenario> _scenarios = const [];
   String? _selected;
@@ -118,10 +124,13 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   void initState() {
     super.initState();
     _mode = widget.initialTheme;
+    _orbVisible = widget.initialOrbVisible;
     _domain = widget.initialDomain;
     _selected = widget.initialSelection;
     _load();
     widget.channel.onTheme = _setMode;
+    widget.channel.onOrbVisible = (visible) =>
+        setState(() => _orbVisible = visible);
     widget.channel.onSelection = (name) => setState(() => _selected = name);
     widget.channel.onNavigate = (domain) => setState(() => _domain = domain);
     widget.channel.attach();
@@ -142,6 +151,25 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   void _setMode(ThemeMode mode) {
     setState(() => _mode = mode);
     _applyCaptionTheme();
+  }
+
+  /// The general domain's theme pick: paint at once (the caption theme
+  /// follows the local adoption), then hand the pick to the main
+  /// controller's single entry over the channel — the quick panel's
+  /// switcher is the other caller of the same path. The controller's
+  /// notify comes back as an idempotent [_setMode] push.
+  Future<void> _pickTheme(ThemeMode mode) async {
+    _setMode(mode);
+    await widget.channel.sendThemePicked(mode);
+  }
+
+  /// The general domain's orb switch: paint at once, then hand the flip
+  /// to the main controller's single entry over the channel (the tray
+  /// checkbox and tray click share it). The write and any failure
+  /// banner live on the main side.
+  Future<void> _setOrbVisible(bool visible) async {
+    setState(() => _orbVisible = visible);
+    await widget.channel.sendOrbVisible(visible);
   }
 
   @override
@@ -299,6 +327,12 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
 
   Widget _domainPane(BuildContext context) {
     return switch (_domain) {
+      SettingsDomain.general => SettingsGeneralPane(
+        themeMode: _mode,
+        orbVisible: _orbVisible,
+        onThemePicked: _pickTheme,
+        onOrbVisible: _setOrbVisible,
+      ),
       SettingsDomain.scenarios => _ScenarioPane(
         scenarios: _scenarios,
         selected: _selected,

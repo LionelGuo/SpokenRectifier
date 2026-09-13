@@ -1,13 +1,14 @@
-/// Widget tests for the settings window: the seven-domain shell, the
-/// scenario library editor (add/edit/delete/select through one dialog),
-/// the fidelity-eval domain (run states through the controller), the
-/// history domain (browse/retrieve/retention/keep-nothing/clear), the
-/// terms domain (add/rename/remove over the same dictionary file), the
-/// connection domain (the two endpoint forms, preset chips, the
-/// diff-echo key block), the advanced domain (the editable timing form
-/// + the file escape hatch), the
-/// about domain (version/license/open-config), the cross-window channel
-/// contract, and the main-window controller's library-change reactions.
+/// Widget tests for the settings window: the eight-domain shell, the
+/// general domain (the theme tri-state mirror and the orb's visibility
+/// switch), the scenario library editor (add/edit/delete/select through
+/// one dialog), the fidelity-eval domain (run states through the
+/// controller), the history domain (browse/retrieve/retention/
+/// keep-nothing/clear), the terms domain (add/rename/remove over the
+/// same dictionary file), the connection domain (the two endpoint
+/// forms, preset chips, the diff-echo key block), the advanced domain
+/// (the editable timing form + the file escape hatch), the about domain
+/// (version/license/open-config), the cross-window channel contract,
+/// and the main-window controller's library-change reactions.
 /// Everything rides pure-Dart fakes — no Rust dylib, no second engine.
 
 library;
@@ -508,6 +509,8 @@ class FakeSystemStore implements SystemStore {
 class FakeSettingsChannel implements SettingsChannel {
   final libraryChanged = <({String? from, String? to})>[];
   final selections = <String?>[];
+  final themePicks = <ThemeMode>[];
+  final orbFlips = <bool>[];
   int historyChanged = 0;
   final rerectifies = <({String raw, ScenarioPick style})>[];
   int termsChanged = 0;
@@ -516,6 +519,7 @@ class FakeSettingsChannel implements SettingsChannel {
   void Function(ThemeMode mode)? themeHandler;
   void Function(String? name)? selectionHandler;
   void Function(SettingsDomain domain)? navigateHandler;
+  void Function(bool visible)? orbVisibleHandler;
   bool attached = false;
 
   @override
@@ -524,6 +528,10 @@ class FakeSettingsChannel implements SettingsChannel {
   @override
   set onSelection(void Function(String? name) handler) =>
       selectionHandler = handler;
+
+  @override
+  set onOrbVisible(void Function(bool visible) handler) =>
+      orbVisibleHandler = handler;
 
   @override
   set onNavigate(void Function(SettingsDomain domain) handler) =>
@@ -543,6 +551,12 @@ class FakeSettingsChannel implements SettingsChannel {
 
   @override
   Future<void> sendScenarioSelected(String? name) async => selections.add(name);
+
+  @override
+  Future<void> sendThemePicked(ThemeMode mode) async => themePicks.add(mode);
+
+  @override
+  Future<void> sendOrbVisible(bool visible) async => orbFlips.add(visible);
 
   @override
   Future<void> sendHistoryChanged() async => historyChanged++;
@@ -637,6 +651,7 @@ Future<void> pumpSettings(
   FakeSystemStore? systemStore,
   SettingsDomain domain = SettingsDomain.scenarios,
   ThemeMode initialTheme = ThemeMode.system,
+  bool initialOrbVisible = true,
   String? selected,
   void Function(Brightness brightness)? captionTheme,
 }) async {
@@ -647,6 +662,7 @@ Future<void> pumpSettings(
       globalStore: globalStore ?? FakeGlobalDirectiveStore(),
       initialDomain: domain,
       initialTheme: initialTheme,
+      initialOrbVisible: initialOrbVisible,
       initialSelection: selected,
       historyStore: historyStore ?? FakeHistorySettingsStore(),
       evalRunner: evalRunner ?? FakeFidelityEvalRunner(),
@@ -729,14 +745,26 @@ Future<void> scrollPaneTo(WidgetTester tester, Key key) =>
 // ---------------------------------------------------------------------------
 
 void main() {
-  test('the domain list is the seven-entry union of tickets and spec', () {
-    expect(SettingsDomain.values.length, 7);
-    expect(SettingsDomain.values.first, SettingsDomain.scenarios);
-    expect(SettingsDomain.values.last, SettingsDomain.about);
+  test('the domain list is the eight-entry sidebar IA order', () {
+    expect(SettingsDomain.values, [
+      SettingsDomain.general,
+      SettingsDomain.scenarios,
+      SettingsDomain.history,
+      SettingsDomain.terms,
+      SettingsDomain.connection,
+      SettingsDomain.fidelity,
+      SettingsDomain.advanced,
+      SettingsDomain.about,
+    ]);
     expect(SettingsDomain.fidelity.label, '保真评测');
+    // Unknown names fall back to 通用, the sidebar's first domain (the
+    // same target the quick panel's 打开设置 lands on).
+    expect(settingsDomainFromName('rectify'), SettingsDomain.general);
+    expect(settingsDomainFromName(null), SettingsDomain.general);
+    expect(settingsDomainFromName('fidelity'), SettingsDomain.fidelity);
   });
 
-  testWidgets('sidebar lists every domain; all seven are real panes', (
+  testWidgets('sidebar lists every domain; all eight are real panes', (
     tester,
   ) async {
     final channel = FakeSettingsChannel();
@@ -747,8 +775,12 @@ void main() {
       expect(find.text(domain.label), findsWidgets);
     }
 
-    // Every ticket-18/19 domain paints its real content — no
-    // placeholder pane survives.
+    // Every domain paints its real content — no placeholder pane
+    // survives. 通用 (the launch default's fallback target) first.
+    await tester.tap(find.text('通用'));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-theme-light')), findsOneWidget);
+    expect(find.byKey(const Key('settings-orb-visible')), findsOneWidget);
     await tester.tap(find.text('保真评测'));
     await tester.pump();
     expect(find.text('开始评测'), findsOneWidget);
@@ -795,6 +827,84 @@ void main() {
     await pumpSettings(tester, store: FakeScenarioStore());
     expect(find.byKey(const Key('settings-scenario-empty')), findsOneWidget);
     expect(find.byKey(const Key('settings-scenario-new')), findsOneWidget);
+  });
+
+  // -----------------------------------------------------------------------
+  // The general domain (通用)
+  // -----------------------------------------------------------------------
+
+  Switch orbSwitch(WidgetTester tester) =>
+      tester.widget(find.byKey(const Key('settings-orb-visible')));
+
+  testWidgets(
+    'a theme pick paints at once and rides the channel to the single entry',
+    (tester) async {
+      final channel = FakeSettingsChannel();
+      await pumpSettings(
+        tester,
+        channel: channel,
+        domain: SettingsDomain.general,
+      );
+
+      await tester.tap(find.byKey(const Key('settings-theme-dark')));
+      await tester.pump();
+
+      // The pick adopts locally at once (the whole app repaints), and
+      // the event goes out to the main controller's setThemeMode — the
+      // same entry the quick panel's switcher takes.
+      expect(channel.themePicks, [ThemeMode.dark]);
+      expect(
+        (tester.widget(find.byType(MaterialApp)) as MaterialApp).themeMode,
+        ThemeMode.dark,
+      );
+    },
+  );
+
+  testWidgets('an orb flip paints at once and rides the channel', (
+    tester,
+  ) async {
+    final channel = FakeSettingsChannel();
+    await pumpSettings(
+      tester,
+      channel: channel,
+      domain: SettingsDomain.general,
+    );
+
+    expect(orbSwitch(tester).value, isTrue);
+
+    await tester.tap(find.byKey(const Key('settings-orb-visible')));
+    await tester.pump();
+
+    // Painted at once; the flip goes out to the main controller's
+    // setOrbVisible (the tray checkbox's entry) — the write and any
+    // failure banner live there.
+    expect(orbSwitch(tester).value, isFalse);
+    expect(channel.orbFlips, [false]);
+  });
+
+  testWidgets('the orb switch follows tray toggles live', (tester) async {
+    final channel = FakeSettingsChannel();
+    await pumpSettings(
+      tester,
+      channel: channel,
+      domain: SettingsDomain.general,
+    );
+
+    // A tray toggle while the window is open: the orb-follow push
+    // repaints the switch without a local edit.
+    channel.orbVisibleHandler?.call(false);
+    await tester.pump();
+    expect(orbSwitch(tester).value, isFalse);
+    expect(channel.orbFlips, isEmpty);
+  });
+
+  testWidgets('the orb switch seeds from the launch arguments', (tester) async {
+    await pumpSettings(
+      tester,
+      domain: SettingsDomain.general,
+      initialOrbVisible: false,
+    );
+    expect(orbSwitch(tester).value, isFalse);
   });
 
   // -----------------------------------------------------------------------

@@ -88,6 +88,7 @@ class SpeechController extends ChangeNotifier {
     this.scriptedPhrases = const [],
     this.speechInterval = const Duration(milliseconds: 900),
     this.themeMode = ThemeMode.system,
+    this.orbVisible = true,
     this.pinHotkey,
     List<String>? uiPrefsDirs,
   }) : uiPrefsDirs = uiPrefsDirs ?? uiPrefsSearchDirs() {
@@ -171,8 +172,12 @@ class SpeechController extends ChangeNotifier {
   /// either happens (saves then write only the panel key).
   Offset? orbAnchor;
 
-  /// Whether the floating orb is visible at all.
-  bool orbVisible = true;
+  /// Whether the floating orb is visible at all. Seeded at startup from
+  /// `spokenrectifier-ui.toml` (missing/broken key = visible); every
+  /// toggle writes back at once — the tray checkbox, the tray click and
+  /// the settings window's switch all ride [setOrbVisible], the single
+  /// writer entry.
+  bool orbVisible;
 
   /// Last engine error, shown in the session panel (and on the orb's
   /// tooltip while idle).
@@ -747,9 +752,20 @@ class SpeechController extends ChangeNotifier {
     }
   }
 
-  void setOrbVisible(bool visible) {
+  /// Show or hide the floating orb — the one entry the tray checkbox,
+  /// the tray click and the settings window's switch share. The toggle
+  /// paints at once and persists to ui.toml (the read/write loop); a
+  /// failed write surfaces on the error banner but keeps the on-screen
+  /// state, exactly like the theme: the user sees what they got.
+  Future<void> setOrbVisible(bool visible) async {
     orbVisible = visible;
     notifyListeners();
+    try {
+      saveUiOrbVisible(uiPrefsDirs, visible);
+    } catch (e) {
+      lastError = '球体可见性保存失败:$e';
+      notifyListeners();
+    }
   }
 
   /// One-click clear (tray menu): wipe every stored session. The

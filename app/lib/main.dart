@@ -134,10 +134,12 @@ Future<void> main(List<String> args) async {
   await TrayManager.instance.setIcon('assets/tray_icon.ico');
 
   // The theme rides the app-owned prefs file (missing file = follow the
-  // system); the quick panel's tri-state switcher writes it back.
+  // system); the quick panel's tri-state switcher writes it back. The
+  // orb's visibility rides the same file (missing/broken key = visible).
   final controller = SpeechController(
     gateway: RustSpeechEngineGateway(),
     themeMode: loadUiThemeMode(uiPrefsSearchDirs()),
+    orbVisible: loadUiOrbVisible(uiPrefsSearchDirs()),
     pinHotkey: HotkeyManagerPinHotkeyRegistrar(),
   );
   if (startupError != null) {
@@ -170,10 +172,11 @@ Future<void> main(List<String> args) async {
     mode: ChannelMode.unidirectional,
   ).setMethodCallHandler(settingsWindow.handleSubWindowCall);
   controller.addListener(() {
-    // One-way follow: theme and selection repaint the open settings
-    // window (no-ops while it is closed).
+    // One-way follow: theme, selection and orb visibility repaint the
+    // open settings window (no-ops while it is closed).
     unawaited(settingsWindow.syncTheme(controller.themeMode));
     unawaited(settingsWindow.syncSelection(controller.selectedScenario));
+    unawaited(settingsWindow.syncOrbVisible(controller.orbVisible));
   });
 
   runApp(
@@ -223,6 +226,7 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
       channel: channel,
       initialDomain: launch.domain,
       initialTheme: launch.theme,
+      initialOrbVisible: launch.orbVisible,
       initialSelection: launch.selected,
       historyStore: const RustHistorySettingsStore(),
       evalRunner: const RustFidelityEvalRunner(),
@@ -384,7 +388,7 @@ class _ShellState extends State<_Shell> with TrayListener {
 
   @override
   Future<void> onTrayIconMouseDown() async {
-    controller.setOrbVisible(!controller.orbVisible);
+    await controller.setOrbVisible(!controller.orbVisible);
   }
 
   @override
@@ -396,7 +400,7 @@ class _ShellState extends State<_Shell> with TrayListener {
   Future<void> onTrayMenuItemClick(MenuItem menuItem) async {
     switch (menuItem.key) {
       case _toggleOrbKey:
-        controller.setOrbVisible(!controller.orbVisible);
+        await controller.setOrbVisible(!controller.orbVisible);
       // The 默认 item owns its reserved key; scenario items carry the
       // `scenario-item:` prefix plus the entry name, so the two can
       // never collide (an entry named "default" stays reachable).

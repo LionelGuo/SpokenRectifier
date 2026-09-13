@@ -1,7 +1,7 @@
 /// The quick panel: same footprint, same position, mutually exclusive
 /// with the session window (同形同位互斥). High-frequency settings and
 /// actions only — full configuration lives in the settings window
-/// (ticket 17), whose entry rows (编辑场景 / 全部历史与管理 / 全面配置)
+/// (ticket 17), whose entry rows (编辑场景 / 全部历史与管理 / 打开设置)
 /// open it on the matching domain. The orb doubles as the close button;
 /// Esc closes (the stage owns the keyboard while no field has it).
 ///
@@ -269,8 +269,8 @@ class _QuickPanelState extends State<QuickPanel> {
                         _sectionLabel(pal, '设置入口'),
                         _EntryRow(
                           key: const Key('quick-open-settings:general'),
-                          label: '全面配置…',
-                          domain: SettingsDomain.scenarios,
+                          label: '打开设置',
+                          domain: SettingsDomain.general,
                           onOpen: _openSettings,
                         ),
                         // Anchor zone clearance — only while the anchor
@@ -479,7 +479,7 @@ class _GlobalPreviewRow extends StatelessWidget {
 }
 
 /// A full-width management entry (编辑场景… / 全部历史与管理… /
-/// 全面配置…): a ghost row, outlined at rest like the term add button,
+/// 打开设置): a ghost row, outlined at rest like the term add button,
 /// filling with raised on hover over the surface-fade window. Each row
 /// opens the settings window on its domain.
 class _EntryRow extends StatelessWidget {

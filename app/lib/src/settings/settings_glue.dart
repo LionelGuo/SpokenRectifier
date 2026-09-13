@@ -34,6 +34,7 @@ class DesktopSettingsWindow {
   WindowController? _window;
   ThemeMode? _lastTheme;
   String? _lastSelection;
+  bool? _lastOrbVisible;
 
   /// Open the settings window on [domain] — creating it hidden, with the
   /// current theme and selection riding its arguments (a push cannot beat
@@ -60,6 +61,7 @@ class DesktopSettingsWindow {
           'kind': 'settings',
           'domain': domain.name,
           'theme': _controller.themeMode.name,
+          'orb': _controller.orbVisible,
           'selected': _controller.selectedScenario,
         }),
         hiddenAtLaunch: true,
@@ -68,6 +70,7 @@ class DesktopSettingsWindow {
     _window = controller;
     _lastTheme = _controller.themeMode;
     _lastSelection = _controller.selectedScenario;
+    _lastOrbVisible = _controller.orbVisible;
   }
 
   /// Push the theme to the settings window (no-op while closed).
@@ -92,6 +95,18 @@ class DesktopSettingsWindow {
     } catch (_) {}
   }
 
+  /// Push the orb's visibility (no-op while closed) — the general
+  /// domain's switch follows tray toggles live.
+  Future<void> syncOrbVisible(bool visible) async {
+    if (_lastOrbVisible == visible) return;
+    _lastOrbVisible = visible;
+    final window = _window;
+    if (window == null) return;
+    try {
+      await window.invokeMethod('orb-follow', visible);
+    } catch (_) {}
+  }
+
   /// The sub-window's events (registered on [settingsToMainChannel] by
   /// main.dart). Data never rides this channel — each event re-reads the
   /// file through the controller, the one place the pickers paint from.
@@ -109,6 +124,20 @@ class DesktopSettingsWindow {
         await _controller.onGlobalDirectiveChanged();
       case 'scenario-selected':
         await _controller.selectScenario(call.arguments as String?);
+      case 'theme-selected':
+        // The general domain's tri-state mirror: the same single entry
+        // the quick panel's switcher takes (wire format = mode name).
+        await _controller.setThemeMode(
+          ThemeMode.values.firstWhere(
+            (mode) => mode.name == call.arguments,
+            orElse: () => ThemeMode.system,
+          ),
+        );
+      case 'set-orb-visible':
+        // The general domain's orb switch: the same single entry the
+        // tray checkbox and tray click take. Tolerance default: a
+        // malformed push reads as visible.
+        await _controller.setOrbVisible(call.arguments as bool? ?? true);
       case 'history-changed':
         // The history domain reshaped the store (retention, keep-nothing,
         // clear): the quick panel's rows re-read the same bridge call.
@@ -146,6 +175,7 @@ class DesktopSettingsWindow {
       _window = null;
       _lastTheme = null;
       _lastSelection = null;
+      _lastOrbVisible = null;
     }
   }
 }
@@ -163,6 +193,9 @@ SettingsLaunch? parseSettingsLaunch(String? windowArguments) {
           (mode) => mode.name == decoded['theme'],
           orElse: () => ThemeMode.system,
         ),
+        // Tolerance default: anything but an explicit false reads as
+        // visible — the ui.toml rule, applied at the wire too.
+        orbVisible: decoded['orb'] != false,
         selected: decoded['selected'] as String?,
       );
     }
@@ -177,10 +210,15 @@ class SettingsLaunch {
   const SettingsLaunch({
     required this.domain,
     required this.theme,
+    this.orbVisible = true,
     required this.selected,
   });
 
   final SettingsDomain domain;
   final ThemeMode theme;
+
+  /// The orb's visibility at first paint (the general domain's switch);
+  /// later changes follow over the channel.
+  final bool orbVisible;
   final String? selected;
 }

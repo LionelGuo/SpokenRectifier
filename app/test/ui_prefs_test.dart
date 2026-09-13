@@ -2,7 +2,9 @@
 /// the search order mirroring the engine's config search dirs — and the
 /// write half (ticket 16): placement, in-place key replacement,
 /// preservation of lines the theme does not own, and the read/write
-/// round trip every mode has to survive.
+/// round trip every mode has to survive. The geometry pair (ticket 20)
+/// and the orb's visibility ride the same rules, each with its own
+/// tolerance family.
 
 library;
 
@@ -273,5 +275,60 @@ void main() {
       'theme = "light"\norb_position = [3, 4]\n',
     );
     expect(File('${one.path}/$uiPrefsFile').existsSync(), isFalse);
+  });
+
+  // -- the orb visibility ----------------------------------------------------
+
+  test('a missing file reads as visible', () {
+    expect(loadUiOrbVisible([dir('orb-empty').path]), isTrue);
+  });
+
+  test('both values round-trip through the writer', () {
+    final d = dir('orb-round-trip');
+    saveUiOrbVisible([d.path], false);
+    expect(
+      File('${d.path}/$uiPrefsFile').readAsStringSync(),
+      'orb_visible = false\n',
+    );
+    expect(loadUiOrbVisible([d.path]), isFalse);
+    saveUiOrbVisible([d.path], true);
+    expect(loadUiOrbVisible([d.path]), isTrue);
+  });
+
+  test('broken values degrade to visible, never to hidden', () {
+    for (final text in [
+      'orb_visible = "false"\n', // a quoted string is not a TOML boolean
+      'orb_visible = nope\n',
+      'orb_visible =\n',
+      'orb_visible_note = false\n', // prefix-sharing key, not ours
+      'orb_visible_false = false\n',
+      '[broken\n',
+    ]) {
+      final d = dir('orb-broken');
+      File('${d.path}/$uiPrefsFile').writeAsStringSync(text);
+      expect(loadUiOrbVisible([d.path]), isTrue, reason: text);
+    }
+  });
+
+  test('the orb write replaces its key in place and preserves the rest', () {
+    final d = dir('orb-preserve');
+    final file = File('${d.path}/$uiPrefsFile');
+    file.writeAsStringSync(
+      '# app-owned\ntheme = "dark"\norb_position = [10, 20]\norb_visible = true\n',
+    );
+
+    saveUiOrbVisible([d.path], false);
+    expect(
+      file.readAsStringSync(),
+      '# app-owned\ntheme = "dark"\norb_position = [10, 20]\norb_visible = false\n',
+    );
+  });
+
+  test('comments and spacing are tolerated on the orb key', () {
+    final d = dir('orb-noise');
+    File('${d.path}/$uiPrefsFile').writeAsStringSync(
+      '# app-owned\n\n  orb_visible =   false  # hidden while recording\n',
+    );
+    expect(loadUiOrbVisible([d.path]), isFalse);
   });
 }

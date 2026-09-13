@@ -43,6 +43,16 @@ abstract class SettingsChannel {
   /// The user picked a scenario in the editor (null = default register).
   Future<void> sendScenarioSelected(String? name);
 
+  /// The user picked a theme segment in the general domain — routed to
+  /// the main controller's single `setThemeMode` entry (the quick
+  /// panel's switcher is the other caller of the same path).
+  Future<void> sendThemePicked(ThemeMode mode);
+
+  /// The user flipped the orb's visibility switch in the general domain
+  /// — routed to the main controller's single `setOrbVisible` entry
+  /// (the tray checkbox and tray click share it).
+  Future<void> sendOrbVisible(bool visible);
+
   /// The history store changed shape from the history domain (retention
   /// retightened, keep-nothing turned on, everything cleared): the main
   /// window re-reads its recent rows — an event, never mirrored state.
@@ -69,6 +79,10 @@ abstract class SettingsChannel {
   /// Theme follow (one-way from the main window's tri-state).
   set onTheme(void Function(ThemeMode mode) handler);
 
+  /// Orb-visibility follow (the tray toggles while the window is open —
+  /// the general domain's switch repaints at once).
+  set onOrbVisible(void Function(bool visible) handler);
+
   /// Selection follow (the main window's pickers are the same selection).
   set onSelection(void Function(String? name) handler);
 
@@ -89,9 +103,14 @@ class DesktopSettingsChannel implements SettingsChannel {
   void Function(ThemeMode mode)? _onTheme;
   void Function(String? name)? _onSelection;
   void Function(SettingsDomain domain)? _onNavigate;
+  void Function(bool visible)? _onOrbVisible;
 
   @override
   set onTheme(void Function(ThemeMode mode) handler) => _onTheme = handler;
+
+  @override
+  set onOrbVisible(void Function(bool visible) handler) =>
+      _onOrbVisible = handler;
 
   @override
   set onSelection(void Function(String? name) handler) =>
@@ -114,6 +133,14 @@ class DesktopSettingsChannel implements SettingsChannel {
   @override
   Future<void> sendScenarioSelected(String? name) =>
       _send('scenario-selected', name);
+
+  @override
+  Future<void> sendThemePicked(ThemeMode mode) =>
+      _send('theme-selected', mode.name);
+
+  @override
+  Future<void> sendOrbVisible(bool visible) =>
+      _send('set-orb-visible', visible);
 
   @override
   Future<void> sendHistoryChanged() => _send('history-changed', null);
@@ -163,6 +190,9 @@ class DesktopSettingsChannel implements SettingsChannel {
         _onTheme?.call(mode);
       case 'selection-follow':
         _onSelection?.call(call.arguments as String?);
+      case 'orb-follow':
+        // Tolerance default: a malformed push reads as visible.
+        _onOrbVisible?.call(call.arguments as bool? ?? true);
       case 'navigate':
         _onNavigate?.call(settingsDomainFromName(call.arguments as String?));
         // The main side's show() is a bare SW_SHOW (desktop_multi_window),
