@@ -1729,7 +1729,8 @@ void main() {
 
     // The reservation itself stayed on the capsule's line (its 4-px
     // middle-aligned box sits below a glyph's top on the SAME line —
-    // centres, not tops), fitted to exactly the leftover its line held.
+    // centres, not tops), fitted to the leftover its line held minus
+    // the drift margin.
     final reservationAt = flat.lastIndexOf('￼');
     final reservationBox = paragraph
         .getBoxesForSelection(
@@ -1744,7 +1745,213 @@ void main() {
       (reservationBox.center.dy - valueBox.center.dy).abs(),
       lessThan(pitch / 2),
     );
-    expect(reservationBox.right, closeTo(paragraph.constraints.maxWidth, 0.6));
+    expect(
+      reservationBox.right,
+      closeTo(paragraph.constraints.maxWidth - 2, 0.6),
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('composing at the value end near the line edge keeps the wrap flush', (
+    tester,
+  ) async {
+    // 停车场 04 third round (真机: IME 组合让胶囊贴到最右缘时,第 2 行仍
+    // 异常缩进): while a composition rides the value, the laid-out
+    // paragraph carries the run spliced in and the slot's reservation
+    // placeholder sits at its SHIFTED index — the base offset used to
+    // probe it landed inside the composing text instead, so neither the
+    // measure nor the verification ever saw the wrap. Both now probe
+    // paint space.
+    final h = await pumpSlotPreview(tester);
+    final probe = previewParagraph(tester);
+    final column = probe.constraints.maxWidth;
+    final advance = probe
+        .getBoxesForSelection(const TextSelection(baseOffset: 0, extentOffset: 1))
+        .first
+        .toRect()
+        .width;
+    final chipWidth = probe
+        .getBoxesForSelection(const TextSelection(baseOffset: 2, extentOffset: 3))
+        .first
+        .toRect()
+        .width;
+    // The committed value keeps a full reservation's room (no fit yet);
+    // one composing letter lands the capsule's edge inside [0.75, 16) —
+    // the trigger zone.
+    final k = ((column - chipWidth - advance - 16) / advance).floor();
+
+    await h.gateway.reroll();
+    await tester.pump(const Duration(milliseconds: 400));
+    h.gateway.emit(
+      BridgeEvent.rectifiedTextChunk(delta: '话' * k + '‡1‡' + '乙丙丁'),
+    );
+    h.gateway.emit(
+      const BridgeEvent.previewPrefills(
+        prefills: [BridgePrefillRow(number: 1, value: '测')],
+      ),
+    );
+    h.gateway.emit(
+      const BridgeEvent.sessionStateChanged(
+        from: BridgeSessionState.rectifying,
+        to: BridgeSessionState.preview,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    final surface =
+        tester.state(find.byKey(const Key('session-text')))
+            as SlotSurfaceState;
+    surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
+    await tester.pump();
+
+    // The engine's compose-at-value-end payload: the value's characters
+    // kept, the run appended at its end (F20's replay shape).
+    h.tester.testTextInput.updateEditingValue(
+      TextEditingValue(
+        text: '话' * k + '￼测a￼乙丙丁',
+        selection: TextSelection.collapsed(offset: k + 3),
+        composing: TextRange(start: k + 2, end: k + 3),
+      ),
+    );
+    await tester.pump();
+    expect(surface.composingText, 'a');
+
+    final paragraph = previewParagraph(tester);
+    final painted = surface.paintedTextForTest; // 话*k ￼ 测 a ￼ 乙丙丁
+    final composingBox = paragraph
+        .getBoxesForSelection(TextSelection(baseOffset: k + 2, extentOffset: k + 3))
+        .first
+        .toRect();
+    // The composition pushed the capsule's edge into the trigger zone.
+    expect(column - composingBox.right, lessThan(16));
+
+    // The following text wrapped below — flush, never led by the
+    // reservation.
+    final followStart = painted.indexOf('乙');
+    final followBox = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: followStart, extentOffset: followStart + 1),
+        )
+        .first
+        .toRect();
+    expect(followBox.top, greaterThan(composingBox.top + 1));
+    expect(followBox.left, closeTo(0, 0.5));
+
+    // The reservation itself rides the composing run's line.
+    final reservationAt = painted.lastIndexOf('￼');
+    final reservationBox = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: reservationAt, extentOffset: reservationAt + 1),
+        )
+        .first
+        .toRect();
+    expect(
+      (reservationBox.center.dy - composingBox.center.dy).abs(),
+      lessThan(5),
+    );
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('composing at the capsule\'s left pushes the capsule right', (
+    tester,
+  ) async {
+    // 停车场 05 (2026-09-13 真机: 胶囊左侧打字, IME 组合不把胶囊往右推): the
+    // span tree already splices the run ahead of the chip (the caret
+    // rests at the capsule's outside-left dock), but the chip's box
+    // probe used SEAT semantics — an offset at the run's start pins to
+    // the run's first letter — so the whole capsule chrome stayed over
+    // the composing text until the commit re-rendered. The chip probes
+    // content space now: an offset at the composing point belongs PAST
+    // the run, where the placeholder actually sits.
+    final h = await pumpSlotPreview(tester, prefill: '');
+    h.surface.editor.place(const SlotCursor.outside(2));
+    await tester.pump();
+    h.tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '发给zh￼￼一下',
+        selection: TextSelection.collapsed(offset: 4),
+        composing: TextRange(start: 2, end: 4),
+      ),
+    );
+    await tester.pump();
+    expect(h.surface.composingText, 'zh');
+
+    final paragraph = previewParagraph(tester);
+    final painted = h.surface.paintedTextForTest; // 发给zh￼￼一下
+    final runStart = painted.indexOf('zh');
+    final runRight = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: runStart, extentOffset: runStart + 2),
+        )
+        .last
+        .toRect()
+        .right;
+    final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+    // The capsule sits clear past the composing letters — pushed right.
+    expect(
+      pill.left,
+      greaterThan(runRight),
+      reason: 'the composition grows in front of the capsule',
+    );
+    // …anchored on its own chip placeholder, one sidePad inside it.
+    final chipPaint = placeholderPositions(painted)[0];
+    final chipBox = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: chipPaint, extentOffset: chipPaint + 1),
+        )
+        .first
+        .toRect();
+    expect(pill.left, closeTo(chipBox.left + SrCapsule.sidePad, 0.5));
+    await windDown(tester, h.controller);
+  });
+
+  testWidgets('the capsule\'s seat never moves as its first content lands', (
+    tester,
+  ) async {
+    // 停车场 05 (2026-09-13 真机: 空胶囊输入第 1 个文字, 这一行胶囊轻微下移;
+    // 用户要求: 任何情况下胶囊初始位置——含聆听阶段标记——与有文字时完全相
+    // 同). The vertical anchor is content-independent: strut caret line
+    // center + the paragraph's ink bias + ease, whatever the line holds.
+    // The ink-box anchor it replaces rode the fonts the line's runs
+    // resolved — an IME run lands as another script — and re-seated on
+    // real fallback chains; Ahem's uniform metrics cannot show the drift
+    // (the 反馈十二 caveat), so this locks the invariant itself.
+    final h = await pumpSlotPreview(tester, prefill: '');
+    final before = h.surface.capsuleSegmentsForTest()[1]!.first.center.dy;
+
+    // Enter the empty capsule and compose Latin at its single dock —
+    // another script's run joins the line.
+    await tester.tapAt(h.capsuleRect(1).center);
+    await tester.pump();
+    h.tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '发给￼zh￼一下',
+        selection: TextSelection.collapsed(offset: 5),
+        composing: TextRange(start: 3, end: 5),
+      ),
+    );
+    await tester.pump();
+    expect(h.surface.composingText, 'zh');
+    expect(
+      h.surface.capsuleSegmentsForTest()[1]!.first.center.dy,
+      closeTo(before, 0.01),
+      reason: 'the composing run may not re-seat the capsule',
+    );
+
+    // Commit Chinese — the run swaps script again; the seat holds.
+    h.tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '发给￼张￼一下',
+        selection: TextSelection.collapsed(offset: 4),
+        composing: TextRange(start: 0, end: 0),
+      ),
+    );
+    await tester.pump();
+    expect(h.surface.editor.doc.valueOf(1), '张');
+    expect(
+      h.surface.capsuleSegmentsForTest()[1]!.first.center.dy,
+      closeTo(before, 0.01),
+      reason: 'the committed glyph may not re-seat the capsule',
+    );
     await windDown(tester, h.controller);
   });
 
