@@ -9,7 +9,9 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+// GrowthDirection hidden: the framework exports its own (a sliver
+// token); this panel's is the orb-geometry one via window_stage.
+import 'package:flutter/material.dart' hide GrowthDirection;
 
 import '../../app_state.dart';
 import '../design/tokens.dart';
@@ -19,6 +21,7 @@ import '../preview/slot_surface.dart';
 import '../rust/api.dart' show BridgeSessionState;
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
+import '../shell/panel_gestures.dart';
 import '../shell/window_stage.dart';
 
 class SessionPanel extends StatefulWidget {
@@ -26,10 +29,19 @@ class SessionPanel extends StatefulWidget {
     super.key,
     required this.controller,
     required this.exiting,
+    required this.dir,
+    this.grip,
   });
 
   final SpeechController controller;
   final bool exiting;
+
+  /// Which corner the orb anchors (the anchor button overlaps that
+  /// corner's edge row — header or footer depending on growth axis).
+  final GrowthDirection dir;
+
+  /// The header-row move grip (面板上沿拖动=整体移动); null in tests.
+  final PanelGrip? grip;
 
   @override
   State<SessionPanel> createState() => _SessionPanelState();
@@ -156,12 +168,17 @@ class _SessionPanelState extends State<SessionPanel> {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
+    // The header row doubles as the move grip (面板上沿拖动): wrapped
+    // when a grip is wired (production), bare in tests.
+    final header = _header(context, pal);
+    final grip = widget.grip;
     return PanelBody(
       exiting: widget.exiting,
+      dir: widget.dir,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _header(context, pal),
+          grip == null ? header : PanelGripBar(grip: grip, child: header),
           Divider(height: 1, thickness: 1, color: pal.hairline),
           Expanded(child: _textArea(context, pal)),
           if (c.lastError != null) _errorRow(context, pal),
@@ -217,6 +234,9 @@ class _SessionPanelState extends State<SessionPanel> {
           // 默认) paints the same shape with that pick's name — same
           // format, no special badge.
           if (c.scenarios.isNotEmpty) _ScenarioChip(label: '场景 · $scenario'),
+          // Down-growth anchors the orb at this row's end: the same
+          // equator-level reserve the footer keeps for the ball.
+          if (!widget.dir.growUp) const SizedBox(width: SrGeometry.anchorInset),
         ],
       ),
     );
@@ -371,6 +391,11 @@ class _SessionPanelState extends State<SessionPanel> {
       ),
       child: Row(
         children: [
+          // The anchor reserve mirrors with the growth direction (see
+          // the row-end twin below); absent entirely when the orb
+          // anchors the header's corner (down-growth).
+          if (widget.dir.growUp && !widget.dir.growLeft)
+            const SizedBox(width: SrGeometry.anchorInset),
           if (_isPreview) ...[
             _GhostButton(
               key: const Key('session-raw-toggle'),
@@ -407,7 +432,7 @@ class _SessionPanelState extends State<SessionPanel> {
           // (the ball's full diameter) over-reserved and left the preview
           // footer's three capsules no room: the row overflowed ~48px and
           // the debug stripe painted right under the ball.
-          const SizedBox(width: SrGeometry.anchorInset),
+          if (widget.dir.growUp) const SizedBox(width: SrGeometry.anchorInset),
         ],
       ),
     );

@@ -7,6 +7,7 @@
 library;
 
 import 'dart:io';
+import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_test/flutter_test.dart';
@@ -163,5 +164,114 @@ void main() {
       () => saveUiThemeMode([d.path], ThemeMode.light),
       throwsA(isA<FileSystemException>()),
     );
+  });
+
+  // -- the geometry keys (ticket 20) ----------------------------------------
+
+  test('a missing file reads as no geometry', () {
+    final geo = loadUiGeometry([dir('geo-empty').path]);
+    expect(geo.orbPosition, isNull);
+    expect(geo.panelSize, isNull);
+  });
+
+  test('hand-written geometry parses: ints, decimals, spaces, negatives', () {
+    final d = dir('geo-hand');
+    File('${d.path}/$uiPrefsFile').writeAsStringSync(
+      'theme = "dark"\n'
+      'orb_position = [ -1920 , 48 ]\n'
+      'panel_size = [420, 560.5]\n',
+    );
+    final geo = loadUiGeometry([d.path]);
+    expect(geo.orbPosition, const Offset(-1920, 48));
+    expect(geo.panelSize, const Size(420, 560.5));
+  });
+
+  test('broken values degrade to null, per key', () {
+    for (final text in [
+      'orb_position = [x, y]\n', // not numbers
+      'orb_position = (100, 200)\n', // not an array
+      'panel_size = [420]\n', // not a pair
+      'panel_size = [0, 560]\n', // a size must be positive
+      'panel_size = [-420, 560]\n',
+    ]) {
+      final d = dir('geo-broken');
+      File('${d.path}/$uiPrefsFile').writeAsStringSync(text);
+      final geo = loadUiGeometry([d.path]);
+      expect(geo.orbPosition, isNull, reason: text);
+      expect(geo.panelSize, isNull, reason: text);
+    }
+  });
+
+  test('a broken orb_position does not take panel_size down with it', () {
+    final d = dir('geo-half');
+    File('${d.path}/$uiPrefsFile')
+        .writeAsStringSync('orb_position = nowhere\npanel_size = [500, 600]\n');
+    final geo = loadUiGeometry([d.path]);
+    expect(geo.orbPosition, isNull);
+    expect(geo.panelSize, const Size(500, 600));
+  });
+
+  test('both keys round-trip through the writer', () {
+    final d = dir('geo-round-trip');
+    saveUiGeometry(
+      [d.path],
+      orbPosition: const Offset(1872.5, 984.25),
+      panelSize: const Size(420, 560),
+    );
+    // Integral doubles write as ints; the fraction keeps its exact form.
+    expect(
+      File('${d.path}/$uiPrefsFile').readAsStringSync(),
+      'orb_position = [1872.5, 984.25]\npanel_size = [420, 560]\n',
+    );
+    final geo = loadUiGeometry([d.path]);
+    expect(geo.orbPosition, const Offset(1872.5, 984.25));
+    expect(geo.panelSize, const Size(420, 560));
+  });
+
+  test('the geometry write preserves every line it does not own', () {
+    final d = dir('geo-preserve');
+    final file = File('${d.path}/$uiPrefsFile');
+    file.writeAsStringSync(
+      '# app-owned\n'
+      'theme = "dark"\n'
+      'orb_position = [10, 20]\n'
+      'future_key = 1\n',
+    );
+
+    saveUiGeometry(
+      [d.path],
+      orbPosition: const Offset(100, 200),
+      panelSize: const Size(500, 640),
+    );
+    expect(
+      file.readAsStringSync(),
+      '# app-owned\n'
+      'theme = "dark"\n'
+      'orb_position = [100, 200]\n'
+      'future_key = 1\n'
+      'panel_size = [500, 640]\n', // absent key appends, in place for the rest
+    );
+
+    // A null parameter leaves its key untouched.
+    saveUiGeometry([d.path], orbPosition: const Offset(1, 2));
+    final text = file.readAsStringSync();
+    expect(text, contains('orb_position = [1, 2]'));
+    expect(text, contains('panel_size = [500, 640]'));
+    expect(text, contains('theme = "dark"'));
+  });
+
+  test('geometry writes land in the resolved file, never a copy', () {
+    final one = dir('geo-shadow-one');
+    final two = dir('geo-shadow-two');
+    final existing = File('${two.path}/$uiPrefsFile')
+      ..writeAsStringSync('theme = "light"\n');
+
+    saveUiGeometry([one.path, two.path], orbPosition: const Offset(3, 4));
+
+    expect(
+      existing.readAsStringSync(),
+      'theme = "light"\norb_position = [3, 4]\n',
+    );
+    expect(File('${one.path}/$uiPrefsFile').existsSync(), isFalse);
   });
 }

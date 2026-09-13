@@ -26,6 +26,7 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
+import 'package:spokenrectifier_app/src/shell/orb_button.dart';
 import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
     show formatHistoryStamp;
 import 'package:spokenrectifier_app/src/shell/session_flow.dart' show StageKind;
@@ -67,6 +68,11 @@ class RecordingStageWindow implements stage.StageWindow {
   Size size = SrGeometry.orbFootprint;
   final bounds = <Rect>[];
 
+  /// The work areas the expand chooser and the clamps see; tests pin it
+  /// to place the orb in a quadrant or squeeze a fit. (Named `screens` —
+  /// a field cannot share the interface method's name.)
+  List<Rect> screens = const [Rect.fromLTWH(0, 0, 1920, 1080)];
+
   /// How many times the window was asked to take the foreground.
   int focuses = 0;
 
@@ -82,6 +88,9 @@ class RecordingStageWindow implements stage.StageWindow {
     position = bounds.topLeft;
     size = bounds.size;
   }
+
+  @override
+  Future<List<Rect>> workAreas() async => screens;
 
   @override
   Future<void> focus() async => focuses += 1;
@@ -618,9 +627,8 @@ void main() {
   });
 
   testWidgets(
-    'confirming within a slot-edit debounce flushes the substituted text', (
-    tester,
-  ) async {
+    'confirming within a slot-edit debounce flushes the substituted text',
+    (tester) async {
       // A pinned session (ticket 23): the slot's prefill substitutes at
       // entry, a value edit inside the debounce window substitutes too,
       // and the confirm flushes exactly that — the sentinel never rides
@@ -633,9 +641,7 @@ void main() {
       await controller.stopSession();
       await tester.pump(const Duration(milliseconds: 350));
 
-      gateway.emit(
-        const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡一下'),
-      );
+      gateway.emit(const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡一下'));
       gateway.emit(
         const BridgeEvent.previewPrefills(
           prefills: [BridgePrefillRow(number: 1, value: '张三')],
@@ -677,7 +683,8 @@ void main() {
       );
       expect(controller.phase, BridgeSessionState.idle);
       await windDown(tester, controller);
-    });
+    },
+  );
 
   testWidgets(
     'the raw transcript comparison expands under the rectified text',
@@ -1003,32 +1010,30 @@ void main() {
       // and the row paints one truncated line of it.
       expect(gateway.commands, contains('globalDirective'));
       expect(gateway.commands, contains('setGlobalDirective:全部输出用简体中文书写'));
-      expect(
-        find.byKey(const Key('quick-global-preview')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('quick-global-preview')), findsOneWidget);
     },
   );
 
-  testWidgets('the preview row shows with an empty library, hides while unset', (
-    tester,
-  ) async {
-    final gateway = FakeGateway()..global = '恒常生效的指令';
-    final controller = await pumpController(tester, gateway);
-    await controller.loadGlobalDirective();
-    await pumpQuickOpen(tester, controller);
+  testWidgets(
+    'the preview row shows with an empty library, hides while unset',
+    (tester) async {
+      final gateway = FakeGateway()..global = '恒常生效的指令';
+      final controller = await pumpController(tester, gateway);
+      await controller.loadGlobalDirective();
+      await pumpQuickOpen(tester, controller);
 
-    // An empty library hides the picker chips but not the global row: the
-    // directive is not one scenario among others.
-    expect(find.byKey(const Key('quick-scenario-default')), findsNothing);
-    expect(find.byKey(const Key('quick-global-preview')), findsOneWidget);
+      // An empty library hides the picker chips but not the global row: the
+      // directive is not one scenario among others.
+      expect(find.byKey(const Key('quick-scenario-default')), findsNothing);
+      expect(find.byKey(const Key('quick-global-preview')), findsOneWidget);
 
-    // Unset: the whole row goes away — the panel is as before.
-    gateway.global = null;
-    await controller.onGlobalDirectiveChanged();
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(find.byKey(const Key('quick-global-preview')), findsNothing);
-  });
+      // Unset: the whole row goes away — the panel is as before.
+      gateway.global = null;
+      await controller.onGlobalDirectiveChanged();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byKey(const Key('quick-global-preview')), findsNothing);
+    },
+  );
 
   testWidgets('the preview row jump lands on the scenario domain', (
     tester,
@@ -1177,7 +1182,9 @@ void main() {
       expect(
         tester
             .getTopLeft(
-              find.byKey(const Key('quick-history-scenario-item-builtin-default')),
+              find.byKey(
+                const Key('quick-history-scenario-item-builtin-default'),
+              ),
             )
             .dy,
         lessThan(
@@ -1250,10 +1257,7 @@ void main() {
     // 默认 rather than masquerading as the selection, and the selection
     // itself never moves.
     await controller.selectScenario('论文');
-    await controller.rerectifyHistory(
-      '旧话',
-      style: const DefaultRegisterPick(),
-    );
+    await controller.rerectifyHistory('旧话', style: const DefaultRegisterPick());
     await tester.pump(const Duration(milliseconds: 350));
     expect(gateway.commands.last, 'rectifyText:旧话@默认');
     expect(controller.oneTimeStyle, const DefaultRegisterPick());
@@ -1578,6 +1582,232 @@ void main() {
         formatHistoryStamp(at: DateTime(2025, 12, 31, 23, 59), now: now),
         '2025年12月31日 23:59',
       );
+    });
+  });
+
+  // -- ticket 20: orb drag, panel move, resize, persistence ---------------
+
+  group('geometry gestures', () {
+    /// Pumps the shell with a recording window and a scratch prefs dir
+    /// (the gestures persist synchronously — same sync-IO note as the
+    /// theme test above). One extra pump primes the stage host's
+    /// geometry cache before any gesture runs.
+    Future<SpeechController> pumpGeometry(
+      WidgetTester tester, {
+      required RecordingStageWindow window,
+      required Directory dir,
+    }) async {
+      final controller = SpeechController(
+        gateway: FakeGateway(),
+        scriptedPhrases: const [],
+        uiPrefsDirs: [dir.path],
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        SpokenRectifierApp(controller: controller, stageWindow: window),
+      );
+      await tester.pump();
+      return controller;
+    }
+
+    Directory scratch() {
+      final d = Directory.systemTemp.createTempSync('sr-geo-widget-');
+      addTearDown(() => d.deleteSync(recursive: true));
+      return d;
+    }
+
+    testWidgets('an idle drag moves the orb clamped and persists the anchor', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+
+      final center = tester.getCenter(find.byIcon(Icons.mic_none_rounded));
+      final g = await tester.startGesture(center);
+      await g.moveBy(const Offset(20, 10)); // arms the drag (8px slop)
+      await g.moveBy(const Offset(15, 5));
+      await g.up();
+      await tester.pump();
+
+      // Anchor (1048, 548) -> (1083, 563): the orb footprint follows,
+      // still orb-shaped.
+      expect(window.size, SrGeometry.orbFootprint);
+      expect(window.position, const Offset(1035, 515));
+      // 松手即写: the anchor landed in the file at gesture end.
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        contains('orb_position = [1083, 563]'),
+      );
+      expect(controller.orbAnchor, const Offset(1083, 563));
+      expect(controller.phase, BridgeSessionState.idle);
+    });
+
+    testWidgets('a drag into the work-area edge lands flush, not past it', (
+      tester,
+    ) async {
+      // Window near the bottom-right corner of the (0,0,1920,1080) area:
+      // anchor (1898, 1048) is already past the flush limit (1872, 1032).
+      final window = RecordingStageWindow(const Offset(1850, 1000));
+      final dir = scratch();
+      await pumpGeometry(tester, window: window, dir: dir);
+
+      final center = tester.getCenter(find.byIcon(Icons.mic_none_rounded));
+      final g = await tester.startGesture(center);
+      await g.moveBy(const Offset(200, 200));
+      await g.up();
+      await tester.pump();
+
+      // Flush: footprint exactly on the work-area corner.
+      expect(window.position, const Offset(1824, 984));
+      expect(window.bounds.last, Rect.fromLTRB(1824, 984, 1920, 1080));
+    });
+
+    testWidgets('a sub-threshold wiggle stays a click — the session starts', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+
+      final center = tester.getCenter(find.byIcon(Icons.mic_none_rounded));
+      final g = await tester.startGesture(center);
+      await g.moveBy(const Offset(4, 3)); // inside the 8px slop
+      await g.up();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(controller.phase, BridgeSessionState.recording);
+      // The first (and so far only) bounds call is the panel expand —
+      // no drag ever moved the orb window.
+      expect(window.bounds.single.size, SrGeometry.panelSize);
+      await windDown(tester, controller);
+    });
+
+    testWidgets('dragging the header moves the whole window, orb riding', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await pumpQuickOpen(tester, controller);
+
+      // Panel rect at the default anchor (1048, 548): LTRB
+      // (676, 36, 1096, 596). Drag the header row up-left by (30, -20).
+      final header = tester.getCenter(find.text('快捷设置'));
+      final g = await tester.startGesture(header);
+      await g.moveBy(const Offset(30, -20));
+      await g.up();
+      await tester.pump();
+
+      expect(window.bounds.last, Rect.fromLTRB(706, 16, 1126, 576));
+      // The new anchor persisted (球的新位置成为新锚点).
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        contains('orb_position = [1078, 528]'),
+      );
+      // The orb anchor button moved with the window and stayed socketed:
+      // closing collapses onto the same anchor.
+      controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(window.position, const Offset(1030, 480));
+      expect(window.size, SrGeometry.orbFootprint);
+    });
+
+    testWidgets('the corner handle grows the panel away from the orb', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await pumpQuickOpen(tester, controller);
+
+      // Default upLeft: the free corner is the panel's top-left. Drag
+      // it out by (60, 80) — the anchor corner (1096, 596) must not
+      // move. Height fit-caps at anchor.dy + 48 = 596 (70% of 1080 is
+      // looser), so 560 + 80 → 596; width 420 + 60 = 480 fits.
+      final corner = tester.getCenter(
+        find.byKey(const Key('panel-resize-corner')),
+      );
+      final g = await tester.startGesture(corner);
+      await g.moveBy(const Offset(-60, -80));
+      await g.up();
+      await tester.pump();
+
+      expect(window.bounds.last, Rect.fromLTRB(616, 0, 1096, 596));
+      expect(controller.panelFootprint, const Size(480, 596));
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        contains('panel_size = [480, 596]'),
+      );
+      // The shared footprint: the next open (after a close) keeps it.
+      controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+      controller.orbSecondary();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(window.bounds.last.size, const Size(480, 596));
+      await controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+    });
+
+    testWidgets('the resize floor holds: shrinking stops at 360x440', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await pumpQuickOpen(tester, controller);
+
+      // Drag the corner handle toward the orb by (100, 100): intent
+      // 320x460, the floor holds the width at 360 (height 460 passes).
+      final corner = tester.getCenter(
+        find.byKey(const Key('panel-resize-corner')),
+      );
+      final g = await tester.startGesture(corner);
+      await g.moveBy(const Offset(100, 100));
+      await g.up();
+      await tester.pump();
+
+      expect(window.bounds.last.size, const Size(360, 460));
+      expect(controller.panelFootprint, const Size(360, 460));
+      await controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+    });
+
+    testWidgets('the expand direction follows the anchor\'s quadrant', (
+      tester,
+    ) async {
+      // Each quadrant opens once: the window grows away from the ball
+      // (ticket checklist, widget-level) and the orb mirrors to the
+      // growth corner. Anchors sit flush inside the (0,0,1920,1080)
+      // area, as a clamped drag would leave them.
+      for (final (pos, expectRect, expectOrbAtOrigin) in [
+        // Bottom-right anchor (default): grows up-left, orb bottom-right.
+        (Offset(1824, 936), Rect.fromLTRB(1500, 472, 1920, 1032), false),
+        // Bottom-left: grows up-right.
+        (Offset(30, 936), Rect.fromLTRB(30, 472, 450, 1032), false),
+        // Top-left: grows down-right, orb mirrors to the top-left corner.
+        (Offset(30, 40), Rect.fromLTRB(30, 40, 450, 600), true),
+        // Top-right: grows down-left, orb mirrors up.
+        (Offset(1824, 40), Rect.fromLTRB(1500, 40, 1920, 600), true),
+      ]) {
+        final window = RecordingStageWindow(pos);
+        final dir = scratch();
+        final controller = await pumpGeometry(tester, window: window, dir: dir);
+        await pumpQuickOpen(tester, controller);
+
+        expect(window.bounds.last, expectRect, reason: 'anchor at $pos');
+        // The orb sockets into the corner the panel grew from: at the
+        // stack's origin only for the two top-corner anchors.
+        final orbTopLeft = tester.getTopLeft(find.byType(OrbButton));
+        expect(
+          orbTopLeft.dy,
+          expectOrbAtOrigin ? 0 : greaterThan(0),
+          reason: 'anchor at $pos',
+        );
+        await controller.closeQuick();
+        await tester.pump(const Duration(milliseconds: 350));
+      }
     });
   });
 }

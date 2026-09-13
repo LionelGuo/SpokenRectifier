@@ -4,13 +4,15 @@
 /// directory, not in the user-authored config layers (ADR-0004).
 ///
 /// Ticket 15 reads at startup (missing file = follow the system);
-/// ticket 16's quick-panel switcher does the writing. Later tickets add
-/// geometry keys (orb position, panel size) to the same file — the
+/// ticket 16's quick-panel switcher does the writing. Ticket 20 adds the
+/// geometry keys — `orb_position = [x, y]` (the anchor, logical
+/// coordinates) and `panel_size = [w, h]` — same file, same rules; the
 /// writer preserves every line it does not own.
 
 library;
 
 import 'dart:io';
+import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/material.dart' show ThemeMode;
 
@@ -125,10 +127,124 @@ String _themeValue(ThemeMode mode) => switch (mode) {
 /// comment-stripped lines); appending repairs a missing trailing newline
 /// so the key never glues onto the current last line, and a replaced
 /// file always ends with exactly one (later keys append cleanly).
-String _withThemeLine(String text, String line) {
+String _withThemeLine(String text, String line) =>
+    _withOneKey(text, _themeKeyStart, line);
+
+String _withTrailingNewline(String text) =>
+    text.isEmpty || text.endsWith('\n') ? text : '$text\n';
+
+// ---- geometry keys (ticket 20) -------------------------------------------
+
+/// Comment-stripped key starts for the geometry pair, the same rule the
+/// theme key uses. Strict tails keep prefix-sharing keys
+/// (`orb_position_note`) out.
+final _orbPositionKeyStart = RegExp(r'^orb_position\s*=');
+final _panelSizeKeyStart = RegExp(r'^panel_size\s*=');
+
+/// A pair value: `[-1920, 48]`, `[ 420 , 560.5 ]` — two numbers, ints or
+/// decimals, negatives included (multi-monitor coordinates left of the
+/// primary).
+final _pairTail = RegExp(
+  r'^\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]$',
+);
+
+/// The geometry keys as loaded: null = absent or broken (keep the
+/// in-memory default; a broken prefs file never blocks startup).
+typedef UiGeometry = ({Offset? orbPosition, Size? panelSize});
+
+/// Read both geometry keys from the first `spokenrectifier-ui.toml`
+/// among `dirs`. Tolerance matches the theme reader: missing/unreadable
+/// file or malformed values read as null. A non-positive panel size is
+/// broken, not small — null.
+UiGeometry loadUiGeometry(List<String> dirs) {
+  for (final dir in dirs) {
+    final file = File('$dir/$uiPrefsFile');
+    String text;
+    try {
+      if (!file.existsSync()) continue;
+      text = file.readAsStringSync();
+    } catch (_) {
+      continue; // unreadable: as good as absent
+    }
+    final pos = _parsePair(_orbPositionKeyStart, text);
+    final size = _parsePair(_panelSizeKeyStart, text);
+    return (
+      orbPosition: pos == null ? null : Offset(pos.$1, pos.$2),
+      panelSize: size == null || size.$1 <= 0 || size.$2 <= 0
+          ? null
+          : Size(size.$1, size.$2),
+    );
+  }
+  return (orbPosition: null, panelSize: null);
+}
+
+/// First occurrence of a pair key, as two doubles. A present-but-broken
+/// key is null (like a broken theme line), an absent key also null.
+(double, double)? _parsePair(RegExp keyStart, String text) {
+  for (var line in text.split('\n')) {
+    line = _stripLine(line);
+    if (!keyStart.hasMatch(line)) continue;
+    final tail = line.substring(line.indexOf('=') + 1).trim();
+    final match = _pairTail.firstMatch(tail);
+    if (match == null) return null;
+    return (double.parse(match.group(1)!), double.parse(match.group(2)!));
+  }
+  return null;
+}
+
+/// Persist the geometry keys. Null parameters leave their key untouched;
+/// the write lands in the file the reader resolves (never a shadowing
+/// copy), every other line survives verbatim. Throws when nothing is
+/// writable — same contract as the theme writer.
+void saveUiGeometry(List<String> dirs, {Offset? orbPosition, Size? panelSize}) {
+  final newLines = <(RegExp, String)>[];
+  if (orbPosition != null) {
+    newLines.add((
+      _orbPositionKeyStart,
+      'orb_position = [${_num(orbPosition.dx)}, ${_num(orbPosition.dy)}]',
+    ));
+  }
+  if (panelSize != null) {
+    newLines.add((
+      _panelSizeKeyStart,
+      'panel_size = [${_num(panelSize.width)}, ${_num(panelSize.height)}]',
+    ));
+  }
+  for (final dir in dirs) {
+    final file = File('$dir/$uiPrefsFile');
+    if (!file.existsSync()) continue;
+    var text = file.readAsStringSync();
+    for (final (key, line) in newLines) {
+      text = _withOneKey(text, key, line);
+    }
+    file.writeAsStringSync(text);
+    return;
+  }
+  for (final dir in dirs) {
+    try {
+      final fresh = '${newLines.map((e) => e.$2).join('\n')}\n';
+      File('$dir/$uiPrefsFile').writeAsStringSync(fresh);
+      return;
+    } on FileSystemException {
+      continue; // not writable: the next directory gets its chance
+    }
+  }
+  throw const FileSystemException(
+    'no writable directory for the ui prefs file',
+  );
+}
+
+/// Integral doubles write as ints (hand-editable); the rest keep their
+/// shortest exact round-trip form.
+String _num(double v) =>
+    v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+
+/// Swap one key into `text`, preserving every other line — the rule
+/// behind [_withThemeLine], generalized.
+String _withOneKey(String text, RegExp keyStart, String line) {
   final lines = text.split('\n');
   for (var i = 0; i < lines.length; i++) {
-    if (_themeKeyStart.hasMatch(_stripLine(lines[i]))) {
+    if (keyStart.hasMatch(_stripLine(lines[i]))) {
       lines[i] = line;
       return _withTrailingNewline(lines.join('\n'));
     }
@@ -136,6 +252,3 @@ String _withThemeLine(String text, String line) {
   final prefix = text.isEmpty || text.endsWith('\n') ? '' : '\n';
   return '$text$prefix$line\n';
 }
-
-String _withTrailingNewline(String text) =>
-    text.isEmpty || text.endsWith('\n') ? text : '$text\n';

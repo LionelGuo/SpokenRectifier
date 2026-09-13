@@ -273,7 +273,18 @@ abstract final class SrGeometry {
   static const orbMaskFadeEnd = 46.0;
 
   /// Session panel and quick panel share one footprint (同形同位互斥).
+  /// The design default; user-resized panels override it at runtime
+  /// (ticket 20), this stays the restore default.
   static const panelSize = Size(420.0, 560.0);
+
+  /// Floor for the user-resizable shared footprint (spec §3 拖拽与尺寸
+  /// 调节; yields only on degenerate screens where even this would not
+  /// fit — staying on screen wins).
+  static const panelMinSize = Size(360.0, 440.0);
+
+  /// Ceiling for the shared footprint as a per-axis fraction of the
+  /// current work area.
+  static const panelMaxWorkAreaFraction = 0.70;
 
   /// Margin between the window edge and the panel card — the third
   /// concentric ring value: the panel corner radius is
@@ -283,6 +294,17 @@ abstract final class SrGeometry {
   /// Distance from the window's bottom-right corner to the anchor center
   /// (orb footprint half). Panel anchor buttons sit at this offset.
   static const anchorInset = 48.0;
+
+  /// Pointer slop before a press resolves as a drag instead of a click
+  /// (logical px; spec §3 拖拽与尺寸调节 — inside it, the window never
+  /// moves and the press stays a tap).
+  static const dragThreshold = 8.0;
+
+  /// The resize hit strips' thickness on the panel's free edges, and
+  /// the free-corner square's side (its zone overrides the strips where
+  /// they meet).
+  static const resizeEdgeHit = 6.0;
+  static const resizeCornerHit = 16.0;
 }
 
 // ---------------------------------------------------------------------------

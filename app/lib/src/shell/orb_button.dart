@@ -14,6 +14,7 @@ library;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart' show kPrimaryButton;
 import 'package:flutter/material.dart';
 
 import '../../app_state.dart';
@@ -29,9 +30,24 @@ const _overshoot = 6.0;
 const _badgeSize = 12.0;
 
 class OrbButton extends StatefulWidget {
-  const OrbButton({super.key, required this.controller});
+  const OrbButton({
+    super.key,
+    required this.controller,
+    this.onDragStart,
+    this.onDragUpdate,
+    this.onDragEnd,
+  });
 
   final SpeechController controller;
+
+  /// Orb-drag intents (ticket 20), resolved by the raw-pointer tracker
+  /// below: the press crossed [SrGeometry.dragThreshold] while the orb
+  /// was free to move (idle, no panel). Deltas, not absolutes — the
+  /// stage host maps them onto the window. Null (pure-UI tests)
+  /// disables dragging; clicks are unaffected.
+  final void Function()? onDragStart;
+  final void Function(Offset delta)? onDragUpdate;
+  final void Function()? onDragEnd;
 
   @override
   State<OrbButton> createState() => _OrbButtonState();
@@ -41,7 +57,60 @@ class _OrbButtonState extends State<OrbButton> {
   bool _hover = false;
   bool _pressing = false;
 
+  /// The primary press under threshold resolution: where it went down,
+  /// the previous move, and whether it resolved into a drag.
+  Offset? _down;
+  Offset _last = Offset.zero;
+  bool _dragging = false;
+
   SpeechController get c => widget.controller;
+
+  bool get _draggable =>
+      widget.onDragUpdate != null && c.stage == StageKind.orb;
+
+  void _onPointerDown(PointerDownEvent e) {
+    if (e.buttons != kPrimaryButton) return;
+    _down = e.position;
+    _last = e.position;
+    _dragging = false;
+    setState(() => _pressing = true);
+  }
+
+  void _onPointerMove(PointerMoveEvent e) {
+    final down = _down;
+    if (down == null) return;
+    if (!_dragging) {
+      if ((e.position - down).distance <= SrGeometry.dragThreshold) return;
+      if (!_draggable) return;
+      _dragging = true;
+      widget.onDragStart?.call();
+    }
+    widget.onDragUpdate?.call(e.position - _last);
+    _last = e.position;
+  }
+
+  void _onPointerUp(PointerUpEvent e) {
+    final wasDragging = _dragging;
+    final wasPress = _down != null;
+    _down = null;
+    _dragging = false;
+    setState(() => _pressing = false);
+    if (wasDragging) {
+      widget.onDragEnd?.call();
+    } else if (wasPress && _OrbLook.of(c).clickable) {
+      // A release inside the slop: the click path — the same table the
+      // hotkey steps through.
+      c.orbPrimary();
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent e) {
+    final wasDragging = _dragging;
+    _down = null;
+    _dragging = false;
+    setState(() => _pressing = false);
+    if (wasDragging) widget.onDragEnd?.call();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,108 +129,116 @@ class _OrbButtonState extends State<OrbButton> {
             : SystemMouseCursors.basic,
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
+        child: Listener(
+          // Left clicks are threshold-resolved here (8px slop, not the
+          // arena's ~18px — the drag must arm before the arena would
+          // give up on the tap, and two tap deciders would double-fire
+          // in the band between). Only the right click still rides the
+          // arena below.
           behavior: HitTestBehavior.opaque,
-          onTapDown: (_) => setState(() => _pressing = true),
-          onTapUp: (_) => setState(() => _pressing = false),
-          onTapCancel: () => setState(() => _pressing = false),
-          onTap: look.clickable ? c.orbPrimary : null,
-          onSecondaryTapUp: (_) => c.orbSecondary(),
-          child: SizedBox(
-            width: SrGeometry.orbFootprint.width,
-            height: SrGeometry.orbFootprint.height,
-            child: AnimatedScale(
-              // Micro-feedback only; the core never breathes by scale.
-              // 1.04 keeps even the aura's outermost alpha (46px) inside
-              // the footprint (46 * 1.04 = 47.8 < 48).
-              scale: _pressing ? 0.96 : (_hover && look.clickable ? 1.04 : 1.0),
-              duration: SrMotion.fast,
-              curve: SrMotion.curveMicro,
-              child: AnimatedBuilder(
-                animation: c,
-                builder: (context, _) => Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    // Ambient shadow + recording glow, gradient-painted
-                    // with alpha reaching EXACTLY zero at
-                    // orbMaskFadeEnd from the ball center. No BoxShadow
-                    // blur and no mask layer: nothing here can ever be
-                    // cut by a square boundary (window rect or shader
-                    // saveLayer box) — see _OrbAura.
-                    Positioned.fill(
-                      child: CustomPaint(
-                        painter: _OrbAura(
-                          pal: pal,
-                          glow: look.glow,
-                          level: c.micLevel,
-                        ),
-                      ),
-                    ),
-                    Center(
-                      child: SizedBox(
-                        width: SrGeometry.orbBall,
-                        height: SrGeometry.orbBall,
-                        child: AnimatedContainer(
-                          duration: SrMotion.emphasize,
-                          curve: SrMotion.curveEmphasized,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: look.fill(pal),
-                            border: Border.all(color: look.border(pal)),
-                          ),
-                          child: Center(child: look.glyph(pal)),
-                        ),
-                      ),
-                    ),
-                    if (look.ring)
-                      Positioned(
-                        left:
-                            (SrGeometry.orbFootprint.width -
-                                SrGeometry.orbBall -
-                                2 * _overshoot) /
-                            2,
-                        top:
-                            (SrGeometry.orbFootprint.height -
-                                SrGeometry.orbBall -
-                                2 * _overshoot) /
-                            2,
-                        width: SrGeometry.orbBall + 2 * _overshoot,
-                        height: SrGeometry.orbBall + 2 * _overshoot,
+          onPointerDown: _onPointerDown,
+          onPointerMove: _onPointerMove,
+          onPointerUp: _onPointerUp,
+          onPointerCancel: _onPointerCancel,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onSecondaryTapUp: (_) => c.orbSecondary(),
+            child: SizedBox(
+              width: SrGeometry.orbFootprint.width,
+              height: SrGeometry.orbFootprint.height,
+              child: AnimatedScale(
+                // Micro-feedback only; the core never breathes by scale.
+                // 1.04 keeps even the aura's outermost alpha (46px) inside
+                // the footprint (46 * 1.04 = 47.8 < 48).
+                scale: _pressing
+                    ? 0.96
+                    : (_hover && look.clickable ? 1.04 : 1.0),
+                duration: SrMotion.fast,
+                curve: SrMotion.curveMicro,
+                child: AnimatedBuilder(
+                  animation: c,
+                  builder: (context, _) => Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Ambient shadow + recording glow, gradient-painted
+                      // with alpha reaching EXACTLY zero at
+                      // orbMaskFadeEnd from the ball center. No BoxShadow
+                      // blur and no mask layer: nothing here can ever be
+                      // cut by a square boundary (window rect or shader
+                      // saveLayer box) — see _OrbAura.
+                      Positioned.fill(
                         child: CustomPaint(
-                          painter: _LevelRing(pal: pal, level: c.micLevel),
-                        ),
-                      ),
-                    // A pending error while the orb rests: a live-color
-                    // pin on the ball's top-right edge saying only
-                    // "something needs attention"; the tooltip carries
-                    // the message (there is no panel to open — the
-                    // engine never assembled).
-                    if (c.orbErrorPending)
-                      Positioned(
-                        key: const Key('orb-error-badge'),
-                        left:
-                            SrGeometry.orbFootprint.center(Offset.zero).dx +
-                            (SrGeometry.orbBall / 2) *
-                                math.sin(math.pi / 4) -
-                            _badgeSize / 2,
-                        top:
-                            SrGeometry.orbFootprint.center(Offset.zero).dy -
-                            (SrGeometry.orbBall / 2) *
-                                math.sin(math.pi / 4) -
-                            _badgeSize / 2,
-                        width: _badgeSize,
-                        height: _badgeSize,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: pal.live,
-                            // A surface-colored rim separates the pin
-                            // from both the ball and the backdrop.
-                            border: Border.all(color: pal.surface, width: 3),
+                          painter: _OrbAura(
+                            pal: pal,
+                            glow: look.glow,
+                            level: c.micLevel,
                           ),
                         ),
                       ),
-                  ],
+                      Center(
+                        child: SizedBox(
+                          width: SrGeometry.orbBall,
+                          height: SrGeometry.orbBall,
+                          child: AnimatedContainer(
+                            duration: SrMotion.emphasize,
+                            curve: SrMotion.curveEmphasized,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: look.fill(pal),
+                              border: Border.all(color: look.border(pal)),
+                            ),
+                            child: Center(child: look.glyph(pal)),
+                          ),
+                        ),
+                      ),
+                      if (look.ring)
+                        Positioned(
+                          left:
+                              (SrGeometry.orbFootprint.width -
+                                  SrGeometry.orbBall -
+                                  2 * _overshoot) /
+                              2,
+                          top:
+                              (SrGeometry.orbFootprint.height -
+                                  SrGeometry.orbBall -
+                                  2 * _overshoot) /
+                              2,
+                          width: SrGeometry.orbBall + 2 * _overshoot,
+                          height: SrGeometry.orbBall + 2 * _overshoot,
+                          child: CustomPaint(
+                            painter: _LevelRing(pal: pal, level: c.micLevel),
+                          ),
+                        ),
+                      // A pending error while the orb rests: a live-color
+                      // pin on the ball's top-right edge saying only
+                      // "something needs attention"; the tooltip carries
+                      // the message (there is no panel to open — the
+                      // engine never assembled).
+                      if (c.orbErrorPending)
+                        Positioned(
+                          key: const Key('orb-error-badge'),
+                          left:
+                              SrGeometry.orbFootprint.center(Offset.zero).dx +
+                              (SrGeometry.orbBall / 2) * math.sin(math.pi / 4) -
+                              _badgeSize / 2,
+                          top:
+                              SrGeometry.orbFootprint.center(Offset.zero).dy -
+                              (SrGeometry.orbBall / 2) * math.sin(math.pi / 4) -
+                              _badgeSize / 2,
+                          width: _badgeSize,
+                          height: _badgeSize,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: pal.live,
+                              // A surface-colored rim separates the pin
+                              // from both the ball and the backdrop.
+                              border: Border.all(color: pal.surface, width: 3),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),

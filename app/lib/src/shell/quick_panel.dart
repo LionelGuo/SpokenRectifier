@@ -21,7 +21,9 @@
 
 library;
 
-import 'package:flutter/material.dart';
+// GrowthDirection hidden: the framework exports its own (a sliver
+// token); this panel's is the orb-geometry one via window_stage.
+import 'package:flutter/material.dart' hide GrowthDirection;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../app_state.dart';
@@ -31,6 +33,7 @@ import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
 import '../settings/settings_domain.dart';
 import 'history_retrieval.dart'
     show HistoryRerectify, showScenarioRerectifyMenu;
+import 'panel_gestures.dart';
 import 'window_stage.dart';
 
 class QuickPanel extends StatefulWidget {
@@ -39,6 +42,8 @@ class QuickPanel extends StatefulWidget {
     required this.controller,
     required this.exiting,
     this.onOpenSettings,
+    required this.dir,
+    this.grip,
   });
 
   final SpeechController controller;
@@ -48,6 +53,14 @@ class QuickPanel extends StatefulWidget {
   /// with the domain to land on. Null in tests that only exercise the
   /// panel's own behavior.
   final void Function(SettingsDomain domain)? onOpenSettings;
+
+  /// Which corner the orb (✕) anchors: the header keeps the ball's
+  /// equator-level reserve on that side, and the scroll tail's anchor
+  /// clearance + fade exist only while the anchor is at the bottom.
+  final GrowthDirection dir;
+
+  /// The header-row move grip (面板上沿拖动=整体移动); null in tests.
+  final PanelGrip? grip;
 
   @override
   State<QuickPanel> createState() => _QuickPanelState();
@@ -67,35 +80,38 @@ class _QuickPanelState extends State<QuickPanel> {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
+    // The header row doubles as the move grip (面板上沿拖动): wrapped
+    // when a grip is wired (production), bare in tests.
+    final Widget header = Padding(
+      // Corner-band row: aligns to the concentric content capsule
+      // (SrSpace.cornerInset). Vertical 20 puts the 16px title's
+      // visual top (~24) on the capsule's D=16 arc.
+      padding: const EdgeInsets.fromLTRB(
+        SrSpace.cornerInset,
+        20,
+        SrSpace.cornerInset,
+        12,
+      ),
+      child: Row(
+        children: [
+          Text('快捷设置', style: SrType.title.copyWith(color: pal.textPrimary)),
+          const SizedBox(width: SrSpace.sm),
+          Text('Esc 关闭', style: SrType.micro.copyWith(color: pal.textTertiary)),
+          // Down-growth anchors the orb (✕) at this row's end: the
+          // equator-level reserve the scroll tail keeps for the
+          // ball, moved up to the edge row that now hosts it.
+          if (!widget.dir.growUp) const SizedBox(width: SrGeometry.anchorInset),
+        ],
+      ),
+    );
+    final grip = widget.grip;
     return PanelBody(
       exiting: widget.exiting,
+      dir: widget.dir,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            // Corner-band row: aligns to the concentric content capsule
-            // (SrSpace.cornerInset). Vertical 20 puts the 16px title's
-            // visual top (~24) on the capsule's D=16 arc.
-            padding: const EdgeInsets.fromLTRB(
-              SrSpace.cornerInset,
-              20,
-              SrSpace.cornerInset,
-              12,
-            ),
-            child: Row(
-              children: [
-                Text(
-                  '快捷设置',
-                  style: SrType.title.copyWith(color: pal.textPrimary),
-                ),
-                const SizedBox(width: SrSpace.sm),
-                Text(
-                  'Esc 关闭',
-                  style: SrType.micro.copyWith(color: pal.textTertiary),
-                ),
-              ],
-            ),
-          ),
+          grip == null ? header : PanelGripBar(grip: grip, child: header),
           Divider(height: 1, thickness: 1, color: pal.hairline),
           Expanded(
             // Bottom corners clip to the card arc: scrolling content can
@@ -257,8 +273,12 @@ class _QuickPanelState extends State<QuickPanel> {
                           domain: SettingsDomain.scenarios,
                           onOpen: _openSettings,
                         ),
-                        // Anchor zone clearance.
-                        const SizedBox(height: SrGeometry.anchorInset * 2),
+                        // Anchor zone clearance — only while the anchor
+                        // sits at the bottom edge (up-growth); a
+                        // top-anchored orb never overlaps the scroll
+                        // region, so the tail has no obligation.
+                        if (widget.dir.growUp)
+                          const SizedBox(height: SrGeometry.anchorInset * 2),
                       ],
                     ),
                   ),
@@ -269,29 +289,32 @@ class _QuickPanelState extends State<QuickPanel> {
                   // button; over the empty surface below short content it
                   // paints surface-on-surface and is invisible. The orb
                   // sits above (stage stack), so the ✕ stays crisp.
-                  Positioned(
-                    key: const Key('quick-bottom-fade'),
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: SrGeometry.anchorInset * 2,
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [
-                              pal.surface,
-                              pal.surface,
-                              pal.surface.withValues(alpha: 0),
-                            ],
-                            stops: const [0.0, 0.25, 1.0],
+                  // Up-growth only — a top-anchored orb never sees
+                  // scrolling content pass under it.
+                  if (widget.dir.growUp)
+                    Positioned(
+                      key: const Key('quick-bottom-fade'),
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height: SrGeometry.anchorInset * 2,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [
+                                pal.surface,
+                                pal.surface,
+                                pal.surface.withValues(alpha: 0),
+                              ],
+                              stops: const [0.0, 0.25, 1.0],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),

@@ -13,11 +13,12 @@ library;
 
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 
-import 'src/design/tokens.dart' show SrMotion;
+import 'src/design/tokens.dart' show SrGeometry, SrMotion;
 import 'src/rust/api.dart';
 import 'src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;
@@ -157,6 +158,18 @@ class SpeechController extends ChangeNotifier {
   /// Whether the quick panel (同形同位互斥) is open over the idle orb.
   /// Only ever true while idle: a session start force-closes it.
   bool quickOpen = false;
+
+  /// The shared footprint's size intent (ticket 20): what the panels try
+  /// to open at. Every open clamps it to what the current anchor can
+  /// host (window_geometry); the resize handles update it and persist it
+  /// to ui.toml. The design token stays the restore default.
+  Size panelFootprint = SrGeometry.panelSize;
+
+  /// Last known anchor — the orb's ball center in logical screen
+  /// coordinates (ticket 20). Updated by every geometry gesture, seeded
+  /// at startup when a restorable `orb_position` exists; null until
+  /// either happens (saves then write only the panel key).
+  Offset? orbAnchor;
 
   /// Whether the floating orb is visible at all.
   bool orbVisible = true;
@@ -676,6 +689,51 @@ class SpeechController extends ChangeNotifier {
     }
   }
 
+  // ---- geometry persistence (ticket 20) ----------------------------------
+
+  /// Trailing ui.toml write for in-flight gestures: a drag killed
+  /// mid-flight loses at most one window (随拖动实时持久化).
+  Timer? _geometrySave;
+
+  /// A live gesture update (pointer still down): remember the geometry
+  /// and schedule the debounced save. No notify — nothing paints from
+  /// these values; the window moves through the OS, not the tree.
+  void noteGeometryLive({Offset? anchor, Size? panel}) {
+    if (anchor != null) orbAnchor = anchor;
+    if (panel != null) panelFootprint = panel;
+    _geometrySave?.cancel();
+    _geometrySave = Timer(const Duration(milliseconds: 300), _saveGeometry);
+  }
+
+  /// Gesture end: persist at once (松手即写).
+  void noteGeometryDone({Offset? anchor, Size? panel}) {
+    if (anchor != null) orbAnchor = anchor;
+    if (panel != null) panelFootprint = panel;
+    _geometrySave?.cancel();
+    _saveGeometry();
+  }
+
+  /// Teardown backstop: a live gesture killed inside the debounce
+  /// window still persists its last known geometry.
+  void flushGeometry() {
+    final pending = _geometrySave?.isActive ?? false;
+    _geometrySave?.cancel();
+    if (pending) _saveGeometry();
+  }
+
+  void _saveGeometry() {
+    try {
+      saveUiGeometry(
+        uiPrefsDirs,
+        orbPosition: orbAnchor,
+        panelSize: panelFootprint,
+      );
+    } catch (e) {
+      lastError = '界面偏好保存失败:$e';
+      notifyListeners();
+    }
+  }
+
   /// Open the shared config file in the system editor — the tray's
   /// settings entry. A first run creates a commented stub to open; a
   /// failed spawn (nothing to open with, unwritable stub location)
@@ -852,6 +910,7 @@ class SpeechController extends ChangeNotifier {
     _stopMicBreath();
     _flashTimer?.cancel();
     _previewPushDebounce?.cancel();
+    _geometrySave?.cancel();
     _subscription?.cancel();
     super.dispose();
   }

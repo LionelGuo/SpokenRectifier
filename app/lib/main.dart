@@ -44,6 +44,7 @@ import 'src/settings/settings_window.dart';
 import 'src/settings/system_store.dart';
 import 'src/settings/terms_store.dart';
 import 'src/shell/window_stage.dart' show StageWindow, WindowManagerStageWindow;
+import 'src/shell/window_geometry.dart' show anchorRestorable, orbFootprintAt;
 import 'ui_prefs.dart';
 
 const _toggleOrbKey = 'toggle-orb';
@@ -88,11 +89,28 @@ Future<void> main(List<String> args) async {
     backgroundColor: Colors.transparent,
   );
 
+  // Ticket 20 restore, decided once: a persisted orb_position comes back
+  // only if the WHOLE orb footprint sits inside some current work area
+  // (a display-topology change discards it — 回退默认右下,不夹紧复活).
+  // panel_size rides as intent only; every open clamps it to what the
+  // anchor can host.
+  final geo = loadUiGeometry(uiPrefsSearchDirs());
+  final workAreas = await const WindowManagerStageWindow().workAreas();
+  final savedAnchor = geo.orbPosition;
+  final anchorRestored =
+      savedAnchor != null && anchorRestorable(savedAnchor, workAreas);
+
   await windowManager.waitUntilReadyToShow(options, () async {
-    await windowManager.setAlignment(Alignment.bottomRight);
-    // Pull the orb 24px inside the work area so it does not hug edges.
-    final pos = await windowManager.getPosition();
-    await windowManager.setPosition(pos.translate(-24, -24));
+    if (anchorRestored) {
+      // Back where it was parked: one atomic bounds call, same shape as
+      // every later choreography jump.
+      await windowManager.setBounds(orbFootprintAt(savedAnchor));
+    } else {
+      await windowManager.setAlignment(Alignment.bottomRight);
+      // Pull the orb 24px inside the work area so it does not hug edges.
+      final pos = await windowManager.getPosition();
+      await windowManager.setPosition(pos.translate(-24, -24));
+    }
     await windowManager.show();
   });
 
@@ -125,6 +143,12 @@ Future<void> main(List<String> args) async {
   if (startupError != null) {
     controller.reportStartupError(startupError);
   }
+  // The geometry restore decided above: seed what the gestures persist.
+  // A discarded position leaves the anchor unknown (the first drag or
+  // header move establishes it); a size intent always seeds, clamped
+  // per-open.
+  if (anchorRestored) controller.orbAnchor = savedAnchor;
+  if (geo.panelSize != null) controller.panelFootprint = geo.panelSize!;
   // Paint the scenario pickers from the library file (empty library =
   // pickers hidden; selection always starts on the default register).
   await controller.loadScenarios();
@@ -387,6 +411,9 @@ class _ShellState extends State<_Shell> with TrayListener {
       case _clearHistoryKey:
         await controller.clearHistory();
       case _exitKey:
+        // A live gesture's trailing save dies with the timer at exit;
+        // flush what it was about to write first.
+        controller.flushGeometry();
         // close() drives the canonical WM_CLOSE -> DestroyWindow chain
         // inside the still-running message pump; destroy() only posts
         // WM_QUIT, leaving the window and the Flutter engine to be torn
