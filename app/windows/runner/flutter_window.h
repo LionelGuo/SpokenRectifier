@@ -30,8 +30,8 @@ class FlutterWindow : public Win32Window {
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 
-  // ADR 0017: receives the card-slot hit region ("setHitRect", physical
-  // client pixels, or no arguments for whole-window hit testing) while
+  // ADR 0017: receives the card-slot window region ("setRegion",
+  // physical window pixels, or no arguments for the whole window) while
   // a panel stage holds the window at the panel growth ceiling.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       hit_channel_;

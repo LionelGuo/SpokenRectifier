@@ -45,12 +45,6 @@ class Win32Window {
   // Inserts |content| into the window tree.
   void SetChildContent(HWND content);
 
-  // ADR 0017: while a panel stage holds the window at the panel growth
-  // ceiling, clicks outside the card slot must fall through to the
-  // desktop. Sets the hit region in PHYSICAL client pixels; |full| =
-  // true restores whole-window hit testing (the orb stage).
-  static void SetChildHitRegion(const RECT& rect, bool full);
-
   // Returns the backing Window handle to enable clients to set icon and other
   // window properties. Returns nullptr if the window has been destroyed.
   HWND GetHandle();

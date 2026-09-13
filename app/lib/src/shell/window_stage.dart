@@ -55,10 +55,12 @@ abstract class StageWindow {
   Future<void> setBounds(Rect bounds);
 
   /// While a panel stage holds the window at the panel growth ceiling
-  /// (ADR 0017), the card slot's rect in CLIENT coordinates — clicks
-  /// outside it pass through to whatever is below. Null restores
-  /// whole-window hit testing (the orb stage).
-  Future<void> setPanelHitRect(Rect? clientRect);
+  /// (ADR 0017), the card slot's rect in WINDOW coordinates — the OS
+  /// window region narrows to it, so the transparent margin neither
+  /// paints nor hit-tests (clicks fall through to the desktop). Null
+  /// restores the whole window (the orb stage, and a resize gesture
+  /// whose growing card must paint beyond the stale slot).
+  Future<void> setCardRegion(Rect? windowRect);
 
   /// Every display's work area, logical coordinates — the drag/resize
   /// clamps and the expand-direction chooser consume these (ticket 20).
@@ -92,19 +94,19 @@ class WindowManagerStageWindow implements StageWindow {
   Future<void> setBounds(Rect bounds) => windowManager.setBounds(bounds);
 
   @override
-  Future<void> setPanelHitRect(Rect? clientRect) {
-    // Native hit-testing compares physical pixels; this seam speaks
+  Future<void> setCardRegion(Rect? windowRect) {
+    // The native side works in physical pixels; this seam speaks
     // logical, like every other method here.
     const channel = MethodChannel('spokenrectifier/window');
-    if (clientRect == null) {
-      return channel.invokeMethod('setHitRect');
+    if (windowRect == null) {
+      return channel.invokeMethod('setRegion');
     }
     final dpr = windowManager.getDevicePixelRatio();
-    return channel.invokeMethod('setHitRect', {
-      'left': (clientRect.left * dpr).round(),
-      'top': (clientRect.top * dpr).round(),
-      'right': (clientRect.right * dpr).round(),
-      'bottom': (clientRect.bottom * dpr).round(),
+    return channel.invokeMethod('setRegion', {
+      'left': (windowRect.left * dpr).round(),
+      'top': (windowRect.top * dpr).round(),
+      'right': (windowRect.right * dpr).round(),
+      'bottom': (windowRect.bottom * dpr).round(),
     });
   }
 
@@ -320,7 +322,7 @@ class _StageHostState extends State<StageHost> {
   /// the residual one-frame flash in a mid-gesture size jump: the stale
   /// child surface composites top-left-aligned for a frame when the
   /// engine loses the present race). The card renders in the slot; the
-  /// transparent margin passes clicks through ([setPanelHitRect]).
+  /// transparent margin neither paints nor hit-tests ([setCardRegion]).
   Future<void> _expandBounds(StageWindow window) async {
     _areas = await window.workAreas(); // refresh for the gestures to come
     final anchor = anchorOf(_rect, _dir);
@@ -331,7 +333,7 @@ class _StageHostState extends State<StageHost> {
     await _applyBounds(
       panelRectFor(anchor, maxPanelSize(anchor, plan.dir, area), plan.dir),
     );
-    unawaited(_pushPanelHitRect());
+    unawaited(_pushPanelRegion());
   }
 
   /// The work area holding [point]; the first (primary) when none does —
@@ -367,9 +369,9 @@ class _StageHostState extends State<StageHost> {
       await _applyBounds(
         panelRectFor(anchorOf(_rect, _dir), SrGeometry.orbFootprint, _dir),
       );
-      // The orb window hit-tests whole again (ADR 0017).
+      // The orb window is whole again (ADR 0017).
       _panelSize = null;
-      unawaited(_pushPanelHitRect());
+      unawaited(_pushCardRegion(null));
     }
     if (!mounted || seq != _seq) return;
     // 3. Back to the standalone ball.
@@ -587,8 +589,7 @@ class _StageHostState extends State<StageHost> {
   // when the engine loses the present race). The window is ALREADY at
   // the growth ceiling (the expand jumped there, ADR 0017): the gesture
   // grows the card by layout in the slot and touches nothing but
-  // Flutter state until the release catches the hit-through region and
-  // the persisted footprint up.
+  // Flutter state and the window region until the release.
 
   void _resizeStart(Offset pointer, Offset growSign) {
     if (!_rectKnown) return;
@@ -601,6 +602,10 @@ class _StageHostState extends State<StageHost> {
     _latchPointerSource(pointer);
     _grabArmed = true;
     _grabLive = true; // press-to-resize: every press is a gesture
+    // Unclip the window region: the card grows by layout beyond the
+    // stale slot and must paint there (the gesture holds the pointer
+    // capture, so the transiently hit-testable margin costs nothing).
+    unawaited(_pushCardRegion(null));
   }
 
   void _resizeGrow(Offset pointer) {
@@ -628,30 +633,33 @@ class _StageHostState extends State<StageHost> {
     if (!_grabArmed) return;
     _grabArmed = false;
     _grabLive = false;
-    // The card kept growing inside the frozen window; only the
-    // hit-through region and the persisted footprint catch up.
-    unawaited(_pushPanelHitRect());
+    // The card kept growing inside the frozen window; only the window
+    // region and the persisted footprint catch up.
+    unawaited(_pushPanelRegion());
     c.noteGeometryDone(panel: _resizeSize);
     unawaited(_primeGeometry());
   }
 
-  /// The card slot in CLIENT coordinates — the hit-through region the
-  /// native side enforces (ADR 0017). Pushed when the slot moves within
-  /// a still-open window: expand and resize-settle. Window MOVES don't
-  /// change client coordinates, and mid-growth pushes are pointless
-  /// while the gesture holds the pointer capture.
-  Future<void> _pushPanelHitRect() async {
+  /// The card slot's rect in WINDOW coordinates — the OS window region
+  /// (ADR 0017). Pushed when the slot moves within a still-open window
+  /// (expand, resize settle) and cleared when the window must be whole
+  /// (press — the growing card paints beyond the stale slot — and the
+  /// orb stage). Window MOVES don't change window coordinates; mid-
+  /// growth pushes are pointless while the gesture holds the pointer
+  /// capture.
+  Future<void> _pushCardRegion(Rect? region) async {
     final window = widget.stageWindow;
     if (window == null) return;
+    await window.setCardRegion(region);
+  }
+
+  Future<void> _pushPanelRegion() => _pushCardRegion(_panelRegion());
+
+  Rect? _panelRegion() {
     final size = _panelSize;
-    if (size == null) {
-      await window.setPanelHitRect(null);
-      return;
-    }
+    if (size == null) return null;
     final anchor = anchorOf(_rect, _dir);
-    await window.setPanelHitRect(
-      panelRectFor(anchor, size, _dir).shift(-_rect.topLeft),
-    );
+    return panelRectFor(anchor, size, _dir).shift(-_rect.topLeft);
   }
 
   /// The free-edge strips and the free-corner square, mirrored to the

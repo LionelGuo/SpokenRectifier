@@ -31,23 +31,26 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   // ADR 0017: while a panel stage is open the window sits at the panel
-  // growth ceiling; Dart pushes the card slot rect (physical client
-  // pixels) so native hit-testing passes clicks outside it to the
-  // desktop. An argument-less call restores whole-window hit testing.
+  // growth ceiling; Dart narrows the OS window REGION to the card slot
+  // (physical window pixels -- client == window on this popup). Outside
+  // the region the window neither paints nor hit-tests, so clicks fall
+  // through to the desktop across processes (WM_NCHITTEST +
+  // HTTRANSPARENT only forwards within one thread -- probed, does not
+  // pass). A region change triggers no WM_SIZE, so the engine's EGL
+  // surface stays put. No arguments restores the whole window.
   hit_channel_ = std::make_unique<flutter::MethodChannel<
       flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), "spokenrectifier/window",
       &flutter::StandardMethodCodec::GetInstance());
   hit_channel_->SetMethodCallHandler(
-      [](const flutter::MethodCall<flutter::EncodableValue>& call,
-         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
-             result) {
-        if (call.method_name() != "setHitRect") {
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() != "setRegion") {
           result->NotImplemented();
           return;
         }
-        bool full = true;
-        RECT rect{};
+        HRGN region = nullptr;  // default: the whole window
         const auto* args =
             std::get_if<flutter::EncodableMap>(call.arguments());
         if (args != nullptr) {
@@ -57,15 +60,17 @@ bool FlutterWindow::OnCreate() {
           const auto bottom = args->find(flutter::EncodableValue("bottom"));
           if (left != args->end() && top != args->end() &&
               right != args->end() && bottom != args->end()) {
-            rect.left = static_cast<LONG>(std::get<int32_t>(left->second));
-            rect.top = static_cast<LONG>(std::get<int32_t>(top->second));
-            rect.right = static_cast<LONG>(std::get<int32_t>(right->second));
-            rect.bottom =
-                static_cast<LONG>(std::get<int32_t>(bottom->second));
-            full = false;
+            region = CreateRectRgn(
+                static_cast<int>(std::get<int32_t>(left->second)),
+                static_cast<int>(std::get<int32_t>(top->second)),
+                static_cast<int>(std::get<int32_t>(right->second)),
+                static_cast<int>(std::get<int32_t>(bottom->second)));
           }
         }
-        Win32Window::SetChildHitRegion(rect, full);
+        // On success the system owns the region; on failure we do.
+        if (SetWindowRgn(GetHandle(), region, TRUE) == 0 && region != nullptr) {
+          DeleteObject(region);
+        }
         result->Success();
       });
 

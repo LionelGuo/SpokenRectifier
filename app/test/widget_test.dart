@@ -81,9 +81,10 @@ class RecordingStageWindow implements stage.StageWindow {
   /// How many times the window was asked to take the foreground.
   int focuses = 0;
 
-  /// The hit-through regions pushed while panels open (ADR 0017 ceiling
-  /// window; null = whole-window hit testing, the orb stage).
-  final hitRects = <Rect?>[];
+  /// The window regions pushed while panels open (ADR 0017 ceiling
+  /// window; the region hugs the card slot, null = the whole window --
+  /// the orb stage and a live resize whose card must paint unclipped).
+  final regions = <Rect?>[];
 
   @override
   Future<Offset> getPosition() async => position;
@@ -102,8 +103,7 @@ class RecordingStageWindow implements stage.StageWindow {
   }
 
   @override
-  Future<void> setPanelHitRect(Rect? clientRect) async =>
-      hitRects.add(clientRect);
+  Future<void> setCardRegion(Rect? windowRect) async => regions.add(windowRect);
 
   @override
   Future<List<Rect>> workAreas() async => screens;
@@ -200,9 +200,7 @@ void main() {
     // pinning the bottom-right corner (upLeft growth, 96 -> 1096x596 —
     // the anchor's span caps tighter than 70%; the card renders in the
     // slot at 420x560, ADR 0017).
-    expect(window.bounds, [
-      const Rect.fromLTRB(0, 0, 1096, 596),
-    ]);
+    expect(window.bounds, [const Rect.fromLTRB(0, 0, 1096, 596)]);
 
     // The session window shows the live phase; the anchor is a stop orb.
     expect(find.text('聆听中'), findsOneWidget);
@@ -836,13 +834,35 @@ void main() {
     expect(gateway.commands, contains('historyClear'));
   });
 
-  testWidgets('a hidden orb renders nothing at rest', (tester) async {
+  testWidgets('a hidden orb renders nothing at rest, and persists', (
+    tester,
+  ) async {
+    // Sync IO: async dart:io futures never complete inside the widget-test
+    // zone on this host (WSL quirk, probed and confirmed).
+    final dir = Directory.systemTemp.createTempSync('sr-ui-prefs-widget-');
+    addTearDown(() => dir.deleteSync(recursive: true));
     final gateway = FakeGateway();
-    final controller = await pumpController(tester, gateway);
+    final controller = SpeechController(
+      gateway: gateway,
+      scriptedPhrases: const [],
+      themeMode: ThemeMode.dark,
+      uiPrefsDirs: [dir.path],
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      SpokenRectifierApp(controller: controller, stageWindow: null),
+    );
 
-    controller.setOrbVisible(false);
+    await controller.setOrbVisible(false);
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.byIcon(Icons.mic_none_rounded), findsNothing);
+    // The toggle persisted at once (the read/write loop).
+    expect(
+      File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+      'orb_visible = false\n',
+    );
+    // A restart reads the same file back.
+    expect(loadUiOrbVisible([dir.path]), isFalse);
   });
 
   testWidgets(
@@ -943,11 +963,12 @@ void main() {
     await tester.tap(find.byKey(const Key('quick-open-settings:general')));
     await tester.pump();
 
-    // 全面配置 lands on the first domain (the settings window's default).
+    // 打开设置 lands on 通用, the sidebar's first domain — the same
+    // target unknown domain names fall back to.
     expect(opened, [
       SettingsDomain.scenarios,
       SettingsDomain.history,
-      SettingsDomain.scenarios,
+      SettingsDomain.general,
     ]);
     // Opening settings leaves the quick panel open (its own window).
     expect(controller.stage, StageKind.quick);
@@ -1467,7 +1488,7 @@ void main() {
     // (ADR 0017); the CARD keeps its footprint — the pushed hit rect.
     expect(window.bounds, hasLength(1));
     expect(window.bounds.last, const Rect.fromLTRB(0, 0, 1096, 596));
-    expect(window.hitRects.last, const Rect.fromLTRB(676, 36, 1096, 596));
+    expect(window.regions.last, const Rect.fromLTRB(676, 36, 1096, 596));
     await windDown(tester, controller);
   });
 
@@ -1832,7 +1853,7 @@ void main() {
       // the controller and the pushed hit-through region.
       expect(window.bounds, hasLength(1));
       expect(controller.panelFootprint, const Size(480, 596));
-      expect(window.hitRects.last, const Rect.fromLTRB(616, 0, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(616, 0, 1096, 596));
       expect(
         File('${dir.path}/$uiPrefsFile').readAsStringSync(),
         contains('panel_size = [480, 596]'),
@@ -1843,7 +1864,7 @@ void main() {
       controller.orbSecondary();
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pump(const Duration(milliseconds: 350));
-      expect(window.hitRects.last, const Rect.fromLTRB(616, 0, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(616, 0, 1096, 596));
       await controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 350));
     });
@@ -1868,7 +1889,7 @@ void main() {
 
       expect(window.bounds, hasLength(1)); // zero HWND churn (ADR 0017)
       expect(controller.panelFootprint, const Size(360, 460));
-      expect(window.hitRects.last, const Rect.fromLTRB(736, 136, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(736, 136, 1096, 596));
       await controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 350));
     });
@@ -1909,11 +1930,11 @@ void main() {
         // ...the card itself took the growth inside the ceiling window.
         expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 596));
         // The hit-through region caught up to the final slot.
-        expect(window.hitRects.last, Rect.fromLTRB(586, 0, 1096, 596));
+        expect(window.regions.last, Rect.fromLTRB(586, 0, 1096, 596));
         await controller.closeQuick();
         await tester.pump(const Duration(milliseconds: 350));
         // Back to the orb: whole-window hit testing again.
-        expect(window.hitRects.last, isNull);
+        expect(window.regions.last, isNull);
       },
     );
 
