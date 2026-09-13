@@ -40,13 +40,12 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
   Future<void> rectifyText(
     String rawTranscript, {
     required rust.BridgeSessionStyle style,
-  }) =>
-      rust.execute(
-        command: rust.BridgeCommand.rectifyText(
-          rawTranscript: rawTranscript,
-          style: style,
-        ),
-      );
+  }) => rust.execute(
+    command: rust.BridgeCommand.rectifyText(
+      rawTranscript: rawTranscript,
+      style: style,
+    ),
+  );
 
   @override
   Future<List<rust.BridgeScenario>> scenarios() => rust.scenarios();

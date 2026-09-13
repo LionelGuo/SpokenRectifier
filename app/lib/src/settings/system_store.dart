@@ -8,8 +8,14 @@
 
 library;
 
-import '../rust/api.dart' as rust
-    show about, advancedConfig, openConfigFile, setEngineSettings, setInsertionTiming;
+import '../rust/api.dart'
+    as rust
+    show
+        about,
+        advancedConfig,
+        openConfigFile,
+        setEngineSettings,
+        setInsertionTiming;
 
 /// The effective `[engine]` timings (plain Dart ints; the wire's u64
 /// arrives as BigInt, the seam converts).

@@ -160,7 +160,9 @@ class SlotProjection {
         // The occurrence replaced its sentinel with chip + value +
         // reservation. The outside-right stop lands past the reservation,
         // clear of the pill's right cap.
-        flat += 2 + (slot.valueEnd - slot.valueStart) -
+        flat +=
+            2 +
+            (slot.valueEnd - slot.valueStart) -
             (slot.bodyEnd - slot.bodyStart);
       } else if (slot.bodyStart < bodyOffset) {
         return slot.chipAt; // mid-shape: down to its left edge

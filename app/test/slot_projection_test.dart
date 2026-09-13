@@ -17,17 +17,20 @@ SlotEditor arriveEditor(String text, Map<int, String> prefill) {
 }
 
 void main() {
-  test('sentinels project to chip + value + reservation; body passes through', () {
-    final editor = arriveEditor('发给‡1‡一下', {1: '张三'});
-    final projection = SlotProjection(editor.doc);
-    expect(projection.base, '发给$chipPlaceholder张三$chipPlaceholder一下');
-    expect(projection.slots, hasLength(1));
-    final slot = projection.slots.single;
-    expect(slot.id, 1);
-    expect(slot.chipAt, 2);
-    expect(slot.valueStart, 3);
-    expect(slot.valueEnd, 5);
-  });
+  test(
+    'sentinels project to chip + value + reservation; body passes through',
+    () {
+      final editor = arriveEditor('发给‡1‡一下', {1: '张三'});
+      final projection = SlotProjection(editor.doc);
+      expect(projection.base, '发给$chipPlaceholder张三$chipPlaceholder一下');
+      expect(projection.slots, hasLength(1));
+      final slot = projection.slots.single;
+      expect(slot.id, 1);
+      expect(slot.chipAt, 2);
+      expect(slot.valueStart, 3);
+      expect(slot.valueEnd, 5);
+    },
+  );
 
   test('empty value projects the chip beside its reservation', () {
     final editor = arriveEditor('发给‡1‡一下', {});
@@ -131,10 +134,9 @@ void main() {
     );
     // The inside-end dock still sits at the value's own end — inside the
     // pill's parking space, before the reservation.
-    final insideEnd = projection.cursorToFlat(const SlotCursor.inside(
-      at: 2,
-      offset: 2,
-    ));
+    final insideEnd = projection.cursorToFlat(
+      const SlotCursor.inside(at: 2, offset: 2),
+    );
     expect(insideEnd, 5);
     expect(
       projection.flatToCursor(5, preferInside: true),

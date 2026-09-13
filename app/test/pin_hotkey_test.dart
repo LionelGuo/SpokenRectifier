@@ -115,9 +115,8 @@ void main() {
     // The bridge rejects the pin outside listening (the engine's rule,
     // mirrored by the fake)…
     await expectLater(gateway.pinPlaceholder(), throwsStateError);
-    int pins() => gateway.commands
-        .where((command) => command == 'pinPlaceholder')
-        .length;
+    int pins() =>
+        gateway.commands.where((command) => command == 'pinPlaceholder').length;
     expect(pins(), 1); // the rejected direct call above
 
     // …and the controller's action is a no-op there, so the chord's
@@ -162,9 +161,7 @@ void main() {
 
     // The next transcript update keeps the capsule in place; no bare
     // sentinel shape ever paints on the main surface.
-    gateway.emit(
-      const BridgeEvent.liveTranscriptUpdated(text: '话‡1‡继续说'),
-    );
+    gateway.emit(const BridgeEvent.liveTranscriptUpdated(text: '话‡1‡继续说'));
     await tester.pump();
     expect(find.byKey(const ValueKey('pin-capsule-1')), findsOneWidget);
     expect(find.textContaining('‡'), findsNothing);

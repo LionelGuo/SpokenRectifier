@@ -238,8 +238,7 @@ class SlotEditor {
     }
     if (caret.at > 0) {
       final o = caret.at;
-      final next =
-          doc.skeleton.substring(0, o - 1) + doc.skeleton.substring(o);
+      final next = doc.skeleton.substring(0, o - 1) + doc.skeleton.substring(o);
       final landed = _normalizeIn(
         next,
         doc.identities,
@@ -291,8 +290,7 @@ class SlotEditor {
     }
     if (caret.at < doc.skeleton.length) {
       final o = caret.at;
-      final next =
-          doc.skeleton.substring(0, o) + doc.skeleton.substring(o + 1);
+      final next = doc.skeleton.substring(0, o) + doc.skeleton.substring(o + 1);
       final landed = _normalizeIn(
         next,
         doc.identities,
@@ -327,10 +325,7 @@ class SlotEditor {
       }
       final value = doc.valueOf(span.id);
       final k = caret.offset;
-      final landed = SlotCursor.inside(
-        at: span.start,
-        offset: k + text.length,
-      );
+      final landed = SlotCursor.inside(at: span.start, offset: k + text.length);
       doc.edit(
         values: {span.id: value.substring(0, k) + text + value.substring(k)},
         mark: (from, landed),
@@ -339,7 +334,8 @@ class SlotEditor {
       return;
     }
     final o = caret.at;
-    final next = doc.skeleton.substring(0, o) + text + doc.skeleton.substring(o);
+    final next =
+        doc.skeleton.substring(0, o) + text + doc.skeleton.substring(o);
     final landed = _normalizeIn(
       next,
       doc.identities,

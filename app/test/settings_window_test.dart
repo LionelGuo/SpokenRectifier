@@ -699,8 +699,10 @@ String fieldText(WidgetTester tester, Key key) => tester
 
 /// The global directive card's field text (the key sits on the TextField
 /// itself there, not on an ancestor wrapper).
-String globalFieldText(WidgetTester tester) =>
-    tester.widget<TextField>(find.byKey(const Key('settings-global-field'))).controller!.text;
+String globalFieldText(WidgetTester tester) => tester
+    .widget<TextField>(find.byKey(const Key('settings-global-field')))
+    .controller!
+    .text;
 
 /// A Text widget's painted data, by its key.
 String textOf(WidgetTester tester, Key key) =>
@@ -1088,17 +1090,14 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(
-      find.byKey(
-        const Key('settings-history-scenario-item-builtin-default'),
-      ),
+      find.byKey(const Key('settings-history-scenario-item-builtin-default')),
       findsOneWidget,
     );
     await tester.tap(find.text('论文'));
     await tester.pumpAndSettle();
-    expect(
-      channel.rerectifies,
-      [(raw: '第一句的原话', style: const NamedScenarioPick('论文'))],
-    );
+    expect(channel.rerectifies, [
+      (raw: '第一句的原话', style: const NamedScenarioPick('论文')),
+    ]);
   });
 
   testWidgets('an empty library keeps the scenario rerectify key on 默认', (
@@ -1134,15 +1133,12 @@ void main() {
       findsNothing,
     );
     await tester.tap(
-      find.byKey(
-        const Key('settings-history-scenario-item-builtin-default'),
-      ),
+      find.byKey(const Key('settings-history-scenario-item-builtin-default')),
     );
     await tester.pumpAndSettle();
-    expect(
-      channel.rerectifies,
-      [(raw: '第一句的原话', style: const DefaultRegisterPick())],
-    );
+    expect(channel.rerectifies, [
+      (raw: '第一句的原话', style: const DefaultRegisterPick()),
+    ]);
   });
 
   testWidgets('a scenario literally named 默认 stays distinct from the builtin', (
@@ -1175,15 +1171,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('默认'), findsNWidgets(2));
     await tester.tap(
-      find.byKey(
-        const Key('settings-history-scenario-item-builtin-default'),
-      ),
+      find.byKey(const Key('settings-history-scenario-item-builtin-default')),
     );
     await tester.pumpAndSettle();
-    expect(
-      channel.rerectifies.last,
-      (raw: '第一句的原话', style: const DefaultRegisterPick()),
-    );
+    expect(channel.rerectifies.last, (
+      raw: '第一句的原话',
+      style: const DefaultRegisterPick(),
+    ));
 
     await hoverRowAction(
       tester,
@@ -1195,10 +1189,10 @@ void main() {
       find.byKey(const Key('settings-history-scenario-item:默认')),
     );
     await tester.pumpAndSettle();
-    expect(
-      channel.rerectifies.last,
-      (raw: '第一句的原话', style: const NamedScenarioPick('默认')),
-    );
+    expect(channel.rerectifies.last, (
+      raw: '第一句的原话',
+      style: const NamedScenarioPick('默认'),
+    ));
   });
 
   testWidgets('a retention pick saves and reports the change', (tester) async {
@@ -1993,11 +1987,16 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('settings-conn-asr-providers:tencent')),
     );
-    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:tencent')));
+    await tester.tap(
+      find.byKey(const Key('settings-conn-asr-providers:tencent')),
+    );
     await tester.pump();
 
     // The chip prefills the engine (the field held aliyun's default).
-    expect(fieldText(tester, const Key('settings-conn-asr-model')), '16k_zh_en');
+    expect(
+      fieldText(tester, const Key('settings-conn-asr-model')),
+      '16k_zh_en',
+    );
     // The sub-section carries the proxy hint (the 6001 trap).
     expect(
       find.byKey(const Key('settings-conn-asr-tencent-direct')),
@@ -2057,7 +2056,9 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('settings-conn-asr-providers:tencent')),
     );
-    await tester.tap(find.byKey(const Key('settings-conn-asr-providers:tencent')));
+    await tester.tap(
+      find.byKey(const Key('settings-conn-asr-providers:tencent')),
+    );
     await tester.pump();
     await tester.ensureVisible(
       find.byKey(const Key('settings-conn-asr-tencent-appid')),
@@ -2077,9 +2078,7 @@ void main() {
     );
     await tester.pump();
     expect(
-      find.textContaining(
-        '当前端点:wss://asr.cloud.tencent.com/asr/v2/1250012548',
-      ),
+      find.textContaining('当前端点:wss://asr.cloud.tencent.com/asr/v2/1250012548'),
       findsOneWidget,
     );
     expect(store.asrSaves, isEmpty);
@@ -2608,7 +2607,10 @@ void main() {
 
     // Clearing the field and saving is the off switch — no separate
     // clear action, no refusal for empty text.
-    await tester.enterText(find.byKey(const Key('settings-global-field')), '   ');
+    await tester.enterText(
+      find.byKey(const Key('settings-global-field')),
+      '   ',
+    );
     await tester.pump();
     await tester.tap(find.byKey(const Key('settings-global-save')));
     await tester.pump();

@@ -122,15 +122,14 @@ class DesktopSettingsChannel implements SettingsChannel {
   Future<void> sendHistoryRerectify(
     String rawTranscript, {
     required ScenarioPick style,
-  }) =>
-      _send('history-rerectify', {
-        'raw': rawTranscript,
-        // The pick rides as one discriminator key: a scenario's name, or
-        // the default-register flag — never both, so a name can never
-        // collide with the flag.
-        if (style is NamedScenarioPick) 'scenario': style.name,
-        if (style is DefaultRegisterPick) 'defaultRegister': true,
-      });
+  }) => _send('history-rerectify', {
+    'raw': rawTranscript,
+    // The pick rides as one discriminator key: a scenario's name, or
+    // the default-register flag — never both, so a name can never
+    // collide with the flag.
+    if (style is NamedScenarioPick) 'scenario': style.name,
+    if (style is DefaultRegisterPick) 'defaultRegister': true,
+  });
 
   @override
   Future<void> sendTermsChanged() => _send('terms-changed', null);

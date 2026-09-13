@@ -27,10 +27,12 @@ void main() {
     await gateway.stopSession();
     gateway.emit(const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡'));
     gateway.emit(
-      const BridgeEvent.previewPrefills(prefills: [
-        BridgePrefillRow(number: 1, value: '张三'),
-        BridgePrefillRow(number: 2, value: ''),
-      ]),
+      const BridgeEvent.previewPrefills(
+        prefills: [
+          BridgePrefillRow(number: 1, value: '张三'),
+          BridgePrefillRow(number: 2, value: ''),
+        ],
+      ),
     );
     gateway.emit(
       const BridgeEvent.sessionStateChanged(
@@ -41,13 +43,10 @@ void main() {
     await pumpEventQueue();
 
     expect(controller.previewText, '发给‡1‡');
-    expect(
-      controller.prefillTable,
-      const [
-        BridgePrefillRow(number: 1, value: '张三'),
-        BridgePrefillRow(number: 2, value: ''),
-      ],
-    );
+    expect(controller.prefillTable, const [
+      BridgePrefillRow(number: 1, value: '张三'),
+      BridgePrefillRow(number: 2, value: ''),
+    ]);
 
     // The reroll opens a fresh round: the old table must not survive
     // into it (the engine re-delivers before preview returns).
@@ -57,13 +56,11 @@ void main() {
     expect(controller.previewText, isEmpty);
 
     // And the session's end leaves nothing behind either.
+    gateway.emit(const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡'));
     gateway.emit(
-      const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡'),
-    );
-    gateway.emit(
-      const BridgeEvent.previewPrefills(prefills: [
-        BridgePrefillRow(number: 1, value: '李四'),
-      ]),
+      const BridgeEvent.previewPrefills(
+        prefills: [BridgePrefillRow(number: 1, value: '李四')],
+      ),
     );
     gateway.emit(
       const BridgeEvent.sessionStateChanged(
@@ -72,10 +69,9 @@ void main() {
       ),
     );
     await pumpEventQueue();
-    expect(
-      controller.prefillTable,
-      const [BridgePrefillRow(number: 1, value: '李四')],
-    );
+    expect(controller.prefillTable, const [
+      BridgePrefillRow(number: 1, value: '李四'),
+    ]);
     await gateway.cancelSession();
     await pumpEventQueue();
     expect(controller.prefillTable, isEmpty);

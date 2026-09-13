@@ -711,8 +711,7 @@ class SlotSurfaceState extends State<SlotSurface>
       final caretPosition = TextPosition(offset: circle.at);
       final caretTop = paragraph.getOffsetForCaret(caretPosition, Rect.zero).dy;
       final caretHeight = paragraph.getFullHeightForCaret(caretPosition);
-      final center =
-          caretHeight > 0
+      final center = caretHeight > 0
           ? caretTop + caretHeight / 2 + inkBias + _opticalEasePx
           : box.center.dy + _opticalEasePx;
       rects[circle.id] = Rect.fromLTRB(
@@ -805,10 +804,7 @@ class SlotSurfaceState extends State<SlotSurface>
                 return Text.rich(
                   key: _paragraphKey,
                   strutStyle: strut,
-                  TextSpan(
-                    style: style,
-                    children: _spanTree(pal, widths),
-                  ),
+                  TextSpan(style: style, children: _spanTree(pal, widths)),
                 );
               },
             ),
@@ -825,7 +821,10 @@ class SlotSurfaceState extends State<SlotSurface>
   /// leading [capsuleSidePad] plus the cap circle's width; the digits are
   /// painted by the foreground layer onto the pill's cap, so they can
   /// never disagree with the pill's own geometry.
-  List<InlineSpan> _spanTree(SrPalette pal, Map<int, double> reservationWidths) {
+  List<InlineSpan> _spanTree(
+    SrPalette pal,
+    Map<int, double> reservationWidths,
+  ) {
     final projection = _projection;
     final base = projection.base;
     final composing = _composing.isNotEmpty;
@@ -896,11 +895,11 @@ class SlotSurfaceState extends State<SlotSurface>
               width: chip != null
                   ? capsuleSidePad + chipCircle + chipGap
                   : (reservation != null
-                        ? reservationWidths[reservation.id]
-                        : null) ??
-                    (emptyTail
-                        ? _stubFloor + capsuleSidePad
-                        : pillRightPad + capsuleSidePad),
+                            ? reservationWidths[reservation.id]
+                            : null) ??
+                        (emptyTail
+                            ? _stubFloor + capsuleSidePad
+                            : pillRightPad + capsuleSidePad),
               height: chip != null ? capsuleHeight : 4,
             ),
           ),
@@ -1618,8 +1617,7 @@ class SlotSurfaceState extends State<SlotSurface>
           next[slot.id] = width;
           changed = true;
         }
-      } else if (next.containsKey(slot.id) &&
-          leftover >= standardWidth + 4) {
+      } else if (next.containsKey(slot.id) && leftover >= standardWidth + 4) {
         next.remove(slot.id);
         changed = true;
       }
@@ -2071,26 +2069,27 @@ Map<int, double> fittedReservationWidths({
   var widths = const <int, double>{};
   for (var pass = 0; pass < 3; pass++) {
     final spans = buildSpans(widths);
-    final painter = TextPainter(
-      text: TextSpan(
-        style: ambientStyle,
-        children: [TextSpan(style: style, children: spans)],
-      ),
-      textDirection: TextDirection.ltr,
-      textScaler: textScaler,
-      strutStyle: strut,
-      locale: locale,
-    )..setPlaceholderDimensions([
-        for (final span in spans)
-          if (span is WidgetSpan)
-            PlaceholderDimensions(
-              size: Size(
-                (span.child as SizedBox).width!,
-                (span.child as SizedBox).height!,
+    final painter =
+        TextPainter(
+          text: TextSpan(
+            style: ambientStyle,
+            children: [TextSpan(style: style, children: spans)],
+          ),
+          textDirection: TextDirection.ltr,
+          textScaler: textScaler,
+          strutStyle: strut,
+          locale: locale,
+        )..setPlaceholderDimensions([
+          for (final span in spans)
+            if (span is WidgetSpan)
+              PlaceholderDimensions(
+                size: Size(
+                  (span.child as SizedBox).width!,
+                  (span.child as SizedBox).height!,
+                ),
+                alignment: PlaceholderAlignment.middle,
               ),
-              alignment: PlaceholderAlignment.middle,
-            ),
-      ]);
+        ]);
     painter.layout(maxWidth: maxWidth);
     var changed = false;
     for (final slot in slots) {

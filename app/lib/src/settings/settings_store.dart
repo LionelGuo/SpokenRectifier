@@ -7,7 +7,8 @@
 
 library;
 
-import '../rust/api.dart' as rust
+import '../rust/api.dart'
+    as rust
     show globalDirective, saveGlobalDirective, saveScenarios, scenarios;
 import '../rust/api.dart' show BridgeScenario;
 

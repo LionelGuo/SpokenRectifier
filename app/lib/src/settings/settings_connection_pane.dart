@@ -75,8 +75,7 @@ const _asrModelPresets = <String, String>{
   'azure': 'azure-speech',
 };
 
-bool _isSomeAsrDefault(String model) =>
-    _asrModelPresets.values.contains(model);
+bool _isSomeAsrDefault(String model) => _asrModelPresets.values.contains(model);
 
 /// The providers whose cloud adapter is built: everything else carries
 /// fields in the schema but cannot stream yet.
@@ -111,10 +110,12 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     for (final vendor in _llmVendors) vendor: TextEditingController(),
   };
   final Map<String, KeyInfo> _llmKeyInfos = {
-    for (final vendor in _llmVendors) vendor: const KeyInfo(status: KeyPlacement.unset),
+    for (final vendor in _llmVendors)
+      vendor: const KeyInfo(status: KeyPlacement.unset),
   };
   String _llmVendor = 'deepseek';
-  KeyInfo get _llmKeyInfo => _llmKeyInfos[_llmVendor] ?? const KeyInfo(status: KeyPlacement.unset);
+  KeyInfo get _llmKeyInfo =>
+      _llmKeyInfos[_llmVendor] ?? const KeyInfo(status: KeyPlacement.unset);
   TextEditingController get _llmKey => _llmKeys[_llmVendor]!;
 
   // ASR fields: the common segment, then one group per vendor
@@ -136,13 +137,16 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   KeyInfo _asrVolcKeyInfo = const KeyInfo(status: KeyPlacement.unset);
 
   late final TextEditingController _asrTencentAppId = TextEditingController();
-  late final TextEditingController _asrTencentSecretId = TextEditingController();
-  late final TextEditingController _asrTencentSecretKey = TextEditingController();
+  late final TextEditingController _asrTencentSecretId =
+      TextEditingController();
+  late final TextEditingController _asrTencentSecretKey =
+      TextEditingController();
   KeyInfo _asrTencentIdInfo = const KeyInfo(status: KeyPlacement.unset);
   KeyInfo _asrTencentKeyInfo = const KeyInfo(status: KeyPlacement.unset);
 
   late final TextEditingController _asrAzureRegion = TextEditingController();
-  late final TextEditingController _asrAzureEndpointId = TextEditingController();
+  late final TextEditingController _asrAzureEndpointId =
+      TextEditingController();
 
   /// Latest-wins token for the endpoint preview: a slower earlier
   /// refresh must not overwrite a newer one.
@@ -153,8 +157,9 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   /// click, never only on save.
   void _refreshAsrEndpoint() {
     final token = ++_asrEndpointToken;
-    final appId =
-        _asrTencentAppId.text.trim().isEmpty ? null : _asrTencentAppId.text;
+    final appId = _asrTencentAppId.text.trim().isEmpty
+        ? null
+        : _asrTencentAppId.text;
     widget.store
         .asrEndpoint(
           provider: _asrProvider,
@@ -174,8 +179,13 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   @override
   void initState() {
     super.initState();
-    for (final controller in
-        [_asrModel, _asrBaseUrl, _asrWorkspace, _asrRegion, _asrTencentAppId]) {
+    for (final controller in [
+      _asrModel,
+      _asrBaseUrl,
+      _asrWorkspace,
+      _asrRegion,
+      _asrTencentAppId,
+    ]) {
       controller.addListener(_refreshAsrEndpoint);
     }
     _reload();
@@ -280,7 +290,8 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
       // The key block re-binds to this vendor's own controller on the
       // rebuild — another vendor's key never carries across (ADR-0011).
       _llmBaseUrl.text = preset.baseUrl;
-      if (_llmModel.text.trim().isEmpty || _isSomeVendorDefault(_llmModel.text.trim())) {
+      if (_llmModel.text.trim().isEmpty ||
+          _isSomeVendorDefault(_llmModel.text.trim())) {
         _llmModel.text = preset.model;
       }
     });
@@ -293,7 +304,8 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   void _applyAsrProvider(String provider) {
     setState(() {
       _asrProvider = provider;
-      if (_asrModel.text.trim().isEmpty || _isSomeAsrDefault(_asrModel.text.trim())) {
+      if (_asrModel.text.trim().isEmpty ||
+          _isSomeAsrDefault(_asrModel.text.trim())) {
         _asrModel.text = _asrModelPresets[provider]!;
       }
     });
@@ -381,8 +393,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         : const ApiKeyKeep();
     if (tencentKey == null) return null;
 
-    String? optional(String text) =>
-        text.trim().isEmpty ? null : text;
+    String? optional(String text) => text.trim().isEmpty ? null : text;
     return AsrEdit(
       provider: _asrProvider,
       model: _asrModel.text,
@@ -567,7 +578,10 @@ class _KeyBlockState extends State<_KeyBlock> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.title, style: SrType.micro.copyWith(color: pal.textTertiary)),
+        Text(
+          widget.title,
+          style: SrType.micro.copyWith(color: pal.textTertiary),
+        ),
         const SizedBox(height: 4),
         Text(
           status,
@@ -724,7 +738,10 @@ class _LlmCard extends StatelessWidget {
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
-          Text('服务商(点击预填端点)', style: SrType.micro.copyWith(color: pal.textTertiary)),
+          Text(
+            '服务商(点击预填端点)',
+            style: SrType.micro.copyWith(color: pal.textTertiary),
+          ),
           const SizedBox(height: 6),
           _ChipRow(
             testKey: 'settings-conn-llm-vendors',
@@ -846,7 +863,10 @@ class _AsrCard extends StatelessWidget {
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
-          Text('服务商(点击预填模型)', style: SrType.micro.copyWith(color: pal.textTertiary)),
+          Text(
+            '服务商(点击预填模型)',
+            style: SrType.micro.copyWith(color: pal.textTertiary),
+          ),
           const SizedBox(height: 6),
           _ChipRow(
             testKey: 'settings-conn-asr-providers',

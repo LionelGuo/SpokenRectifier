@@ -387,24 +387,27 @@ void main() {
   });
 
   group('与文档层的缝: undo snapping and the arrive reset', () {
-    test('undo lands where the undone edit began, redo behind the redone edit', () {
-      final editor = arriveEditor('A‡1‡B', {1: '张三'});
-      editor.place(const SlotCursor.outside(4));
-      editor.insert('XY');
-      expect(editor.doc.skeleton, 'A‡1‡XYB');
-      expect(editor.caret, const SlotCursor.outside(6));
-      expect(editor.undo(), isTrue);
-      expect(editor.doc.skeleton, 'A‡1‡B');
-      // The caret travels to where the undone edit began (2026-09-09
-      // ruling: history walks the caret with the change).
-      expect(editor.caret, const SlotCursor.outside(4));
-      expect(editor.stops, contains(editor.caret));
-      expect(editor.redo(), isTrue);
-      expect(editor.doc.skeleton, 'A‡1‡XYB');
-      // Behind the redone modification.
-      expect(editor.caret, const SlotCursor.outside(6));
-      expect(editor.canRedo, isFalse);
-    });
+    test(
+      'undo lands where the undone edit began, redo behind the redone edit',
+      () {
+        final editor = arriveEditor('A‡1‡B', {1: '张三'});
+        editor.place(const SlotCursor.outside(4));
+        editor.insert('XY');
+        expect(editor.doc.skeleton, 'A‡1‡XYB');
+        expect(editor.caret, const SlotCursor.outside(6));
+        expect(editor.undo(), isTrue);
+        expect(editor.doc.skeleton, 'A‡1‡B');
+        // The caret travels to where the undone edit began (2026-09-09
+        // ruling: history walks the caret with the change).
+        expect(editor.caret, const SlotCursor.outside(4));
+        expect(editor.stops, contains(editor.caret));
+        expect(editor.redo(), isTrue);
+        expect(editor.doc.skeleton, 'A‡1‡XYB');
+        // Behind the redone modification.
+        expect(editor.caret, const SlotCursor.outside(6));
+        expect(editor.canRedo, isFalse);
+      },
+    );
 
     test('undo and redo walk the caret across edits on the stack', () {
       final editor = arriveEditor('A‡1‡B', {1: '张三'});

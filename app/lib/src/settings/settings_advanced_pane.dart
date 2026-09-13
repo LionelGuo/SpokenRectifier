@@ -243,7 +243,9 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                     Expanded(
                       child: Text(
                         '篇章模式',
-                        style: SrType.caption.copyWith(color: pal.textSecondary),
+                        style: SrType.caption.copyWith(
+                          color: pal.textSecondary,
+                        ),
                       ),
                     ),
                     Switch(
@@ -318,7 +320,10 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                   style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
                 const SizedBox(height: 10),
-                Text('插入方式', style: SrType.micro.copyWith(color: pal.textTertiary)),
+                Text(
+                  '插入方式',
+                  style: SrType.micro.copyWith(color: pal.textTertiary),
+                ),
                 const SizedBox(height: 6),
                 _ModeChips(
                   selected: _insertionMode,

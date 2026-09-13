@@ -63,10 +63,7 @@ class SlotPreviewHarness {
 
   /// A key chord with Ctrl (and optionally Shift) held, the way the
   /// framework reports real shortcuts.
-  Future<void> ctrlKey(
-    LogicalKeyboardKey k, {
-    bool shift = false,
-  }) async {
+  Future<void> ctrlKey(LogicalKeyboardKey k, {bool shift = false}) async {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     if (shift) {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
@@ -93,7 +90,10 @@ Future<SlotPreviewHarness> pumpSlotPreview(
   int pins = 1,
 }) async {
   final gateway = FakeGateway();
-  final controller = SpeechController(gateway: gateway, scriptedPhrases: const []);
+  final controller = SpeechController(
+    gateway: gateway,
+    scriptedPhrases: const [],
+  );
   addTearDown(controller.dispose);
   await tester.pumpWidget(SpokenRectifierApp(controller: controller));
 
@@ -137,20 +137,19 @@ Future<void> windDown(WidgetTester tester, SpeechController controller) async {
 
 void main() {
   testWidgets(
-    'the outgoing setClient configuration carries the view id the engine requires', (
-    tester,
-  ) async {
-    // The Windows engine rejects TextInput.setClient outright when the
-    // configuration has no integer viewId — the text model is never
-    // created and every typed character is silently dropped (the
-    // acceptance-round finding: typing inserted nothing on hardware).
-    final h = await pumpSlotPreview(tester);
-    final args = h.tester.testTextInput.setClientArgs;
-    expect(args, isNotNull, reason: 'a client must be attached in preview');
-    expect(args!['viewId'], isA<int>());
-    expect(args['inputAction'], 'TextInputAction.newline');
-    await windDown(tester, h.controller);
-  },
+    'the outgoing setClient configuration carries the view id the engine requires',
+    (tester) async {
+      // The Windows engine rejects TextInput.setClient outright when the
+      // configuration has no integer viewId — the text model is never
+      // created and every typed character is silently dropped (the
+      // acceptance-round finding: typing inserted nothing on hardware).
+      final h = await pumpSlotPreview(tester);
+      final args = h.tester.testTextInput.setClientArgs;
+      expect(args, isNotNull, reason: 'a client must be attached in preview');
+      expect(args!['viewId'], isA<int>());
+      expect(args['inputAction'], 'TextInputAction.newline');
+      await windDown(tester, h.controller);
+    },
   );
 
   testWidgets('the preview paints the prefill in a capsule, no bare sentinel', (
@@ -187,9 +186,8 @@ void main() {
   });
 
   testWidgets(
-    'a tap on a paragraph-start capsule\'s whole-left places the caret at the start', (
-      tester,
-    ) async {
+    'a tap on a paragraph-start capsule\'s whole-left places the caret at the start',
+    (tester) async {
       // F-group feedback (2026-09-10): with no text before the capsule —
       // flush at the paragraph's start — a tap on its whole-left (the left
       // cap, not the value's left side) never reached 段首: the pill's hit
@@ -225,9 +223,8 @@ void main() {
   );
 
   testWidgets(
-    'taps on the background beside an empty capsule reach its outside docks', (
-      tester,
-    ) async {
+    'taps on the background beside an empty capsule reach its outside docks',
+    (tester) async {
       // 愿望三 (2026-09-10): every position the caret can reach must be
       // clickable. The sidePad-wide background strips flanking the pill
       // carry the outside docks — an empty capsule's whole pill still
@@ -257,9 +254,8 @@ void main() {
   );
 
   testWidgets(
-    'a click past a line whose only content is the capsule lands outside it', (
-      tester,
-    ) async {
+    'a click past a line whose only content is the capsule lands outside it',
+    (tester) async {
       // The line-end click: the reservation is the line's last content,
       // so the engine resolves the click onto the reservation's own flat
       // offset — which used to become the capsule's inside-end dock
@@ -268,7 +264,9 @@ void main() {
       final h = await pumpSlotPreview(tester, body: '‡1‡', prefill: '');
       final base = tester.getRect(find.byKey(const Key('session-text')));
       final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
-      await tester.tapAt(base.topLeft + Offset(pill.right + 30, pill.center.dy));
+      await tester.tapAt(
+        base.topLeft + Offset(pill.right + 30, pill.center.dy),
+      );
       await tester.pump();
       expect(h.surface.activeSlotId, isNull);
       expect(h.surface.editor.caret, const SlotCursor.outside(0));
@@ -277,9 +275,8 @@ void main() {
   );
 
   testWidgets(
-    'a tap in the gap between adjacent capsules places the caret between them', (
-      tester,
-    ) async {
+    'a tap in the gap between adjacent capsules places the caret between them',
+    (tester) async {
       // F25 (2026-09-10): consecutive capsules with nothing between them
       // — the shared gap is background the reservations hold, and it
       // must place the caret BETWEEN them (previously the engine's
@@ -319,9 +316,8 @@ void main() {
   );
 
   testWidgets(
-    'a Chinese IME composition over the selected value replaces it (the Windows engine sequence)', (
-      tester,
-    ) async {
+    'a Chinese IME composition over the selected value replaces it (the Windows engine sequence)',
+    (tester) async {
       final h = await pumpSlotPreview(tester);
       await tester.tapAt(h.capsuleRect(1).center);
       await tester.pump();
@@ -379,9 +375,8 @@ void main() {
   );
 
   testWidgets(
-    'an IME commit over a value at the end of the body lands (no out-of-range composing strip)', (
-      tester,
-    ) async {
+    'an IME commit over a value at the end of the body lands (no out-of-range composing strip)',
+    (tester) async {
       // The same engine sequence with the capsule last in the body: the
       // composing window our old code computed ran past the platform
       // text's end and the handler died on every commit (真机「卡住很
@@ -418,9 +413,8 @@ void main() {
   );
 
   testWidgets(
-    'only the first tap on a capsule selects all; the next tap places the caret', (
-      tester,
-    ) async {
+    'only the first tap on a capsule selects all; the next tap places the caret',
+    (tester) async {
       final h = await pumpSlotPreview(tester);
       // Entering the capsule: 张三 starts selected (the replace path).
       await tester.tapAt(h.capsuleRect(1).center);
@@ -433,9 +427,9 @@ void main() {
       // and puts the caret at the tapped position instead of re-selecting
       // (2026-09-09 ruling: slots must be editable in place). Tap exactly
       // at a stop's caret rect, derived from the caret parked there.
-      final origin = tester.getRect(
-        find.byKey(const Key('session-text')),
-      ).topLeft;
+      final origin = tester
+          .getRect(find.byKey(const Key('session-text')))
+          .topLeft;
       for (final target in [
         const SlotCursor.inside(at: 2, offset: 2),
         const SlotCursor.inside(at: 2, offset: 0),
@@ -455,10 +449,10 @@ void main() {
       await tester.pump();
       await tester.tapAt(h.capsuleRect(1).center);
       await tester.pump();
-      expect(h.surface.editor.selectionEdges?.$2, const SlotCursor.inside(
-        at: 2,
-        offset: 2,
-      ));
+      expect(
+        h.surface.editor.selectionEdges?.$2,
+        const SlotCursor.inside(at: 2, offset: 2),
+      );
       await windDown(tester, h.controller);
     },
   );
@@ -475,9 +469,8 @@ void main() {
   });
 
   testWidgets(
-    'backspace at the outside right edge steps inside, then deletes', (
-      tester,
-    ) async {
+    'backspace at the outside right edge steps inside, then deletes',
+    (tester) async {
       final h = await pumpSlotPreview(tester);
       // Park just outside the capsule's right edge: from the end (past
       // 下), ← twice walks onto the between stop.
@@ -493,10 +486,7 @@ void main() {
 
       // First backspace steps into the capsule (先进槽内)…
       await h.key(LogicalKeyboardKey.backspace);
-      expect(
-        h.surface.editor.caret,
-        const SlotCursor.inside(at: 2, offset: 2),
-      );
+      expect(h.surface.editor.caret, const SlotCursor.inside(at: 2, offset: 2));
       expect(h.surface.editor.doc.valueOf(1), '张三');
       // …the second deletes one character of the value (再按才删).
       await h.key(LogicalKeyboardKey.backspace);
@@ -512,9 +502,8 @@ void main() {
   );
 
   testWidgets(
-    'backspace inside at the left edge passes through and steps out', (
-      tester,
-    ) async {
+    'backspace inside at the left edge passes through and steps out',
+    (tester) async {
       final h = await pumpSlotPreview(tester);
       h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 0));
       await tester.pump();
@@ -544,21 +533,22 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('Enter inside a slot is a newline in the value, never a confirm', (
-    tester,
-  ) async {
-    final h = await pumpSlotPreview(tester);
-    h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 2));
-    await tester.pump();
-    await h.key(LogicalKeyboardKey.enter);
-    await h.key(LogicalKeyboardKey.enter);
-    expect(h.surface.editor.doc.valueOf(1), '张三\n\n');
-    expect(h.controller.phase, BridgeSessionState.preview);
-    expect(h.gateway.commands, isNot(contains('confirmInsert')));
-    // The substituted text carries the newlines into what would insert.
-    expect(h.controller.previewText, '发给张三\n\n一下');
-    await windDown(tester, h.controller);
-  });
+  testWidgets(
+    'Enter inside a slot is a newline in the value, never a confirm',
+    (tester) async {
+      final h = await pumpSlotPreview(tester);
+      h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 2));
+      await tester.pump();
+      await h.key(LogicalKeyboardKey.enter);
+      await h.key(LogicalKeyboardKey.enter);
+      expect(h.surface.editor.doc.valueOf(1), '张三\n\n');
+      expect(h.controller.phase, BridgeSessionState.preview);
+      expect(h.gateway.commands, isNot(contains('confirmInsert')));
+      // The substituted text carries the newlines into what would insert.
+      expect(h.controller.previewText, '发给张三\n\n一下');
+      await windDown(tester, h.controller);
+    },
+  );
 
   testWidgets('Ctrl+Z and redo step slot values and body edits on one stack', (
     tester,
@@ -699,60 +689,64 @@ void main() {
     await h.key(LogicalKeyboardKey.arrowUp);
     expect(flat(), lessThanOrEqualTo(4), reason: 'the first line ends here');
     await h.key(LogicalKeyboardKey.arrowDown);
-    expect(flat(), greaterThanOrEqualTo(5), reason: 'the second line starts here');
+    expect(
+      flat(),
+      greaterThanOrEqualTo(5),
+      reason: 'the second line starts here',
+    );
     await windDown(tester, h.controller);
   });
 
   testWidgets(
-    'ArrowUp walks one line at a time and off the top homes to the start', (
-    tester,
-  ) async {
-    // F-group feedback (2026-09-10): ↓ walked fine but ↑ skipped a line
-    // (隔行跳转 — from the third line straight to the first). The old
-    // probe measured a pitch and a half from the caret's TOP, which is
-    // symmetric only DOWNWARD: upward it overshoots the line above by
-    // half a pitch and landed mid the SECOND line up. The probe now
-    // measures a full pitch from the caret's CENTER, mid-neighbour
-    // either way. Off the document's ends the walk homes to its
-    // first/last stop (F19: 首行再 ↑ 到文档首、末行再 ↓ 到文档末).
-    final h = await pumpSlotPreview(tester, prefill: '张\n三\n王');
-    final editor = h.surface.editor;
-    double topAt(int offset) {
-      editor.place(SlotCursor.inside(at: 2, offset: offset));
-      return h.surface.caretRect()!.top;
-    }
+    'ArrowUp walks one line at a time and off the top homes to the start',
+    (tester) async {
+      // F-group feedback (2026-09-10): ↓ walked fine but ↑ skipped a line
+      // (隔行跳转 — from the third line straight to the first). The old
+      // probe measured a pitch and a half from the caret's TOP, which is
+      // symmetric only DOWNWARD: upward it overshoots the line above by
+      // half a pitch and landed mid the SECOND line up. The probe now
+      // measures a full pitch from the caret's CENTER, mid-neighbour
+      // either way. Off the document's ends the walk homes to its
+      // first/last stop (F19: 首行再 ↑ 到文档首、末行再 ↓ 到文档末).
+      final h = await pumpSlotPreview(tester, prefill: '张\n三\n王');
+      final editor = h.surface.editor;
+      double topAt(int offset) {
+        editor.place(SlotCursor.inside(at: 2, offset: offset));
+        return h.surface.caretRect()!.top;
+      }
 
-    final top1 = topAt(1); // past 张, before the first newline
-    final top2 = topAt(3); // past 三, before the second newline
-    editor.place(const SlotCursor.inside(at: 2, offset: 5)); // past 王
-    await h.key(LogicalKeyboardKey.arrowUp);
-    expect(
-      (h.surface.caretRect()!.top - top2).abs(),
-      lessThan(1),
-      reason: 'one line up lands on 三\'s line, not 张\'s (no skipping)',
-    );
-    await h.key(LogicalKeyboardKey.arrowUp);
-    expect(
-      (h.surface.caretRect()!.top - top1).abs(),
-      lessThan(1),
-      reason: 'the second ↑ reaches 张\'s line',
-    );
-    await h.key(LogicalKeyboardKey.arrowUp);
-    expect(
-      editor.caret,
-      editor.stops.first,
-      reason: 'off the top homes to the document\'s start',
-    );
+      final top1 = topAt(1); // past 张, before the first newline
+      final top2 = topAt(3); // past 三, before the second newline
+      editor.place(const SlotCursor.inside(at: 2, offset: 5)); // past 王
+      await h.key(LogicalKeyboardKey.arrowUp);
+      expect(
+        (h.surface.caretRect()!.top - top2).abs(),
+        lessThan(1),
+        reason: 'one line up lands on 三\'s line, not 张\'s (no skipping)',
+      );
+      await h.key(LogicalKeyboardKey.arrowUp);
+      expect(
+        (h.surface.caretRect()!.top - top1).abs(),
+        lessThan(1),
+        reason: 'the second ↑ reaches 张\'s line',
+      );
+      await h.key(LogicalKeyboardKey.arrowUp);
+      expect(
+        editor.caret,
+        editor.stops.first,
+        reason: 'off the top homes to the document\'s start',
+      );
 
-    editor.place(const SlotCursor.inside(at: 2, offset: 4)); // past 王
-    await h.key(LogicalKeyboardKey.arrowDown);
-    expect(
-      editor.caret,
-      editor.stops.last,
-      reason: 'off the bottom homes to the document\'s end',
-    );
-    await windDown(tester, h.controller);
-  });
+      editor.place(const SlotCursor.inside(at: 2, offset: 4)); // past 王
+      await h.key(LogicalKeyboardKey.arrowDown);
+      expect(
+        editor.caret,
+        editor.stops.last,
+        reason: 'off the bottom homes to the document\'s end',
+      );
+      await windDown(tester, h.controller);
+    },
+  );
 
   // -- capsule chrome geometry (23 号验收轮 D1/D3 修复的回归锁) --------------
 
@@ -846,9 +840,7 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('composing into an empty capsule stays covered', (
-    tester,
-  ) async {
+  testWidgets('composing into an empty capsule stays covered', (tester) async {
     // F21's entering caret sits at the empty value's single dock — the
     // collapsed boundary again, with valueStart == valueEnd == the
     // composing start.
@@ -883,8 +875,7 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets(
-    'the pill keeps clear of the neighbouring glyphs on both sides', (
+  testWidgets('the pill keeps clear of the neighbouring glyphs on both sides', (
     tester,
   ) async {
     final h = await pumpSlotPreview(tester);
@@ -894,7 +885,9 @@ void main() {
     final leftEnd = flat.indexOf('￼');
     final rightStart = flat.lastIndexOf('￼') + 1;
     final before = paragraph
-        .getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: leftEnd))
+        .getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: leftEnd),
+        )
         .last
         .right;
     final after = paragraph
@@ -909,8 +902,7 @@ void main() {
     expect(pill.left - before, closeTo(SrCapsule.sidePad, 0.5));
     expect(after - pill.right, closeTo(SrCapsule.sidePad, 0.5));
     await windDown(tester, h.controller);
-  },
-  );
+  });
 
   testWidgets('the pill centres on the line text ink, filled capsule', (
     tester,
@@ -976,9 +968,9 @@ void main() {
       ),
     );
     await tester.pump();
-    final state =
-        tester.state(find.byKey(const Key('session-stream-solo')))
-            as SlotSurfaceState;
+    final state = tester.state(
+      find.byKey(const Key('session-stream-solo')),
+    ) as SlotSurfaceState;
     final rects = state.streamCircleRectsForTest();
     expect(rects.keys, [1]);
     final paragraph = tester.renderObject<RenderParagraph>(
@@ -1003,7 +995,9 @@ void main() {
     // meeting as one circle — mid-line, sidePad breathing inside the
     // reservation on each side, clear of both neighbours' ink.
     final marker = paragraph
-        .getBoxesForSelection(const TextSelection(baseOffset: 2, extentOffset: 3))
+        .getBoxesForSelection(
+          const TextSelection(baseOffset: 2, extentOffset: 3),
+        )
         .first
         .toRect();
     expect(rects[1]!.height, SrCapsule.height);
@@ -1015,7 +1009,11 @@ void main() {
   testWidgets('a stream marker absorbs its breathing at line edges', (
     tester,
   ) async {
-    Future<(Rect, Rect)> circleFor(String key, String text, int markerAt) async {
+    Future<(Rect, Rect)> circleFor(
+      String key,
+      String text,
+      int markerAt,
+    ) async {
       final scroll = ScrollController();
       addTearDown(scroll.dispose);
       await tester.pumpWidget(
@@ -1040,13 +1038,12 @@ void main() {
           matching: find.byType(RichText),
         ),
       );
-      final box =
-          paragraph
-              .getBoxesForSelection(
-                TextSelection(baseOffset: markerAt, extentOffset: markerAt + 1),
-              )
-              .first
-              .toRect();
+      final box = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: markerAt, extentOffset: markerAt + 1),
+          )
+          .first
+          .toRect();
       return (circle, box);
     }
 
@@ -1067,10 +1064,7 @@ void main() {
       '前面的话‡1‡',
       4,
     );
-    expect(
-      end.right,
-      closeTo(endBox.right - SrCapsule.sidePad, 0.5),
-    );
+    expect(end.right, closeTo(endBox.right - SrCapsule.sidePad, 0.5));
     expect(
       end.left,
       closeTo(endBox.right - SrCapsule.sidePad - SrCapsule.height, 0.5),
@@ -1133,46 +1127,46 @@ void main() {
   });
 
   testWidgets(
-    'a multi-line capsule bands the column: first flush right, middle full width, last flush left', (
-    tester,
-  ) async {
-    // A value with an empty line covers three paragraph lines — content,
-    // the empty line, content (回车与空行都算行, and the empty one is
-    // invisible to every box query).
-    final h = await pumpSlotPreview(tester, prefill: '张三\n\n李四');
-    final paragraph = previewParagraph(tester);
-    final column = paragraph.constraints.maxWidth;
-    final bands = h.surface.capsuleBandsForTest()[1]!;
-    final rects = h.surface.capsuleSegmentsForTest()[1]!;
-    expect(rects.length, 3, reason: 'the empty middle line keeps its band');
-    // First: from the chip to the column's right edge (首行抵右).
-    expect(rects[0].left, greaterThan(0));
-    expect(rects[0].right, closeTo(column, 0.5));
-    // Middle: the empty line spans the whole column (中行全宽).
-    expect(rects[1].left, closeTo(0, 0.5));
-    expect(rects[1].right, closeTo(column, 0.5));
-    // Last: flush left, past its content's ink by the parking pad (末行
-    // 贴左) — the body text after the capsule flows on beside it.
-    expect(rects[2].left, closeTo(0, 0.5));
-    final flat = h.surface.flatBaseText;
-    final liStart = flat.indexOf('李四');
-    final liRight = paragraph
-        .getBoxesForSelection(
-          TextSelection(baseOffset: liStart, extentOffset: liStart + 2),
-        )
-        .last
-        .right;
-    expect(rects[2].right, closeTo(liRight + SrCapsule.valuePad, 0.5));
-    // Corner shapes: the chip cap and the value's own end stay round;
-    // every end a newline (or the wrapper) cut is square (截断直角).
-    expect(bands[0].leftRounded, isTrue);
-    expect(bands[0].rightRounded, isFalse);
-    expect(bands[1].leftRounded, isFalse);
-    expect(bands[1].rightRounded, isFalse);
-    expect(bands[2].leftRounded, isFalse);
-    expect(bands[2].rightRounded, isTrue);
-    await windDown(tester, h.controller);
-  });
+    'a multi-line capsule bands the column: first flush right, middle full width, last flush left',
+    (tester) async {
+      // A value with an empty line covers three paragraph lines — content,
+      // the empty line, content (回车与空行都算行, and the empty one is
+      // invisible to every box query).
+      final h = await pumpSlotPreview(tester, prefill: '张三\n\n李四');
+      final paragraph = previewParagraph(tester);
+      final column = paragraph.constraints.maxWidth;
+      final bands = h.surface.capsuleBandsForTest()[1]!;
+      final rects = h.surface.capsuleSegmentsForTest()[1]!;
+      expect(rects.length, 3, reason: 'the empty middle line keeps its band');
+      // First: from the chip to the column's right edge (首行抵右).
+      expect(rects[0].left, greaterThan(0));
+      expect(rects[0].right, closeTo(column, 0.5));
+      // Middle: the empty line spans the whole column (中行全宽).
+      expect(rects[1].left, closeTo(0, 0.5));
+      expect(rects[1].right, closeTo(column, 0.5));
+      // Last: flush left, past its content's ink by the parking pad (末行
+      // 贴左) — the body text after the capsule flows on beside it.
+      expect(rects[2].left, closeTo(0, 0.5));
+      final flat = h.surface.flatBaseText;
+      final liStart = flat.indexOf('李四');
+      final liRight = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: liStart, extentOffset: liStart + 2),
+          )
+          .last
+          .right;
+      expect(rects[2].right, closeTo(liRight + SrCapsule.valuePad, 0.5));
+      // Corner shapes: the chip cap and the value's own end stay round;
+      // every end a newline (or the wrapper) cut is square (截断直角).
+      expect(bands[0].leftRounded, isTrue);
+      expect(bands[0].rightRounded, isFalse);
+      expect(bands[1].leftRounded, isFalse);
+      expect(bands[1].rightRounded, isFalse);
+      expect(bands[2].leftRounded, isFalse);
+      expect(bands[2].rightRounded, isTrue);
+      await windDown(tester, h.controller);
+    },
+  );
 
   test('a covered tail line with no box joins only a hard value tail', () {
     // 反馈十四, the soft-wrap artifact (真机: a lone capsule, 39 a's, a
@@ -1237,7 +1231,10 @@ void main() {
     // lost the fill's lower-left crescent on the real GPU, and the cut
     // dissolve had no flat run to live in — the empty stub now fills
     // the layout space it already owns).
-    final stubFloor = SrCapsule.valuePad + SrCapsule.sidePad + 2; // look-tuned: cap start +1, ramp held
+    final stubFloor =
+        SrCapsule.valuePad +
+        SrCapsule.sidePad +
+        2; // look-tuned: cap start +1, ramp held
     expect(stubFloor - SrCapsule.height / 2, greaterThan(2));
     expect(rects[1].right, closeTo(stubFloor, 0.5));
     final bands = h.surface.capsuleBandsForTest()[1]!;
@@ -1246,32 +1243,36 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('text after a capsule on its empty tail line keeps its breathing', (
-    tester,
-  ) async {
-    // F23 round (2026-09-10 反馈十九): typing right after a capsule whose
-    // value ends with 回车 landed the glyphs against the parking stub —
-    // the stub floors ABOVE the reservation's width, so the skeleton
-    // text that follows began inside the pill's span (真机: 文字直接与
-    // 胶囊右侧接触). The reservation riding an EMPTY tail line widens
-    // past the stub floor by sidePad: the following text keeps the same
-    // breathing as anywhere else, and the pill is back inside the
-    // layout space it owns.
-    final h = await pumpSlotPreview(tester, body: '甲‡1‡乙', prefill: '张三\n');
-    final paragraph = previewParagraph(tester);
-    final flat = h.surface.flatBaseText; // 甲￼张三\n￼乙
-    final reservation = placeholderPositions(flat)[1];
-    final reservationRight = paragraph
-        .getBoxesForSelection(
-          TextSelection(baseOffset: reservation, extentOffset: reservation + 1),
-        )
-        .first
-        .toRect()
-        .right;
-    final stub = h.surface.capsuleSegmentsForTest()[1]!.last;
-    expect(reservationRight - stub.right, closeTo(SrCapsule.sidePad, 0.5));
-    await windDown(tester, h.controller);
-  });
+  testWidgets(
+    'text after a capsule on its empty tail line keeps its breathing',
+    (tester) async {
+      // F23 round (2026-09-10 反馈十九): typing right after a capsule whose
+      // value ends with 回车 landed the glyphs against the parking stub —
+      // the stub floors ABOVE the reservation's width, so the skeleton
+      // text that follows began inside the pill's span (真机: 文字直接与
+      // 胶囊右侧接触). The reservation riding an EMPTY tail line widens
+      // past the stub floor by sidePad: the following text keeps the same
+      // breathing as anywhere else, and the pill is back inside the
+      // layout space it owns.
+      final h = await pumpSlotPreview(tester, body: '甲‡1‡乙', prefill: '张三\n');
+      final paragraph = previewParagraph(tester);
+      final flat = h.surface.flatBaseText; // 甲￼张三\n￼乙
+      final reservation = placeholderPositions(flat)[1];
+      final reservationRight = paragraph
+          .getBoxesForSelection(
+            TextSelection(
+              baseOffset: reservation,
+              extentOffset: reservation + 1,
+            ),
+          )
+          .first
+          .toRect()
+          .right;
+      final stub = h.surface.capsuleSegmentsForTest()[1]!.last;
+      expect(reservationRight - stub.right, closeTo(SrCapsule.sidePad, 0.5));
+      await windDown(tester, h.controller);
+    },
+  );
 
   testWidgets('every band of a wrapped capsule keeps the capsule height', (
     tester,
@@ -1332,43 +1333,44 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('the empty tail line anchors on the strut line plus the ink bias', (
-    tester,
-  ) async {
-    // 反馈十四 with 反馈十二's convention: an ink-less line a multi-line
-    // capsule covers anchors its band on the strut-locked caret line
-    // center plus the paragraph's own ink bias — the anchor its
-    // siblings' ink lines land on — never the raw caret center (the
-    // stub used to sit a bias high, reading detached from the band
-    // above).
-    final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张三\n');
-    final paragraph = previewParagraph(tester);
-    final stub = h.surface.capsuleBandsForTest()[1]![1];
-    final flat = h.surface.flatBaseText; // 发给￼张三\n￼
-    final inkLines = textLineInkBoxes(
-      paragraph,
-      placeholderPositions(flat),
-      flat.length,
-    );
-    final firstCaret = const TextPosition(offset: 0);
-    final bias =
-        inkLines.first.center.dy -
-        (paragraph.getOffsetForCaret(firstCaret, Rect.zero).dy +
-            paragraph.getFullHeightForCaret(firstCaret) / 2);
-    // The reservation placeholder rides the empty second line.
-    final tailCaret = TextPosition(offset: flat.lastIndexOf('￼'));
-    final anchor =
-        paragraph.getOffsetForCaret(tailCaret, Rect.zero).dy +
-        paragraph.getFullHeightForCaret(tailCaret) / 2 +
-        bias +
-        SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
-    expect(
-      (stub.rect.center.dy - anchor).abs(),
-      lessThan(0.1),
-      reason: 'the ink-less line shares the ink lines\' anchor convention',
-    );
-    await windDown(tester, h.controller);
-  });
+  testWidgets(
+    'the empty tail line anchors on the strut line plus the ink bias',
+    (tester) async {
+      // 反馈十四 with 反馈十二's convention: an ink-less line a multi-line
+      // capsule covers anchors its band on the strut-locked caret line
+      // center plus the paragraph's own ink bias — the anchor its
+      // siblings' ink lines land on — never the raw caret center (the
+      // stub used to sit a bias high, reading detached from the band
+      // above).
+      final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张三\n');
+      final paragraph = previewParagraph(tester);
+      final stub = h.surface.capsuleBandsForTest()[1]![1];
+      final flat = h.surface.flatBaseText; // 发给￼张三\n￼
+      final inkLines = textLineInkBoxes(
+        paragraph,
+        placeholderPositions(flat),
+        flat.length,
+      );
+      final firstCaret = const TextPosition(offset: 0);
+      final bias =
+          inkLines.first.center.dy -
+          (paragraph.getOffsetForCaret(firstCaret, Rect.zero).dy +
+              paragraph.getFullHeightForCaret(firstCaret) / 2);
+      // The reservation placeholder rides the empty second line.
+      final tailCaret = TextPosition(offset: flat.lastIndexOf('￼'));
+      final anchor =
+          paragraph.getOffsetForCaret(tailCaret, Rect.zero).dy +
+          paragraph.getFullHeightForCaret(tailCaret) / 2 +
+          bias +
+          SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
+      expect(
+        (stub.rect.center.dy - anchor).abs(),
+        lessThan(0.1),
+        reason: 'the ink-less line shares the ink lines\' anchor convention',
+      );
+      await windDown(tester, h.controller);
+    },
+  );
 
   testWidgets('capsule geometry never depends on what precedes it', (
     tester,
@@ -1386,8 +1388,7 @@ void main() {
       prefill3: '',
       pins: 3,
     );
-    double width(int id) =>
-        h.surface.capsuleSegmentsForTest()[id]!.first.width;
+    double width(int id) => h.surface.capsuleSegmentsForTest()[id]!.first.width;
     double left(int id) => h.surface.capsuleSegmentsForTest()[id]!.first.left;
     double gap(int a, int b) =>
         h.surface.capsuleSegmentsForTest()[b]!.first.left -
@@ -1439,8 +1440,7 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets(
-    'an ink-less line anchors its chrome on the strut line box', (
+  testWidgets('an ink-less line anchors its chrome on the strut line box', (
     tester,
   ) async {
     // 反馈十二: a line of capsules with no text ink has no ink box to
@@ -1463,7 +1463,9 @@ void main() {
     final flat = h.surface.flatBaseText; // ￼￼￼￼\n话
     // Line 1's caret center, and the bias calibrated from line 2's ink.
     final line1Center =
-        paragraph.getOffsetForCaret(const TextPosition(offset: 0), Rect.zero).dy +
+        paragraph
+            .getOffsetForCaret(const TextPosition(offset: 0), Rect.zero)
+            .dy +
         paragraph.getFullHeightForCaret(const TextPosition(offset: 0)) / 2;
     final huaAt = flat.indexOf('话');
     final huaPosition = TextPosition(offset: huaAt);
@@ -1475,10 +1477,7 @@ void main() {
       placeholderPositions(flat),
       flat.length,
     );
-    final huaInkCenter = inkLines
-        .last
-        .center
-        .dy;
+    final huaInkCenter = inkLines.last.center.dy;
     final bias = huaInkCenter - huaCaretCenter;
 
     final ease = SrCapsule.opticalEase * SrType.bodyLarge.fontSize!;
@@ -1487,7 +1486,8 @@ void main() {
       expect(
         (pill.center.dy - (line1Center + bias + ease)).abs(),
         lessThan(0.1),
-        reason: 'the fallback anchor is the strut center plus the ink '
+        reason:
+            'the fallback anchor is the strut center plus the ink '
             'bias, id $id',
       );
     }
@@ -1508,9 +1508,7 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('a capsule starting a line keeps its breathing', (
-    tester,
-  ) async {
+  testWidgets('a capsule starting a line keeps its breathing', (tester) async {
     final h = await pumpSlotPreview(tester, body: '‡1‡开个会', prefill: '张三');
     final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
     // 反馈十六 (2026-09-10): a line's start keeps the sidePad — the
@@ -1526,9 +1524,8 @@ void main() {
   });
 
   testWidgets(
-    'adjacent capsules keep one spacing, whatever the neighbour holds', (
-    tester,
-    ) async {
+    'adjacent capsules keep one spacing, whatever the neighbour holds',
+    (tester) async {
       // 反馈十一: two capsules with nothing between them — a following
       // capsule's chip placeholder is CONTENT, not "nothing follows", so
       // the first pill never swells into the shared gap while its
@@ -1566,48 +1563,47 @@ void main() {
   );
 
   testWidgets(
-    'a capsule ending its line keeps its breathing tail (single line)', (
-    tester,
-  ) async {
-    final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张三');
-    final paragraph = previewParagraph(tester);
-    final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
-    final flat = h.surface.flatBaseText;
-    final valueStart = flat.indexOf('张三');
-    final valueRight = paragraph
-        .getBoxesForSelection(
-          TextSelection(baseOffset: valueStart, extentOffset: valueStart + 2),
-        )
-        .last
-        .right;
-    // Nothing follows the capsule on the line — 反馈十六: the tail
-    // breathing stays anyway; the pill takes the parking pad only.
-    expect(pill.right, closeTo(valueRight + SrCapsule.valuePad, 0.5));
-    await windDown(tester, h.controller);
-  });
+    'a capsule ending its line keeps its breathing tail (single line)',
+    (tester) async {
+      final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张三');
+      final paragraph = previewParagraph(tester);
+      final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
+      final flat = h.surface.flatBaseText;
+      final valueStart = flat.indexOf('张三');
+      final valueRight = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: valueStart, extentOffset: valueStart + 2),
+          )
+          .last
+          .right;
+      // Nothing follows the capsule on the line — 反馈十六: the tail
+      // breathing stays anyway; the pill takes the parking pad only.
+      expect(pill.right, closeTo(valueRight + SrCapsule.valuePad, 0.5));
+      await windDown(tester, h.controller);
+    },
+  );
 
   testWidgets(
-    'the last band of a multi-line capsule ending the line keeps its tail too', (
-    tester,
-  ) async {
-    final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张\n三');
-    final paragraph = previewParagraph(tester);
-    final rects = h.surface.capsuleSegmentsForTest()[1]!;
-    expect(rects.length, 2);
-    final flat = h.surface.flatBaseText; // 发给￼张\n三￼
-    final sanStart = flat.indexOf('三');
-    final sanRight = paragraph
-        .getBoxesForSelection(
-          TextSelection(baseOffset: sanStart, extentOffset: sanStart + 1),
-        )
-        .last
-        .right;
-    expect(rects[1].right, closeTo(sanRight + SrCapsule.valuePad, 0.5));
-    await windDown(tester, h.controller);
-  });
+    'the last band of a multi-line capsule ending the line keeps its tail too',
+    (tester) async {
+      final h = await pumpSlotPreview(tester, body: '发给‡1‡', prefill: '张\n三');
+      final paragraph = previewParagraph(tester);
+      final rects = h.surface.capsuleSegmentsForTest()[1]!;
+      expect(rects.length, 2);
+      final flat = h.surface.flatBaseText; // 发给￼张\n三￼
+      final sanStart = flat.indexOf('三');
+      final sanRight = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: sanStart, extentOffset: sanStart + 1),
+          )
+          .last
+          .right;
+      expect(rects[1].right, closeTo(sanRight + SrCapsule.valuePad, 0.5));
+      await windDown(tester, h.controller);
+    },
+  );
 
-  testWidgets(
-    'an auto-wrapped value renders square cut ends with flush text', (
+  testWidgets('an auto-wrapped value renders square cut ends with flush text', (
     tester,
   ) async {
     // 截断直角、文字贴边 (D3 反馈五终裁): the wrap CUTS a line's end, the
@@ -1619,7 +1615,11 @@ void main() {
     final paragraph = previewParagraph(tester);
     final column = paragraph.constraints.maxWidth;
     final bands = h.surface.capsuleBandsForTest()[1]!;
-    expect(bands.length, greaterThan(1), reason: 'the value overflows one line');
+    expect(
+      bands.length,
+      greaterThan(1),
+      reason: 'the value overflows one line',
+    );
     expect(bands.first.leftRounded, isTrue, reason: 'the chip cap is natural');
     expect(bands.first.rightRounded, isFalse, reason: 'the wrapper cut it');
     expect(bands.last.leftRounded, isFalse, reason: 'the wrapper cut it');
@@ -1671,12 +1671,16 @@ void main() {
     final probe = previewParagraph(tester);
     final column = probe.constraints.maxWidth;
     final advance = probe
-        .getBoxesForSelection(const TextSelection(baseOffset: 0, extentOffset: 1))
+        .getBoxesForSelection(
+          const TextSelection(baseOffset: 0, extentOffset: 1),
+        )
         .first
         .toRect()
         .width;
     final chipWidth = probe
-        .getBoxesForSelection(const TextSelection(baseOffset: 2, extentOffset: 3))
+        .getBoxesForSelection(
+          const TextSelection(baseOffset: 2, extentOffset: 3),
+        )
         .first
         .toRect()
         .width;
@@ -1700,8 +1704,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 400));
     final surface =
-        tester.state(find.byKey(const Key('session-text')))
-            as SlotSurfaceState;
+        tester.state(find.byKey(const Key('session-text'))) as SlotSurfaceState;
 
     final paragraph = previewParagraph(tester);
     final flat = surface.flatBaseText; // 话*k ￼ 测 ￼ 乙丙丁
@@ -1734,7 +1737,10 @@ void main() {
     final reservationAt = flat.lastIndexOf('￼');
     final reservationBox = paragraph
         .getBoxesForSelection(
-          TextSelection(baseOffset: reservationAt, extentOffset: reservationAt + 1),
+          TextSelection(
+            baseOffset: reservationAt,
+            extentOffset: reservationAt + 1,
+          ),
         )
         .first
         .toRect();
@@ -1752,104 +1758,117 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('composing at the value end near the line edge keeps the wrap flush', (
-    tester,
-  ) async {
-    // 停车场 04 third round (真机: IME 组合让胶囊贴到最右缘时,第 2 行仍
-    // 异常缩进): while a composition rides the value, the laid-out
-    // paragraph carries the run spliced in and the slot's reservation
-    // placeholder sits at its SHIFTED index — the base offset used to
-    // probe it landed inside the composing text instead, so neither the
-    // measure nor the verification ever saw the wrap. Both now probe
-    // paint space.
-    final h = await pumpSlotPreview(tester);
-    final probe = previewParagraph(tester);
-    final column = probe.constraints.maxWidth;
-    final advance = probe
-        .getBoxesForSelection(const TextSelection(baseOffset: 0, extentOffset: 1))
-        .first
-        .toRect()
-        .width;
-    final chipWidth = probe
-        .getBoxesForSelection(const TextSelection(baseOffset: 2, extentOffset: 3))
-        .first
-        .toRect()
-        .width;
-    // The committed value keeps a full reservation's room (no fit yet);
-    // one composing letter lands the capsule's edge inside [0.75, 16) —
-    // the trigger zone.
-    final k = ((column - chipWidth - advance - 16) / advance).floor();
+  testWidgets(
+    'composing at the value end near the line edge keeps the wrap flush',
+    (tester) async {
+      // 停车场 04 third round (真机: IME 组合让胶囊贴到最右缘时,第 2 行仍
+      // 异常缩进): while a composition rides the value, the laid-out
+      // paragraph carries the run spliced in and the slot's reservation
+      // placeholder sits at its SHIFTED index — the base offset used to
+      // probe it landed inside the composing text instead, so neither the
+      // measure nor the verification ever saw the wrap. Both now probe
+      // paint space.
+      final h = await pumpSlotPreview(tester);
+      final probe = previewParagraph(tester);
+      final column = probe.constraints.maxWidth;
+      final advance = probe
+          .getBoxesForSelection(
+            const TextSelection(baseOffset: 0, extentOffset: 1),
+          )
+          .first
+          .toRect()
+          .width;
+      final chipWidth = probe
+          .getBoxesForSelection(
+            const TextSelection(baseOffset: 2, extentOffset: 3),
+          )
+          .first
+          .toRect()
+          .width;
+      // The committed value keeps a full reservation's room (no fit yet);
+      // one composing letter lands the capsule's edge inside [0.75, 16) —
+      // the trigger zone.
+      final k = ((column - chipWidth - advance - 16) / advance).floor();
 
-    await h.gateway.reroll();
-    await tester.pump(const Duration(milliseconds: 400));
-    h.gateway.emit(
-      BridgeEvent.rectifiedTextChunk(delta: '话' * k + '‡1‡' + '乙丙丁'),
-    );
-    h.gateway.emit(
-      const BridgeEvent.previewPrefills(
-        prefills: [BridgePrefillRow(number: 1, value: '测')],
-      ),
-    );
-    h.gateway.emit(
-      const BridgeEvent.sessionStateChanged(
-        from: BridgeSessionState.rectifying,
-        to: BridgeSessionState.preview,
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 400));
-    final surface =
-        tester.state(find.byKey(const Key('session-text')))
-            as SlotSurfaceState;
-    surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
-    await tester.pump();
+      await h.gateway.reroll();
+      await tester.pump(const Duration(milliseconds: 400));
+      h.gateway.emit(
+        BridgeEvent.rectifiedTextChunk(delta: '话' * k + '‡1‡' + '乙丙丁'),
+      );
+      h.gateway.emit(
+        const BridgeEvent.previewPrefills(
+          prefills: [BridgePrefillRow(number: 1, value: '测')],
+        ),
+      );
+      h.gateway.emit(
+        const BridgeEvent.sessionStateChanged(
+          from: BridgeSessionState.rectifying,
+          to: BridgeSessionState.preview,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      final surface = tester.state(
+        find.byKey(const Key('session-text')),
+      ) as SlotSurfaceState;
+      surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
+      await tester.pump();
 
-    // The engine's compose-at-value-end payload: the value's characters
-    // kept, the run appended at its end (F20's replay shape).
-    h.tester.testTextInput.updateEditingValue(
-      TextEditingValue(
-        text: '话' * k + '￼测a￼乙丙丁',
-        selection: TextSelection.collapsed(offset: k + 3),
-        composing: TextRange(start: k + 2, end: k + 3),
-      ),
-    );
-    await tester.pump();
-    expect(surface.composingText, 'a');
+      // The engine's compose-at-value-end payload: the value's characters
+      // kept, the run appended at its end (F20's replay shape).
+      h.tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: '话' * k + '￼测a￼乙丙丁',
+          selection: TextSelection.collapsed(offset: k + 3),
+          composing: TextRange(start: k + 2, end: k + 3),
+        ),
+      );
+      await tester.pump();
+      expect(surface.composingText, 'a');
 
-    final paragraph = previewParagraph(tester);
-    final painted = surface.paintedTextForTest; // 话*k ￼ 测 a ￼ 乙丙丁
-    final composingBox = paragraph
-        .getBoxesForSelection(TextSelection(baseOffset: k + 2, extentOffset: k + 3))
-        .first
-        .toRect();
-    // The composition pushed the capsule's edge into the trigger zone.
-    expect(column - composingBox.right, lessThan(16));
+      final paragraph = previewParagraph(tester);
+      final painted = surface.paintedTextForTest; // 话*k ￼ 测 a ￼ 乙丙丁
+      final composingBox = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: k + 2, extentOffset: k + 3),
+          )
+          .first
+          .toRect();
+      // The composition pushed the capsule's edge into the trigger zone.
+      expect(column - composingBox.right, lessThan(16));
 
-    // The following text wrapped below — flush, never led by the
-    // reservation.
-    final followStart = painted.indexOf('乙');
-    final followBox = paragraph
-        .getBoxesForSelection(
-          TextSelection(baseOffset: followStart, extentOffset: followStart + 1),
-        )
-        .first
-        .toRect();
-    expect(followBox.top, greaterThan(composingBox.top + 1));
-    expect(followBox.left, closeTo(0, 0.5));
+      // The following text wrapped below — flush, never led by the
+      // reservation.
+      final followStart = painted.indexOf('乙');
+      final followBox = paragraph
+          .getBoxesForSelection(
+            TextSelection(
+              baseOffset: followStart,
+              extentOffset: followStart + 1,
+            ),
+          )
+          .first
+          .toRect();
+      expect(followBox.top, greaterThan(composingBox.top + 1));
+      expect(followBox.left, closeTo(0, 0.5));
 
-    // The reservation itself rides the composing run's line.
-    final reservationAt = painted.lastIndexOf('￼');
-    final reservationBox = paragraph
-        .getBoxesForSelection(
-          TextSelection(baseOffset: reservationAt, extentOffset: reservationAt + 1),
-        )
-        .first
-        .toRect();
-    expect(
-      (reservationBox.center.dy - composingBox.center.dy).abs(),
-      lessThan(5),
-    );
-    await windDown(tester, h.controller);
-  });
+      // The reservation itself rides the composing run's line.
+      final reservationAt = painted.lastIndexOf('￼');
+      final reservationBox = paragraph
+          .getBoxesForSelection(
+            TextSelection(
+              baseOffset: reservationAt,
+              extentOffset: reservationAt + 1,
+            ),
+          )
+          .first
+          .toRect();
+      expect(
+        (reservationBox.center.dy - composingBox.center.dy).abs(),
+        lessThan(5),
+      );
+      await windDown(tester, h.controller);
+    },
+  );
 
   testWidgets('composing at the capsule\'s left pushes the capsule right', (
     tester,
@@ -1983,65 +2002,67 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('while typing at the value end the caret and the reservation ride the line', (
-    tester,
-  ) async {
-    // 反馈六 (2026-09-09): while an insertion tail trails the caret, the
-    // caret renders on the line its preceding character is on — the
-    // wrapper breaks at the next unbreakable unit, not at the caret's
-    // own character. 停车场 04 (2026-09-12) retires that unit on this
-    // path: the reservation after the value is fitted to the line's own
-    // leftover, so it never wraps ahead of the text and the boundary it
-    // used to create — the real engine seating the caret at the next
-    // line's start while the next glyph still fit — no longer arises.
-    // The caret rides the line because nothing has wrapped past it; the
-    // upstream rule itself keeps its chip- and body-boundary homes
-    // (F1/F7 below).
-    final h = await pumpSlotPreview(tester, prefill: 'a');
-    final paragraph = previewParagraph(tester);
-    h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
-    await tester.pump();
+  testWidgets(
+    'while typing at the value end the caret and the reservation ride the line',
+    (tester) async {
+      // 反馈六 (2026-09-09): while an insertion tail trails the caret, the
+      // caret renders on the line its preceding character is on — the
+      // wrapper breaks at the next unbreakable unit, not at the caret's
+      // own character. 停车场 04 (2026-09-12) retires that unit on this
+      // path: the reservation after the value is fitted to the line's own
+      // leftover, so it never wraps ahead of the text and the boundary it
+      // used to create — the real engine seating the caret at the next
+      // line's start while the next glyph still fit — no longer arises.
+      // The caret rides the line because nothing has wrapped past it; the
+      // upstream rule itself keeps its chip- and body-boundary homes
+      // (F1/F7 below).
+      final h = await pumpSlotPreview(tester, prefill: 'a');
+      final paragraph = previewParagraph(tester);
+      h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
+      await tester.pump();
 
-    // Grow one long unbroken word letter by letter, the way it is typed:
-    // at every step the caret must ride the line the value's last
-    // character is on, and the reservation must never trail onto a
-    // later line ahead of the following content.
-    for (var n = 0; n < 110; n++) {
-      await h.type('a');
-      final flat = h.surface.flatBaseText;
-      final valueEnd = flat.lastIndexOf('￼');
-      final lastChar = paragraph
-          .getBoxesForSelection(
-            TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
-          )
-          .last
-          .toRect();
-      final caret = h.surface.caretRect()!;
-      expect(
-        (caret.center.dy - lastChar.center.dy).abs(),
-        lessThan(10),
-        reason: 'the caret rides the line its preceding character is on '
-            '(letter $n)',
-      );
-      final reservation = paragraph
-          .getBoxesForSelection(
-            TextSelection(baseOffset: valueEnd, extentOffset: valueEnd + 1),
-          )
-          .last
-          .toRect();
-      // Line membership by box CENTRES (the 4-px middle-aligned
-      // placeholder sits a few px below a glyph's top on the SAME line).
-      final pitch = paragraph.getFullHeightForCaret(
-        TextPosition(offset: valueEnd),
-      );
-      expect(
-        (reservation.center.dy - lastChar.center.dy).abs(),
-        lessThan(pitch / 2),
-        reason: 'the reservation stays on the value\'s line (letter $n)',
-      );
-    }
-    await windDown(tester, h.controller);
-  });
+      // Grow one long unbroken word letter by letter, the way it is typed:
+      // at every step the caret must ride the line the value's last
+      // character is on, and the reservation must never trail onto a
+      // later line ahead of the following content.
+      for (var n = 0; n < 110; n++) {
+        await h.type('a');
+        final flat = h.surface.flatBaseText;
+        final valueEnd = flat.lastIndexOf('￼');
+        final lastChar = paragraph
+            .getBoxesForSelection(
+              TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
+            )
+            .last
+            .toRect();
+        final caret = h.surface.caretRect()!;
+        expect(
+          (caret.center.dy - lastChar.center.dy).abs(),
+          lessThan(10),
+          reason:
+              'the caret rides the line its preceding character is on '
+              '(letter $n)',
+        );
+        final reservation = paragraph
+            .getBoxesForSelection(
+              TextSelection(baseOffset: valueEnd, extentOffset: valueEnd + 1),
+            )
+            .last
+            .toRect();
+        // Line membership by box CENTRES (the 4-px middle-aligned
+        // placeholder sits a few px below a glyph's top on the SAME line).
+        final pitch = paragraph.getFullHeightForCaret(
+          TextPosition(offset: valueEnd),
+        );
+        expect(
+          (reservation.center.dy - lastChar.center.dy).abs(),
+          lessThan(pitch / 2),
+          reason: 'the reservation stays on the value\'s line (letter $n)',
+        );
+      }
+      await windDown(tester, h.controller);
+    },
+  );
 
   testWidgets('backspace at the wrap boundary keeps the caret on the line', (
     tester,
@@ -2171,65 +2192,66 @@ void main() {
     await windDown(tester, h.controller);
   });
 
-  testWidgets('End on a line-filling value lands at the line\'s end, on the line', (
-    tester,
-  ) async {
-    // The value's glyphs fill the line and the (invisible) reservation
-    // is fitted to the line's leftover (停车场 04, 2026-09-12): the
-    // reservation stays beside the value's last glyph, the outside dock
-    // past it seats on the SAME line, and End walks to the line's end
-    // without ever jumping ahead of the text. (The state this test used
-    // to walk — the reservation trailing onto the next line, a divergent
-    // boundary the outside dock seated beyond — is retired at its
-    // source; the line's end is now honestly the position past the
-    // capsule.)
-    final h = await pumpSlotPreview(tester, prefill: 'a');
-    final paragraph = previewParagraph(tester);
-    h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
-    await tester.pump();
+  testWidgets(
+    'End on a line-filling value lands at the line\'s end, on the line',
+    (tester) async {
+      // The value's glyphs fill the line and the (invisible) reservation
+      // is fitted to the line's leftover (停车场 04, 2026-09-12): the
+      // reservation stays beside the value's last glyph, the outside dock
+      // past it seats on the SAME line, and End walks to the line's end
+      // without ever jumping ahead of the text. (The state this test used
+      // to walk — the reservation trailing onto the next line, a divergent
+      // boundary the outside dock seated beyond — is retired at its
+      // source; the line's end is now honestly the position past the
+      // capsule.)
+      final h = await pumpSlotPreview(tester, prefill: 'a');
+      final paragraph = previewParagraph(tester);
+      h.surface.editor.place(const SlotCursor.inside(at: 2, offset: 1));
+      await tester.pump();
 
-    // Type until the value's glyphs themselves span two lines.
-    var wrapped = false;
-    for (var n = 0; n < 110 && !wrapped; n++) {
-      await h.type('a');
+      // Type until the value's glyphs themselves span two lines.
+      var wrapped = false;
+      for (var n = 0; n < 110 && !wrapped; n++) {
+        await h.type('a');
+        final flat = h.surface.flatBaseText;
+        final valueEnd = flat.lastIndexOf('￼');
+        final first = paragraph
+            .getBoxesForSelection(
+              const TextSelection(baseOffset: 3, extentOffset: 4),
+            )
+            .first;
+        final last = paragraph
+            .getBoxesForSelection(
+              TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
+            )
+            .last;
+        wrapped = last.top > first.top + 1;
+      }
+      expect(wrapped, isTrue, reason: 'the walk reached the glyph wrap');
+
+      await h.key(LogicalKeyboardKey.end);
+      final editor = h.surface.editor;
+      expect(
+        editor.caret,
+        editor.stops.last,
+        reason: 'the line\'s end is the document\'s last stop',
+      );
       final flat = h.surface.flatBaseText;
       final valueEnd = flat.lastIndexOf('￼');
-      final first = paragraph
-          .getBoxesForSelection(
-            const TextSelection(baseOffset: 3, extentOffset: 4),
-          )
-          .first;
-      final last = paragraph
+      final lastChar = paragraph
           .getBoxesForSelection(
             TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
           )
           .last;
-      wrapped = last.top > first.top + 1;
-    }
-    expect(wrapped, isTrue, reason: 'the walk reached the glyph wrap');
-
-    await h.key(LogicalKeyboardKey.end);
-    final editor = h.surface.editor;
-    expect(
-      editor.caret,
-      editor.stops.last,
-      reason: 'the line\'s end is the document\'s last stop',
-    );
-    final flat = h.surface.flatBaseText;
-    final valueEnd = flat.lastIndexOf('￼');
-    final lastChar = paragraph
-        .getBoxesForSelection(
-          TextSelection(baseOffset: valueEnd - 1, extentOffset: valueEnd),
-        )
-        .last;
-    final caret = h.surface.caretRect()!;
-    expect(
-      (caret.center.dy - (lastChar.top + lastChar.bottom) / 2).abs(),
-      lessThan(10),
-      reason: 'End renders on the value\'s line',
-    );
-    await windDown(tester, h.controller);
-  });
+      final caret = h.surface.caretRect()!;
+      expect(
+        (caret.center.dy - (lastChar.top + lastChar.bottom) / 2).abs(),
+        lessThan(10),
+        reason: 'End renders on the value\'s line',
+      );
+      await windDown(tester, h.controller);
+    },
+  );
 
   testWidgets('a tap low on the line still keeps the caret on that line', (
     tester,
@@ -2361,9 +2383,10 @@ void main() {
     final mask = stub.cutFadeMask(stub.rect)!;
     final recorder = PictureRecorder();
     Canvas(recorder).drawRect(stub.rect, Paint()..shader = mask);
-    final image = await recorder
-        .endRecording()
-        .toImage(width.ceil(), SrCapsule.height.ceil());
+    final image = await recorder.endRecording().toImage(
+      width.ceil(),
+      SrCapsule.height.ceil(),
+    );
     final bytes = await image.toByteData();
     int alphaAt(int x) => bytes!.getUint8((5 * width.ceil() + x) * 4 + 3);
     // The ramp dissolves: near the left edge the ink is mostly gone.
@@ -2374,82 +2397,76 @@ void main() {
     }
   });
 
-  testWidgets(
-    'a regeneration keeps the modified and the emptied, refreshes the untouched '
-    '(J7 携带项:掏空不被新预填复活)',
-    (tester) async {
-      // The full J6→J7 journey on the inline grammar (ruling 26): three
-      // slots arrive with prefills, the user rewrites 1, empties 2,
-      // leaves 3 — the reroll must keep 1 and 2 exactly as the user
-      // left them (the emptied one included; the failing J7 item of
-      // ticket 25's round, carried here for the inline path) and hand
-      // 3 the fresh prefill.
-      final h = await pumpSlotPreview(
-        tester,
-        body: '改‡1:旧甲‡掏‡2:旧乙‡留‡3:旧丙‡',
-        prefill: '甲',
-        prefill2: '乙',
-        prefill3: '丙',
-        pins: 3,
-      );
-      expect(h.surface.capsuleSegmentsForTest().keys, [1, 2, 3]);
+  testWidgets('a regeneration keeps the modified and the emptied, refreshes the untouched '
+      '(J7 携带项:掏空不被新预填复活)', (tester) async {
+    // The full J6→J7 journey on the inline grammar (ruling 26): three
+    // slots arrive with prefills, the user rewrites 1, empties 2,
+    // leaves 3 — the reroll must keep 1 and 2 exactly as the user
+    // left them (the emptied one included; the failing J7 item of
+    // ticket 25's round, carried here for the inline path) and hand
+    // 3 the fresh prefill.
+    final h = await pumpSlotPreview(
+      tester,
+      body: '改‡1:旧甲‡掏‡2:旧乙‡留‡3:旧丙‡',
+      prefill: '甲',
+      prefill2: '乙',
+      prefill3: '丙',
+      pins: 3,
+    );
+    expect(h.surface.capsuleSegmentsForTest().keys, [1, 2, 3]);
 
-      // Rewrite slot 1 (a tap on a prefill capsule selects the whole
-      // value; typing over the selection replaces it wholesale).
-      await tester.tapAt(h.capsuleRect(1).center);
-      await tester.pump();
-      await h.type('X');
-      // Empty slot 2 (select-all, then delete the covered value).
-      await tester.tapAt(h.capsuleRect(2).center);
-      await tester.pump();
-      await h.key(LogicalKeyboardKey.backspace);
-      final round1 = h.surface.editor.doc;
-      expect(round1.valueOf(1), 'X');
-      expect(round1.valueOf(2), '');
-      expect(round1.valueOf(3), '丙');
-      expect(h.controller.previewText, '改X掏留丙');
+    // Rewrite slot 1 (a tap on a prefill capsule selects the whole
+    // value; typing over the selection replaces it wholesale).
+    await tester.tapAt(h.capsuleRect(1).center);
+    await tester.pump();
+    await h.type('X');
+    // Empty slot 2 (select-all, then delete the covered value).
+    await tester.tapAt(h.capsuleRect(2).center);
+    await tester.pump();
+    await h.key(LogicalKeyboardKey.backspace);
+    final round1 = h.surface.editor.doc;
+    expect(round1.valueOf(1), 'X');
+    expect(round1.valueOf(2), '');
+    expect(round1.valueOf(3), '丙');
+    expect(h.controller.previewText, '改X掏留丙');
 
-      // Regenerate: a fresh round over the same pins, every slot
-      // prefilled anew — the engine's order (chunks, table, Preview
-      // change) exactly as the splitter delivers it.
-      await h.gateway.reroll();
-      await tester.pump(const Duration(milliseconds: 400));
-      h.gateway.emit(
-        const BridgeEvent.rectifiedTextChunk(
-          delta: '改‡1:新甲‡掏‡2:新乙‡留‡3:新丙‡',
-        ),
-      );
-      h.gateway.emit(
-        const BridgeEvent.previewPrefills(
-          prefills: [
-            BridgePrefillRow(number: 1, value: '新甲'),
-            BridgePrefillRow(number: 2, value: '新乙'),
-            BridgePrefillRow(number: 3, value: '新丙'),
-          ],
-        ),
-      );
-      h.gateway.emit(
-        const BridgeEvent.sessionStateChanged(
-          from: BridgeSessionState.rectifying,
-          to: BridgeSessionState.preview,
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 400));
-      final surface =
-          tester.state(find.byKey(const Key('session-text')))
-              as SlotSurfaceState;
+    // Regenerate: a fresh round over the same pins, every slot
+    // prefilled anew — the engine's order (chunks, table, Preview
+    // change) exactly as the splitter delivers it.
+    await h.gateway.reroll();
+    await tester.pump(const Duration(milliseconds: 400));
+    h.gateway.emit(
+      const BridgeEvent.rectifiedTextChunk(delta: '改‡1:新甲‡掏‡2:新乙‡留‡3:新丙‡'),
+    );
+    h.gateway.emit(
+      const BridgeEvent.previewPrefills(
+        prefills: [
+          BridgePrefillRow(number: 1, value: '新甲'),
+          BridgePrefillRow(number: 2, value: '新乙'),
+          BridgePrefillRow(number: 3, value: '新丙'),
+        ],
+      ),
+    );
+    h.gateway.emit(
+      const BridgeEvent.sessionStateChanged(
+        from: BridgeSessionState.rectifying,
+        to: BridgeSessionState.preview,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    final surface =
+        tester.state(find.byKey(const Key('session-text'))) as SlotSurfaceState;
 
-      // Retention: 1 keeps the rewrite, 2 stays emptied — the new
-      // prefill must not revive it — and 3 follows the fresh prefill.
-      final doc = surface.editor.doc;
-      expect(doc.valueOf(1), 'X');
-      expect(doc.valueOf(2), '');
-      expect(doc.valueOf(3), '新丙');
-      expect(doc.visibleIdentities, {1, 2, 3});
-      expect(h.controller.previewText, '改X掏留新丙');
-      // The regeneration is the undo barrier (14 号票).
-      expect(surface.editor.canUndo, isFalse);
-      await windDown(tester, h.controller);
-    },
-  );
+    // Retention: 1 keeps the rewrite, 2 stays emptied — the new
+    // prefill must not revive it — and 3 follows the fresh prefill.
+    final doc = surface.editor.doc;
+    expect(doc.valueOf(1), 'X');
+    expect(doc.valueOf(2), '');
+    expect(doc.valueOf(3), '新丙');
+    expect(doc.visibleIdentities, {1, 2, 3});
+    expect(h.controller.previewText, '改X掏留新丙');
+    // The regeneration is the undo barrier (14 号票).
+    expect(surface.editor.canUndo, isFalse);
+    await windDown(tester, h.controller);
+  });
 }

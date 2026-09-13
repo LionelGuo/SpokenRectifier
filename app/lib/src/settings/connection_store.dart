@@ -29,7 +29,6 @@ import 'package:collection/collection.dart' show MapEquality;
 
 import '../rust/api.dart' as rust;
 
-
 /// A key's state for the diff-echo field: its placement, plus the stored
 /// value when (and only when) it lives in the local layer.
 class KeyInfo {
@@ -214,8 +213,17 @@ class AsrConnection {
       other.azure == azure;
 
   @override
-  int get hashCode =>
-      Object.hash(provider, model, language, baseUrl, key, aliyun, volcengine, tencent, azure);
+  int get hashCode => Object.hash(
+    provider,
+    model,
+    language,
+    baseUrl,
+    key,
+    aliyun,
+    volcengine,
+    tencent,
+    azure,
+  );
 }
 
 /// The editor's whole `[asr]` card: the common fields plus every
@@ -367,9 +375,8 @@ class RustConnectionStore implements ConnectionStore {
   }
 
   @override
-  Future<AsrConnection> saveAsr({required AsrEdit edit}) => rust
-      .setAsrConnection(edit: _asrEditToWire(edit))
-      .then(_asrFromWire);
+  Future<AsrConnection> saveAsr({required AsrEdit edit}) =>
+      rust.setAsrConnection(edit: _asrEditToWire(edit)).then(_asrFromWire);
 
   @override
   Future<String?> asrEndpoint({
@@ -450,37 +457,42 @@ class RustConnectionStore implements ConnectionStore {
     ),
   );
 
-  static AsrConnection _asrFromWire(rust.BridgeAsrConnection asr) => AsrConnection(
-    provider: asr.provider,
-    model: asr.model,
-    language: asr.language,
-    baseUrl: asr.baseUrl,
-    endpoint: asr.endpoint,
-    key: _keyFromWire(asr.key),
-    aliyun: AsrAliyun(
-      workspaceId: asr.aliyun.workspaceId,
-      region: asr.aliyun.region,
-    ),
-    volcengine: AsrVolcengine(
-      appId: asr.volcengine.appId,
-      resourceId: asr.volcengine.resourceId,
-      accessKey: _keyFromWire(asr.volcengine.accessKey),
-    ),
-    tencent: AsrTencent(
-      appId: asr.tencent.appId,
-      secretId: _keyFromWire(asr.tencent.secretId),
-      secretKey: _keyFromWire(asr.tencent.secretKey),
-    ),
-    azure: AsrAzure(region: asr.azure.region, endpointId: asr.azure.endpointId),
-  );
+  static AsrConnection _asrFromWire(rust.BridgeAsrConnection asr) =>
+      AsrConnection(
+        provider: asr.provider,
+        model: asr.model,
+        language: asr.language,
+        baseUrl: asr.baseUrl,
+        endpoint: asr.endpoint,
+        key: _keyFromWire(asr.key),
+        aliyun: AsrAliyun(
+          workspaceId: asr.aliyun.workspaceId,
+          region: asr.aliyun.region,
+        ),
+        volcengine: AsrVolcengine(
+          appId: asr.volcengine.appId,
+          resourceId: asr.volcengine.resourceId,
+          accessKey: _keyFromWire(asr.volcengine.accessKey),
+        ),
+        tencent: AsrTencent(
+          appId: asr.tencent.appId,
+          secretId: _keyFromWire(asr.tencent.secretId),
+          secretKey: _keyFromWire(asr.tencent.secretKey),
+        ),
+        azure: AsrAzure(
+          region: asr.azure.region,
+          endpointId: asr.azure.endpointId,
+        ),
+      );
 
-  static LlmConnection _llmFromWire(rust.BridgeLlmConnection llm) => LlmConnection(
-    vendor: llm.vendor,
-    baseUrl: llm.baseUrl,
-    model: llm.model,
-    key: _keyFromWire(llm.key),
-    keys: {
-      for (final entry in llm.keys) entry.vendor: _keyFromWire(entry.key),
-    },
-  );
+  static LlmConnection _llmFromWire(rust.BridgeLlmConnection llm) =>
+      LlmConnection(
+        vendor: llm.vendor,
+        baseUrl: llm.baseUrl,
+        model: llm.model,
+        key: _keyFromWire(llm.key),
+        keys: {
+          for (final entry in llm.keys) entry.vendor: _keyFromWire(entry.key),
+        },
+      );
 }
