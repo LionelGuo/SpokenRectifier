@@ -1,9 +1,9 @@
 /// The settings window's navigation domains (设置窗口域骨架, ticket 17).
 ///
-/// Eight entries today (the sidebar IA map's order without 修正, which
-/// arrives with its own ticket): 通用 first — the home domain every
-/// unknown name falls back to — then the daily domains, 模型与连接, and
-/// the tail (保真评测 before 高级/关于).
+/// Nine entries — the sidebar IA map's final order: 通用 first (the home
+/// domain every unknown name falls back to), then the daily domains with
+/// 修正 third (the rectify behavior cards), 模型与连接, and the tail
+/// (保真评测 before 高级/关于).
 
 library;
 
@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 enum SettingsDomain {
   general,
   scenarios,
+  rectify,
   history,
   terms,
   connection,
@@ -24,6 +25,7 @@ extension SettingsDomainX on SettingsDomain {
   String get label => switch (this) {
     SettingsDomain.general => '通用',
     SettingsDomain.scenarios => '场景库',
+    SettingsDomain.rectify => '修正',
     SettingsDomain.history => '历史',
     SettingsDomain.terms => '术语',
     SettingsDomain.connection => '模型与连接',
@@ -35,6 +37,7 @@ extension SettingsDomainX on SettingsDomain {
   IconData get icon => switch (this) {
     SettingsDomain.general => Icons.settings_outlined,
     SettingsDomain.scenarios => Icons.style_outlined,
+    SettingsDomain.rectify => Icons.auto_fix_high_outlined,
     SettingsDomain.history => Icons.history_rounded,
     SettingsDomain.terms => Icons.spellcheck_rounded,
     SettingsDomain.connection => Icons.cloud_outlined,

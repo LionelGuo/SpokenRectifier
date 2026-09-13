@@ -36,6 +36,7 @@ import 'src/settings/caption_theme.dart';
 import 'src/settings/connection_store.dart';
 import 'src/settings/fidelity_eval.dart';
 import 'src/settings/history_store.dart';
+import 'src/settings/rectify_store.dart';
 import 'src/settings/settings_channel.dart';
 import 'src/settings/settings_domain.dart';
 import 'src/settings/settings_glue.dart';
@@ -233,6 +234,7 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
       evalRunner: const RustFidelityEvalRunner(),
       termsStore: const RustTermsStore(),
       connectionStore: const RustConnectionStore(),
+      rectifyStore: const RustRectifyBehaviorStore(),
       systemStore: const RustSystemStore(),
     ),
   );

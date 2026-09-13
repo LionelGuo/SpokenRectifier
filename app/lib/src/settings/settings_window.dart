@@ -5,12 +5,12 @@
 /// data seams are the file-backed stores (the bridge, direct) and its
 /// cross-window link is [SettingsChannel] (events only, never state).
 ///
-/// All eight domains are filled: general (通用 — the theme tri-state
-/// mirror and the orb's visibility), scenarios (场景库), history (历史),
-/// terms (术语), connection (模型与连接), fidelity eval (保真评测),
-/// advanced (高级, read-only escape hatch) and about (关于). The eval run
-/// lives in a controller here — it survives domain switches; closing the
-/// window is what stops it.
+/// All nine domains are filled: general (通用 — the theme tri-state
+/// mirror and the orb's visibility), scenarios (场景库), rectify (修正 —
+/// the [rectify] behavior cards), history (历史), terms (术语),
+/// connection (模型与连接), fidelity eval (保真评测), advanced (高级) and
+/// about (关于). The eval run lives in a controller here — it survives
+/// domain switches; closing the window is what stops it.
 
 library;
 
@@ -25,6 +25,7 @@ import 'caption_theme.dart';
 import 'connection_store.dart';
 import 'fidelity_eval.dart';
 import 'history_store.dart';
+import 'rectify_store.dart';
 import 'settings_about_pane.dart';
 import 'settings_advanced_pane.dart';
 import 'settings_channel.dart';
@@ -33,6 +34,7 @@ import 'settings_domain.dart';
 import 'settings_fidelity_pane.dart';
 import 'settings_general_pane.dart';
 import 'settings_history_pane.dart';
+import 'settings_rectify_pane.dart';
 import 'settings_store.dart';
 import 'settings_terms_pane.dart';
 import 'system_store.dart';
@@ -48,6 +50,7 @@ class SettingsWindowApp extends StatefulWidget {
     required this.evalRunner,
     required this.termsStore,
     required this.connectionStore,
+    required this.rectifyStore,
     required this.systemStore,
     this.globalStore = const RustGlobalDirectiveStore(),
     this.initialTheme = ThemeMode.system,
@@ -79,6 +82,11 @@ class SettingsWindowApp extends StatefulWidget {
   /// The connection domain's seam (the effective `[asr]`/`[llm]`
   /// sections; keys ride as placement + edit, never values).
   final ConnectionStore connectionStore;
+
+  /// The rectify domain's seam (the effective `[rectify]` behavior and
+  /// the post-save engine adoption it shares with the connection
+  /// domain).
+  final RectifyBehaviorStore rectifyStore;
 
   /// The advanced and about domains' seam (read-only timings, version,
   /// and the open-config entry the tray shares).
@@ -357,6 +365,7 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       SettingsDomain.connection => SettingsConnectionPane(
         store: widget.connectionStore,
       ),
+      SettingsDomain.rectify => SettingsRectifyPane(store: widget.rectifyStore),
       SettingsDomain.advanced => SettingsAdvancedPane(
         store: widget.systemStore,
       ),

@@ -1,15 +1,17 @@
-/// Widget tests for the settings window: the eight-domain shell, the
+/// Widget tests for the settings window: the nine-domain shell, the
 /// general domain (the theme tri-state mirror and the orb's visibility
 /// switch), the scenario library editor (add/edit/delete/select through
 /// one dialog), the fidelity-eval domain (run states through the
 /// controller), the history domain (browse/retrieve/retention/
 /// keep-nothing/clear), the terms domain (add/rename/remove over the
-/// same dictionary file), the connection domain (the two endpoint
-/// forms, preset chips, the diff-echo key block), the advanced domain
-/// (the editable timing form + the file escape hatch), the about domain
-/// (version/license/open-config), the cross-window channel contract,
-/// and the main-window controller's library-change reactions.
-/// Everything rides pure-Dart fakes — no Rust dylib, no second engine.
+/// same dictionary file), the rectify domain (the two behavior cards,
+/// pick-to-save whole-model writes, the combination warning), the
+/// connection domain (the two endpoint forms, preset chips, the
+/// diff-echo key block), the advanced domain (the editable timing form
+/// + the file escape hatch), the about domain (version/license/
+/// open-config), the cross-window channel contract, and the main-window
+/// controller's library-change reactions. Everything rides pure-Dart
+/// fakes — no Rust dylib, no second engine.
 
 library;
 
@@ -21,6 +23,7 @@ import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_state.dart';
+import 'package:spokenrectifier_app/src/design/controls.dart' show SrButton;
 import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette;
 import 'package:spokenrectifier_app/src/settings/settings_connection_pane.dart'
@@ -38,6 +41,8 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
 import 'package:spokenrectifier_app/src/settings/connection_store.dart';
 import 'package:spokenrectifier_app/src/settings/fidelity_eval.dart';
 import 'package:spokenrectifier_app/src/settings/history_store.dart';
+import 'package:spokenrectifier_app/src/settings/rectify_store.dart';
+import 'package:spokenrectifier_app/src/settings/settings_rectify_pane.dart';
 import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;
 import 'package:spokenrectifier_app/src/settings/settings_channel.dart';
@@ -202,6 +207,63 @@ class FakeTermsStore implements TermsStore {
 
   @override
   Future<void> remove(String term) async => terms.remove(term);
+}
+
+/// The rectify domain's fake: the behavior in memory; a save records
+/// the ask and returns it as the re-read truth; the post-save engine
+/// adoption ([applyCalls]) is recorded and can be refused
+/// ([FakeRectifyBehaviorStore.failNextApply]).
+class FakeRectifyBehaviorStore implements RectifyBehaviorStore {
+  FakeRectifyBehaviorStore([
+    this.behavior = const RectifyBehavior(
+      fullThinkingPolicy: 'always',
+      fullPrefill: true,
+      lightTouchEnabled: true,
+      lightTouchMaxChars: 40,
+      lightTouchThinkingPolicy: 'always',
+      lightTouchPrefill: true,
+    ),
+  ]);
+
+  /// Today's defaults (ADR-0015: a missing section reads as the
+  /// always-on, prefill-on behavior).
+  RectifyBehavior behavior;
+
+  final saves = <RectifyBehavior>[];
+
+  /// When set, the next save throws (an unwritable layer file).
+  Object? failNextSave;
+
+  /// How many saves handed the files to the live engine afterwards.
+  int applyCalls = 0;
+
+  /// When set, the next apply throws (the engine refused the adoption).
+  Object? failNextApply;
+
+  @override
+  Future<RectifyBehavior> load() async => behavior;
+
+  @override
+  Future<RectifyBehavior> save(RectifyBehavior next) async {
+    if (failNextSave != null) {
+      final failure = failNextSave;
+      failNextSave = null;
+      throw failure!;
+    }
+    saves.add(next);
+    behavior = next;
+    return next;
+  }
+
+  @override
+  Future<void> applyConnections() async {
+    if (failNextApply != null) {
+      final failure = failNextApply;
+      failNextApply = null;
+      throw failure!;
+    }
+    applyCalls++;
+  }
 }
 
 /// The never-configured custom slot (ADR-0018).
@@ -687,6 +749,7 @@ Future<void> pumpSettings(
   FakeFidelityEvalRunner? evalRunner,
   FakeTermsStore? termsStore,
   FakeConnectionStore? connectionStore,
+  FakeRectifyBehaviorStore? rectifyStore,
   FakeSystemStore? systemStore,
   SettingsDomain domain = SettingsDomain.scenarios,
   ThemeMode initialTheme = ThemeMode.system,
@@ -707,6 +770,7 @@ Future<void> pumpSettings(
       evalRunner: evalRunner ?? FakeFidelityEvalRunner(),
       termsStore: termsStore ?? FakeTermsStore(),
       connectionStore: connectionStore ?? FakeConnectionStore(),
+      rectifyStore: rectifyStore ?? FakeRectifyBehaviorStore(),
       systemStore: systemStore ?? FakeSystemStore(),
       captionTheme: captionTheme ?? (_) {},
     ),
@@ -779,15 +843,30 @@ Future<void> scrollPaneTo(WidgetTester tester, Key key) =>
       const Offset(0, 200),
     );
 
+/// The rectify pane's twin of [scrollPaneTo] (the same lazy-ListView
+/// rule; the light card's tail sits below the fold).
+Future<void> scrollRectifyTo(WidgetTester tester, Key key) =>
+    tester.dragUntilVisible(
+      find.byKey(key),
+      find
+          .descendant(
+            of: find.byType(SettingsRectifyPane),
+            matching: find.byType(ListView),
+          )
+          .first,
+      const Offset(0, 200),
+    );
+
 // ---------------------------------------------------------------------------
 // The shell
 // ---------------------------------------------------------------------------
 
 void main() {
-  test('the domain list is the eight-entry sidebar IA order', () {
+  test('the domain list is the nine-entry sidebar IA order', () {
     expect(SettingsDomain.values, [
       SettingsDomain.general,
       SettingsDomain.scenarios,
+      SettingsDomain.rectify,
       SettingsDomain.history,
       SettingsDomain.terms,
       SettingsDomain.connection,
@@ -795,15 +874,17 @@ void main() {
       SettingsDomain.advanced,
       SettingsDomain.about,
     ]);
-    expect(SettingsDomain.fidelity.label, '保真评测');
+    expect(SettingsDomain.rectify.label, '修正');
     // Unknown names fall back to 通用, the sidebar's first domain (the
-    // same target the quick panel's 打开设置 lands on).
-    expect(settingsDomainFromName('rectify'), SettingsDomain.general);
+    // same target the quick panel's 打开设置 lands on); 修正 now carries
+    // its own pane (it was the fallback target before its ticket landed).
+    expect(settingsDomainFromName('rectify'), SettingsDomain.rectify);
+    expect(settingsDomainFromName('nope'), SettingsDomain.general);
     expect(settingsDomainFromName(null), SettingsDomain.general);
     expect(settingsDomainFromName('fidelity'), SettingsDomain.fidelity);
   });
 
-  testWidgets('sidebar lists every domain; all eight are real panes', (
+  testWidgets('sidebar lists every domain; all nine are real panes', (
     tester,
   ) async {
     final channel = FakeSettingsChannel();
@@ -820,6 +901,11 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('settings-theme-light')), findsOneWidget);
     expect(find.byKey(const Key('settings-orb-visible')), findsOneWidget);
+    await tester.tap(find.text('修正'));
+    await tester.pump();
+    await tester.pump(); // the behavior load lands
+    expect(find.text('全量修正 [rectify.full]'), findsOneWidget);
+    expect(find.text('轻修 [rectify.light_touch]'), findsOneWidget);
     await tester.tap(find.text('保真评测'));
     await tester.pump();
     expect(find.text('开始评测'), findsOneWidget);
@@ -1607,6 +1693,392 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('settings-terms-error')), findsOneWidget);
   });
+
+  // -----------------------------------------------------------------------
+  // The rectify domain (修正)
+  // -----------------------------------------------------------------------
+
+  /// A tall surface so both cards (and the light card's tail) build at
+  /// once — a lazy ListView drops off-screen rows, and the default
+  /// 800×600 test window clips the extra-directive field.
+  void tallRectifySurface(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1000, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
+  /// Jump the rectify pane's list back to the top so the header rows
+  /// (the error and saved-note lines) mount again after a scroll.
+  Future<void> jumpRectifyToTop(WidgetTester tester) async {
+    tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(SettingsRectifyPane),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position
+        .jumpTo(0);
+    await tester.pump();
+  }
+
+  testWidgets('the two cards paint; a pick commits the whole model at once', (
+    tester,
+  ) async {
+    tallRectifySurface(tester);
+    final store = FakeRectifyBehaviorStore();
+    await pumpSettings(
+      tester,
+      rectifyStore: store,
+      domain: SettingsDomain.rectify,
+    );
+    await tester.pump(); // the behavior load lands
+
+    // The section-named card headers (full on top — the default
+    // path), the inputs seeded from the committed truth.
+    expect(find.text('全量修正 [rectify.full]'), findsOneWidget);
+    expect(find.text('轻修 [rectify.light_touch]'), findsOneWidget);
+    expect(
+      fieldText(tester, const Key('settings-rectify-light-threshold')),
+      '40',
+    );
+
+    // A chip click commits at once: the whole model, every other
+    // pick and both inputs as committed, and the files go to the
+    // live engine right after (ADR-0010's adoption).
+    await tester.tap(find.byKey(const Key('settings-rectify-full-policy:off')));
+    await tester.pump();
+    final pick = store.saves.single;
+    expect(pick.fullThinkingPolicy, 'off');
+    expect(pick.fullPrefill, isTrue); // untouched picks ride
+    expect(pick.lightTouchMaxChars, 40); // the committed input rides
+    expect(store.applyCalls, 1);
+    expect(
+      textOf(tester, const Key('settings-rectify-saved')),
+      '已保存,下一次修正尝试生效',
+    );
+
+    // The dirty-state warning lights with the pick itself (off ×
+    // prefill-on), and dies when the switch flips it off.
+    expect(
+      find.byKey(const Key('settings-rectify-full-warning')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('settings-rectify-full-prefill')));
+    await tester.pump();
+    expect(store.saves.last.fullPrefill, isFalse);
+    expect(
+      find.byKey(const Key('settings-rectify-full-warning')),
+      findsNothing,
+    );
+
+    // A draft input is never swept along by a pick: the threshold
+    // field holds 25, but the master-switch flip commits the
+    // committed 40 — and the field keeps its draft.
+    await scrollRectifyTo(
+      tester,
+      const Key('settings-rectify-light-threshold'),
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-rectify-light-threshold')),
+      '25',
+    );
+    await tester.pump();
+    expect(
+      fieldText(tester, const Key('settings-rectify-light-threshold')),
+      '25',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('settings-rectify-light-enabled')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-rectify-light-enabled')));
+    await tester.pump();
+    expect(store.saves.last.lightTouchEnabled, isFalse);
+    expect(store.saves.last.lightTouchMaxChars, 40); // not the draft
+
+    // Disabled is not hidden: the tail still paints, but its controls
+    // are shielded — a tap on the light prefill switch saves nothing.
+    await scrollRectifyTo(tester, const Key('settings-rectify-light-prefill'));
+    await tester.pump();
+    // AbsorbPointer owns the hit (the tail is disabled in place, never
+    // hidden): the tap must miss the switch, and the store stays at
+    // three saves. Silence the miss-hit warning — that miss is the
+    // assertion.
+    await tester.tap(
+      find.byKey(const Key('settings-rectify-light-prefill')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    expect(store.saves, hasLength(3)); // the two picks + the flip only
+  });
+
+  testWidgets(
+    'a loaded combo lights its own tier only; a disabled tier stays silent',
+    (tester) async {
+      tallRectifySurface(tester);
+      // A legacy combination that loaded this way from the files: the
+      // light tier is 思考关 × 预填开 — but its master switch is off, so
+      // it consumes nothing; full is clean.
+      final store = FakeRectifyBehaviorStore(
+        const RectifyBehavior(
+          fullThinkingPolicy: 'always',
+          fullPrefill: true,
+          lightTouchEnabled: false,
+          lightTouchMaxChars: 40,
+          lightTouchThinkingPolicy: 'off',
+          lightTouchPrefill: true,
+        ),
+      );
+      await pumpSettings(
+        tester,
+        rectifyStore: store,
+        domain: SettingsDomain.rectify,
+      );
+      await tester.pump();
+
+      // 存量组合也亮 — per tier: the full tier is clean, the disabled
+      // light tier's combo stays silent (its warning rides the shield).
+      expect(
+        find.byKey(const Key('settings-rectify-full-warning')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('settings-rectify-light-warning')),
+        findsNothing,
+      );
+
+      // Flipping the master on makes the tier consume its combo again:
+      // the pick commits and the warning lights with the same save.
+      await tester.tap(find.byKey(const Key('settings-rectify-light-enabled')));
+      await tester.pump();
+      expect(store.saves.single.lightTouchEnabled, isTrue);
+      expect(store.saves.single.lightTouchMaxChars, 40);
+      expect(
+        find.byKey(const Key('settings-rectify-light-warning')),
+        findsOneWidget,
+      );
+
+      // And the light tier's own chip now lights it live too.
+      await scrollRectifyTo(
+        tester,
+        const Key('settings-rectify-light-policy:off'),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('settings-rectify-light-policy:always')),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const Key('settings-rectify-light-warning')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    "the light card's one button commits both inputs; blank unsets the directive",
+    (tester) async {
+      tallRectifySurface(tester);
+      final store = FakeRectifyBehaviorStore();
+      await pumpSettings(
+        tester,
+        rectifyStore: store,
+        domain: SettingsDomain.rectify,
+      );
+      await tester.pump();
+
+      // Quiet at rest: no change, no commit.
+      expect(
+        tester
+            .widget<SrButton>(
+              find.byKey(const Key('settings-rectify-light-save')),
+            )
+            .onTap,
+        isNull,
+      );
+
+      await scrollRectifyTo(
+        tester,
+        const Key('settings-rectify-light-threshold'),
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-light-threshold')),
+        '60',
+      );
+      await scrollRectifyTo(tester, const Key('settings-rectify-light-extra'));
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-light-extra')),
+        '  保持短句  ',
+      );
+      await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
+      await tester.pump();
+      // Dirty now: the button is live.
+      expect(
+        tester
+            .widget<SrButton>(
+              find.byKey(const Key('settings-rectify-light-save')),
+            )
+            .onTap,
+        isNotNull,
+      );
+      await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
+      await tester.pump();
+
+      // One write for both inputs, the picks riding as they stand.
+      final save = store.saves.single;
+      expect(save.lightTouchMaxChars, 60);
+      expect(save.lightTouchExtraDirective, '保持短句');
+      expect(save.fullThinkingPolicy, 'always'); // untouched picks ride
+      expect(store.applyCalls, 1);
+
+      // The save re-baselined the fields: the drafts became the
+      // committed truth and the button is quiet again.
+      expect(
+        fieldText(tester, const Key('settings-rectify-light-threshold')),
+        '60',
+      );
+      expect(
+        fieldText(tester, const Key('settings-rectify-light-extra')),
+        '保持短句',
+      );
+      expect(
+        tester
+            .widget<SrButton>(
+              find.byKey(const Key('settings-rectify-light-save')),
+            )
+            .onTap,
+        isNull,
+      );
+
+      // The hand-edit honesty line (ADR-0010's ride-along rule) rides
+      // the pane's tail.
+      await scrollRectifyTo(tester, const Key('settings-rectify-hand-edit'));
+      await tester.pump();
+      expect(
+        textOf(tester, const Key('settings-rectify-hand-edit')),
+        '直接改配置文件需重启生效;期间在任意设置域保存一次也会一并采用',
+      );
+
+      // Blanking the directive is the off switch: the next commit
+      // writes the unset form (the key is removed from the file).
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-light-extra')),
+        '   ',
+      );
+      await tester.pump();
+      await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
+      await tester.pump();
+      expect(store.saves.last.lightTouchExtraDirective, isNull);
+      expect(store.saves.last.lightTouchMaxChars, 60);
+    },
+  );
+
+  testWidgets('a bad threshold refuses the save with a visible error', (
+    tester,
+  ) async {
+    tallRectifySurface(tester);
+    final store = FakeRectifyBehaviorStore();
+    await pumpSettings(
+      tester,
+      rectifyStore: store,
+      domain: SettingsDomain.rectify,
+    );
+    await tester.pump();
+
+    await scrollRectifyTo(
+      tester,
+      const Key('settings-rectify-light-threshold'),
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-rectify-light-threshold')),
+      'soon',
+    );
+    await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
+    await tester.pump();
+    await jumpRectifyToTop(tester);
+    expect(
+      textOf(tester, const Key('settings-rectify-error')),
+      contains('轻修字数阈需为不小于 1 的整数'),
+    );
+    expect(store.saves, isEmpty); // refused before any write
+    expect(store.applyCalls, 0);
+
+    // Zero is as wrong as text; the field keeps the draft for a fix.
+    await tester.enterText(
+      find.byKey(const Key('settings-rectify-light-threshold')),
+      '0',
+    );
+    await tester.pump();
+    await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
+    await tester.pump();
+    expect(store.saves, isEmpty);
+  });
+
+  testWidgets(
+    'a failed save keeps the picks; a refused adoption keeps the banner contract',
+    (tester) async {
+      tallRectifySurface(tester);
+      final store = FakeRectifyBehaviorStore()
+        ..failNextSave = StateError('locked');
+      await pumpSettings(
+        tester,
+        rectifyStore: store,
+        domain: SettingsDomain.rectify,
+      );
+      await tester.pump();
+
+      // The file refused the write: the error says so, nothing was
+      // adopted, and a re-tap is the retry.
+      await tester.tap(
+        find.byKey(const Key('settings-rectify-full-policy:off')),
+      );
+      await tester.pump();
+      expect(
+        textOf(tester, const Key('settings-rectify-error')),
+        contains('修正设置保存失败'),
+      );
+      expect(store.saves, isEmpty);
+      expect(store.applyCalls, 0);
+
+      await tester.tap(
+        find.byKey(const Key('settings-rectify-full-policy:off')),
+      );
+      await tester.pump();
+      expect(store.saves.single.fullThinkingPolicy, 'off');
+      expect(store.applyCalls, 1);
+
+      // Saved but not adopted: two states, never one masquerading as
+      // the other — the connection domain's banner, verbatim.
+      store.failNextApply = 'no adapter yet';
+      await tester.tap(find.byKey(const Key('settings-rectify-full-prefill')));
+      await tester.pump();
+      expect(store.saves.last.fullPrefill, isFalse);
+      expect(
+        textOf(tester, const Key('settings-rectify-error')),
+        contains('已保存,但引擎沿用上一配置'),
+      );
+      expect(
+        textOf(tester, const Key('settings-rectify-error')),
+        contains('no adapter yet'),
+      );
+      expect(find.byKey(const Key('settings-rectify-saved')), findsOneWidget);
+      expect(store.applyCalls, 1); // the refusal was not an adoption
+    },
+  );
 
   // -----------------------------------------------------------------------
   // The connection domain (模型与连接)
