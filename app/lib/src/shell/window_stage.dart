@@ -209,6 +209,7 @@ class _StageHostState extends State<StageHost> {
     _exiting = false;
     _dir = GrowthDirection.upLeft;
     _seq++;
+    _panelSize = null;
     _rectKnown = false;
     _grabArmed = false;
     _grabLive = false;
@@ -302,6 +303,7 @@ class _StageHostState extends State<StageHost> {
       _areaHolding(anchor, _areas ?? const []),
     );
     _dir = plan.dir;
+    _panelSize = plan.size;
     await _applyBounds(plan.window);
   }
 
@@ -366,6 +368,14 @@ class _StageHostState extends State<StageHost> {
   Size _resizeSize = Size.zero; // …the footprint does the moving
   Size _resizeSize0 = Size.zero; // resize: size at grab, growth is absolute
   Offset _resizeSign = Offset.zero;
+
+  /// The panel footprint the slot renders the card at. Null while the
+  /// window has only ever been the footprint itself (the slot is
+  /// full-bleed); set at every expand and held through the resize
+  /// gestures — the freeze keeps it while the HWND sits at the growth
+  /// ceiling, and the release keeps it until the shrunk view lands
+  /// (identical to full-bleed by then).
+  Size? _panelSize;
 
   /// Pointer minus the moving target at grab. Screen-stable when the
   /// platform can report one; otherwise the view-relative event position
@@ -539,6 +549,14 @@ class _StageHostState extends State<StageHost> {
   }
 
   // -- resize: the anchor corner never moves, the panel grows away ---------
+  //
+  // The HWND never resizes mid-gesture (ticket 20's reshape ghosting:
+  // every per-frame size change forces the engine to rebuild its EGL
+  // surface, whose stale pixels DWM stretches across the client area).
+  // Press jumps the window to the growth ceiling (maxPanelSize) once —
+  // the card keeps its anchor-pinned slot, so the jump is invisible —
+  // the gesture grows the card by LAYOUT inside the frozen window, and
+  // release lands the actual footprint in one more jump.
 
   void _resizeStart(Offset pointer, Offset growSign) {
     if (!_rectKnown) return;
@@ -549,6 +567,16 @@ class _StageHostState extends State<StageHost> {
     _latchPointerSource(pointer);
     _grabArmed = true;
     _grabLive = true; // press-to-resize: every press is a gesture
+    _panelSize = _resizeSize; // the slot holds the footprint through the freeze
+    unawaited(
+      _applyBounds(
+        panelRectFor(
+          _resizeAnchor,
+          maxPanelSize(_resizeAnchor, _dir, _gestureArea(_resizeAnchor)),
+          _dir,
+        ),
+      ),
+    );
   }
 
   void _resizeGrow(Offset pointer) {
@@ -567,7 +595,9 @@ class _StageHostState extends State<StageHost> {
     );
     if (size == _resizeSize) return; // a bound edge eats the motion
     _resizeSize = size;
-    unawaited(_applyBounds(panelRectFor(_resizeAnchor, size, _dir)));
+    // Layout only — no setBounds mid-gesture; the window stays frozen
+    // at its ceiling until the release.
+    setState(() => _panelSize = size);
     c.noteGeometryLive(panel: size);
   }
 
@@ -575,6 +605,9 @@ class _StageHostState extends State<StageHost> {
     if (!_grabArmed) return;
     _grabArmed = false;
     _grabLive = false;
+    // One jump back to the actual footprint (same shape as collapse's
+    // shrink: it lands on a card already pinned there).
+    unawaited(_applyBounds(panelRectFor(_resizeAnchor, _resizeSize, _dir)));
     c.noteGeometryDone(panel: _resizeSize);
     unawaited(_primeGeometry());
   }
@@ -635,6 +668,34 @@ class _StageHostState extends State<StageHost> {
     ];
   }
 
+  /// The panel's slot in the window: full-bleed whenever the window is
+  /// the panel footprint itself; the anchor-pinned sub-rect while the
+  /// window is bigger than the card (a resize gesture freezing the HWND
+  /// at its growth ceiling). Keyed on the LAYOUT constraints, not the
+  /// commanded bounds — the view takes a setBounds a frame or two after
+  /// Dart sends it, and a slot computed against bounds the view hasn't
+  /// reached yet paints those frames at the wrong offset; the
+  /// constraints are always exactly what this frame renders at, so the
+  /// card stays anchor-pinned through the freeze and release jumps.
+  Widget _panelSlot({required Widget child}) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final view = constraints.biggest;
+        final size = _panelSize ?? view;
+        final anchor = anchorOf(Offset.zero & view, _dir);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fromRect(
+              rect: panelRectFor(anchor, size, _dir),
+              child: child,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // ---- keyboard: the in-window twin of the hotkey surface ---------------
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
@@ -667,30 +728,39 @@ class _StageHostState extends State<StageHost> {
       onKeyEvent: _onKey,
       child: Stack(
         children: [
-          // Panel bodies. Only one is mounted at a time; each animates its
-          // own entrance on mount and exit via [PanelBody.exiting].
-          if (_displayed == StageKind.session)
-            Positioned.fill(
-              child: SessionPanel(
-                controller: c,
-                exiting: _exiting,
-                dir: _dir,
-                grip: _grip,
-              ),
-            )
-          else if (_displayed == StageKind.quick)
-            Positioned.fill(
-              child: QuickPanel(
-                controller: c,
-                exiting: _exiting,
-                onOpenSettings: widget.onOpenSettings,
-                dir: _dir,
-                grip: _grip,
+          // Panel bodies and their resize affordances share one slot:
+          // full-bleed while the window IS the panel footprint, the
+          // anchor-pinned sub-rect while a resize gesture grows the card
+          // by layout inside the frozen window. Only one panel is
+          // mounted at a time; each animates its own entrance on mount
+          // and exit via [PanelBody.exiting].
+          if (_displayed != StageKind.orb)
+            _panelSlot(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: _displayed == StageKind.session
+                        ? SessionPanel(
+                            controller: c,
+                            exiting: _exiting,
+                            dir: _dir,
+                            grip: _grip,
+                          )
+                        : QuickPanel(
+                            controller: c,
+                            exiting: _exiting,
+                            onOpenSettings: widget.onOpenSettings,
+                            dir: _dir,
+                            grip: _grip,
+                          ),
+                  ),
+                  // The resize affordances ride above the panel, flush to
+                  // the slot's free edges (the shared footprint resizes
+                  // as one — 一调俱调).
+                  if (_gesturesLive) ..._resizeHandles(),
+                ],
               ),
             ),
-          // The resize affordances ride above whichever panel is open
-          // (the shared footprint resizes as one — 一调俱调).
-          if (_displayed != StageKind.orb && _gesturesLive) ..._resizeHandles(),
           // The one continuous element: orb in orb stage, anchor button
           // in panel stages — same widget, same screen position, pinned
           // to the corner the panel grows from. Flush to the corner:

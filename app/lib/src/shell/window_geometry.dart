@@ -138,17 +138,14 @@ Rect clampRectIntoWorkArea(Rect rect, Rect workArea) {
   return rect.shift(Offset(dx, dy));
 }
 
-/// Clamp a panel-size intent to what the anchor can actually host, per
-/// axis: at most 70% of the work area AND at most the space between the
-/// pinned corner and the opposite work-area edge; at least the floor.
-/// The floor yields only when even the minimum would not fit — staying
-/// on screen wins (degenerate screens).
-Size clampPanelSize(
-  Size intent,
-  Offset anchor,
-  GrowthDirection dir,
-  Rect workArea,
-) {
+/// The ceiling every panel size clamps to, per axis: at most 70% of the
+/// work area AND at most the space between the pinned corner and the
+/// opposite work-area edge. The resize gesture freezes the window at
+/// this size while the card grows inside it by layout alone (ticket 20:
+/// a per-frame HWND resize forces the engine to rebuild its EGL surface
+/// and stretch stale pixels across the client area — the reshape
+/// ghosting).
+Size maxPanelSize(Offset anchor, GrowthDirection dir, Rect workArea) {
   final inset = SrGeometry.anchorInset;
   final fitWidth = dir.growLeft
       ? anchor.dx + inset - workArea.left
@@ -157,23 +154,29 @@ Size clampPanelSize(
       ? anchor.dy + inset - workArea.top
       : workArea.bottom - (anchor.dy - inset);
   return Size(
-    _clampAxis(
-      intent.width,
-      SrGeometry.panelMinSize.width,
-      fitWidth,
-      workArea.width * SrGeometry.panelMaxWorkAreaFraction,
-    ),
-    _clampAxis(
-      intent.height,
-      SrGeometry.panelMinSize.height,
-      fitHeight,
-      workArea.height * SrGeometry.panelMaxWorkAreaFraction,
-    ),
+    math.min(fitWidth, workArea.width * SrGeometry.panelMaxWorkAreaFraction),
+    math.min(fitHeight, workArea.height * SrGeometry.panelMaxWorkAreaFraction),
   );
 }
 
-double _clampAxis(double intent, double floor, double fit, double fraction) {
-  final ceiling = math.min(fit, fraction);
+/// Clamp a panel-size intent to what the anchor can actually host:
+/// [maxPanelSize] above as the ceiling, the floor at least. The floor
+/// yields only when even the minimum would not fit — staying on screen
+/// wins (degenerate screens).
+Size clampPanelSize(
+  Size intent,
+  Offset anchor,
+  GrowthDirection dir,
+  Rect workArea,
+) {
+  final ceiling = maxPanelSize(anchor, dir, workArea);
+  return Size(
+    _clampAxis(intent.width, SrGeometry.panelMinSize.width, ceiling.width),
+    _clampAxis(intent.height, SrGeometry.panelMinSize.height, ceiling.height),
+  );
+}
+
+double _clampAxis(double intent, double floor, double ceiling) {
   if (ceiling < floor) return ceiling; // degenerate: on screen > floor
   return intent.clamp(floor, ceiling);
 }

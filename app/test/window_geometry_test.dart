@@ -188,6 +188,55 @@ void main() {
     });
   });
 
+  group('maxPanelSize', () {
+    test('is exactly the ceiling clampPanelSize caps to', () {
+      const anchor = Offset(1060, 900);
+      final ceiling = maxPanelSize(anchor, GrowthDirection.upLeft, wa);
+      expect(
+        clampPanelSize(const Size(9999, 9999), anchor, GrowthDirection.upLeft, wa),
+        ceiling,
+      );
+    });
+
+    test('the freeze window it implies pins the anchor, on screen, every quadrant', () {
+      // The resize gesture jumps the HWND to panelRectFor(anchor,
+      // maxPanelSize) before growing the card by layout inside it: that
+      // window must itself obey the anchor contract (iron law 1) and the
+      // work area, and contain every smaller panel rect.
+      for (final anchor in const [
+        Offset(1872, 984),
+        Offset(48, 984),
+        Offset(1872, 48),
+        Offset(48, 48),
+      ]) {
+        final dir = chooseGrowthDirection(anchor, wa);
+        final frozen = panelRectFor(anchor, maxPanelSize(anchor, dir, wa), dir);
+        expect(anchorOf(frozen, dir), anchor, reason: 'anchor $anchor');
+        expect(frozen.left, greaterThanOrEqualTo(wa.left));
+        expect(frozen.top, greaterThanOrEqualTo(wa.top));
+        expect(frozen.right, lessThanOrEqualTo(wa.right));
+        expect(frozen.bottom, lessThanOrEqualTo(wa.bottom));
+        // Every clamp-legal panel rect during the gesture sits inside the
+        // frozen window (the slot is that rect shifted by its origin).
+        final mid = clampPanelSize(
+          SrGeometry.panelSize,
+          anchor,
+          dir,
+          wa,
+        );
+        final midRect = panelRectFor(anchor, mid, dir);
+        expect(
+          midRect.left >= frozen.left &&
+              midRect.top >= frozen.top &&
+              midRect.right <= frozen.right &&
+              midRect.bottom <= frozen.bottom,
+          isTrue,
+          reason: 'anchor $anchor',
+        );
+      }
+    });
+  });
+
   group('anchorRestorable', () {
     test('an anchor inside a work area restores', () {
       expect(anchorRestorable(const Offset(1000, 500), [wa]), isTrue);

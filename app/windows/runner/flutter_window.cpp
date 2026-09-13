@@ -51,6 +51,27 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // Probe (reshape ghosting, .scratch/v1/research/window-gesture-perf.md):
+  // window_manager SetBounds -> SetWindowPos(..., HWND_TOP, ..., uFlags=0)
+  // copies the old client flush-top-left into the new rect. The orb is
+  // pinned to a corner, so growing up/left smears the previous frame.
+  // Discard those bits only when the size actually changes -- orb drag is
+  // position-only and must keep the copy. Must run BEFORE Flutter's
+  // WindowProc so the mutated flags stick.
+  if (message == WM_WINDOWPOSCHANGING && lparam != 0) {
+    auto* pos = reinterpret_cast<WINDOWPOS*>(lparam);
+    if ((pos->flags & SWP_NOSIZE) == 0) {
+      RECT current{};
+      if (GetWindowRect(hwnd, &current)) {
+        const int cur_w = current.right - current.left;
+        const int cur_h = current.bottom - current.top;
+        if (pos->cx != cur_w || pos->cy != cur_h) {
+          pos->flags |= SWP_NOCOPYBITS;
+        }
+      }
+    }
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

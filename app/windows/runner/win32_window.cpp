@@ -204,9 +204,22 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_SIZE: {
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
-        // Size and position the child window.
-        MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
-                   rect.bottom - rect.top, TRUE);
+        // Same placement as MoveWindow(..., TRUE), plus SWP_NOCOPYBITS
+        // when the Flutter view actually changes size -- otherwise the
+        // child BitBlts its old surface flush-top-left and the panel
+        // smears while growing away from the orb (see flutter_window.cpp
+        // WM_WINDOWPOSCHANGING and window-gesture-perf.md).
+        const int width = rect.right - rect.left;
+        const int height = rect.bottom - rect.top;
+        UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+        RECT child{};
+        if (GetWindowRect(child_content_, &child) &&
+            (child.right - child.left != width ||
+             child.bottom - child.top != height)) {
+          flags |= SWP_NOCOPYBITS;
+        }
+        SetWindowPos(child_content_, nullptr, rect.left, rect.top, width,
+                     height, flags);
       }
       return 0;
     }
@@ -247,8 +260,9 @@ void Win32Window::SetChildContent(HWND content) {
   SetParent(content, window_handle_);
   RECT frame = GetClientArea();
 
-  MoveWindow(content, frame.left, frame.top, frame.right - frame.left,
-             frame.bottom - frame.top, true);
+  SetWindowPos(content, nullptr, frame.left, frame.top,
+               frame.right - frame.left, frame.bottom - frame.top,
+               SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
 
   SetFocus(child_content_);
 }

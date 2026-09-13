@@ -28,7 +28,7 @@ import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
 import 'package:spokenrectifier_app/src/shell/orb_button.dart';
 import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
-    show formatHistoryStamp;
+    show QuickPanel, formatHistoryStamp;
 import 'package:spokenrectifier_app/src/shell/session_flow.dart' show StageKind;
 import 'package:spokenrectifier_app/src/shell/window_stage.dart'
     as stage
@@ -1854,6 +1854,49 @@ void main() {
       await controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 350));
     });
+
+    testWidgets(
+      'a resize gesture never resizes the HWND mid-flight (freeze choreography)',
+      (tester) async {
+        // The reshape ghosting: a per-frame HWND size change forces the
+        // engine to rebuild its EGL surface and stretch stale pixels
+        // over the client area. The gesture must touch setBounds exactly
+        // twice — freeze to the growth ceiling on press, footprint on
+        // release — growing the card by layout in between.
+        final window = RecordingStageWindow();
+        final dir = scratch();
+        final controller = await pumpGeometry(tester, window: window, dir: dir);
+        await pumpQuickOpen(tester, controller);
+        expect(window.bounds, hasLength(1)); // the expand jump only
+
+        final corner = tester.getCenter(
+          find.byKey(const Key('panel-resize-corner')),
+        );
+        final g = await tester.startGesture(corner);
+        await tester.pump(); // the freeze jump lands
+        expect(window.bounds, hasLength(2));
+        // The ceiling at this anchor (1048, 548): the anchor's own span
+        // (1096x596) caps tighter than the 70% of 1920x1080.
+        expect(window.bounds.last, Rect.fromLTRB(0, 0, 1096, 596));
+
+        await g.moveBy(const Offset(-60, -80));
+        await tester.pump();
+        await g.moveBy(const Offset(-30, 0));
+        await tester.pump();
+        // Growth is layout-only while held: no third setBounds.
+        expect(window.bounds, hasLength(2));
+        expect(controller.panelFootprint, const Size(510, 596));
+        // The card itself took the growth inside the frozen window.
+        expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 596));
+
+        await g.up();
+        await tester.pump();
+        expect(window.bounds, hasLength(3)); // one jump back to the footprint
+        expect(window.bounds.last, Rect.fromLTRB(586, 0, 1096, 596));
+        await controller.closeQuick();
+        await tester.pump(const Duration(milliseconds: 350));
+      },
+    );
 
     testWidgets('the expand direction follows the anchor\'s quadrant', (
       tester,
