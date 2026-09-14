@@ -581,6 +581,31 @@ void main() {
     },
   );
 
+  testWidgets(
+    'the preview footer clips at the resize floor — no overflow stripe',
+    (tester) async {
+      // Ticket 01 pinned the default 420-wide footprint. Reshape can shrink
+      // the shared footprint to panelMinSize (360×440); the three preview
+      // capsules no longer fit, and the debug stripe comes back unless the
+      // row clips instead of overflowing. Icon-only shrinking is a later
+      // change — this only kills the RenderFlex report.
+      tester.view.physicalSize = SrGeometry.panelMinSize;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final gateway = FakeGateway();
+      final controller = await pumpController(tester, gateway);
+      await pumpToPreview(tester, controller, gateway);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('session-raw-toggle')), findsOneWidget);
+      expect(find.byKey(const Key('session-reroll')), findsOneWidget);
+      expect(find.byKey(const Key('session-cancel')), findsOneWidget);
+      await windDown(tester, controller);
+    },
+  );
+
   testWidgets('editing the preview pushes updates after the debounce', (
     tester,
   ) async {

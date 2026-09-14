@@ -396,33 +396,49 @@ class _SessionPanelState extends State<SessionPanel> {
           // anchors the header's corner (down-growth).
           if (widget.dir.growUp && !widget.dir.growLeft)
             const SizedBox(width: SrGeometry.anchorInset),
-          if (_isPreview) ...[
-            _GhostButton(
-              key: const Key('session-raw-toggle'),
-              pal: pal,
-              icon: Icons.compare_arrows_rounded,
-              label: '对照原文',
-              onTap: _toggleTranscript,
+          // Capsules keep their intrinsic width (icon-only shrinking is a
+          // later change). At the reshape floor they no longer fit beside
+          // the reserve — clip the overflow so the debug stripe stays gone
+          // (ticket 01's 420-wide pin still holds; 360 is 60px tighter).
+          Expanded(
+            child: UnconstrainedBox(
+              alignment: Alignment.centerLeft,
+              constrainedAxis: Axis.vertical,
+              clipBehavior: Clip.hardEdge,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isPreview) ...[
+                    _GhostButton(
+                      key: const Key('session-raw-toggle'),
+                      pal: pal,
+                      icon: Icons.compare_arrows_rounded,
+                      label: '对照原文',
+                      onTap: _toggleTranscript,
+                    ),
+                    const SizedBox(width: SrSpace.sm),
+                    _GhostButton(
+                      key: const Key('session-reroll'),
+                      pal: pal,
+                      icon: Icons.refresh_rounded,
+                      label: '重新生成',
+                      onTap: c.reroll,
+                    ),
+                    const SizedBox(width: SrSpace.sm),
+                  ],
+                  // Cancel spans the whole session, recording included
+                  // (Esc's twin — 窗底取消文字钮).
+                  _GhostButton(
+                    key: const Key('session-cancel'),
+                    pal: pal,
+                    icon: Icons.close_rounded,
+                    label: '取消',
+                    kbd: 'Esc',
+                    onTap: c.escapeAction,
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: SrSpace.sm),
-            _GhostButton(
-              key: const Key('session-reroll'),
-              pal: pal,
-              icon: Icons.refresh_rounded,
-              label: '重新生成',
-              onTap: c.reroll,
-            ),
-            const SizedBox(width: SrSpace.sm),
-          ],
-          // Cancel spans the whole session, recording included (Esc's
-          // twin — 窗底取消文字钮).
-          _GhostButton(
-            key: const Key('session-cancel'),
-            pal: pal,
-            icon: Icons.close_rounded,
-            label: '取消',
-            kbd: 'Esc',
-            onTap: c.escapeAction,
           ),
           // Anchor zone: the orb button lives here, above this row. One
           // anchorInset, not two: the ball's left edge sits anchorInset +
