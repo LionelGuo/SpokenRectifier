@@ -20,6 +20,7 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart' show MethodCall;
 
 import '../../app_state.dart' show SpeechController;
+import '../../hotkey_binding.dart';
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
 import 'settings_channel.dart' show settingsToMainChannel;
@@ -63,6 +64,8 @@ class DesktopSettingsWindow {
           'domain': domain.name,
           'theme': _controller.themeMode.name,
           'orb': _controller.orbVisible,
+          'primary': _controller.primaryChord.wire,
+          'pin': _controller.pinChord.wire,
           'selected': _controller.selectedScenario,
         }),
         hiddenAtLaunch: true,
@@ -139,6 +142,15 @@ class DesktopSettingsWindow {
         // tray checkbox and tray click take. Tolerance default: a
         // malformed push reads as visible.
         await _controller.setOrbVisible(call.arguments as bool? ?? true);
+      case 'hotkeys-changed':
+        // The general domain wrote a chord to ui.toml: re-read the file
+        // (it is the truth) and hot-swap. The chord itself never rides
+        // this event (map 06).
+        await _controller.onHotkeysChanged();
+      case 'hotkeys-paused':
+        // Capture on a row: both product chords come off the OS so the
+        // settings window can hear the press; ending capture re-hangs.
+        await _controller.setHotkeysPaused(call.arguments as bool? ?? false);
       case 'history-changed':
         // The history domain reshaped the store (retention, keep-nothing,
         // clear): the quick panel's rows re-read the same bridge call.
@@ -177,6 +189,10 @@ class DesktopSettingsWindow {
       _lastTheme = null;
       _lastSelection = null;
       _lastOrbVisible = null;
+      // A capture left running (title-bar X, a dying isolate) must not
+      // leave the product chords unregistered — map 06: closing the
+      // settings window ends capture and re-hangs from the file.
+      unawaited(_controller.setHotkeysPaused(false));
     }
   }
 
@@ -217,6 +233,12 @@ SettingsLaunch? parseSettingsLaunch(String? windowArguments) {
         // Tolerance default: anything but an explicit false reads as
         // visible — the ui.toml rule, applied at the wire too.
         orbVisible: decoded['orb'] != false,
+        primary:
+            HotkeyBinding.tryParse(decoded['primary'] as String? ?? '') ??
+            HotkeyBinding.primaryDefault,
+        pin:
+            HotkeyBinding.tryParse(decoded['pin'] as String? ?? '') ??
+            HotkeyBinding.pinDefault,
         selected: decoded['selected'] as String?,
       );
     }
@@ -232,6 +254,8 @@ class SettingsLaunch {
     required this.domain,
     required this.theme,
     this.orbVisible = true,
+    this.primary = HotkeyBinding.primaryDefault,
+    this.pin = HotkeyBinding.pinDefault,
     required this.selected,
   });
 
@@ -241,5 +265,9 @@ class SettingsLaunch {
   /// The orb's visibility at first paint (the general domain's switch);
   /// later changes follow over the channel.
   final bool orbVisible;
+
+  /// The two product chords at first paint (the general domain's rows).
+  final HotkeyBinding primary;
+  final HotkeyBinding pin;
   final String? selected;
 }

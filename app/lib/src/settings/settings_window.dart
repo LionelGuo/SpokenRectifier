@@ -6,7 +6,8 @@
 /// cross-window link is [SettingsChannel] (events only, never state).
 ///
 /// All nine domains are filled: general (通用 — the theme tri-state
-/// mirror and the orb's visibility), scenarios (场景库), rectify (修正 —
+/// mirror, the orb's visibility, and the two product-hotkey rows),
+/// scenarios (场景库), rectify (修正 —
 /// the [rectify] behavior cards), history (历史), terms (术语),
 /// connection (模型与连接), fidelity eval (保真评测), advanced (高级) and
 /// about (关于). The eval run lives in a controller here — it survives
@@ -16,6 +17,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../hotkey_binding.dart';
+import '../../ui_prefs.dart';
 import '../design/controls.dart' show SrButton;
 import '../design/hover.dart';
 import '../design/theme.dart' show srTheme;
@@ -55,8 +58,11 @@ class SettingsWindowApp extends StatefulWidget {
     this.globalStore = const RustGlobalDirectiveStore(),
     this.initialTheme = ThemeMode.system,
     this.initialOrbVisible = true,
+    this.initialPrimary = HotkeyBinding.primaryDefault,
+    this.initialPin = HotkeyBinding.pinDefault,
     this.initialSelection,
     this.captionTheme = applyWindowsCaptionTheme,
+    this.uiPrefsDirs,
   });
 
   final ScenarioStore store;
@@ -94,11 +100,19 @@ class SettingsWindowApp extends StatefulWidget {
 
   /// Theme and selection ride the window arguments (the main window
   /// cannot push into the sub-engine before its handler exists), then
-  /// follow live over the channel. The orb's visibility rides the same
-  /// seed (the general domain's switch).
+  /// follow live over the channel. The orb's visibility and the two
+  /// product chords ride the same seed (the general domain's knobs).
   final ThemeMode initialTheme;
   final bool initialOrbVisible;
+  final HotkeyBinding initialPrimary;
+  final HotkeyBinding initialPin;
   final String? initialSelection;
+
+  /// Where a hotkey write lands (the app-owned prefs file's search
+  /// directories); injectable so tests point it at a scratch directory.
+  /// Null = [uiPrefsSearchDirs] at the write (the constructor stays
+  /// const — a method call is not a constant expression).
+  final List<String>? uiPrefsDirs;
 
   /// Paints the OS caption (title bar) with the effective brightness;
   /// injectable so widget tests can record the applications.
@@ -112,6 +126,9 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
     with WidgetsBindingObserver {
   ThemeMode _mode = ThemeMode.system;
   bool _orbVisible = true;
+  HotkeyBinding _primary = HotkeyBinding.primaryDefault;
+  HotkeyBinding _pin = HotkeyBinding.pinDefault;
+  String? _hotkeyError;
   SettingsDomain _domain = SettingsDomain.scenarios;
   List<BridgeScenario> _scenarios = const [];
   String? _selected;
@@ -133,6 +150,8 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
     super.initState();
     _mode = widget.initialTheme;
     _orbVisible = widget.initialOrbVisible;
+    _primary = widget.initialPrimary;
+    _pin = widget.initialPin;
     _domain = widget.initialDomain;
     _selected = widget.initialSelection;
     _load();
@@ -178,6 +197,36 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   Future<void> _setOrbVisible(bool visible) async {
     setState(() => _orbVisible = visible);
     await widget.channel.sendOrbVisible(visible);
+  }
+
+  /// Capture on a hotkey row: the main engine unregisters both product
+  /// chords so this window can hear the press.
+  Future<void> _setHotkeysPaused(bool paused) =>
+      widget.channel.sendHotkeysPaused(paused);
+
+  /// A row finished a record / clear / restore: write the file (it is
+  /// the truth), paint the pair, tell the main engine to re-read. A
+  /// failed write keeps the on-screen pair and hangs the error under
+  /// the card.
+  Future<void> _commitHotkey(HotkeySlot slot, HotkeyBinding binding) async {
+    try {
+      saveUiHotkey(widget.uiPrefsDirs ?? uiPrefsSearchDirs(), slot, binding);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _hotkeyError = '热键保存失败:$e');
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _hotkeyError = null;
+      switch (slot) {
+        case HotkeySlot.primary:
+          _primary = binding;
+        case HotkeySlot.pin:
+          _pin = binding;
+      }
+    });
+    await widget.channel.sendHotkeysChanged();
   }
 
   @override
@@ -338,8 +387,13 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       SettingsDomain.general => SettingsGeneralPane(
         themeMode: _mode,
         orbVisible: _orbVisible,
+        primary: _primary,
+        pin: _pin,
+        error: _hotkeyError,
         onThemePicked: _pickTheme,
         onOrbVisible: _setOrbVisible,
+        onCapture: _setHotkeysPaused,
+        onCommit: _commitHotkey,
       ),
       SettingsDomain.scenarios => _ScenarioPane(
         scenarios: _scenarios,

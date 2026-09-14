@@ -22,6 +22,7 @@ import 'src/design/tokens.dart' show SrGeometry, SrMotion;
 import 'src/rust/api.dart';
 import 'src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;
+import 'hotkey_binding.dart';
 import 'src/shell/session_flow.dart';
 import 'ui_prefs.dart';
 
@@ -62,21 +63,33 @@ abstract class SpeechEngineGateway {
 /// back to idle.
 enum OrbFlash { none, inserted, cancelled }
 
-/// The pin hotkey's platform registration seam (ticket 21): Alt+B's
-/// global registration, bound to the listening phase — registered the
-/// moment a session enters recording, handed back to the system the
+/// The pin hotkey's platform registration seam (ticket 21 / 16): the
+/// chord's global registration, bound to the listening phase —
+/// registered the moment a session enters recording, handed back the
 /// moment listening ends, so an idle press belongs to whatever app owns
-/// Alt+B (Firefox's bookmark menu and friends). The production
+/// the chord (Firefox's bookmark menu and friends). The production
 /// implementation wraps hotkey_manager (main.dart); tests inject a
 /// recorder. One registrar serves one engine process, like the Esc
-/// guard.
+/// guard. The chord itself is an argument so a rebind mid-session
+/// unregisters the old object and registers the new one.
 abstract class PinHotkeyRegistrar {
-  /// Take the chord globally; [onPin] fires on each press while
-  /// registered. Idempotent per session (register is only called on
-  /// entering recording).
-  Future<void> register(VoidCallback onPin);
+  /// Take [chord] globally; [onPin] fires on each press while
+  /// registered. A [HotkeyBinding.none] is a no-op (empty bind).
+  Future<void> register(HotkeyBinding chord, VoidCallback onPin);
 
   /// Hand the chord back to the system at once.
+  Future<void> unregister();
+}
+
+/// The main-flow hotkey's platform registration seam (ticket 16): held
+/// for the process lifetime, swapped in place on a rebind. Empty bind
+/// = not registered (the orb still steps). Tests inject a recorder.
+abstract class PrimaryHotkeyRegistrar {
+  /// Unregister whatever is current, then register [chord] (a no-op
+  /// when it is [HotkeyBinding.none]).
+  Future<void> apply(HotkeyBinding chord, VoidCallback onPress);
+
+  /// Drop the current registration without replacing it (capture).
   Future<void> unregister();
 }
 
@@ -89,6 +102,9 @@ class SpeechController extends ChangeNotifier {
     this.speechInterval = const Duration(milliseconds: 900),
     this.themeMode = ThemeMode.system,
     this.orbVisible = true,
+    this.primaryChord = HotkeyBinding.primaryDefault,
+    this.pinChord = HotkeyBinding.pinDefault,
+    this.primaryHotkeys,
     this.pinHotkey,
     List<String>? uiPrefsDirs,
   }) : uiPrefsDirs = uiPrefsDirs ?? uiPrefsSearchDirs() {
@@ -105,11 +121,29 @@ class SpeechController extends ChangeNotifier {
   final List<String> scriptedPhrases;
   final Duration speechInterval;
 
-  /// The pin hotkey (Alt+B) registration seam; null = no hotkey (tests
-  /// that do not exercise the pin, and any host without the platform
-  /// plugin). The lifecycle is bound to the listening phase right here:
-  /// register on entering recording, unregister the moment it ends.
+  /// The pin hotkey registration seam; null = no hotkey (tests that do
+  /// not exercise the pin, and any host without the platform plugin).
+  /// The lifecycle is bound to the listening phase right here: register
+  /// on entering recording, unregister the moment it ends. The chord
+  /// itself is [pinChord].
   final PinHotkeyRegistrar? pinHotkey;
+
+  /// The main-flow hotkey registration seam; null = no hotkey (tests
+  /// that do not exercise the step key). The chord itself is
+  /// [primaryChord]; [installProductHotkeys] / a rebind call [apply].
+  final PrimaryHotkeyRegistrar? primaryHotkeys;
+
+  /// The main-flow chord as the file last read it. Seeded at startup;
+  /// a settings-window edit re-reads the file ([onHotkeysChanged]).
+  HotkeyBinding primaryChord;
+
+  /// The pin chord as the file last read it. Same lifecycle as
+  /// [primaryChord]; an empty bind means listening never takes a chord.
+  HotkeyBinding pinChord;
+
+  /// Capture (the settings window is recording a row): both product
+  /// chords are unregistered so the recorder can hear the press.
+  bool _hotkeysPaused = false;
 
   StreamSubscription<BridgeEventEnvelope>? _subscription;
   Timer? _speechTimer;
@@ -255,11 +289,11 @@ class SpeechController extends ChangeNotifier {
   /// panel-close role (a session start force-closes the quick panel).
   Future<void> hotkeyToggle() => dispatchInput(SessionInput.primary);
 
-  /// The pin hotkey's press (Alt+B, ticket 21): pin a placeholder at
-  /// the current end of the spoken segment. The chord is registered
-  /// exactly while listening, so this only ever fires there — the phase
-  /// guard covers the unregister race (a press that arrived while the
-  /// key handback was still in flight). A rejection past the guard is
+  /// The pin hotkey's press (ticket 21 / 16): pin a placeholder at the
+  /// current end of the spoken segment. The chord is registered exactly
+  /// while listening, so this only ever fires there — the phase guard
+  /// covers the unregister race (a press that arrived while the key
+  /// handback was still in flight). A rejection past the guard is
   /// dropped silently: the session is over, there is no slot to pin
   /// into, and no half state exists to report.
   Future<void> pinAction() async {
@@ -273,24 +307,85 @@ class SpeechController extends ChangeNotifier {
 
   /// Take the pin chord for this session. A failed registration (the
   /// chord already taken system-wide) surfaces like any engine failure:
-  /// the session runs on, pins are just unreachable.
+  /// the session runs on, pins are just unreachable. Capture
+  /// ([_hotkeysPaused]) and an empty bind both skip the register.
   Future<void> _armPinHotkey() async {
     final hotkey = pinHotkey;
-    if (hotkey == null) return;
+    if (hotkey == null || _hotkeysPaused || pinChord.isNone) return;
     try {
-      await hotkey.register(pinAction);
+      await hotkey.register(pinChord, pinAction);
     } catch (e) {
       lastError = '钉入热键注册失败:$e';
       notifyListeners();
     }
   }
 
+  /// Install (or reinstall) the main-flow chord from [primaryChord]. A
+  /// capture leaves it unregistered; an empty bind is a no-op apply.
+  Future<void> installProductHotkeys() async {
+    final registrar = primaryHotkeys;
+    if (registrar == null) return;
+    if (_hotkeysPaused || primaryChord.isNone) {
+      await registrar.unregister();
+      return;
+    }
+    try {
+      await registrar.apply(primaryChord, hotkeyToggle);
+    } catch (e) {
+      lastError = '主流程热键注册失败:$e';
+      notifyListeners();
+    }
+  }
+
+  /// Capture on / off: the settings window is recording a row, so both
+  /// product chords come off the OS (the recorder lives in the settings
+  /// engine and cannot hear a globally-registered chord). Ending capture
+  /// re-hangs from the file as held in memory — the pin only if a
+  /// session is currently listening.
+  Future<void> setHotkeysPaused(bool paused) async {
+    if (_hotkeysPaused == paused) return;
+    _hotkeysPaused = paused;
+    if (paused) {
+      await primaryHotkeys?.unregister();
+      await _disarmPinHotkey();
+      return;
+    }
+    await installProductHotkeys();
+    if (phase == BridgeSessionState.recording) {
+      await _armPinHotkey();
+    }
+  }
+
+  /// A settings-window edit landed on the hotkey keys: re-read the
+  /// file — it is the truth — adopt the new pair, and hot-swap. The
+  /// main-flow chord unregisters+registers at once; the pin swaps the
+  /// object (armed mid-listen: hand the old chord back, take the new
+  /// one; idle: just the object, next listen arms it).
+  Future<void> onHotkeysChanged() async {
+    final loaded = loadUiHotkeys(uiPrefsDirs);
+    primaryChord = loaded.primary;
+    pinChord = loaded.pin;
+    notifyListeners();
+    if (_hotkeysPaused) return; // still capturing; re-hang on release
+    await installProductHotkeys();
+    if (phase == BridgeSessionState.recording) {
+      // Await the handback: the plugin allocates a new native id per
+      // register, so a raced unregister leaves a ghost OS hotkey.
+      await _disarmPinHotkey();
+      await _armPinHotkey();
+    }
+  }
+
   /// Hand the pin chord back to the system the moment listening ends
   /// (结束聆听立刻还键) — recording -> anything disarms, cancel
   /// included. A failed handback is dropped: nothing is actionable
-  /// there, and the next session's arm retries.
-  void _disarmPinHotkey() {
-    unawaited(pinHotkey?.unregister().catchError((Object _) {}));
+  /// there, and the next session's arm retries. The envelope path
+  /// fire-and-forgets this; a rebind awaits it so the new chord
+  /// cannot land on a still-registered identifier.
+  Future<void> _disarmPinHotkey() async {
+    try {
+      await pinHotkey?.unregister();
+    } catch (_) {}
   }
 
   /// Right click — quick panel, idle only (会话期无右键). The lists the
@@ -861,7 +956,7 @@ class SpeechController extends ChangeNotifier {
           // the chord goes back to the system at once (its Alt+B roles
           // elsewhere — bookmark menus, undo — stay ours-free at idle).
           if (from == BridgeSessionState.recording) {
-            _disarmPinHotkey();
+            unawaited(_disarmPinHotkey());
           }
         }
         // An active session takes over from the quick panel — recording

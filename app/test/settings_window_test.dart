@@ -16,13 +16,15 @@
 library;
 
 import 'dart:async' show StreamController;
+import 'dart:io';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show SystemChannels;
+import 'package:flutter/services.dart' show LogicalKeyboardKey, SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_state.dart';
+import 'package:spokenrectifier_app/hotkey_binding.dart';
 import 'package:spokenrectifier_app/src/design/controls.dart' show SrButton;
 import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette;
@@ -612,6 +614,8 @@ class FakeSettingsChannel implements SettingsChannel {
   final selections = <String?>[];
   final themePicks = <ThemeMode>[];
   final orbFlips = <bool>[];
+  int hotkeysChanged = 0;
+  final hotkeysPaused = <bool>[];
   int historyChanged = 0;
   final rerectifies = <({String raw, ScenarioPick style})>[];
   int termsChanged = 0;
@@ -658,6 +662,13 @@ class FakeSettingsChannel implements SettingsChannel {
 
   @override
   Future<void> sendOrbVisible(bool visible) async => orbFlips.add(visible);
+
+  @override
+  Future<void> sendHotkeysChanged() async => hotkeysChanged++;
+
+  @override
+  Future<void> sendHotkeysPaused(bool paused) async =>
+      hotkeysPaused.add(paused);
 
   @override
   Future<void> sendHistoryChanged() async => historyChanged++;
@@ -754,6 +765,9 @@ Future<void> pumpSettings(
   SettingsDomain domain = SettingsDomain.scenarios,
   ThemeMode initialTheme = ThemeMode.system,
   bool initialOrbVisible = true,
+  HotkeyBinding initialPrimary = HotkeyBinding.primaryDefault,
+  HotkeyBinding initialPin = HotkeyBinding.pinDefault,
+  List<String>? uiPrefsDirs,
   String? selected,
   void Function(Brightness brightness)? captionTheme,
 }) async {
@@ -765,6 +779,9 @@ Future<void> pumpSettings(
       initialDomain: domain,
       initialTheme: initialTheme,
       initialOrbVisible: initialOrbVisible,
+      initialPrimary: initialPrimary,
+      initialPin: initialPin,
+      uiPrefsDirs: uiPrefsDirs,
       initialSelection: selected,
       historyStore: historyStore ?? FakeHistorySettingsStore(),
       evalRunner: evalRunner ?? FakeFidelityEvalRunner(),
@@ -901,6 +918,8 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('settings-theme-light')), findsOneWidget);
     expect(find.byKey(const Key('settings-orb-visible')), findsOneWidget);
+    expect(find.byKey(const Key('settings-hotkey-primary')), findsOneWidget);
+    expect(find.byKey(const Key('settings-hotkey-pin')), findsOneWidget);
     await tester.tap(find.text('修正'));
     await tester.pump();
     await tester.pump(); // the behavior load lands
@@ -1030,6 +1049,140 @@ void main() {
       initialOrbVisible: false,
     );
     expect(orbSwitch(tester).value, isFalse);
+  });
+
+  testWidgets('the hotkey rows seed from the launch arguments', (tester) async {
+    await pumpSettings(
+      tester,
+      domain: SettingsDomain.general,
+      initialPrimary: const HotkeyBinding.none(),
+      initialPin: HotkeyBinding.tryParse('Ctrl+Q')!,
+    );
+    expect(find.text('未绑定'), findsOneWidget);
+    expect(find.text('Ctrl+Q'), findsOneWidget);
+    expect(find.byKey(const Key('settings-hotkey-hint')), findsOneWidget);
+  });
+
+  testWidgets('capturing a legal chord writes the file and notifies main', (
+    tester,
+  ) async {
+    final dir = Directory.systemTemp.createTempSync('sr-hotkey-settings-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final channel = FakeSettingsChannel();
+    await pumpSettings(
+      tester,
+      channel: channel,
+      domain: SettingsDomain.general,
+      uiPrefsDirs: [dir.path],
+    );
+
+    await tester.tap(find.byKey(const Key('settings-hotkey-primary')));
+    await tester.pump();
+    expect(channel.hotkeysPaused, [true]);
+    expect(find.text('按下组合键…'), findsOneWidget);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyQ);
+    await tester.pump();
+
+    expect(find.text('Alt+Q'), findsOneWidget);
+    expect(channel.hotkeysChanged, 1);
+    expect(channel.hotkeysPaused.last, isFalse);
+    expect(
+      File('${dir.path}/spokenrectifier-ui.toml').readAsStringSync(),
+      contains('primary_hotkey = "Alt+Q"'),
+    );
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyQ);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+  });
+
+  testWidgets('an illegal or colliding press does not finish the capture', (
+    tester,
+  ) async {
+    final dir = Directory.systemTemp.createTempSync('sr-hotkey-collide-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final channel = FakeSettingsChannel();
+    await pumpSettings(
+      tester,
+      channel: channel,
+      domain: SettingsDomain.general,
+      uiPrefsDirs: [dir.path],
+    );
+
+    await tester.tap(find.byKey(const Key('settings-hotkey-primary')));
+    await tester.pump();
+    // A bare key is not a completing press.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyQ);
+    await tester.pump();
+    expect(find.text('按下组合键…'), findsOneWidget);
+    expect(channel.hotkeysChanged, 0);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyQ);
+
+    // The pin's current chord (Alt+B) is a collision; keep waiting.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyB);
+    await tester.pump();
+    expect(find.text('按下组合键…'), findsOneWidget);
+    expect(channel.hotkeysChanged, 0);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyB);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+
+    // Clicking the same row again abandons the capture.
+    await tester.tap(find.byKey(const Key('settings-hotkey-primary')));
+    await tester.pump();
+    expect(find.text('Ctrl+Alt+V'), findsOneWidget);
+    expect(channel.hotkeysPaused.last, isFalse);
+  });
+
+  testWidgets('clear writes none; restore writes the slot default', (
+    tester,
+  ) async {
+    final dir = Directory.systemTemp.createTempSync('sr-hotkey-clear-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final channel = FakeSettingsChannel();
+    await pumpSettings(
+      tester,
+      channel: channel,
+      domain: SettingsDomain.general,
+      uiPrefsDirs: [dir.path],
+    );
+
+    await tester.tap(find.byKey(const Key('settings-hotkey-pin-clear')));
+    await tester.pump();
+    expect(find.text('未绑定'), findsOneWidget);
+    expect(channel.hotkeysChanged, 1);
+    expect(
+      File('${dir.path}/spokenrectifier-ui.toml').readAsStringSync(),
+      contains('pin_hotkey = "none"'),
+    );
+
+    await tester.tap(find.byKey(const Key('settings-hotkey-pin-restore')));
+    await tester.pump();
+    expect(find.text('Alt+B'), findsOneWidget);
+    expect(channel.hotkeysChanged, 2);
+  });
+
+  testWidgets('restore refuses a default that collides with the other slot', (
+    tester,
+  ) async {
+    final dir = Directory.systemTemp.createTempSync('sr-hotkey-restore-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final channel = FakeSettingsChannel();
+    await pumpSettings(
+      tester,
+      channel: channel,
+      domain: SettingsDomain.general,
+      initialPrimary: HotkeyBinding.pinDefault,
+      uiPrefsDirs: [dir.path],
+    );
+
+    await tester.tap(find.byKey(const Key('settings-hotkey-pin-restore')));
+    await tester.pump();
+    // Pin stays Alt+B (already the default) — but wait, primary is also
+    // Alt+B, so restoring pin to Alt+B collides with primary. The pin
+    // row still paints Alt+B (it started there); no write went out.
+    expect(channel.hotkeysChanged, 0);
+    expect(File('${dir.path}/spokenrectifier-ui.toml').existsSync(), isFalse);
   });
 
   // -----------------------------------------------------------------------

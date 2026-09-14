@@ -9,6 +9,9 @@
 /// coordinates) and `panel_size = [w, h]` — same file, same rules; the
 /// writer preserves every line it does not own. The orb-visibility key
 /// (`orb_visible = true/false`, a TOML boolean) rides the same family.
+/// The two product hotkeys (`primary_hotkey` / `pin_hotkey`, quoted
+/// chord strings or `"none"`) join the same file: missing or broken
+/// values fall back to today's defaults, never to empty.
 
 library;
 
@@ -16,6 +19,8 @@ import 'dart:io';
 import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/material.dart' show ThemeMode;
+
+import 'hotkey_binding.dart';
 
 /// The file's name, looked up in every search directory.
 const uiPrefsFile = 'spokenrectifier-ui.toml';
@@ -295,6 +300,92 @@ void saveUiOrbVisible(List<String> dirs, bool visible) {
       return;
     } on FileSystemException {
       continue; // not writable: the next directory gets its chance
+    }
+  }
+  throw const FileSystemException(
+    'no writable directory for the ui prefs file',
+  );
+}
+
+// ---- product hotkeys (ticket 16) ------------------------------------------
+
+final _primaryHotkeyKeyStart = RegExp(r'^primary_hotkey\s*=');
+final _pinHotkeyKeyStart = RegExp(r'^pin_hotkey\s*=');
+
+/// The two product chords as loaded: each slot independently falls back
+/// to today's default when its key is missing or broken. The loader
+/// never cross-checks the pair — a hand-edit that writes the same chord
+/// twice is a runtime occupancy, not a load error.
+typedef UiHotkeys = ({HotkeyBinding primary, HotkeyBinding pin});
+
+/// Read both hotkey keys from the first `spokenrectifier-ui.toml` among
+/// `dirs`. Tolerance family: a missing or unreadable file, a missing
+/// key, a broken quoted string, or an unknown chord all read as that
+/// slot's today-default — never as empty. `"none"` is the empty bind.
+UiHotkeys loadUiHotkeys(List<String> dirs) {
+  for (final dir in dirs) {
+    final file = File('$dir/$uiPrefsFile');
+    String text;
+    try {
+      if (!file.existsSync()) continue;
+      text = file.readAsStringSync();
+    } catch (_) {
+      continue;
+    }
+    return (
+      primary: _parseHotkey(text, _primaryHotkeyKeyStart, HotkeySlot.primary),
+      pin: _parseHotkey(text, _pinHotkeyKeyStart, HotkeySlot.pin),
+    );
+  }
+  return (primary: HotkeyBinding.primaryDefault, pin: HotkeyBinding.pinDefault);
+}
+
+HotkeyBinding _parseHotkey(String text, RegExp keyStart, HotkeySlot slot) {
+  final raw = _parseQuoted(keyStart, text);
+  if (raw == null) return HotkeyBinding.defaultFor(slot);
+  return HotkeyBinding.tryParse(raw) ?? HotkeyBinding.defaultFor(slot);
+}
+
+/// First occurrence of a quoted-string key. A present-but-broken key
+/// is null (the caller defaults); an absent key is also null.
+String? _parseQuoted(RegExp keyStart, String text) {
+  for (var line in text.split('\n')) {
+    line = _stripLine(line);
+    if (!keyStart.hasMatch(line)) continue;
+    final eq = line.indexOf('=');
+    final tail = line.substring(eq + 1).trim();
+    if (tail.length >= 2 && tail.startsWith('"') && tail.endsWith('"')) {
+      return tail.substring(1, tail.length - 1);
+    }
+    return null; // present, not a quoted string
+  }
+  return null;
+}
+
+/// Persist one product chord. The write lands in the file the reader
+/// resolves (never a shadowing copy), every other line survives
+/// verbatim. Throws when nothing is writable — same contract as the
+/// theme writer.
+void saveUiHotkey(List<String> dirs, HotkeySlot slot, HotkeyBinding binding) {
+  final (keyStart, name) = switch (slot) {
+    HotkeySlot.primary => (_primaryHotkeyKeyStart, 'primary_hotkey'),
+    HotkeySlot.pin => (_pinHotkeyKeyStart, 'pin_hotkey'),
+  };
+  final line = '$name = "${binding.wire}"';
+  for (final dir in dirs) {
+    final file = File('$dir/$uiPrefsFile');
+    if (!file.existsSync()) continue;
+    file.writeAsStringSync(
+      _withOneKey(file.readAsStringSync(), keyStart, line),
+    );
+    return;
+  }
+  for (final dir in dirs) {
+    try {
+      File('$dir/$uiPrefsFile').writeAsStringSync('$line\n');
+      return;
+    } on FileSystemException {
+      continue;
     }
   }
   throw const FileSystemException(

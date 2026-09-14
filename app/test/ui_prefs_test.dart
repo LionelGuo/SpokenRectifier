@@ -13,6 +13,7 @@ import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:spokenrectifier_app/hotkey_binding.dart';
 import 'package:spokenrectifier_app/ui_prefs.dart';
 
 void main() {
@@ -330,5 +331,101 @@ void main() {
       '# app-owned\n\n  orb_visible =   false  # hidden while recording\n',
     );
     expect(loadUiOrbVisible([d.path]), isFalse);
+  });
+
+  // -- the product hotkeys (ticket 16) --------------------------------------
+
+  test('a missing file reads as today\'s two defaults, never as empty', () {
+    final loaded = loadUiHotkeys([dir('hotkey-empty').path]);
+    expect(loaded.primary, HotkeyBinding.primaryDefault);
+    expect(loaded.pin, HotkeyBinding.pinDefault);
+  });
+
+  test('both chords round-trip through the writer, including none', () {
+    final d = dir('hotkey-round-trip');
+    saveUiHotkey(
+      [d.path],
+      HotkeySlot.primary,
+      HotkeyBinding.tryParse('Alt+Q')!,
+    );
+    saveUiHotkey([d.path], HotkeySlot.pin, const HotkeyBinding.none());
+    expect(
+      File('${d.path}/$uiPrefsFile').readAsStringSync(),
+      'primary_hotkey = "Alt+Q"\npin_hotkey = "none"\n',
+    );
+    final loaded = loadUiHotkeys([d.path]);
+    expect(loaded.primary.wire, 'Alt+Q');
+    expect(loaded.pin.isNone, isTrue);
+  });
+
+  test(
+    'missing, broken or unknown values fall back per-slot to the default',
+    () {
+      for (final (text, wantPrimary, wantPin) in [
+        (
+          'theme = "dark"\n',
+          HotkeyBinding.primaryDefault,
+          HotkeyBinding.pinDefault,
+        ),
+        (
+          'primary_hotkey = Ctrl+Alt+V\n', // unquoted: broken, not a chord
+          HotkeyBinding.primaryDefault,
+          HotkeyBinding.pinDefault,
+        ),
+        (
+          'primary_hotkey = "nope"\npin_hotkey = "Alt+B"\n',
+          HotkeyBinding.primaryDefault,
+          HotkeyBinding.pinDefault,
+        ),
+        (
+          'primary_hotkey = "none"\n',
+          const HotkeyBinding.none(),
+          HotkeyBinding.pinDefault,
+        ),
+        (
+          'pin_hotkey = "Win+B"\n',
+          HotkeyBinding.primaryDefault,
+          HotkeyBinding.pinDefault,
+        ),
+      ]) {
+        final d = dir('hotkey-broken');
+        File('${d.path}/$uiPrefsFile').writeAsStringSync(text);
+        final loaded = loadUiHotkeys([d.path]);
+        expect(loaded.primary, wantPrimary, reason: 'primary of $text');
+        expect(loaded.pin, wantPin, reason: 'pin of $text');
+      }
+    },
+  );
+
+  test('the loader does not cross-check a colliding pair', () {
+    // A hand-edit that writes the same chord twice is occupancy at
+    // runtime, not a load error — each key is read on its own.
+    final d = dir('hotkey-collide');
+    File('${d.path}/$uiPrefsFile')
+        .writeAsStringSync('primary_hotkey = "Alt+B"\npin_hotkey = "Alt+B"\n');
+    final loaded = loadUiHotkeys([d.path]);
+    expect(loaded.primary.wire, 'Alt+B');
+    expect(loaded.pin.wire, 'Alt+B');
+  });
+
+  test('a hotkey write replaces its key in place and preserves the rest', () {
+    final d = dir('hotkey-preserve');
+    final file = File('${d.path}/$uiPrefsFile');
+    file.writeAsStringSync(
+      '# app-owned\ntheme = "dark"\norb_visible = true\nprimary_hotkey = "Ctrl+Alt+V"\n',
+    );
+
+    saveUiHotkey(
+      [d.path],
+      HotkeySlot.primary,
+      HotkeyBinding.tryParse('Ctrl+Q')!,
+    );
+    expect(
+      file.readAsStringSync(),
+      '# app-owned\ntheme = "dark"\norb_visible = true\nprimary_hotkey = "Ctrl+Q"\n',
+    );
+    saveUiHotkey([d.path], HotkeySlot.pin, HotkeyBinding.pinDefault);
+    expect(file.readAsStringSync(), contains('pin_hotkey = "Alt+B"'));
+    expect(file.readAsStringSync(), contains('theme = "dark"'));
   });
 }

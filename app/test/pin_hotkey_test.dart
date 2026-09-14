@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
+import 'package:spokenrectifier_app/hotkey_binding.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart' show SrCapsule;
 import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeSessionState;
@@ -21,11 +22,13 @@ import 'fake_gateway.dart';
 /// so tests can press the chord exactly the way the platform would.
 class RecordingPinHotkeyRegistrar implements PinHotkeyRegistrar {
   final calls = <String>[];
+  HotkeyBinding? lastChord;
   VoidCallback? onPin;
 
   @override
-  Future<void> register(void Function() onPin) async {
+  Future<void> register(HotkeyBinding chord, void Function() onPin) async {
     calls.add('register');
+    lastChord = chord;
     this.onPin = onPin;
   }
 

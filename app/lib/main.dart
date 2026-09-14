@@ -18,7 +18,6 @@ import 'dart:async' show unawaited;
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show PhysicalKeyboardKey;
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
@@ -46,6 +45,7 @@ import 'src/settings/system_store.dart';
 import 'src/settings/terms_store.dart';
 import 'src/shell/window_stage.dart' show StageWindow, WindowManagerStageWindow;
 import 'src/shell/window_geometry.dart' show anchorRestorable, orbFootprintAt;
+import 'hotkey_binding.dart';
 import 'ui_prefs.dart';
 
 const _toggleOrbKey = 'toggle-orb';
@@ -137,10 +137,16 @@ Future<void> main(List<String> args) async {
   // The theme rides the app-owned prefs file (missing file = follow the
   // system); the quick panel's tri-state switcher writes it back. The
   // orb's visibility rides the same file (missing/broken key = visible).
+  // The two product chords ride it too (missing/broken = today's defaults).
+  final prefsDirs = uiPrefsSearchDirs();
+  final hotkeys = loadUiHotkeys(prefsDirs);
   final controller = SpeechController(
     gateway: RustSpeechEngineGateway(),
-    themeMode: loadUiThemeMode(uiPrefsSearchDirs()),
-    orbVisible: loadUiOrbVisible(uiPrefsSearchDirs()),
+    themeMode: loadUiThemeMode(prefsDirs),
+    orbVisible: loadUiOrbVisible(prefsDirs),
+    primaryChord: hotkeys.primary,
+    pinChord: hotkeys.pin,
+    primaryHotkeys: HotkeyManagerPrimaryHotkeyRegistrar(),
     pinHotkey: HotkeyManagerPinHotkeyRegistrar(),
   );
   if (startupError != null) {
@@ -162,7 +168,7 @@ Future<void> main(List<String> args) async {
   // value (config-seeded; never persisted).
   await controller.loadPassageMode();
 
-  await _installHotkey(controller);
+  await controller.installProductHotkeys();
 
   // The settings window (an independent OS window): the quick panel's
   // entry rows open it on a domain, and its events come back through
@@ -229,6 +235,8 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
       initialDomain: launch.domain,
       initialTheme: launch.theme,
       initialOrbVisible: launch.orbVisible,
+      initialPrimary: launch.primary,
+      initialPin: launch.pin,
       initialSelection: launch.selected,
       historyStore: const RustHistorySettingsStore(),
       evalRunner: const RustFidelityEvalRunner(),
@@ -240,35 +248,66 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
   );
 }
 
-Future<void> _installHotkey(SpeechController controller) async {
-  await HotKeyManager.instance.register(
-    HotKey(
-      key: PhysicalKeyboardKey.keyV,
-      modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-    ),
-    keyDownHandler: (_) => controller.hotkeyToggle(),
+/// Build a plugin [HotKey] for a legal product chord. Null for the
+/// empty bind — callers skip registration.
+HotKey? _hotKeyFor(HotkeyBinding binding) {
+  final key = binding.physicalKey;
+  if (key == null) return null;
+  return HotKey(
+    key: key,
+    modifiers: [
+      if (binding.ctrl) HotKeyModifier.control,
+      if (binding.alt) HotKeyModifier.alt,
+      if (binding.shift) HotKeyModifier.shift,
+    ],
   );
 }
 
-/// The pin chord (Alt+B, no Control, ticket 21). Registered on entering
-/// listening and handed back the moment it ends — the same global
-/// registration mechanism as the step key above, but phase-bound: an
-/// idle press belongs to whatever app owns Alt+B (bookmark menus,
-/// undo), so the chord exists only while a session is recording.
-class HotkeyManagerPinHotkeyRegistrar implements PinHotkeyRegistrar {
-  // Not const: HotKey's constructor builds a non-const default set.
-  static final _pinHotKey = HotKey(
-    key: PhysicalKeyboardKey.keyB,
-    modifiers: [HotKeyModifier.alt],
-  );
+/// The main-flow chord: held for the process lifetime, swapped in place
+/// on a rebind (unregister the previous identifier, then register the
+/// new HotKey). An empty bind leaves the chord with the system.
+class HotkeyManagerPrimaryHotkeyRegistrar implements PrimaryHotkeyRegistrar {
+  HotKey? _current;
 
+  @override
+  Future<void> apply(HotkeyBinding chord, VoidCallback onPress) async {
+    await unregister();
+    final hotKey = _hotKeyFor(chord);
+    if (hotKey == null) return;
+    _current = hotKey;
+    await HotKeyManager.instance.register(
+      hotKey,
+      keyDownHandler: (_) => onPress(),
+    );
+  }
+
+  @override
+  Future<void> unregister() async {
+    final current = _current;
+    _current = null;
+    if (current != null) {
+      await HotKeyManager.instance.unregister(current);
+    }
+  }
+}
+
+/// The pin chord: registered on entering listening and handed back the
+/// moment it ends — the same global registration mechanism as the step
+/// key, but phase-bound. The chord itself is an argument so a rebind
+/// mid-listen drops the old object and takes the new one.
+class HotkeyManagerPinHotkeyRegistrar implements PinHotkeyRegistrar {
+  HotKey? _current;
   VoidCallback? _onPin;
 
   @override
-  Future<void> register(VoidCallback onPin) async {
+  Future<void> register(HotkeyBinding chord, VoidCallback onPin) async {
+    await _drop();
     _onPin = onPin;
+    final hotKey = _hotKeyFor(chord);
+    if (hotKey == null) return;
+    _current = hotKey;
     await HotKeyManager.instance.register(
-      _pinHotKey,
+      hotKey,
       keyDownHandler: (_) => _onPin?.call(),
     );
   }
@@ -276,7 +315,15 @@ class HotkeyManagerPinHotkeyRegistrar implements PinHotkeyRegistrar {
   @override
   Future<void> unregister() async {
     _onPin = null;
-    await HotKeyManager.instance.unregister(_pinHotKey);
+    await _drop();
+  }
+
+  Future<void> _drop() async {
+    final current = _current;
+    _current = null;
+    if (current != null) {
+      await HotKeyManager.instance.unregister(current);
+    }
   }
 }
 

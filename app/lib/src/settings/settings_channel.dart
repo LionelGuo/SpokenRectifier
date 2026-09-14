@@ -53,6 +53,15 @@ abstract class SettingsChannel {
   /// (the tray checkbox and tray click share it).
   Future<void> sendOrbVisible(bool visible);
 
+  /// A general-domain hotkey row wrote ui.toml (record / clear / restore).
+  /// The chord does not ride this event — the file is the truth; the main
+  /// engine re-reads and hot-swaps.
+  Future<void> sendHotkeysChanged();
+
+  /// Capture started or ended: the main engine unregisters both product
+  /// chords for the duration so the settings window can hear the press.
+  Future<void> sendHotkeysPaused(bool paused);
+
   /// The history store changed shape from the history domain (retention
   /// retightened, keep-nothing turned on, everything cleared): the main
   /// window re-reads its recent rows — an event, never mirrored state.
@@ -141,6 +150,13 @@ class DesktopSettingsChannel implements SettingsChannel {
   @override
   Future<void> sendOrbVisible(bool visible) =>
       _send('set-orb-visible', visible);
+
+  @override
+  Future<void> sendHotkeysChanged() => _send('hotkeys-changed', null);
+
+  @override
+  Future<void> sendHotkeysPaused(bool paused) =>
+      _send('hotkeys-paused', paused);
 
   @override
   Future<void> sendHistoryChanged() => _send('history-changed', null);
