@@ -48,6 +48,45 @@ impl Format {
     pub fn accepted() -> &'static str {
         "the strings \"openai_chat\", \"anthropic\", or \"gemini\" (lowercase)"
     }
+
+    /// Complete `{base_url}` to the format's request URL. The base is a
+    /// prefix only — never a full-URL override (ADR-0019 item 1). Gemini
+    /// interpolates the model into the path; the other two append a
+    /// fixed suffix.
+    pub fn complete_url(self, base_url: &str, model: &str) -> String {
+        let base = base_url.trim_end_matches('/');
+        match self {
+            Format::OpenaiChat => format!("{base}/chat/completions"),
+            Format::Anthropic => format!("{base}/v1/messages"),
+            Format::Gemini => {
+                format!("{base}/models/{model}:streamGenerateContent?alt=sse")
+            }
+        }
+    }
+
+    /// Auth (and companion) headers for one request. The key is the
+    /// resolved secret; it never appears in a URL.
+    pub fn auth_headers(self, api_key: &str) -> Vec<(&'static str, String)> {
+        match self {
+            Format::OpenaiChat => vec![("Authorization", format!("Bearer {api_key}"))],
+            Format::Anthropic => vec![
+                ("x-api-key", api_key.to_string()),
+                ("anthropic-version", "2023-06-01".into()),
+            ],
+            Format::Gemini => vec![("x-goog-api-key", api_key.to_string())],
+        }
+    }
+
+    /// Keys the assembler injects last and never lets an overlay keep
+    /// (ADR-0019 item 2). The set varies with the format: prompt slots,
+    /// `stream`, and `model` where the body carries them.
+    pub fn protected_keys(self) -> &'static [&'static str] {
+        match self {
+            Format::OpenaiChat => &["model", "messages", "stream"],
+            Format::Anthropic => &["model", "system", "messages", "stream"],
+            Format::Gemini => &["systemInstruction", "contents"],
+        }
+    }
 }
 
 #[cfg(test)]
@@ -78,5 +117,40 @@ mod tests {
         }
         // Like the vendor names, surrounding whitespace is tolerated.
         assert_eq!(Format::from_str_name(" gemini "), Some(Format::Gemini));
+    }
+
+    #[test]
+    fn path_completion_is_a_prefix_plus_the_format_rule() {
+        assert_eq!(
+            Format::OpenaiChat.complete_url("https://api.deepseek.com/", "ignored"),
+            "https://api.deepseek.com/chat/completions"
+        );
+        assert_eq!(
+            Format::Anthropic.complete_url("https://api.anthropic.com", "ignored"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            Format::Gemini.complete_url(
+                "https://generativelanguage.googleapis.com/v1beta/",
+                "gemini-3.8-flash"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse"
+        );
+    }
+
+    #[test]
+    fn auth_headers_match_the_format_contract() {
+        let openai = Format::OpenaiChat.auth_headers("sk-test");
+        assert_eq!(openai, vec![("Authorization", "Bearer sk-test".into())]);
+        let anthropic = Format::Anthropic.auth_headers("sk-test");
+        assert_eq!(
+            anthropic,
+            vec![
+                ("x-api-key", "sk-test".into()),
+                ("anthropic-version", "2023-06-01".into()),
+            ]
+        );
+        let gemini = Format::Gemini.auth_headers("sk-test");
+        assert_eq!(gemini, vec![("x-goog-api-key", "sk-test".into())]);
     }
 }

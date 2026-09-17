@@ -21,8 +21,8 @@ use spokenrectifier_volcengine::VolcengineAsr;
 
 /// Which rectify LLM the real engine runs with.
 pub enum LlmChoice {
-    /// The `[llm]` config resolved a key: a real OpenAI-compatible
-    /// client, streaming real rectifications.
+    /// The `[llm]` config resolved a key: the format-picked production
+    /// client (ADR-0019), streaming real rectifications.
     Real(Arc<dyn RectifyLlm>),
     /// No `[llm]` key anywhere: the scripted demo LLM (pure demo mode,
     /// real transcripts must never meet it — see [`llm_choice`]).
@@ -61,9 +61,8 @@ pub fn llm_choice(dirs: &[PathBuf]) -> anyhow::Result<LlmChoice> {
         }
         return Ok(LlmChoice::ScriptedDemo);
     }
-    let llm = spokenrectifier_llm::OpenAiCompatLlm::new(config)
-        .map_err(|err| anyhow!("LLM {}", err.0))?;
-    Ok(LlmChoice::Real(Arc::new(llm)))
+    let llm = spokenrectifier_llm::live_llm(config).map_err(|err| anyhow!("LLM {}", err.0))?;
+    Ok(LlmChoice::Real(llm))
 }
 
 /// The production inserter for the real engine: the `[insertion]` config

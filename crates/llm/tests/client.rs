@@ -7,7 +7,7 @@ use common::{config_with_base, long_request, request};
 use futures::StreamExt;
 use httpmock::{Method, MockServer};
 use spokenrectifier_engine::provider::llm::{RectifyLlm, RectifyRequest};
-use spokenrectifier_llm::OpenAiCompatLlm;
+use spokenrectifier_llm::{Format, OpenAiCompatLlm};
 
 fn sse_body() -> String {
     concat!(
@@ -160,4 +160,69 @@ async fn midstream_error_event_fails_the_stream() {
         other => panic!("expected stream error, got {other:?}"),
     };
     assert!(err.contains("quota exceeded"), "got: {err}");
+}
+
+#[tokio::test]
+async fn vllm_reasoning_field_is_counted_and_never_leaked() {
+    let body = concat!(
+        "data: {\"choices\":[{\"delta\":{\"reasoning\":\"想\"}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"会议\"}}]}\n\n",
+        "data: [DONE]\n\n",
+    );
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(Method::POST).path("/chat/completions");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(body);
+    });
+
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let llm = OpenAiCompatLlm::new(config_with_base(server.base_url(), false))
+        .unwrap()
+        .with_reasoning_counter(counter.clone());
+    let deltas = collect(&llm, long_request()).await;
+    assert_eq!(deltas, vec!["会议"]);
+    assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(1));
+}
+
+#[tokio::test]
+async fn anthropic_and_gemini_formats_post_to_their_own_path_and_headers() {
+    // Ticket 02 lands the request shape; ticket 03 swaps the SSE
+    // dialect. The openai_chat decoder still reads the mock body.
+    let server = MockServer::start();
+    let anthropic = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/v1/messages")
+            .header("x-api-key", "sk-test")
+            .header("anthropic-version", "2023-06-01")
+            .body_contains("\"system\":\"")
+            .body_contains("\"max_tokens\":");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(sse_body());
+    });
+    let gemini = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/models/test-model:streamGenerateContent")
+            .query_param("alt", "sse")
+            .header("x-goog-api-key", "sk-test")
+            .body_contains("\"systemInstruction\"")
+            .body_contains("\"contents\"");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(sse_body());
+    });
+
+    let mut anthropic_config = config_with_base(server.base_url(), false);
+    anthropic_config.model.format = Format::Anthropic;
+    let llm = OpenAiCompatLlm::new(anthropic_config).unwrap();
+    collect(&llm, long_request()).await;
+    anthropic.assert_hits(1);
+
+    let mut gemini_config = config_with_base(server.base_url(), false);
+    gemini_config.model.format = Format::Gemini;
+    let llm = OpenAiCompatLlm::new(gemini_config).unwrap();
+    collect(&llm, long_request()).await;
+    gemini.assert_hits(1);
 }

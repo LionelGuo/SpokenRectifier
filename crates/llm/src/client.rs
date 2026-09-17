@@ -1,7 +1,13 @@
-//! The OpenAI-compatible rectify client: one `POST {base_url}/chat
-//! /completions` with `stream: true`, SSE deltas out. The SSE framing is
-//! decoded here (line-buffered across chunk boundaries) so the streaming
-//! behavior is testable against plain byte streams, no HTTP involved.
+//! The OpenAI Chat Completions rectify client: one `POST` with
+//! `stream: true`, SSE deltas out. Path, auth, and body assembly live
+//! on the format axis ([`Format`], [`crate::assembly`]); this module
+//! owns the openai_chat SSE dialect (`delta.content` vs
+//! `delta.reasoning` / `delta.reasoning_content`) and the shared
+//! HTTP/SSE transport the other two formats plug into (ticket 03).
+//!
+//! A thinking-channel token is the 「正在思考」 signal (ADR-0019 item 6):
+//! counted, never leaked into the rectified text. The session-window
+//! display is out of this ticket's scope.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -11,17 +17,62 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use spokenrectifier_engine::provider::llm::{
     RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
 };
 
-use crate::config::{LlmConfig, ModelConfig, ThinkingPolicy, ThinkingState};
+use crate::assembly::request_body;
+use crate::config::{LlmConfig, ModelConfig, ThinkingPolicy};
+use crate::format::Format;
 use crate::intensity::{Intensity, select_intensity};
 use crate::prompt::{ChatPrompt, compose_prompt_with_extra, has_pins};
 
-/// A rectify LLM backed by any OpenAI-compatible endpoint.
+/// One SSE data payload, decoded. Format dialects map their frames
+/// onto this; the transport yields only `content` and counts
+/// `reasoning_chars`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedEvent {
+    /// A rectified-text token delta, if this frame carried one.
+    pub content: Option<String>,
+    /// Thinking-channel characters on this frame. A non-zero value is
+    /// the 「正在思考」 signal (ADR-0019 item 6): counted, never leaked
+    /// into the rectified text. The session-window display is out of
+    /// this ticket's scope.
+    pub reasoning_chars: u64,
+    /// End of stream (`[DONE]` for openai_chat; other dialects name
+    /// their own sentinel in ticket 03).
+    pub done: bool,
+}
+
+impl ParsedEvent {
+    /// The 「正在思考」 signal: a non-empty thinking-channel token.
+    pub(crate) fn is_thinking_signal(&self) -> bool {
+        self.reasoning_chars > 0
+    }
+}
+
+/// Decode one SSE data payload. One impl per format (ADR-0019 item 6);
+/// today's client is openai_chat.
+pub(crate) trait SseDialect: Send + Sync + 'static {
+    fn parse_event(&self, data: &str) -> Result<ParsedEvent, String>;
+}
+
+/// The openai_chat SSE dialect: `choices[0].delta.content` vs the
+/// thinking channel's two historical names.
+pub(crate) struct OpenaiChatDialect;
+
+impl SseDialect for OpenaiChatDialect {
+    fn parse_event(&self, data: &str) -> Result<ParsedEvent, String> {
+        parse_openai_chat_event(data)
+    }
+}
+
+/// A rectify LLM backed by an OpenAI Chat Completions endpoint. Request
+/// URL, auth, and body still key off [`ModelConfig::format`] so a
+/// rebuild under another format sends the right shape; the SSE decoder
+/// stays openai_chat until ticket 03 swaps the dialect.
 pub struct OpenAiCompatLlm {
     config: LlmConfig,
     http: reqwest::Client,
@@ -82,6 +133,22 @@ impl OpenAiCompatLlm {
     }
 }
 
+/// The production client for a loaded config. Format picks the
+/// implementation (ADR-0019 item 6); ticket 02 lands openai_chat.
+/// Anthropic and gemini still construct that client so a rebuild
+/// already sends the right URL/headers/body — ticket 03 swaps those
+/// two arms onto their own SSE dialects.
+pub fn live_llm(config: LlmConfig) -> Result<Arc<dyn RectifyLlm>, RectifyError> {
+    // Ticket 03 splits this match: openai_chat stays, anthropic/gemini
+    // swap onto their own dialects. Until then every format rides this
+    // client, which already posts the format's URL, headers, and body.
+    match config.model.format {
+        Format::OpenaiChat | Format::Anthropic | Format::Gemini => {
+            Ok(Arc::new(OpenAiCompatLlm::new(config)?))
+        }
+    }
+}
+
 #[async_trait]
 impl RectifyLlm for OpenAiCompatLlm {
     async fn rectify(&self, request: RectifyRequest) -> Result<RectifyTokenStream, RectifyError> {
@@ -106,30 +173,13 @@ impl RectifyLlm for OpenAiCompatLlm {
         })?;
         let prompt = self.composed_prompt(&request, intensity);
         let thinking = self.thinking_enabled(&request.raw_transcript, intensity);
-        let url = format!("{}/chat/completions", model.base_url.trim_end_matches('/'));
-        let response = self
-            .http
-            .post(&url)
-            .bearer_auth(&key)
-            .json(&request_body(model, &prompt, thinking))
-            .send()
-            .await
-            .map_err(|err| RectifyError(format!("request to {url} failed: {err}")))?;
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            let message = serde_json::from_str::<ApiErrorBody>(&body)
-                .ok()
-                .and_then(|b| b.error.message);
-            let detail = message.unwrap_or(body);
-            return Err(RectifyError(format!(
-                "{url} returned {}: {detail}",
-                status.as_u16()
-            )));
-        }
+        let url = model.format.complete_url(&model.base_url, &model.model);
+        let body = request_body(model, &prompt, thinking);
+        let response = post_sse(&self.http, model, &key, &url, &body).await?;
         Ok(Box::pin(sse_token_stream(
             response,
             self.reasoning_chars.clone(),
+            OpenaiChatDialect,
         )))
     }
 
@@ -143,50 +193,39 @@ impl RectifyLlm for OpenAiCompatLlm {
     }
 }
 
-// -- request ----------------------------------------------------------------
-
-/// The request body under the fixed merge order (ADR-0019 item 2):
-/// skeleton, then the resident share, then the selected thinking share
-/// — the thinking share keeps the last word. The connection domain's
-/// thinking state gates the whole group: off, unconfigured, or broken
-/// sends no thinking keys at all, leaving the endpoint on its own
-/// default (ADR-0019 item 3). Overlaid onto a legacy (grandfathered)
-/// config this reproduces the pre-0019 body byte for byte — the
-/// shares compose in the old precedence (dialect, custom overlay,
-/// hold) at load.
-pub(crate) fn request_body(model: &ModelConfig, prompt: &ChatPrompt, thinking: bool) -> Value {
-    let mut body = json!({
-        "model": model.model,
-        "messages": [
-            {"role": "system", "content": prompt.system},
-            {"role": "user", "content": prompt.user},
-        ],
-        "stream": true,
-        // Rewriting wants stable output, not creativity.
-        "temperature": 0.2,
-    });
-    let group = &model.thinking;
-    if let Some(resident) = &group.overlays.body {
-        for (field, value) in resident {
-            body[field.as_str()] = value.clone();
-        }
+/// POST the assembled body with the format's auth headers. Shared with
+/// ticket 03's clients.
+pub(crate) async fn post_sse(
+    http: &reqwest::Client,
+    model: &ModelConfig,
+    key: &str,
+    url: &str,
+    body: &Value,
+) -> Result<reqwest::Response, RectifyError> {
+    let mut req = http.post(url).json(body);
+    for (name, value) in model.format.auth_headers(key) {
+        req = req.header(name, value);
     }
-    if group.state == ThinkingState::On {
-        let share = if thinking {
-            &group.overlays.thinking_on
-        } else {
-            &group.overlays.thinking_off
-        };
-        if let Some(share) = share {
-            for (field, value) in share {
-                body[field.as_str()] = value.clone();
-            }
-        }
+    let response = req
+        .send()
+        .await
+        .map_err(|err| RectifyError(format!("request to {url} failed: {err}")))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        let message = serde_json::from_str::<ApiErrorBody>(&body)
+            .ok()
+            .and_then(|b| b.error.message);
+        let detail = message.unwrap_or(body);
+        return Err(RectifyError(format!(
+            "{url} returned {}: {detail}",
+            status.as_u16()
+        )));
     }
-    body
+    Ok(response)
 }
 
-// -- response ---------------------------------------------------------------
+// -- openai_chat SSE --------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 struct ApiErrorBody {
@@ -215,7 +254,10 @@ struct Choice {
 #[derive(Debug, Default, Deserialize)]
 struct Delta {
     content: Option<String>,
+    /// DeepSeek / DashScope / Ark name.
     reasoning_content: Option<String>,
+    /// vLLM's rename of `reasoning_content` (ADR-0019 item 6).
+    reasoning: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,14 +265,37 @@ struct ChunkError {
     message: String,
 }
 
-/// One SSE event's meaning for the token stream: a delta to yield, nothing
-/// (keep-alive, reasoning output, empty finish chunk), or a failure. The
-/// reasoning char count rides alongside — thinking output must never leak
-/// into the rectified text, but its length is observable (the eval's
-/// falsifier column, placeholder-process 06).
-fn parse_delta(data: &str) -> Result<(Option<String>, u64), String> {
+fn reasoning_chars(delta: &Delta) -> u64 {
+    // Prefer the current vLLM name; fall back to the original. A
+    // gateway that sends both with the same text is counted once.
+    let text = delta
+        .reasoning
+        .as_deref()
+        .or(delta.reasoning_content.as_deref())
+        .unwrap_or("");
+    text.chars().count() as u64
+}
+
+fn empty_event() -> ParsedEvent {
+    ParsedEvent {
+        content: None,
+        reasoning_chars: 0,
+        done: false,
+    }
+}
+
+/// One openai_chat SSE data payload: content, thinking, keep-alive,
+/// `[DONE]`, or a stream error.
+pub(crate) fn parse_openai_chat_event(data: &str) -> Result<ParsedEvent, String> {
     if data.trim().is_empty() {
-        return Ok((None, 0));
+        return Ok(empty_event());
+    }
+    if data.trim() == "[DONE]" {
+        return Ok(ParsedEvent {
+            content: None,
+            reasoning_chars: 0,
+            done: true,
+        });
     }
     let chunk: ChatChunk =
         serde_json::from_str(data).map_err(|err| format!("malformed SSE data: {err}"))?;
@@ -238,30 +303,29 @@ fn parse_delta(data: &str) -> Result<(Option<String>, u64), String> {
         return Err(format!("stream error: {}", err.message));
     }
     let Some(choice) = chunk.choices.into_iter().next() else {
-        return Ok((None, 0));
+        return Ok(empty_event());
     };
-    let reasoning = choice
-        .delta
-        .reasoning_content
-        .as_ref()
-        .map_or(0, |text| text.chars().count() as u64);
-    Ok((
-        choice.delta.content.filter(|content| !content.is_empty()),
-        reasoning,
-    ))
+    let reasoning_chars = reasoning_chars(&choice.delta);
+    Ok(ParsedEvent {
+        content: choice.delta.content.filter(|text| !text.is_empty()),
+        reasoning_chars,
+        done: false,
+    })
 }
 
 /// Feed one decoded SSE event (its joined data payload) into the stream.
-struct StreamState {
+struct StreamState<D> {
     response: reqwest::Response,
     decoder: SseDecoder,
     pending: VecDeque<String>,
     reasoning_chars: Option<Arc<AtomicU64>>,
+    dialect: D,
 }
 
-fn sse_token_stream(
+fn sse_token_stream<D: SseDialect>(
     response: reqwest::Response,
     reasoning_chars: Option<Arc<AtomicU64>>,
+    dialect: D,
 ) -> RectifyTokenStream {
     futures::stream::try_unfold(
         StreamState {
@@ -269,19 +333,20 @@ fn sse_token_stream(
             decoder: SseDecoder::new(),
             pending: VecDeque::new(),
             reasoning_chars,
+            dialect,
         },
         |mut state| async move {
             loop {
                 if let Some(data) = state.pending.pop_front() {
-                    if data == "[DONE]" {
-                        return Ok(None);
-                    }
-                    match parse_delta(&data) {
-                        Ok((delta, reasoning)) => {
-                            if let Some(counter) = state.reasoning_chars.as_ref() {
-                                counter.fetch_add(reasoning, Ordering::Relaxed);
+                    match state.dialect.parse_event(&data) {
+                        Ok(parsed) if parsed.done => return Ok(None),
+                        Ok(parsed) => {
+                            if parsed.is_thinking_signal()
+                                && let Some(counter) = state.reasoning_chars.as_ref()
+                            {
+                                counter.fetch_add(parsed.reasoning_chars, Ordering::Relaxed);
                             }
-                            if let Some(delta) = delta {
+                            if let Some(delta) = parsed.content {
                                 return Ok(Some((delta, state)));
                             }
                             continue;
@@ -317,13 +382,13 @@ fn sse_token_stream(
 /// Handles `\n` and `\r\n`, `data:` with or without the space, ignores other
 /// fields and `:` comments, and never splits a UTF-8 character (a `\n` is
 /// ASCII and cannot appear inside a multi-byte character).
-struct SseDecoder {
+pub(crate) struct SseDecoder {
     buf: Vec<u8>,
     data_lines: Vec<String>,
 }
 
 impl SseDecoder {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             buf: Vec::new(),
             data_lines: Vec::new(),
@@ -332,7 +397,7 @@ impl SseDecoder {
 
     /// Feed raw bytes; returns the data payloads of every event the chunk
     /// completed.
-    fn feed(&mut self, bytes: &[u8]) -> Vec<String> {
+    pub(crate) fn feed(&mut self, bytes: &[u8]) -> Vec<String> {
         self.buf.extend_from_slice(bytes);
         let mut events = Vec::new();
         while let Some(nl) = self.buf.iter().position(|&b| b == b'\n') {
@@ -356,7 +421,7 @@ impl SseDecoder {
     }
 
     /// Flush a final event that was not terminated by a blank line.
-    fn finish(&mut self) -> Vec<String> {
+    pub(crate) fn finish(&mut self) -> Vec<String> {
         self.buf.clear();
         self.take_event().into_iter().collect()
     }
@@ -372,6 +437,7 @@ impl SseDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spokenrectifier_engine::provider::llm::RectifyRequest;
 
     /// The wiring hop the prefill key lands through: the config — not
     /// the engine's seam default — decides the pinned prompt's form
@@ -479,22 +545,44 @@ mod tests {
 
     #[test]
     fn done_marker_is_distinct_from_data() {
-        // The caller treats exactly "[DONE]" as end-of-stream.
+        // The dialect treats exactly "[DONE]" as end-of-stream.
         assert_eq!(feed_all(&["data: [DONE]\n\n"]), vec!["[DONE]"]);
+        assert!(parse_openai_chat_event("[DONE]").unwrap().done);
     }
 
     #[test]
-    fn parse_delta_yields_content_and_skips_reasoning() {
+    fn parse_event_yields_content_and_signals_reasoning() {
         let content = r#"{"choices":[{"delta":{"content":"会议"}}]}"#;
-        assert_eq!(parse_delta(content).unwrap(), (Some("会议".into()), 0));
+        let event = parse_openai_chat_event(content).unwrap();
+        assert_eq!(event.content.as_deref(), Some("会议"));
+        assert_eq!(event.reasoning_chars, 0);
+        assert!(!event.is_thinking_signal());
+
         let reasoning = r#"{"choices":[{"delta":{"reasoning_content":"思考中"}}]}"#;
-        assert_eq!(parse_delta(reasoning).unwrap(), (None, 3));
+        let event = parse_openai_chat_event(reasoning).unwrap();
+        assert!(event.content.is_none());
+        assert_eq!(event.reasoning_chars, 3);
+        assert!(
+            event.is_thinking_signal(),
+            "a thinking-channel token is the 「正在思考」 signal"
+        );
+
+        // vLLM's renamed field is the same signal (ADR-0019 item 6).
+        let vllm = r#"{"choices":[{"delta":{"reasoning":"想"}}]}"#;
+        let event = parse_openai_chat_event(vllm).unwrap();
+        assert_eq!(event.reasoning_chars, 1);
+        assert!(event.is_thinking_signal());
+
         let both = r#"{"choices":[{"delta":{"content":"会议","reasoning_content":"想"}}]}"#;
-        assert_eq!(parse_delta(both).unwrap(), (Some("会议".into()), 1));
+        let event = parse_openai_chat_event(both).unwrap();
+        assert_eq!(event.content.as_deref(), Some("会议"));
+        assert_eq!(event.reasoning_chars, 1);
+        assert!(event.is_thinking_signal());
+
         let empty = r#"{"choices":[{"delta":{}}]}"#;
-        assert_eq!(parse_delta(empty).unwrap(), (None, 0));
+        assert_eq!(parse_openai_chat_event(empty).unwrap(), empty_event());
         let keep_alive = "  ";
-        assert_eq!(parse_delta(keep_alive).unwrap(), (None, 0));
+        assert_eq!(parse_openai_chat_event(keep_alive).unwrap(), empty_event());
     }
 
     /// The observation seam (placeholder-process 06): an attached counter
@@ -514,76 +602,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_delta_maps_stream_errors() {
+    fn parse_event_maps_stream_errors() {
         let err = r#"{"error":{"message":"quota exceeded"}}"#;
-        assert_eq!(parse_delta(err), Err("stream error: quota exceeded".into()));
-        assert!(parse_delta("not json").is_err());
-    }
-
-    #[test]
-    fn request_body_shape_thinking_and_extra() {
-        let mut model = LlmConfig::defaults().model;
-        let prompt = ChatPrompt {
-            system: "sys".into(),
-            user: "usr".into(),
-        };
-        let body = request_body(&model, &prompt, false);
-        assert_eq!(body["model"], "deepseek-v4-flash");
-        assert_eq!(body["stream"], true);
-        assert_eq!(body["temperature"], 0.2);
-        assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["messages"][0]["content"], "sys");
-        assert_eq!(body["messages"][1]["content"], "usr");
-        assert_eq!(body["thinking"], json!({"type": "disabled"}));
-
-        // The resident share merges before the thinking share, so the
-        // thinking share keeps the last word (ADR-0019's fixed order).
-        model.thinking.overlays.body = Some(
-            serde_json::from_str::<serde_json::Map<String, Value>>(
-                r#"{"top_p": 0.9, "thinking": {"type": "enabled"}}"#,
-            )
-            .unwrap(),
-        );
-        let body = request_body(&model, &prompt, false);
-        assert_eq!(body["top_p"], 0.9);
-        assert_eq!(body["thinking"], json!({"type": "disabled"}));
-        let body = request_body(&model, &prompt, true);
         assert_eq!(
-            body["thinking"],
-            json!({"type": "enabled"}),
-            "the on-share keeps the last word over the resident share"
+            parse_openai_chat_event(err),
+            Err("stream error: quota exceeded".into())
         );
-        assert_eq!(body["reasoning_effort"], "medium");
+        assert!(parse_openai_chat_event("not json").is_err());
     }
 
-    /// The connection domain's thinking state gates the whole group
-    /// (ADR-0019 item 3): off, unconfigured, and broken all send no
-    /// thinking keys — whatever the shares store — while the resident
-    /// body still merges.
     #[test]
-    fn a_disabled_thinking_state_sends_no_thinking_keys() {
-        let mut model = LlmConfig::defaults().model;
-        model.thinking.overlays.body = Some(
-            serde_json::from_str::<serde_json::Map<String, Value>>(r#"{"top_p": 0.9}"#).unwrap(),
-        );
-        let prompt = ChatPrompt {
-            system: "sys".into(),
-            user: "usr".into(),
-        };
-        for state in [
-            ThinkingState::Off,
-            ThinkingState::Unconfigured,
-            ThinkingState::Broken("spokenrectifier.toml: [llm.overlays]: must be a table".into()),
-        ] {
-            model.thinking.state = state.clone();
-            for thinking in [true, false] {
-                let body = request_body(&model, &prompt, thinking);
-                assert!(
-                    body.get("thinking").is_none() && body.get("reasoning_effort").is_none(),
-                    "{state:?} thinking={thinking}: thinking keys leaked: {body}"
-                );
-                assert_eq!(body["top_p"], 0.9, "the resident share still merges");
-            }
-        }
+    fn live_llm_builds_the_openai_chat_client() {
+        let llm = live_llm(LlmConfig::defaults()).expect("client builds");
+        assert_eq!(llm.take_reasoning_chars(), None);
     }
 }

@@ -2711,7 +2711,7 @@ mod tests {
 
     // -- the post-0019 connection keys (ADR-0019) -------------------------
 
-    use crate::client::request_body;
+    use crate::assembly::request_body;
     use serde_json::json;
 
     fn prompt() -> crate::prompt::ChatPrompt {

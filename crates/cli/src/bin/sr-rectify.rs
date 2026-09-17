@@ -31,7 +31,7 @@ use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, SessionState,
     TermSource, TokioClock,
 };
-use spokenrectifier_llm::{OpenAiCompatLlm, load_llm_config};
+use spokenrectifier_llm::{live_llm, load_llm_config};
 use sr_replay::fmt::fmt_event;
 
 /// An inserter that just prints: the demo target is stdout, not a real
@@ -179,15 +179,15 @@ async fn run() -> Result<(), String> {
     // The same layer-file search the app uses: working directory first,
     // then beside the executable.
     let dirs = spokenrectifier_config::search_dirs();
-    let llm = OpenAiCompatLlm::new(load_llm_config(&dirs).map_err(|err| err.to_string())?)
-        .map_err(|err| err.0)?;
+    let llm =
+        live_llm(load_llm_config(&dirs).map_err(|err| err.to_string())?).map_err(|err| err.0)?;
 
     let (asr, scripter) = ChannelAsr::new();
     let engine = Engine::new(
         EngineConfig::default(),
         EngineDeps {
             asr,
-            llm: std::sync::Arc::new(llm),
+            llm,
             inserter: std::sync::Arc::new(StdoutInserter),
             history: None,
             terms: Some(std::sync::Arc::new(FileTermSource { dirs: dirs.clone() })),
