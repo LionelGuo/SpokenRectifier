@@ -27,6 +27,10 @@ pub struct CaseOutcome {
     /// produce output to check.
     pub error: Option<String>,
     pub duration_ms: u64,
+    /// The reasoning chars the case's stream carried (placeholder-process
+    /// 06's observation column — never gate-blocking). `None` marks an
+    /// uninstrumented provider and renders as a dash.
+    pub reasoning_chars: Option<u64>,
 }
 
 impl CaseOutcome {
@@ -148,7 +152,7 @@ pub fn build_report(meta: &ReportMeta, outcomes: &[CaseOutcome]) -> String {
     }
 
     report.push_str("\n## 全部用例\n\n");
-    report.push_str("| 用例 | 结果 | 耗时 |\n| --- | --- | --- |\n");
+    report.push_str("| 用例 | 结果 | 耗时 | 思考字数 |\n| --- | --- | --- | --- |\n");
     for outcome in outcomes {
         let verdict = if outcome.passed() {
             "通过"
@@ -157,11 +161,16 @@ pub fn build_report(meta: &ReportMeta, outcomes: &[CaseOutcome]) -> String {
         } else {
             "失败"
         };
+        let reasoning = match outcome.reasoning_chars {
+            Some(chars) => chars.to_string(),
+            None => "—".to_string(),
+        };
         report.push_str(&format!(
-            "| {} | {} | {:.1}s |\n",
+            "| {} | {} | {:.1}s | {} |\n",
             outcome.id,
             verdict,
-            outcome.duration_ms as f64 / 1000.0
+            outcome.duration_ms as f64 / 1000.0,
+            reasoning
         ));
     }
     report
@@ -187,6 +196,7 @@ mod tests {
             failures: vec![],
             error: None,
             duration_ms: 3200,
+            reasoning_chars: Some(48),
         }
     }
 
@@ -198,8 +208,16 @@ mod tests {
         );
         assert!(report.contains("用例 2 · 通过 2 · 失败 0 · 通过率 100.0%"));
         assert!(!report.contains("失败明细"));
-        assert!(report.contains("| short-simple | 通过 | 3.2s |"));
+        assert!(report.contains("| short-simple | 通过 | 3.2s | 48 |"));
         assert!(report.contains("模型:deepseek-v4-flash(轻修阈值 40 字)"));
+    }
+
+    #[test]
+    fn an_uninstrumented_provider_renders_a_dash_in_the_reasoning_column() {
+        let mut outcome = passed("correction-date");
+        outcome.reasoning_chars = None;
+        let report = build_report(&meta(), &[outcome]);
+        assert!(report.contains("| correction-date | 通过 | 3.2s | — |"));
     }
 
     #[test]
@@ -219,6 +237,7 @@ mod tests {
             ],
             error: None,
             duration_ms: 4100,
+            reasoning_chars: None,
         };
         let report = build_report(&meta(), &[outcome]);
         assert!(report.contains("用例 1 · 通过 0 · 失败 1 · 通过率 0.0%"));
@@ -231,7 +250,7 @@ mod tests {
         assert!(report.contains("- [丢失] 关键意思缺失:分页设计 / 分页"));
         assert!(report.contains("- [保留失败] 未逐字保留:302会议室"));
         assert!(report.contains("> 会议定在周四上午十点。"));
-        assert!(report.contains("| correction-date | 失败 | 4.1s |"));
+        assert!(report.contains("| correction-date | 失败 | 4.1s | — |"));
     }
 
     #[test]
@@ -242,12 +261,13 @@ mod tests {
             failures: vec![],
             error: Some("timed out waiting for Preview".into()),
             duration_ms: 120_000,
+            reasoning_chars: None,
         };
         let report = build_report(&meta(), &[outcome, passed("short-mixed")]);
         assert!(report.contains("用例 2 · 通过 1 · 失败 1 · 通过率 50.0%"));
         assert!(report.contains("执行失败 1"));
         assert!(report.contains("- [执行失败] timed out waiting for Preview"));
-        assert!(report.contains("| numeral-large | 执行失败 | 120.0s |"));
+        assert!(report.contains("| numeral-large | 执行失败 | 120.0s | — |"));
     }
 
     #[test]
@@ -261,6 +281,7 @@ mod tests {
             }],
             error: None,
             duration_ms: 500,
+            reasoning_chars: None,
         };
         let report = build_report(&meta(), &[outcome]);
         assert!(report.contains("\n> 第一行\n> 第二行\n"));
@@ -289,6 +310,7 @@ mod tests {
                 ],
                 error: None,
                 duration_ms: 3_000,
+                reasoning_chars: None,
             },
             CaseOutcome {
                 id: "numeral-large".into(),
@@ -296,6 +318,7 @@ mod tests {
                 failures: vec![],
                 error: Some("timed out".into()),
                 duration_ms: 120_000,
+                reasoning_chars: None,
             },
         ];
 

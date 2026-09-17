@@ -46,4 +46,14 @@ pub type RectifyTokenStream = BoxStream<'static, Result<String, RectifyError>>;
 #[async_trait]
 pub trait RectifyLlm: Send + Sync + 'static {
     async fn rectify(&self, request: RectifyRequest) -> Result<RectifyTokenStream, RectifyError>;
+
+    /// Observation seam for the eval's thinking-length column
+    /// (`.scratch/placeholder-process/issues/06`): called once after a
+    /// case's stream has ended, returns the reasoning chars that one
+    /// stream carried and resets the count for the next case. `None` —
+    /// the default — marks a provider that does not instrument
+    /// reasoning; the thinking text itself never crosses this seam.
+    fn take_reasoning_chars(&self) -> Option<u64> {
+        None
+    }
 }

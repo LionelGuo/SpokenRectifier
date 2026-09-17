@@ -231,7 +231,18 @@ pub async fn run_suite(
             using_off = case.pass_through;
         }
         let started = Instant::now();
-        let outcome = match rectify_case(&engine, &mut rx, &case.transcript).await {
+        let case_result = rectify_case(&engine, &mut rx, &case.transcript).await;
+        // The stream has ended (Preview reached or the case aborted), so
+        // the serving client's counter holds exactly this case's
+        // reasoning length — read and reset it before the next case
+        // starts accumulating. Providers that do not instrument stay
+        // None and the column renders a dash.
+        let reasoning_chars = if using_off {
+            off_llm.take_reasoning_chars()
+        } else {
+            on_llm.take_reasoning_chars()
+        };
+        let outcome = match case_result {
             Ok((text, prefill)) => {
                 let trimmed = text.trim();
                 // The chunks carry the body verbatim (inline forms
@@ -246,6 +257,7 @@ pub async fn run_suite(
                     output: trimmed.to_string(),
                     error: None,
                     duration_ms: started.elapsed().as_millis() as u64,
+                    reasoning_chars,
                 }
             }
             Err(message) => CaseOutcome {
@@ -254,6 +266,7 @@ pub async fn run_suite(
                 failures: vec![],
                 error: Some(message),
                 duration_ms: started.elapsed().as_millis() as u64,
+                reasoning_chars,
             },
         };
         let passed = outcome.passed();

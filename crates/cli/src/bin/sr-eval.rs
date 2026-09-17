@@ -18,6 +18,7 @@
 //! stdout; `--report` additionally writes it to a file.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use spokenrectifier_engine::RectifyLlm;
 use spokenrectifier_eval::cases::{EvalCase, default_suite_path, load_suite};
@@ -127,10 +128,19 @@ async fn run() -> Result<(), String> {
     let mut off_config = llm_config.clone().for_eval();
     off_config.rectify.full.prefill = false;
     off_config.rectify.light_touch.tier.prefill = false;
-    let on_llm: Arc<dyn RectifyLlm> =
-        Arc::new(OpenAiCompatLlm::new(on_config).map_err(|err| err.0)?);
-    let off_llm: Arc<dyn RectifyLlm> =
-        Arc::new(OpenAiCompatLlm::new(off_config).map_err(|err| err.0)?);
+    // Both arms carry a reasoning-char counter (placeholder-process 06):
+    // the report's observation column reads it per case through the
+    // runner — falsifier data, never gate-blocking.
+    let on_llm: Arc<dyn RectifyLlm> = Arc::new(
+        OpenAiCompatLlm::new(on_config)
+            .map_err(|err| err.0)?
+            .with_reasoning_counter(Arc::new(AtomicU64::new(0))),
+    );
+    let off_llm: Arc<dyn RectifyLlm> = Arc::new(
+        OpenAiCompatLlm::new(off_config)
+            .map_err(|err| err.0)?
+            .with_reasoning_counter(Arc::new(AtomicU64::new(0))),
+    );
 
     let outcomes = run_suite(on_llm, off_llm, &selected, &|event| {
         match event {

@@ -4,6 +4,8 @@
 //! behavior is testable against plain byte streams, no HTTP involved.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -24,6 +26,11 @@ use crate::vendor::Vendor;
 pub struct OpenAiCompatLlm {
     config: LlmConfig,
     http: reqwest::Client,
+    /// The reasoning-char observation counter (placeholder-process 06's
+    /// falsifier column): inert until [`Self::with_reasoning_counter`]
+    /// attaches one — production clients never do, and the thinking text
+    /// itself never leaves the stream layer either way.
+    reasoning_chars: Option<Arc<AtomicU64>>,
 }
 
 impl OpenAiCompatLlm {
@@ -32,7 +39,18 @@ impl OpenAiCompatLlm {
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|err| RectifyError(format!("HTTP client build failed: {err}")))?;
-        Ok(Self { config, http })
+        Ok(Self {
+            config,
+            http,
+            reasoning_chars: None,
+        })
+    }
+
+    /// Attach the reasoning-char counter the eval's observation column
+    /// reads through [`RectifyLlm::take_reasoning_chars`]. Eval-only.
+    pub fn with_reasoning_counter(mut self, counter: Arc<AtomicU64>) -> Self {
+        self.reasoning_chars = Some(counter);
+        self
     }
 
     /// The request's prompt under this client's config: the chosen
@@ -110,7 +128,16 @@ impl RectifyLlm for OpenAiCompatLlm {
                 status.as_u16()
             )));
         }
-        Ok(Box::pin(sse_token_stream(response)))
+        Ok(Box::pin(sse_token_stream(response, self.reasoning_chars.clone())))
+    }
+
+    /// Read-and-reset over the attached counter: one call pairs with one
+    /// finished request, so the value the caller reads is exactly that
+    /// request's reasoning length. Uninstrumented clients report `None`.
+    fn take_reasoning_chars(&self) -> Option<u64> {
+        self.reasoning_chars
+            .as_ref()
+            .map(|counter| counter.swap(0, Ordering::Relaxed))
     }
 }
 
@@ -187,10 +214,13 @@ struct ChunkError {
 }
 
 /// One SSE event's meaning for the token stream: a delta to yield, nothing
-/// (keep-alive, reasoning output, empty finish chunk), or a failure.
-fn parse_delta(data: &str) -> Result<Option<String>, String> {
+/// (keep-alive, reasoning output, empty finish chunk), or a failure. The
+/// reasoning char count rides alongside — thinking output must never leak
+/// into the rectified text, but its length is observable (the eval's
+/// falsifier column, placeholder-process 06).
+fn parse_delta(data: &str) -> Result<(Option<String>, u64), String> {
     if data.trim().is_empty() {
-        return Ok(None);
+        return Ok((None, 0));
     }
     let chunk: ChatChunk =
         serde_json::from_str(data).map_err(|err| format!("malformed SSE data: {err}"))?;
@@ -198,11 +228,17 @@ fn parse_delta(data: &str) -> Result<Option<String>, String> {
         return Err(format!("stream error: {}", err.message));
     }
     let Some(choice) = chunk.choices.into_iter().next() else {
-        return Ok(None);
+        return Ok((None, 0));
     };
-    // Thinking output must never leak into the rectified text.
-    let _ = choice.delta.reasoning_content;
-    Ok(choice.delta.content.filter(|content| !content.is_empty()))
+    let reasoning = choice
+        .delta
+        .reasoning_content
+        .as_ref()
+        .map_or(0, |text| text.chars().count() as u64);
+    Ok((
+        choice.delta.content.filter(|content| !content.is_empty()),
+        reasoning,
+    ))
 }
 
 /// Feed one decoded SSE event (its joined data payload) into the stream.
@@ -210,14 +246,19 @@ struct StreamState {
     response: reqwest::Response,
     decoder: SseDecoder,
     pending: VecDeque<String>,
+    reasoning_chars: Option<Arc<AtomicU64>>,
 }
 
-fn sse_token_stream(response: reqwest::Response) -> RectifyTokenStream {
+fn sse_token_stream(
+    response: reqwest::Response,
+    reasoning_chars: Option<Arc<AtomicU64>>,
+) -> RectifyTokenStream {
     futures::stream::try_unfold(
         StreamState {
             response,
             decoder: SseDecoder::new(),
             pending: VecDeque::new(),
+            reasoning_chars,
         },
         |mut state| async move {
             loop {
@@ -226,8 +267,15 @@ fn sse_token_stream(response: reqwest::Response) -> RectifyTokenStream {
                         return Ok(None);
                     }
                     match parse_delta(&data) {
-                        Ok(Some(delta)) => return Ok(Some((delta, state))),
-                        Ok(None) => continue,
+                        Ok((delta, reasoning)) => {
+                            if let Some(counter) = state.reasoning_chars.as_ref() {
+                                counter.fetch_add(reasoning, Ordering::Relaxed);
+                            }
+                            if let Some(delta) = delta {
+                                return Ok(Some((delta, state)));
+                            }
+                            continue;
+                        }
                         Err(message) => return Err(RectifyError(message)),
                     }
                 }
@@ -428,13 +476,31 @@ mod tests {
     #[test]
     fn parse_delta_yields_content_and_skips_reasoning() {
         let content = r#"{"choices":[{"delta":{"content":"会议"}}]}"#;
-        assert_eq!(parse_delta(content).unwrap(), Some("会议".into()));
+        assert_eq!(parse_delta(content).unwrap(), (Some("会议".into()), 0));
         let reasoning = r#"{"choices":[{"delta":{"reasoning_content":"思考中"}}]}"#;
-        assert_eq!(parse_delta(reasoning).unwrap(), None);
+        assert_eq!(parse_delta(reasoning).unwrap(), (None, 3));
+        let both = r#"{"choices":[{"delta":{"content":"会议","reasoning_content":"想"}}]}"#;
+        assert_eq!(parse_delta(both).unwrap(), (Some("会议".into()), 1));
         let empty = r#"{"choices":[{"delta":{}}]}"#;
-        assert_eq!(parse_delta(empty).unwrap(), None);
+        assert_eq!(parse_delta(empty).unwrap(), (None, 0));
         let keep_alive = "  ";
-        assert_eq!(parse_delta(keep_alive).unwrap(), None);
+        assert_eq!(parse_delta(keep_alive).unwrap(), (None, 0));
+    }
+
+    /// The observation seam (placeholder-process 06): an attached counter
+    /// reads and resets per call, an uninstrumented client reports None —
+    /// the default every production client keeps.
+    #[test]
+    fn the_reasoning_counter_reads_and_resets_or_reports_none() {
+        let counter = Arc::new(AtomicU64::new(7));
+        let llm = OpenAiCompatLlm::new(LlmConfig::defaults())
+            .unwrap()
+            .with_reasoning_counter(counter);
+        assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(7));
+        assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(0));
+
+        let plain = OpenAiCompatLlm::new(LlmConfig::defaults()).unwrap();
+        assert_eq!(RectifyLlm::take_reasoning_chars(&plain), None);
     }
 
     #[test]
