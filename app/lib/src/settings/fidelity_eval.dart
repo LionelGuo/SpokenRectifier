@@ -14,6 +14,8 @@ import 'dart:async' show StreamSubscription;
 
 import 'package:flutter/foundation.dart';
 
+import '../errors.dart';
+
 import '../rust/api.dart' as rust show BridgeEvalSummary, startFidelityEval;
 import '../rust/api.dart'
     show
@@ -80,7 +82,8 @@ class FidelityEvalController extends ChangeNotifier {
       _onEvent,
       onError: (Object error) {
         // Setup refusals (no LLM key, a second run) arrive here.
-        _end(FidelityEvalPhase.failed, message: '$error');
+        logRawError('err_eval_failed', error);
+        _end(FidelityEvalPhase.failed, message: classifyEngineError(error));
       },
       onDone: () {
         // A stream closed without a verdict (should not happen; the
@@ -119,7 +122,11 @@ class FidelityEvalController extends ChangeNotifier {
       case BridgeEvalEvent_Failed():
         _subscription?.cancel();
         _subscription = null;
-        _end(FidelityEvalPhase.failed, message: event.message);
+        logRawError('err_eval_failed', event.message);
+        _end(
+          FidelityEvalPhase.failed,
+          message: classifyEngineError(event.message),
+        );
         return;
     }
     notifyListeners();

@@ -224,6 +224,9 @@ void main() {
       await tester.pump();
       expect(controller.orbErrorPending, isTrue);
       expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
+      // The raw provider string never reaches the screen — only the
+      // classified short sentence (this one falls to the other bucket).
+      expect(controller.lastError, '服务出错,详情见日志');
 
       // A start click against the dead engine stays idle and keeps the
       // root cause — the generic "engine not created" must not mask it.
@@ -231,7 +234,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.mic_none_rounded));
       await tester.pump();
       expect(controller.stage, StageKind.orb);
-      expect(controller.lastError, '初始化失败:ASR provider "tencent"');
+      expect(controller.lastError, '服务出错,详情见日志');
       expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
 
       // Without any error the orb rests bare (no idle badge).
@@ -242,28 +245,28 @@ void main() {
     },
   );
 
-  testWidgets('the quick panel carries the pending error in full', (
+  testWidgets('the quick panel toasts a pending error as a short sentence', (
     tester,
   ) async {
     final gateway = FakeGateway();
     final controller = await pumpController(tester, gateway);
 
-    // A startup refusal (or a failed session) parks a long message —
-    // the orb tooltip clips it to the 96 px window; the panel wraps it.
+    // A startup refusal parks a long raw message: the orb tooltip
+    // used to wrap it, the panel used to paint an inline card. Both
+    // now show the classified short sentence; the raw text stays in
+    // the console.
     controller.reportStartupError(
       '初始化失败:ASR handshake rejected: HTTP 400: '
       '{"error":"resourceId volc.seedasr.sauc.duration is not allowed"}',
     );
     await tester.pump();
     controller.orbSecondary();
-    await tester.pump();
+    // Two 350ms pumps: the stage expand + the panel's post-frame toast.
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
 
-    final row = find.byKey(const Key('quick-error'));
-    expect(row, findsOneWidget);
-    expect(
-      find.descendant(of: row, matching: find.textContaining('not allowed')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('quick-error')), findsNothing);
+    expect(textOf(tester, const Key('sr-toast')), '服务出错,详情见日志');
   });
 
   testWidgets('live transcript streams into the session text area', (
@@ -311,12 +314,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
 
     expect(controller.phase, BridgeSessionState.idle);
-    expect(controller.lastError, contains('no default input device'));
-    // No panel is open; the resting orb carries the failure on its
-    // tooltip until the next interaction.
+    expect(controller.lastError, '音频设备异常,请检查麦克风');
+    // No panel is open; the resting orb carries the classified short
+    // sentence on its tooltip until the next interaction.
     expect(
       find.byWidgetPredicate(
-        (w) => w is Tooltip && (w.message ?? '').contains('no default input'),
+        (w) => w is Tooltip && (w.message ?? '') == '音频设备异常,请检查麦克风',
       ),
       findsOneWidget,
     );
@@ -348,8 +351,8 @@ void main() {
 
     gateway.emit(const BridgeEvent.error(message: '修正失败:没有 API key'));
     await tester.pump();
-    expect(find.byKey(const Key('session-error')), findsOneWidget);
-    expect(find.textContaining('没有 API key'), findsOneWidget);
+    expect(find.byKey(const Key('session-error')), findsNothing);
+    expect(textOf(tester, const Key('sr-toast')), '凭据无效,请检查密钥');
     await windDown(tester, controller);
   });
 
@@ -820,10 +823,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
 
     // The pick stays (the chip keeps painting it) but the failure is
-    // said out loud on the open panel, not swallowed.
+    // said out loud as a toast, not swallowed.
     expect(controller.selectedScenario, '正式文档');
-    expect(find.byKey(const Key('session-error')), findsOneWidget);
-    expect(controller.lastError, contains('场景切换失败'));
+    expect(find.byKey(const Key('session-error')), findsNothing);
+    expect(controller.lastError, '场景切换未生效');
+    expect(textOf(tester, const Key('sr-toast')), '场景切换未生效');
     await windDown(tester, controller);
   });
 
@@ -1379,7 +1383,8 @@ void main() {
       await tester.tap(find.byKey(const Key('quick-history-scenario-item:论文')));
       await tester.pump(const Duration(milliseconds: 350));
 
-      expect(controller.lastError, contains('重新修正失败'));
+      expect(controller.lastError, '重新修正失败,请重试');
+      expect(textOf(tester, const Key('sr-toast')), '重新修正失败,请重试');
       expect(controller.stage, StageKind.quick); // the panel is still up
     },
   );
@@ -1420,7 +1425,8 @@ void main() {
       // rejected switch must not paint a mode the engine never adopted.
       expect(controller.passageMode, isTrue);
       expect(gateway.passage, isTrue);
-      expect(controller.lastError, contains('篇章模式切换失败'));
+      expect(controller.lastError, '篇章模式切换未生效');
+      expect(textOf(tester, const Key('sr-toast')), '篇章模式切换未生效');
       // The switch still paints the truth.
       expect(
         (tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value,
@@ -2179,7 +2185,9 @@ void main() {
         await windDown(tester, controller);
       });
 
-      testWidgets('session footer clears the orb (${dir.name})', (tester) async {
+      testWidgets('session footer clears the orb (${dir.name})', (
+        tester,
+      ) async {
         final gateway = FakeGateway();
         final controller = await pumpAtQuadrant(
           tester,
@@ -2214,8 +2222,7 @@ void main() {
         final slot = tester.getRect(find.byType(SessionPanel));
         final rowStart =
             slot.left + SrGeometry.cardMargin + SrSpace.cornerInset;
-        final rowEnd =
-            slot.right - SrGeometry.cardMargin - SrSpace.cornerInset;
+        final rowEnd = slot.right - SrGeometry.cardMargin - SrSpace.cornerInset;
         if (dir == stage.GrowthDirection.upRight) {
           expect(cancel.right, closeTo(rowEnd, 1), reason: '左下右对齐');
         } else {
@@ -2260,3 +2267,6 @@ void main() {
     }
   });
 }
+
+String textOf(WidgetTester tester, Key key) =>
+    tester.widget<Text>(find.byKey(key)).data!;

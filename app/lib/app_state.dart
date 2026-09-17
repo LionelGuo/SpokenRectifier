@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 
 import 'src/design/tokens.dart' show SrGeometry, SrMotion;
+import 'src/errors.dart';
 import 'src/rust/api.dart';
 import 'src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;
@@ -213,9 +214,19 @@ class SpeechController extends ChangeNotifier {
   /// writer entry.
   bool orbVisible;
 
-  /// Last engine error, shown in the session panel (and on the orb's
-  /// tooltip while idle).
+  /// Last engine error as an on-screen short sentence (the window toast
+  /// while a panel is open, the orb's tooltip while idle). The raw
+  /// exception is in the console via [logRawError] — never here.
   String? lastError;
+
+  /// Bumped every time a new error is surfaced, so a panel can toast
+  /// even when the short sentence repeats.
+  int lastErrorSeq = 0;
+
+  void _setLastError(String message) {
+    lastError = message;
+    lastErrorSeq++;
+  }
 
   /// The engine refused to assemble at launch (e.g. an ASR provider
   /// with credentials but no adapter). Sticky for the run: every start
@@ -315,7 +326,8 @@ class SpeechController extends ChangeNotifier {
     try {
       await hotkey.register(pinChord, pinAction);
     } catch (e) {
-      lastError = '钉入热键注册失败:$e';
+      logRawError('err_hotkey_pin', e);
+      _setLastError('钉入热键被占用,请更换组合');
       notifyListeners();
     }
   }
@@ -332,7 +344,8 @@ class SpeechController extends ChangeNotifier {
     try {
       await registrar.apply(primaryChord, hotkeyToggle);
     } catch (e) {
-      lastError = '主流程热键注册失败:$e';
+      logRawError('err_hotkey_main', e);
+      _setLastError('主流程热键被占用,请更换组合');
       notifyListeners();
     }
   }
@@ -441,7 +454,12 @@ class SpeechController extends ChangeNotifier {
       // e.g. the microphone could not be opened: show it, stay idle.
       // A launch refusal is the root cause — keep it over the click's
       // generic "engine not created yet" failure.
-      lastError = startupError ?? '无法开始录音:$e';
+      if (startupError != null) {
+        _setLastError(startupError);
+      } else {
+        logRawError('err_session_start', e);
+        _setLastError(classifyEngineError(e));
+      }
     }
     notifyListeners();
   }
@@ -513,9 +531,12 @@ class SpeechController extends ChangeNotifier {
   }
 
   /// Surface a startup failure (engine assembly refused to run) the same
-  /// way session errors surface, keeping the shell alive to show it.
+  /// way session errors surface, keeping the shell alive to show it. The
+  /// raw message is classified into a bucket short-sentence; the original
+  /// stays in the console via [logRawError].
   void reportStartupError(String message) {
-    lastError = message;
+    logRawError('err_startup', message);
+    _setLastError(classifyEngineError(message));
     startupFailed = true;
     notifyListeners();
   }
@@ -582,7 +603,8 @@ class SpeechController extends ChangeNotifier {
     try {
       await gateway.setStyleDirective(_directiveOf(name));
     } catch (e) {
-      lastError = '场景切换失败:$e';
+      logRawError('err_scenario_switch', e);
+      _setLastError('场景切换未生效');
       notifyListeners();
     }
   }
@@ -635,7 +657,8 @@ class SpeechController extends ChangeNotifier {
     try {
       await gateway.setGlobalDirective(fresh);
     } catch (e) {
-      lastError = '全局指令更新失败:$e';
+      logRawError('err_directive_update', e);
+      _setLastError('全局指令未更新');
       notifyListeners();
     }
   }
@@ -672,7 +695,8 @@ class SpeechController extends ChangeNotifier {
       await gateway.setPassageMode(on);
     } catch (e) {
       passageMode = was; // the engine never adopted it: paint the truth
-      lastError = '篇章模式切换失败:$e';
+      logRawError('err_passage_toggle', e);
+      _setLastError('篇章模式切换未生效');
       notifyListeners();
     }
   }
@@ -701,7 +725,8 @@ class SpeechController extends ChangeNotifier {
       await gateway.appendTerm(trimmed);
       await loadTerms();
     } catch (e) {
-      lastError = '术语添加失败:$e';
+      logRawError('err_term_add', e);
+      _setLastError('术语添加失败');
       notifyListeners();
     }
   }
@@ -712,7 +737,8 @@ class SpeechController extends ChangeNotifier {
       await gateway.removeTerm(term);
       await loadTerms();
     } catch (e) {
-      lastError = '术语删除失败:$e';
+      logRawError('err_term_remove', e);
+      _setLastError('术语删除失败');
       notifyListeners();
     }
   }
@@ -768,7 +794,8 @@ class SpeechController extends ChangeNotifier {
       await gateway.rectifyText(rawTranscript, style: bridgeStyle);
     } catch (e) {
       oneTimeStyle = null;
-      lastError = '重新修正失败:$e';
+      logRawError('err_reroll', e);
+      _setLastError('重新修正失败,请重试');
       notifyListeners();
     }
   }
@@ -784,7 +811,8 @@ class SpeechController extends ChangeNotifier {
     try {
       saveUiThemeMode(uiPrefsDirs, mode);
     } catch (e) {
-      lastError = '主题保存失败:$e';
+      logRawError('err_theme_save', e);
+      _setLastError('主题设置未保存');
       notifyListeners();
     }
   }
@@ -829,7 +857,8 @@ class SpeechController extends ChangeNotifier {
         panelSize: panelFootprint,
       );
     } catch (e) {
-      lastError = '界面偏好保存失败:$e';
+      logRawError('err_ui_prefs_save', e);
+      _setLastError('界面偏好未保存');
       notifyListeners();
     }
   }
@@ -842,7 +871,8 @@ class SpeechController extends ChangeNotifier {
     try {
       await gateway.openConfigFile();
     } catch (e) {
-      lastError = '无法打开配置文件:$e';
+      logRawError('err_config_open', e);
+      _setLastError('配置文件未能打开');
       notifyListeners();
     }
   }
@@ -858,7 +888,8 @@ class SpeechController extends ChangeNotifier {
     try {
       saveUiOrbVisible(uiPrefsDirs, visible);
     } catch (e) {
-      lastError = '球体可见性保存失败:$e';
+      logRawError('err_orb_visibility_save', e);
+      _setLastError('球体显示设置未保存');
       notifyListeners();
     }
   }
@@ -1010,7 +1041,8 @@ class SpeechController extends ChangeNotifier {
       case BridgeEvent_TextInserted():
         break; // the inserted state change carries the receipt flash
       case BridgeEvent_Error(:final message):
-        lastError = message;
+        logRawError('err_bridge', message);
+        _setLastError(classifyEngineError(message));
     }
     notifyListeners();
   }

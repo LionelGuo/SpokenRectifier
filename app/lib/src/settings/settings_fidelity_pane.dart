@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../design/controls.dart' show SrButton, SrCard;
 import '../design/tokens.dart';
+import '../errors.dart';
 import '../rust/api.dart' show BridgeEvalCaseDetail, BridgeEvalSummary;
 import 'fidelity_eval.dart';
 
@@ -343,6 +344,14 @@ class _FailedCaseCard extends StatelessWidget {
 
   final BridgeEvalCaseDetail failed;
 
+  /// Classifies and logs in one step so the card never paints the raw
+  /// engine text. Rebuilds re-print the same line — a finished summary
+  /// barely rebuilds, and a missed log is worse.
+  static String _classifiedCaseError(String error) {
+    logRawError('err_eval_case', error);
+    return classifyEvalCaseError(error);
+  }
+
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
@@ -359,11 +368,11 @@ class _FailedCaseCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          // An execution failure carries the engine's own message;
-          // otherwise the machine verdicts name what broke.
+          // An execution failure is classified into a bucket; the raw
+          // engine text stays in the console, never on the card.
           if (failed.error case final error?) ...[
             Text(
-              '[执行失败] $error',
+              _classifiedCaseError(error),
               style: SrType.caption.copyWith(color: pal.live),
             ),
           ] else

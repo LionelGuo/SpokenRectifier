@@ -33,7 +33,9 @@ import 'package:flutter/material.dart';
 
 import '../design/controls.dart' show SrButton, SrCard, SrField;
 import '../design/hover.dart';
+import '../design/toast.dart';
 import '../design/tokens.dart';
+import '../errors.dart';
 import 'rectify_store.dart';
 
 /// The thinking-policy chips' display labels, by wire name
@@ -56,8 +58,6 @@ class SettingsRectifyPane extends StatefulWidget {
 class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
   RectifyBehavior? _model;
   bool _loaded = false;
-  String? _error;
-  String? _savedNote;
 
   // The picks paint from these live copies so a tap lands (and the
   // warning lights) the same frame; _model holds the committed truth
@@ -99,14 +99,12 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
       setState(() {
         _adopt(behavior);
         _loaded = true;
-        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loaded = true;
-        _error = '修正设置读取失败:$e';
-      });
+      setState(() => _loaded = true);
+      logRawError('err_rectify_load', e);
+      SrToast.of(context).show('修正设置读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -165,7 +163,8 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     final text = _threshold.text.trim();
     final value = int.tryParse(text);
     if (value == null || value < 1) {
-      setState(() => _error = '轻修字数阈需为不小于 1 的整数(当前:$text)');
+      SrToast.of(context)
+          .show('轻修字数阈需为不小于 1 的整数(当前:$text)', tone: SrToastTone.error);
       return;
     }
     final extra = _extra.text.trim();
@@ -201,14 +200,14 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
           _threshold.addListener(_onInput);
           _extra.addListener(_onInput);
         }
-        _error = null;
-        _savedNote = '已保存,下一次修正尝试生效';
       });
+      SrToast.of(context).show('已保存,下一次修正尝试生效', tone: SrToastTone.success);
     } catch (e) {
       if (!mounted) return;
       // The file refused the write: the picks keep painting what the
       // user chose (a re-tap is the retry), the inputs keep their text.
-      setState(() => _error = '修正设置保存失败:$e');
+      logRawError('err_rectify_save', e);
+      SrToast.of(context).show('修正设置保存失败', tone: SrToastTone.error);
       return;
     }
     try {
@@ -217,7 +216,8 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
       if (!mounted) return;
       // Saved but not adopted: the engine keeps the previous config
       // (the connection domain's banner contract, ADR-0010).
-      setState(() => _error = '已保存,但引擎沿用上一配置:$e');
+      logRawError('note_rectify_engine_kept', e);
+      SrToast.of(context).show('已保存,引擎沿用上一配置', tone: SrToastTone.error);
     }
   }
 
@@ -239,22 +239,6 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
             ),
           ],
         ),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _error!,
-            key: const Key('settings-rectify-error'),
-            style: SrType.caption.copyWith(color: pal.live),
-          ),
-        ],
-        if (_savedNote != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _savedNote!,
-            key: const Key('settings-rectify-saved'),
-            style: SrType.caption.copyWith(color: pal.textSecondary),
-          ),
-        ],
         const SizedBox(height: 16),
         if (!_loaded || model == null)
           const Center(child: CircularProgressIndicator(strokeWidth: 2))

@@ -14,6 +14,7 @@ import 'dart:async';
 import 'package:flutter/material.dart' hide GrowthDirection;
 
 import '../../app_state.dart';
+import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../preview/slot_document.dart';
 import '../preview/slot_editor.dart';
@@ -51,6 +52,7 @@ class _SessionPanelState extends State<SessionPanel> {
   final _focus = FocusNode();
   final _scroll = ScrollController();
   Timer? _tick;
+  int _toastedErrorSeq = 0;
 
   SpeechController get c => widget.controller;
 
@@ -80,6 +82,9 @@ class _SessionPanelState extends State<SessionPanel> {
   void initState() {
     super.initState();
     c.addListener(_onChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _toastPendingError();
+    });
     _wasPreview = c.phase == BridgeSessionState.preview;
     if (_wasPreview) _enterPreview();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -106,6 +111,7 @@ class _SessionPanelState extends State<SessionPanel> {
 
   void _onChanged() {
     if (!mounted) return;
+    _toastPendingError();
     if (!_wasPreview && _isPreview) {
       _enterPreview();
     } else if (_wasPreview && !_isPreview) {
@@ -125,6 +131,16 @@ class _SessionPanelState extends State<SessionPanel> {
       }
     }
     setState(() {});
+  }
+
+  /// A new [SpeechController.lastError] while this panel is up rides
+  /// the stage-slot toast (the inline error row is retired).
+  void _toastPendingError() {
+    final seq = c.lastErrorSeq;
+    final message = c.lastError;
+    if (seq == _toastedErrorSeq || message == null) return;
+    _toastedErrorSeq = seq;
+    SrToast.of(context).show(message, tone: SrToastTone.error);
   }
 
   /// A round of rectified text has arrived: mint the identities, adopt
@@ -181,7 +197,6 @@ class _SessionPanelState extends State<SessionPanel> {
           grip == null ? header : PanelGripBar(grip: grip, child: header),
           Divider(height: 1, thickness: 1, color: pal.hairline),
           Expanded(child: _textArea(context, pal)),
-          if (c.lastError != null) _errorRow(context, pal),
           _transcriptSection(context, pal),
           _footer(context, pal),
         ],
@@ -354,40 +369,6 @@ class _SessionPanelState extends State<SessionPanel> {
             ),
           ),
       ],
-    );
-  }
-
-  /// Engine and startup failures, visible on the panel while one runs
-  /// (the orb's tooltip carries them at idle).
-  Widget _errorRow(BuildContext context, SrPalette pal) {
-    return Container(
-      key: const Key('session-error'),
-      margin: const EdgeInsets.fromLTRB(
-        SrSpace.contentInset,
-        0,
-        SrSpace.contentInset,
-        SrSpace.sm,
-      ),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: pal.liveSoft,
-        borderRadius: BorderRadius.circular(SrRadius.control),
-        border: Border.all(color: pal.live.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline_rounded, size: 15, color: pal.live),
-          const SizedBox(width: SrSpace.sm),
-          Expanded(
-            // Wrapped, not single-line: error diagnoses live in the tail
-            // a clipped line would eat.
-            child: Text(
-              c.lastError!,
-              style: SrType.caption.copyWith(color: pal.textPrimary),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

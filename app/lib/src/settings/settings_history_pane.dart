@@ -15,7 +15,9 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../design/controls.dart' show SrButton, SrCard;
 import '../design/hover.dart';
+import '../design/toast.dart';
 import '../design/tokens.dart';
+import '../errors.dart';
 import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
 import '../shell/history_retrieval.dart'
     show HistoryRerectify, showScenarioRerectifyMenu;
@@ -57,7 +59,6 @@ class SettingsHistoryPane extends StatefulWidget {
 class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
   HistorySettings? _config;
   List<BridgeHistoryEntry> _entries = const [];
-  String? _error;
 
   @override
   void initState() {
@@ -73,11 +74,11 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
       setState(() {
         _config = config;
         _entries = entries;
-        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '历史读取失败:$e');
+      logRawError('err_history_load', e);
+      SrToast.of(context).show('历史记录读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -89,7 +90,8 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
       await widget.onHistoryChanged();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '历史设置保存失败:$e');
+      logRawError('err_history_save', e);
+      SrToast.of(context).show('历史设置保存失败', tone: SrToastTone.error);
     }
   }
 
@@ -131,7 +133,8 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
       await _reload();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '清空失败:$e');
+      logRawError('err_history_clear', e);
+      SrToast.of(context).show('历史清空失败', tone: SrToastTone.error);
     }
   }
 
@@ -152,14 +155,6 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
             ),
           ],
         ),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _error!,
-            key: const Key('settings-history-error'),
-            style: SrType.caption.copyWith(color: pal.live),
-          ),
-        ],
         const SizedBox(height: 16),
         if (config == null)
           const Center(child: CircularProgressIndicator(strokeWidth: 2))

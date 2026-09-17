@@ -7,7 +7,9 @@ library;
 import 'package:flutter/material.dart';
 
 import '../design/controls.dart' show SrButton, SrCard;
+import '../design/toast.dart';
 import '../design/tokens.dart';
+import '../errors.dart';
 import 'system_store.dart';
 
 class SettingsAboutPane extends StatefulWidget {
@@ -21,7 +23,6 @@ class SettingsAboutPane extends StatefulWidget {
 
 class _SettingsAboutPaneState extends State<SettingsAboutPane> {
   AboutInfo? _about;
-  String? _error;
 
   @override
   void initState() {
@@ -36,7 +37,8 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
       setState(() => _about = about);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '信息读取失败:$e');
+      logRawError('err_about_load', e);
+      SrToast.of(context).show('信息读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -45,7 +47,8 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
       await widget.store.openConfigFile();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '无法打开配置文件:$e');
+      logRawError('err_about_config_open', e);
+      SrToast.of(context).show('配置文件未能打开', tone: SrToastTone.error);
     }
   }
 
@@ -57,14 +60,6 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
       padding: const EdgeInsets.all(24),
       children: [
         Text('关于', style: SrType.title.copyWith(color: pal.textPrimary)),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _error!,
-            key: const Key('settings-about-error'),
-            style: SrType.caption.copyWith(color: pal.live),
-          ),
-        ],
         const SizedBox(height: 16),
         if (about == null)
           const Center(child: CircularProgressIndicator(strokeWidth: 2))

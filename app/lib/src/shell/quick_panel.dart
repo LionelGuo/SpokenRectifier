@@ -30,6 +30,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../app_state.dart';
 import '../design/hover.dart';
+import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
 import '../settings/settings_domain.dart';
@@ -71,13 +72,42 @@ class QuickPanel extends StatefulWidget {
 
 class _QuickPanelState extends State<QuickPanel> {
   final _termInput = TextEditingController();
+  int _toastedErrorSeq = 0;
 
   SpeechController get c => widget.controller;
 
   @override
+  void initState() {
+    super.initState();
+    c.addListener(_onChanged);
+    // A pending error from before this panel opened (the orb's tooltip
+    // carried it at idle) still toasts once the slot scope is mounted.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _toastPendingError();
+    });
+  }
+
+  @override
   void dispose() {
+    c.removeListener(_onChanged);
     _termInput.dispose();
     super.dispose();
+  }
+
+  void _onChanged() {
+    if (!mounted) return;
+    _toastPendingError();
+    setState(() {});
+  }
+
+  /// A new [SpeechController.lastError] while this panel is up rides
+  /// the stage-slot toast (the inline error card is retired).
+  void _toastPendingError() {
+    final seq = c.lastErrorSeq;
+    final message = c.lastError;
+    if (seq == _toastedErrorSeq || message == null) return;
+    _toastedErrorSeq = seq;
+    SrToast.of(context).show(message, tone: SrToastTone.error);
   }
 
   @override
@@ -146,25 +176,6 @@ class _QuickPanelState extends State<QuickPanel> {
                         0,
                       ),
                       children: [
-                        // A pending error at rest: the panel is the wide
-                        // surface the orb's tooltip cannot be (the orb
-                        // window is 96 px); the full message wraps here,
-                        // gateway body included.
-                        if (c.lastError != null) ...[
-                          Container(
-                            key: const Key('quick-error'),
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: pal.liveSoft.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              c.lastError!,
-                              style: SrType.micro.copyWith(color: pal.live),
-                            ),
-                          ),
-                        ],
                         // The scenario section stays with an empty library:
                         // the picker row hides (a lone 默认 chip has nothing
                         // to pick between) but the editor entry remains the

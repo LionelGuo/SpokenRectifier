@@ -23,7 +23,9 @@ import 'package:flutter/material.dart';
 
 import '../design/controls.dart' show SrButton, SrCard, SrField;
 import '../design/hover.dart';
+import '../design/toast.dart';
 import '../design/tokens.dart';
+import '../errors.dart';
 import 'system_store.dart';
 
 /// The insertion mode chips: value pair in display order.
@@ -42,8 +44,6 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
   EngineTiming? _engine;
   bool _passageMode = true;
   String _insertionMode = 'paste';
-  String? _error;
-  String? _savedNote;
   bool _loaded = false;
 
   late final TextEditingController _paragraphSilence = TextEditingController();
@@ -81,14 +81,12 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
       setState(() {
         _adopt(config.engine, config.insertion);
         _loaded = true;
-        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loaded = true;
-        _error = '参数读取失败:$e';
-      });
+      setState(() => _loaded = true);
+      logRawError('err_advanced_load', e);
+      SrToast.of(context).show('参数读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -136,16 +134,15 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
         rectifyTimeoutMs: timeout,
       );
       if (!mounted) return;
-      setState(() {
-        _adoptEngine(saved);
-        _error = null;
-        _savedNote = '会话参数已保存,下一会话生效';
-      });
+      setState(() => _adoptEngine(saved));
+      SrToast.of(context).show('会话参数已保存,下一会话生效', tone: SrToastTone.success);
     } on FormatException catch (e) {
-      setState(() => _error = e.message);
+      logRawError('err_advanced_session_format', e);
+      SrToast.of(context).show('会话参数格式不正确', tone: SrToastTone.error);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '会话参数保存失败:$e');
+      logRawError('err_advanced_session_save', e);
+      SrToast.of(context).show('会话参数保存失败', tone: SrToastTone.error);
     }
   }
 
@@ -162,16 +159,15 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
         typingDelayMs: typing,
       );
       if (!mounted) return;
-      setState(() {
-        _adoptInsertion(saved);
-        _error = null;
-        _savedNote = '插入参数已保存,即时生效';
-      });
+      setState(() => _adoptInsertion(saved));
+      SrToast.of(context).show('插入参数已保存,即时生效', tone: SrToastTone.success);
     } on FormatException catch (e) {
-      setState(() => _error = e.message);
+      logRawError('err_advanced_insert_format', e);
+      SrToast.of(context).show('插入参数格式不正确', tone: SrToastTone.error);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '插入参数保存失败:$e');
+      logRawError('err_advanced_insert_save', e);
+      SrToast.of(context).show('插入参数保存失败', tone: SrToastTone.error);
     }
   }
 
@@ -180,7 +176,8 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
       await widget.store.openConfigFile();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '无法打开配置文件:$e');
+      logRawError('err_advanced_config_open', e);
+      SrToast.of(context).show('配置文件未能打开', tone: SrToastTone.error);
     }
   }
 
@@ -201,22 +198,6 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
             ),
           ],
         ),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _error!,
-            key: const Key('settings-advanced-error'),
-            style: SrType.caption.copyWith(color: pal.live),
-          ),
-        ],
-        if (_savedNote != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _savedNote!,
-            key: const Key('settings-advanced-saved'),
-            style: SrType.caption.copyWith(color: pal.textSecondary),
-          ),
-        ],
         const SizedBox(height: 16),
         if (!_loaded || engine == null)
           const Center(child: CircularProgressIndicator(strokeWidth: 2))

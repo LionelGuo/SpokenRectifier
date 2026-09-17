@@ -130,7 +130,7 @@ Future<void> main(List<String> args) async {
   } catch (e) {
     // e.g. an ASR key without an LLM key: keep the app alive and show the
     // problem instead of failing the launch with a dead window.
-    startupError = '初始化失败:$e';
+    startupError = '$e';
   }
   await TrayManager.instance.setIcon('assets/tray_icon.ico');
 

@@ -1310,7 +1310,7 @@ void main() {
     }
 
     // The execution failure keeps carrying the engine's own message.
-    expect(find.text('[执行失败] 引擎返回 429:rate limited'), findsOneWidget);
+    expect(find.text('执行失败(服务出错,详情见日志)'), findsOneWidget);
   });
 
   testWidgets('an all-pass summary keeps the empty state, no detail cards', (
@@ -1363,7 +1363,7 @@ void main() {
     runner.emit(const BridgeEvalEvent.failed(message: '评测需要真实 LLM 连接'));
     await tester.pump();
     expect(find.text('评测未能完成'), findsOneWidget);
-    expect(find.text('评测需要真实 LLM 连接'), findsOneWidget);
+    expect(find.text('服务出错,详情见日志'), findsOneWidget);
 
     // The retry starts a fresh run.
     await tester.tap(find.text('重试'));
@@ -1723,7 +1723,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('settings-history-retention:7')));
     await tester.pump();
-    expect(find.byKey(const Key('settings-history-error')), findsOneWidget);
+    expect(textOf(tester, const Key('sr-toast')), '历史设置保存失败');
     // The rows survived.
     expect(find.text('第二句的原话'), findsOneWidget);
   });
@@ -1844,7 +1844,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('settings-terms-rename-save')));
     await tester.pump();
-    expect(find.byKey(const Key('settings-terms-error')), findsOneWidget);
+    expect(textOf(tester, const Key('sr-toast')), '术语操作失败');
   });
 
   // -----------------------------------------------------------------------
@@ -1909,10 +1909,7 @@ void main() {
     expect(pick.fullPrefill, isTrue); // untouched picks ride
     expect(pick.lightTouchMaxChars, 40); // the committed input rides
     expect(store.applyCalls, 1);
-    expect(
-      textOf(tester, const Key('settings-rectify-saved')),
-      '已保存,下一次修正尝试生效',
-    );
+    expect(textOf(tester, const Key('sr-toast')), '已保存,下一次修正尝试生效');
 
     // The dirty-state warning lights with the pick itself (off ×
     // prefill-on), and dies when the switch flips it off.
@@ -2160,11 +2157,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
     await tester.pump();
-    await jumpRectifyToTop(tester);
-    expect(
-      textOf(tester, const Key('settings-rectify-error')),
-      contains('轻修字数阈需为不小于 1 的整数'),
-    );
+    expect(textOf(tester, const Key('sr-toast')), contains('轻修字数阈需为不小于 1 的整数'));
     expect(store.saves, isEmpty); // refused before any write
     expect(store.applyCalls, 0);
 
@@ -2200,10 +2193,7 @@ void main() {
         find.byKey(const Key('settings-rectify-full-policy:off')),
       );
       await tester.pump();
-      expect(
-        textOf(tester, const Key('settings-rectify-error')),
-        contains('修正设置保存失败'),
-      );
+      expect(textOf(tester, const Key('sr-toast')), '修正设置保存失败');
       expect(store.saves, isEmpty);
       expect(store.applyCalls, 0);
 
@@ -2220,15 +2210,7 @@ void main() {
       await tester.tap(find.byKey(const Key('settings-rectify-full-prefill')));
       await tester.pump();
       expect(store.saves.last.fullPrefill, isFalse);
-      expect(
-        textOf(tester, const Key('settings-rectify-error')),
-        contains('已保存,但引擎沿用上一配置'),
-      );
-      expect(
-        textOf(tester, const Key('settings-rectify-error')),
-        contains('no adapter yet'),
-      );
-      expect(find.byKey(const Key('settings-rectify-saved')), findsOneWidget);
+      expect(textOf(tester, const Key('sr-toast')), '已保存,引擎沿用上一配置');
       expect(store.applyCalls, 1); // the refusal was not an adoption
     },
   );
@@ -3352,7 +3334,7 @@ void main() {
     expect(save.paragraph, 1500);
     expect(save.sessionEnd, 2500);
     expect(save.timeout, 25000); // untouched field rides
-    expect(find.text('会话参数已保存,下一会话生效'), findsOneWidget);
+    expect(textOf(tester, const Key('sr-toast')), '会话参数已保存,下一会话生效');
     expect(store.insertionSaves, isEmpty); // one card, one save
   });
 
@@ -3381,7 +3363,7 @@ void main() {
     expect(save.mode, 'typing');
     expect(save.typing, 15);
     expect(save.focus, 50); // untouched fields ride
-    expect(find.text('插入参数已保存,即时生效'), findsOneWidget);
+    expect(textOf(tester, const Key('sr-toast')), '插入参数已保存,即时生效');
     expect(store.engineSaves, isEmpty);
   });
 
@@ -3401,8 +3383,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('settings-advanced-engine-save')));
     await tester.pump();
-    expect(find.byKey(const Key('settings-advanced-error')), findsOneWidget);
-    expect(find.textContaining('需为非负整数'), findsOneWidget);
+    expect(textOf(tester, const Key('sr-toast')), '会话参数格式不正确');
     expect(store.engineSaves, isEmpty);
   });
 
@@ -3557,7 +3538,7 @@ void main() {
 
     // The card survives (the file refused the write), the error shows.
     expect(find.byKey(const Key('settings-scenario-card:聊天')), findsOneWidget);
-    expect(find.byKey(const Key('settings-scenario-error')), findsOneWidget);
+    expect(textOf(tester, const Key('sr-toast')), '场景库保存失败');
     expect(channel.libraryChanged, isEmpty);
   });
 
@@ -3638,7 +3619,7 @@ void main() {
 
     // The file refused the write: the error shows, no event went out, and
     // the card keeps the unsaved text for a retry.
-    expect(find.byKey(const Key('settings-scenario-error')), findsOneWidget);
+    expect(textOf(tester, const Key('sr-toast')), '全局指令保存失败');
     expect(channel.globalChanged, 0);
     expect(store.directive, '旧的全局指令');
     expect(globalFieldText(tester), '新的全局指令');

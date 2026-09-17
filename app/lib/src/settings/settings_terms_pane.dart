@@ -12,7 +12,9 @@ import 'package:flutter/material.dart';
 
 import '../design/controls.dart' show SrButton, SrField;
 import '../design/hover.dart';
+import '../design/toast.dart';
 import '../design/tokens.dart';
+import '../errors.dart';
 import 'terms_store.dart';
 
 class SettingsTermsPane extends StatefulWidget {
@@ -34,7 +36,6 @@ class SettingsTermsPane extends StatefulWidget {
 
 class _SettingsTermsPaneState extends State<SettingsTermsPane> {
   List<String> _terms = const [];
-  String? _error;
   bool _loaded = false;
 
   late final TextEditingController _input = TextEditingController();
@@ -58,14 +59,12 @@ class _SettingsTermsPaneState extends State<SettingsTermsPane> {
       setState(() {
         _terms = terms;
         _loaded = true;
-        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loaded = true;
-        _error = '术语词表读取失败:$e';
-      });
+      setState(() => _loaded = true);
+      logRawError('err_terms_load', e);
+      SrToast.of(context).show('术语词表读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -77,7 +76,8 @@ class _SettingsTermsPaneState extends State<SettingsTermsPane> {
       await action();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '术语操作失败:$e');
+      logRawError('err_terms_op', e);
+      SrToast.of(context).show('术语操作失败', tone: SrToastTone.error);
       return;
     }
     await _reload();
@@ -117,14 +117,6 @@ class _SettingsTermsPaneState extends State<SettingsTermsPane> {
             ),
           ],
         ),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _error!,
-            key: const Key('settings-terms-error'),
-            style: SrType.caption.copyWith(color: pal.live),
-          ),
-        ],
         const SizedBox(height: 16),
         _AddRow(controller: _input, onAdd: _add),
         const SizedBox(height: 12),

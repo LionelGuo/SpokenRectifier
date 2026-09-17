@@ -28,7 +28,6 @@ class SettingsGeneralPane extends StatelessWidget {
     required this.onOrbVisible,
     required this.onCapture,
     required this.onCommit,
-    this.error,
   });
 
   final ThemeMode themeMode;
@@ -56,10 +55,6 @@ class SettingsGeneralPane extends StatelessWidget {
   /// never reach here. Awaited so capture stays paused until the file
   /// is the new truth (a failed write still ends capture).
   final Future<void> Function(HotkeySlot slot, HotkeyBinding binding) onCommit;
-
-  /// A failed write, painted under the hotkey card (the write lives in
-  /// this window, so the error does too).
-  final String? error;
 
   static const _themeOptions = [
     (ThemeMode.light, '浅色', Icons.light_mode_outlined, 'settings-theme-light'),
@@ -151,7 +146,6 @@ class SettingsGeneralPane extends StatelessWidget {
         _HotkeyCard(
           primary: primary,
           pin: pin,
-          error: error,
           onCapture: onCapture,
           onCommit: onCommit,
         ),
@@ -169,12 +163,10 @@ class _HotkeyCard extends StatefulWidget {
     required this.pin,
     required this.onCapture,
     required this.onCommit,
-    this.error,
   });
 
   final HotkeyBinding primary;
   final HotkeyBinding pin;
-  final String? error;
   final ValueChanged<bool> onCapture;
   final Future<void> Function(HotkeySlot slot, HotkeyBinding binding) onCommit;
 
@@ -291,14 +283,6 @@ class _HotkeyCardState extends State<_HotkeyCard> {
             '若按下无反应,该组合可能已被其他程序占用',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
-          if (widget.error != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              widget.error!,
-              key: const Key('settings-hotkey-error'),
-              style: SrType.caption.copyWith(color: pal.live),
-            ),
-          ],
         ],
       ),
     );

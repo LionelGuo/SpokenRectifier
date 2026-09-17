@@ -24,6 +24,7 @@ import '../design/hover.dart';
 import '../design/theme.dart' show srTheme;
 import '../design/toast.dart';
 import '../design/tokens.dart';
+import '../errors.dart';
 import '../rust/api.dart' show BridgeScenario;
 import 'caption_theme.dart';
 import 'connection_store.dart';
@@ -129,11 +130,9 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   bool _orbVisible = true;
   HotkeyBinding _primary = HotkeyBinding.primaryDefault;
   HotkeyBinding _pin = HotkeyBinding.pinDefault;
-  String? _hotkeyError;
   SettingsDomain _domain = SettingsDomain.scenarios;
   List<BridgeScenario> _scenarios = const [];
   String? _selected;
-  String? _error;
 
   /// The global directive as the file reads it (null = unset) — the
   /// inline card's seed and the dirty check's baseline (ticket 22).
@@ -145,6 +144,10 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   late final FidelityEvalController _eval = FidelityEvalController(
     runner: widget.evalRunner,
   );
+
+  /// Below MaterialApp (and inside [SrToastScope]): the state's own
+  /// context sits above the app and cannot look up the toast.
+  late BuildContext _toastContext;
 
   @override
   void initState() {
@@ -207,19 +210,18 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
 
   /// A row finished a record / clear / restore: write the file (it is
   /// the truth), paint the pair, tell the main engine to re-read. A
-  /// failed write keeps the on-screen pair and hangs the error under
-  /// the card.
+  /// failed write keeps the on-screen pair and toasts the error.
   Future<void> _commitHotkey(HotkeySlot slot, HotkeyBinding binding) async {
     try {
       saveUiHotkey(widget.uiPrefsDirs ?? uiPrefsSearchDirs(), slot, binding);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _hotkeyError = '热键保存失败:$e');
+      logRawError('err_hotkey_save', e);
+      SrToast.of(_toastContext).show('热键保存失败', tone: SrToastTone.error);
       return;
     }
     if (!mounted) return;
     setState(() {
-      _hotkeyError = null;
       switch (slot) {
         case HotkeySlot.primary:
           _primary = binding;
@@ -249,18 +251,20 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       setState(() => _scenarios = scenarios);
     } catch (e) {
       // Unreadable today (e.g. a transient lock): the pane shows the
-      // empty state plus the error; nothing is written.
+      // empty state; the toast carries the diagnosis. Nothing is written.
       if (!mounted) return;
-      setState(() => _error = '场景库读取失败:$e');
+      logRawError('err_scenario_load', e);
+      SrToast.of(_toastContext).show('场景库读取失败', tone: SrToastTone.error);
     }
     try {
       final global = await widget.globalStore.load();
       if (!mounted) return;
       setState(() => _global = global);
     } catch (e) {
-      // Same posture: the card seeds empty (unset) and shows the error.
+      // Same posture: the card seeds empty (unset) and toasts the error.
       if (!mounted) return;
-      setState(() => _error = '全局指令读取失败:$e');
+      logRawError('err_directive_load', e);
+      SrToast.of(_toastContext).show('全局指令读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -275,7 +279,8 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       await widget.globalStore.save(next);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '全局指令保存失败:$e');
+      logRawError('err_directive_save', e);
+      SrToast.of(_toastContext).show('全局指令保存失败', tone: SrToastTone.error);
       return;
     }
     if (!mounted) return;
@@ -294,7 +299,8 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
     try {
       await widget.store.save(next);
     } catch (e) {
-      setState(() => _error = '场景库保存失败:$e');
+      logRawError('err_scenario_save', e);
+      SrToast.of(_toastContext).show('场景库保存失败', tone: SrToastTone.error);
       return false;
     }
     setState(() => _scenarios = next);
@@ -367,23 +373,28 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
         builder: (context) => SrToastScope(
           anchor: SrToastAnchor.top,
           clearance: 12,
-          child: Scaffold(
-            backgroundColor: srPalette(context).surface,
-            body: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Sidebar(
-                  selected: _domain,
-                  onSelect: (domain) => setState(() => _domain = domain),
+          child: Builder(
+            builder: (toastContext) {
+              _toastContext = toastContext;
+              return Scaffold(
+                backgroundColor: srPalette(context).surface,
+                body: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _Sidebar(
+                      selected: _domain,
+                      onSelect: (domain) => setState(() => _domain = domain),
+                    ),
+                    VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: srPalette(context).hairline,
+                    ),
+                    Expanded(child: _domainPane(context)),
+                  ],
                 ),
-                VerticalDivider(
-                  width: 1,
-                  thickness: 1,
-                  color: srPalette(context).hairline,
-                ),
-                Expanded(child: _domainPane(context)),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
@@ -397,7 +408,6 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
         orbVisible: _orbVisible,
         primary: _primary,
         pin: _pin,
-        error: _hotkeyError,
         onThemePicked: _pickTheme,
         onOrbVisible: _setOrbVisible,
         onCapture: _setHotkeysPaused,
@@ -406,7 +416,6 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       SettingsDomain.scenarios => _ScenarioPane(
         scenarios: _scenarios,
         selected: _selected,
-        error: _error,
         global: _global,
         onSelect: _select,
         onAddOrUpdate: _addOrUpdate,
@@ -532,7 +541,6 @@ class _ScenarioPane extends StatelessWidget {
   const _ScenarioPane({
     required this.scenarios,
     required this.selected,
-    required this.error,
     required this.global,
     required this.onSelect,
     required this.onAddOrUpdate,
@@ -542,7 +550,6 @@ class _ScenarioPane extends StatelessWidget {
 
   final List<BridgeScenario> scenarios;
   final String? selected;
-  final String? error;
 
   /// The global directive as the file reads it (null = unset) — the
   /// inline card's seed (ticket 22).
@@ -580,14 +587,6 @@ class _ScenarioPane extends StatelessWidget {
         // The global directive rides above the library list: always
         // present, empty library or not.
         _GlobalDirectiveCard(directive: global, onSave: onSaveGlobal),
-        if (error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            error!,
-            key: const Key('settings-scenario-error'),
-            style: SrType.caption.copyWith(color: pal.live),
-          ),
-        ],
         const SizedBox(height: 16),
         if (scenarios.isEmpty)
           _EmptyLibrary()
