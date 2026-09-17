@@ -235,6 +235,28 @@ fn table_at_mut<'a>(
     Some(table)
 }
 
+/// Which layer file an `Owning` write of `section` would land in — the
+/// last layer file saying anything about the section, or the shared
+/// file when none does. For a save that must place several sections
+/// coherently in ONE file (the LLM ratchet's `[llm]` +
+/// `[llm.overlays]`, ADR-0019): resolve once, write everywhere with the
+/// returned layer. Reads the same files the write would; a malformed
+/// layer is the write's own error to raise.
+pub fn owning_layer(dirs: &[PathBuf], section: &str) -> WriteLayer {
+    let steps = section_steps(section);
+    for source in [LayerSource::Local, LayerSource::Shared] {
+        if let Ok(Some((_, document))) = read_layer_document(dirs, source)
+            && contains_section(&document, &steps)
+        {
+            return match source {
+                LayerSource::Shared => WriteLayer::Shared,
+                LayerSource::Local => WriteLayer::Local,
+            };
+        }
+    }
+    WriteLayer::Shared
+}
+
 /// Write fields into one section of the layer files (see the module docs
 /// for the placement rule). `section` may name a sub-section through a
 /// dotted path (`"asr.volcengine"` → `[asr.volcengine]`), with the same
@@ -611,6 +633,36 @@ mod tests {
         let layers = load_toy(std::slice::from_ref(&dir));
         assert_eq!(layers[0].value.name.as_deref(), Some("shared")); // masked
         assert_eq!(layers[1].value.name.as_deref(), Some("new")); // effective
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The helper mirrors the `Owning` write's own resolution: the last
+    /// layer saying anything about the section, else the shared file.
+    #[test]
+    fn owning_layer_names_the_layer_the_owning_write_would_target() {
+        let dir = scratch("sr-write-owning-layer");
+        // No files at all: the shared file is the default home.
+        assert_eq!(
+            owning_layer(std::slice::from_ref(&dir), "toy"),
+            WriteLayer::Shared
+        );
+        std::fs::write(dir.join(SHARED_FILE), "[toy]\nname = \"shared\"\n").unwrap();
+        assert_eq!(
+            owning_layer(std::slice::from_ref(&dir), "toy"),
+            WriteLayer::Shared
+        );
+        // A local section that does not address `toy` does not own it.
+        std::fs::write(dir.join(LOCAL_FILE), "[other]\ncount = 1\n").unwrap();
+        assert_eq!(
+            owning_layer(std::slice::from_ref(&dir), "toy"),
+            WriteLayer::Shared
+        );
+        // The local layer owns it the moment it says anything about it.
+        std::fs::write(dir.join(LOCAL_FILE), "[toy.sub]\nx = 1\n").unwrap();
+        assert_eq!(
+            owning_layer(std::slice::from_ref(&dir), "toy"),
+            WriteLayer::Local
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

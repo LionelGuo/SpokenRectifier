@@ -1,41 +1,49 @@
-//! Which OpenAI-compatible vendor an endpoint speaks, and how each one
-//! toggles thinking mode. On by default (工单 33): under the zero-example
-//! prompt, placeholder absorption needs it — v4-flash probed 10/10 with,
-//! 3/10 without; off only buys back light-band latency.
+//! The per-vendor key slots (ADR-0011, extended by ADR-0019): which
+//! endpoint a chip names and which conventional environment variable
+//! its key falls back to. A slot never drives request behavior — the
+//! `[llm] format` axis does; `vendor` is the slot pointer plus the
+//! last-clicked preset, nothing more (ADR-0019 item 1).
+//!
+//! The `thinking_fields` pair lists below are the pre-0019 request
+//! shape, kept as the migration dictionary's one source: the
+//! grandfather expands them into the new `[llm.overlays]` shares
+//! byte for byte, and nothing on the live request path reads them.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-/// The dialect quirks of a compatible endpoint.
+/// One endpoint slot on the connection card's chip row (custom last).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Vendor {
-    /// api.deepseek.com: `thinking: {"type": ...}`; enabling also requires
-    /// `reasoning_effort`.
+    /// api.deepseek.com.
     DeepSeek,
-    /// Volcengine Ark: `thinking: {"type": ...}`.
+    /// Volcengine Ark.
     Volcengine,
-    /// DashScope compatible mode: `enable_thinking: bool`.
+    /// DashScope compatible mode.
     Qwen,
-    /// Plain OpenAI shape; only `reasoning_effort` exists, so thinking-off
-    /// sends no extra field.
+    /// api.openai.com.
     OpenAi,
-    /// The user's own OpenAI-compatible endpoint (ADR-0018): no preset
-    /// URL, no conventional environment variable, and no thinking-field
-    /// shape of its own — the stored `thinking_dialect` picks one of the
-    /// four above (default `openai`). A vendor value, not a dialect: the
-    /// dialect parser excludes it.
+    /// api.anthropic.com (ADR-0019): its own format, not a compat shape.
+    Anthropic,
+    /// generativelanguage.googleapis.com (ADR-0019).
+    Gemini,
+    /// The user's own endpoint (ADR-0018): no preset URL, no
+    /// conventional environment variable — the local file or a
+    /// hand-written `api_key_env` is the only road.
     Custom,
 }
 
 impl Vendor {
     /// Every vendor, in declaration order — keying the per-vendor key
     /// slots (ADR-0011) and the settings pane's chip row (custom last).
-    pub const ALL: [Vendor; 5] = [
+    pub const ALL: [Vendor; 7] = [
         Vendor::DeepSeek,
         Vendor::Volcengine,
         Vendor::Qwen,
         Vendor::OpenAi,
+        Vendor::Anthropic,
+        Vendor::Gemini,
         Vendor::Custom,
     ];
 }
@@ -49,6 +57,8 @@ impl Vendor {
             Vendor::Volcengine => "volcengine",
             Vendor::Qwen => "qwen",
             Vendor::OpenAi => "openai",
+            Vendor::Anthropic => "anthropic",
+            Vendor::Gemini => "gemini",
             Vendor::Custom => "custom",
         }
     }
@@ -61,14 +71,17 @@ impl Vendor {
             "volcengine" => Some(Vendor::Volcengine),
             "qwen" => Some(Vendor::Qwen),
             "openai" => Some(Vendor::OpenAi),
+            "anthropic" => Some(Vendor::Anthropic),
+            "gemini" => Some(Vendor::Gemini),
             "custom" => Some(Vendor::Custom),
             _ => None,
         }
     }
 
-    /// Parse a thinking-dialect name: the four adapted shapes only —
-    /// `custom` names an endpoint, never a dialect (its own dialect is
-    /// stored separately, ADR-0018).
+    /// Parse a thinking-dialect name: the four pre-0019 adapted shapes
+    /// only — `custom` names an endpoint, never a dialect (its own
+    /// dialect was stored separately, ADR-0018). Read-side legacy only:
+    /// the dictionary's consumer; the live path reads `[llm] format`.
     pub fn dialect_from_name(name: &str) -> Option<Self> {
         match name.trim() {
             "deepseek" | "volcengine" | "qwen" | "openai" => Self::from_str_name(name),
@@ -79,20 +92,26 @@ impl Vendor {
     /// The conventional environment variable this vendor's key falls
     /// back to when no local-file key exists (each vendor keeps its own
     /// slot, so each names its own variable, ADR-0011). `None` for
-    /// custom: an unadapted endpoint has no conventional name — the
-    /// local file or a hand-written `api_key_env` is the only road.
+    /// custom: an unadapted endpoint has no conventional name.
     pub fn default_env(self) -> Option<&'static str> {
         match self {
             Vendor::DeepSeek => Some("DEEPSEEK_API_KEY"),
             Vendor::Volcengine => Some("ARK_API_KEY"),
             Vendor::Qwen => Some("DASHSCOPE_API_KEY"),
             Vendor::OpenAi => Some("OPENAI_API_KEY"),
+            Vendor::Anthropic => Some("ANTHROPIC_API_KEY"),
+            Vendor::Gemini => Some("GEMINI_API_KEY"),
             Vendor::Custom => None,
         }
     }
 
-    /// The fields to merge into the request body for the wanted thinking
-    /// mode. Empty means: send nothing.
+    /// The pre-0019 request's thinking-field pairs for the wanted mode —
+    /// the migration dictionary's one source, never the live request
+    /// path (the new path merges `[llm.overlays]`, ADR-0019). The four
+    /// adapted shapes carry their legacy pairs; empty means the old
+    /// body sent nothing. The two post-0019 slots were never dialects
+    /// and carry no pairs here — their grandfather expands to the
+    /// preset shares (see `presets::grandfather`).
     pub fn thinking_fields(self, thinking: bool) -> Vec<(&'static str, Value)> {
         match (self, thinking) {
             (Vendor::DeepSeek, true) => vec![
@@ -106,11 +125,12 @@ impl Vendor {
             (Vendor::Qwen, false) => vec![("enable_thinking", json!(false))],
             (Vendor::OpenAi, true) => vec![("reasoning_effort", json!("medium"))],
             (Vendor::OpenAi, false) => vec![],
-            // Never reached through the model's dialect resolution (the
-            // parser above excludes custom); the openai shape is the
-            // safety default a raw custom vendor value falls to.
+            // The custom slot's stored dialect picks one of the four
+            // above; the openai shape is the safety default a raw
+            // custom value falls to (ADR-0018).
             (Vendor::Custom, true) => vec![("reasoning_effort", json!("medium"))],
             (Vendor::Custom, false) => vec![],
+            (Vendor::Anthropic, _) | (Vendor::Gemini, _) => vec![],
         }
     }
 }
@@ -126,6 +146,8 @@ mod tests {
             (Vendor::Volcengine, "volcengine"),
             (Vendor::Qwen, "qwen"),
             (Vendor::OpenAi, "openai"),
+            (Vendor::Anthropic, "anthropic"),
+            (Vendor::Gemini, "gemini"),
             (Vendor::Custom, "custom"),
         ] {
             assert_eq!(vendor.as_str(), name);
@@ -139,8 +161,9 @@ mod tests {
         assert_eq!(Vendor::from_str_name("nonsense"), None);
     }
 
-    /// The dialect names are the four adapted shapes: custom names an
-    /// endpoint, never a dialect, and every other name is refused.
+    /// The dialect names are the four pre-0019 adapted shapes: custom
+    /// names an endpoint, never a dialect, and the two post-0019 slots
+    /// were never dialects either.
     #[test]
     fn the_dialect_parser_accepts_the_four_shapes_only() {
         for name in ["deepseek", "volcengine", "qwen", "openai"] {
@@ -150,15 +173,16 @@ mod tests {
                 "{name}"
             );
         }
-        assert_eq!(Vendor::dialect_from_name("custom"), None);
-        assert_eq!(Vendor::dialect_from_name("nonsense"), None);
+        for never in ["custom", "anthropic", "gemini", "nonsense"] {
+            assert_eq!(Vendor::dialect_from_name(never), None, "{never}");
+        }
     }
 
     /// Custom is in the slot registry but has no conventional
     /// environment variable and no thinking shape of its own.
     #[test]
     fn custom_has_no_env_and_the_openai_shape_as_safety() {
-        assert_eq!(Vendor::ALL.len(), 5);
+        assert_eq!(Vendor::ALL.len(), 7);
         assert!(Vendor::ALL.contains(&Vendor::Custom));
         assert_eq!(Vendor::Custom.default_env(), None);
         assert_eq!(
@@ -169,6 +193,14 @@ mod tests {
             Vendor::Custom.thinking_fields(false),
             Vendor::OpenAi.thinking_fields(false)
         );
+    }
+
+    /// The two post-0019 slots were never dialects and carry no legacy
+    /// pairs — their grandfather expands to the preset shares.
+    #[test]
+    fn the_new_slots_carry_no_legacy_pairs() {
+        assert!(Vendor::Anthropic.thinking_fields(true).is_empty());
+        assert!(Vendor::Gemini.thinking_fields(false).is_empty());
     }
 
     #[test]

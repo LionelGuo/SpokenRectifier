@@ -2,12 +2,16 @@
 //! Shared helpers for the llm crate's integration tests.
 
 use spokenrectifier_engine::provider::llm::RectifyRequest;
-use spokenrectifier_llm::{LlmConfig, ModelConfig, OpenAiCompatLlm, ThinkingPolicy, Vendor};
+use spokenrectifier_llm::{
+    ConnectionThinking, Format, LlmConfig, ModelConfig, OpenAiCompatLlm, Overlays, ThinkingPolicy,
+    ThinkingState, Vendor,
+};
 
 /// An `LlmConfig` pointing at one fake endpoint/model. `thinking` seeds
 /// BOTH tiers' policy the way today's legacy bool did (the tests never
 /// need a per-tier split — the client-level fold has its own unit
-/// tests).
+/// tests). The connection face carries the grandfathered deepseek
+/// shares, so requests look exactly like the pre-0019 body.
 pub fn config_with_base(base_url: String, thinking: bool) -> LlmConfig {
     let mut config = LlmConfig::defaults();
     let policy = if thinking {
@@ -18,15 +22,22 @@ pub fn config_with_base(base_url: String, thinking: bool) -> LlmConfig {
     config.rectify.full.thinking_policy = policy;
     config.rectify.light_touch.tier.thinking_policy = policy;
     config.endpoint_configured = true;
+    let (thinking_on, thinking_off) = spokenrectifier_llm::presets::legacy_shares(Vendor::DeepSeek);
     config.model = ModelConfig {
         base_url,
         model: "test-model".into(),
         api_key: Some("sk-test".into()),
         api_key_env: None,
         vendor: Vendor::DeepSeek,
-        thinking_dialect: Vendor::DeepSeek,
-        custom_extra_body: None,
-        extra_body: None,
+        format: Format::OpenaiChat,
+        thinking: ConnectionThinking {
+            state: ThinkingState::On,
+            overlays: Overlays {
+                body: None,
+                thinking_on: Some(thinking_on),
+                thinking_off: Some(thinking_off),
+            },
+        },
     };
     config
 }

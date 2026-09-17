@@ -5,19 +5,29 @@
 //! One model per mode: every intensity (light-touch or full) calls the same
 //! endpoint — the length threshold only changes how the prompt asks the
 //! model to rectify, never which model answers.
+//!
+//! The connection face is open (ADR-0019): `[llm] format` is the one
+//! behavioral axis, the 「设置思考字段」 switch plus the three
+//! `[llm.overlays]` shares own the request body's variable part, and the
+//! pre-0019 keys (thinking dialect, the two extra-body cabins) survive
+//! only as a read-time grandfather that the first connection-domain
+//! save retires — the ratchet.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use spokenrectifier_config::LayerSource;
 use spokenrectifier_config::load_section_layers;
 use spokenrectifier_config::section_write::{
-    KeyEdit, KeyStatus, SectionField, WriteLayer, write_section_fields,
+    KeyEdit, KeyStatus, SectionField, WriteLayer, owning_layer, validate_json_table_shape,
+    write_section_fields,
 };
 
+use crate::format::Format;
 use crate::intensity::Intensity;
+use crate::presets;
 use crate::vendor::Vendor;
 
 /// Everything the rectify pipeline needs to call the model.
@@ -37,13 +47,25 @@ pub struct LlmConfig {
     /// (ADR-0011; `model.api_key` mirrors the ACTIVE vendor's pair for
     /// the client, this map is the whole truth the settings view paints).
     pub vendor_keys: BTreeMap<Vendor, VendorKeys>,
-    /// The `[llm.custom]` sub-section (ADR-0018): restore cache, dialect,
-    /// and the custom request-body overlay. The slot's key pair lives in
+    /// The `[llm.custom]` sub-section (ADR-0018, shrunk by ADR-0019 to a
+    /// pure key slot on the wire): the legacy cabins still read from
+    /// pre-0019 files — read-time grandfathering input, retired by the
+    /// first connection-domain save. The slot's key pair lives in
     /// `vendor_keys[Vendor::Custom]` like every vendor's.
     pub custom: CustomSlot,
     /// The legacy flat `[llm] api_key`/`api_key_env` pair as the layers
     /// left it (save-time migration only; ADR-0011).
     pub(crate) legacy_flat: VendorKeys,
+    /// The pre-0019 `[llm] extra_body` hold as the layers left it —
+    /// read-time grandfathering input only (it folds into the thinking
+    /// shares at load), retired by the first connection-domain save
+    /// (ADR-0019 item 4).
+    pub(crate) legacy_extra_body: Option<Map<String, Value>>,
+    /// Whether any layer file spoke a post-0019 key (`format`,
+    /// `thinking_fields`, `[llm.overlays]`): the save-time ratchet's
+    /// branch between composing the grandfather and preserving the
+    /// loaded group (ADR-0019 item 4).
+    pub(crate) new_keys_world: bool,
     /// Whether any layer file shaped the endpoint (model, base_url, or
     /// any key): the user configured a real model, so a missing key is an
     /// error for the caller to surface, not a silent fallback to a demo.
@@ -184,10 +206,12 @@ impl RectifyConfig {
     }
 }
 
-/// One OpenAI-compatible endpoint.
+/// One endpoint, any provider (ADR-0019): the format axis drives every
+/// request-shape decision, the vendor names a key slot and the chip the
+/// user last clicked — nothing more.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelConfig {
-    /// Everything before `/chat/completions`.
+    /// Everything before the format's path completion.
     pub base_url: String,
     pub model: String,
     /// The ACTIVE vendor's resolved pair (its sub-section's key first,
@@ -196,38 +220,78 @@ pub struct ModelConfig {
     pub api_key: Option<String>,
     /// Environment variable consulted when `api_key` is absent.
     pub api_key_env: Option<String>,
-    /// Dialect quirks of the endpoint (thinking-mode field shape).
+    /// The active key slot + last-clicked preset pointer (ADR-0019
+    /// item 1): never drives request behavior.
     pub vendor: Vendor,
-    /// The thinking-field shape the request body actually speaks: the
-    /// vendor's own for the four adapted vendors, the custom slot's
-    /// stored dialect when custom is active (default `openai`;
-    /// ADR-0018). Carried resolved, so the request builder never
-    /// re-derives it.
-    pub thinking_dialect: Vendor,
-    /// The custom request-body overlay (`[llm.custom.extra_body]`),
-    /// merged between the dialect fields and the hold — and dormant
-    /// while another vendor is active (ADR-0018).
-    pub custom_extra_body: Option<serde_json::Map<String, Value>>,
-    /// Merged verbatim into the request body last — the escape hatch for
-    /// anything this config does not model.
-    pub extra_body: Option<serde_json::Map<String, Value>>,
+    /// The one behavioral axis: path completion, auth headers, prompt
+    /// slots, and SSE framing all key off this.
+    pub format: Format,
+    /// The connection domain's thinking fields (ADR-0019 item 2): the
+    /// switch's resolved state plus the three overlays, carried resolved
+    /// so the request builder never re-derives them.
+    pub thinking: ConnectionThinking,
 }
 
-/// The `[llm.custom]` sub-section (ADR-0018): the custom endpoint's
-/// restore cache plus its thinking dialect and request-body overlay.
-/// While another vendor is active these keys sit stored, just unadopted
-/// — switching away and back restores everything (the same
-/// switch-preserving rule as the ASR sub-sections, ADR-0009).
+/// The `[llm] thinking_fields` switch plus the `[llm.overlays]` shares,
+/// resolved (ADR-0019 item 2/3). The switch and overlays validate and
+/// invalidate as one group: a malformed key voids the whole group
+/// (non-blocking — the file's name rides in the state for the settings
+/// domain's warning slot) and requests carry no thinking keys at all,
+/// leaving the endpoint on its own default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionThinking {
+    pub state: ThinkingState,
+    pub overlays: Overlays,
+}
+
+/// The switch's three-state resolution plus the broken branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThinkingState {
+    /// Switch on with a non-empty on-share: the rectify tier's thinking
+    /// policy picks the share per request (ADR-0015's evaluation).
+    On,
+    /// Switch off: both shares stay stored but inert — off is a stance,
+    /// not a deletion (ADR-0015 precedent); requests carry no thinking
+    /// keys.
+    Off,
+    /// The files never set the switch (or set it on with no on-share):
+    /// same no-thinking-keys semantics, a different warning face.
+    Unconfigured,
+    /// A malformed switch/overlays group — the non-blocking side of the
+    /// bad-file boundary (ADR-0019 item 3). The detail names the file
+    /// and the offending key for the settings domain's warning slot.
+    Broken(String),
+}
+
+/// The three `[llm.overlays]` shares; `None` is the off form (an empty
+/// table reads as unset, like the blank extra directive).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Overlays {
+    /// The resident share (temperature and friends): merged into every
+    /// request before the thinking share.
+    pub body: Option<Map<String, Value>>,
+    pub thinking_on: Option<Map<String, Value>>,
+    pub thinking_off: Option<Map<String, Value>>,
+}
+
+/// The `[llm.custom]` sub-section as the bridge still paints it: the
+/// legacy cabins read from pre-0019 files so the read-time grandfather
+/// can expand them, and the first connection-domain save strips them —
+/// the slot shrinks to its key pair (ADR-0019 item 4). While another
+/// vendor is active the cabins sit stored, just unadopted (ADR-0018's
+/// dormancy, honored until the ratchet retires the cabins wholesale).
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomSlot {
-    /// The custom endpoint, cached for the chip's return; the ACTIVE
-    /// endpoint always lives in the common `[llm]` segment.
+    /// The custom endpoint, cached for the chip's return (legacy read);
+    /// the ACTIVE endpoint always lives in the common `[llm]` segment.
     pub base_url: Option<String>,
     pub model: Option<String>,
     /// One of the four adapted shapes; a missing key reads as `openai`
-    /// and the next custom save writes it down.
+    /// (legacy read — the save-time ratchet composes the edit's dialect
+    /// into the new shares).
     pub thinking_dialect: Vendor,
-    /// `[llm.custom.extra_body]`; an empty table reads as absent.
+    /// `[llm.custom.extra_body]`; an empty table reads as absent
+    /// (legacy read, same ratchet story).
     pub extra_body: Option<serde_json::Map<String, Value>>,
 }
 
@@ -237,10 +301,17 @@ impl LlmConfig {
     /// characters, no extra directive). Every vendor's key slot starts
     /// empty (the conventional environment names apply at resolution).
     pub fn defaults() -> Self {
+        // The default endpoint's thinking shares are the legacy deepseek
+        // dictionary pair, byte for byte — the pre-0019 default body,
+        // which is also what the read-time grandfather expands a bare
+        // legacy file set into.
+        let (thinking_on, thinking_off) = presets::legacy_shares(Vendor::DeepSeek);
         LlmConfig {
             rectify: RectifyConfig::today(),
             endpoint_configured: false,
             legacy_flat: VendorKeys::default(),
+            legacy_extra_body: None,
+            new_keys_world: false,
             custom: CustomSlot {
                 base_url: None,
                 model: None,
@@ -262,9 +333,15 @@ impl LlmConfig {
                         .into(),
                 ),
                 vendor: Vendor::DeepSeek,
-                thinking_dialect: Vendor::DeepSeek,
-                custom_extra_body: None,
-                extra_body: None,
+                format: Format::OpenaiChat,
+                thinking: ConnectionThinking {
+                    state: ThinkingState::On,
+                    overlays: Overlays {
+                        body: None,
+                        thinking_on: Some(thinking_on),
+                        thinking_off: Some(thinking_off),
+                    },
+                },
             },
         }
     }
@@ -331,7 +408,11 @@ pub struct ConfigError(pub String);
 /// The `[llm]` overlay: the config crate loads it, this crate folds it.
 /// Vendor sub-sections (`[llm.deepseek]`, …) overlay field by field like
 /// every other section; a vendor's key slot never touches another
-/// vendor's (ADR-0011).
+/// vendor's (ADR-0011). The post-0019 keys (`format`,
+/// `thinking_fields`, `overlays`) ride as raw TOML values and validate
+/// after the load, so each lands on its own side of the bad-file
+/// boundary (ADR-0019 item 3): a bad format refuses the load, a bad
+/// switch/overlays degrades the thinking group.
 #[derive(Debug, Default, Deserialize)]
 struct LlmSection {
     thinking: Option<bool>,
@@ -347,13 +428,28 @@ struct LlmSection {
     api_key: Option<String>,
     api_key_env: Option<String>,
     vendor: Option<Vendor>,
+    /// The format axis (ADR-0019 item 1), raw: strict string validation
+    /// happens after the load so the error names the accepted values.
+    format: Option<toml::Value>,
+    /// The 「设置思考字段」 switch, raw: a malformed value is the
+    /// non-blocking branch (the thinking group reads as broken).
+    thinking_fields: Option<toml::Value>,
+    /// The `[llm.overlays]` node, raw: the three shares validate as one
+    /// group after the load (malformed → the group voids, non-blocking).
+    overlays: Option<toml::Value>,
+    /// The pre-0019 hand-edit hold (ADR-0018, retired by ADR-0019):
+    /// read-time grandfathering input; the first save folds it into the
+    /// thinking shares and strips the key.
     extra_body: Option<serde_json::Map<String, Value>>,
     deepseek: Option<VendorKeysOverlay>,
     volcengine: Option<VendorKeysOverlay>,
     qwen: Option<VendorKeysOverlay>,
     openai: Option<VendorKeysOverlay>,
-    /// The custom endpoint's sub-section (ADR-0018) — a key slot like
-    /// every vendor's, plus the restore cache, dialect, and overlay.
+    anthropic: Option<VendorKeysOverlay>,
+    gemini: Option<VendorKeysOverlay>,
+    /// The custom endpoint's sub-section (ADR-0018): a key slot like
+    /// every vendor's, plus the legacy cabins (restore cache, dialect,
+    /// overlay) — read for the grandfather, stripped by the ratchet.
     custom: Option<CustomKeysOverlay>,
 }
 
@@ -386,6 +482,8 @@ impl LlmSection {
             Vendor::Volcengine => self.volcengine.as_ref(),
             Vendor::Qwen => self.qwen.as_ref(),
             Vendor::OpenAi => self.openai.as_ref(),
+            Vendor::Anthropic => self.anthropic.as_ref(),
+            Vendor::Gemini => self.gemini.as_ref(),
             Vendor::Custom => None, // a different shape; folded separately
         }
     }
@@ -400,6 +498,144 @@ impl LlmSection {
             key.is_some_and(|k| !k.is_empty())
         })
     }
+}
+
+// -- the post-0019 connection keys (ADR-0019 items 1-3) -----------------------
+
+/// One TOML value onto its JSON twin. Non-finite floats have no JSON
+/// shape and refuse — the same shape a save could never write back
+/// (`validate_json_table_shape`'s up-front twin). A datetime normally
+/// never reaches this far as one (the serde hop into `LlmSection`
+/// stringifies it first, the same coercion the pre-0019 extra-body
+/// path performed); the arm stays for the day a caller hands a raw
+/// table over.
+fn toml_value_to_json(value: &toml::Value) -> Result<Value, &'static str> {
+    match value {
+        toml::Value::String(text) => Ok(Value::String(text.clone())),
+        toml::Value::Integer(n) => Ok(Value::Number((*n).into())),
+        toml::Value::Float(n) if n.is_finite() => Ok(Value::Number(
+            serde_json::Number::from_f64(*n).expect("finite floats are JSON numbers"),
+        )),
+        toml::Value::Float(_) => Err("is not a finite number, so has no JSON shape"),
+        toml::Value::Boolean(b) => Ok(Value::Bool(*b)),
+        toml::Value::Datetime(_) => Err("is a TOML datetime, which has no JSON shape"),
+        toml::Value::Array(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                out.push(toml_value_to_json(item)?);
+            }
+            Ok(Value::Array(out))
+        }
+        toml::Value::Table(table) => {
+            let mut map = Map::new();
+            for (name, item) in table {
+                map.insert(name.clone(), toml_value_to_json(item)?);
+            }
+            Ok(Value::Object(map))
+        }
+    }
+}
+
+/// One layer's `[llm.overlays]` node: exactly the three shares, each a
+/// table (a JSON object root); an empty share is the off form. Anything
+/// else — an unknown key, a scalar share, a datetime inside — voids the
+/// whole group (the group validates and invalidates together,
+/// ADR-0019 item 2), the detail naming the file and key for the
+/// warning slot.
+fn parse_overlays_node(value: &toml::Value, file: &str) -> Result<Overlays, String> {
+    let table = value
+        .as_table()
+        .ok_or_else(|| format!("{file}: [llm.overlays]: must be a table"))?;
+    let mut overlays = Overlays::default();
+    for (key, share) in table {
+        let field = match key.as_str() {
+            "body" => &mut overlays.body,
+            "thinking_on" => &mut overlays.thinking_on,
+            "thinking_off" => &mut overlays.thinking_off,
+            other => {
+                return Err(format!(
+                    "{file}: [llm.overlays]: unknown key `{other}`; allowed: `body`, \
+                     `thinking_on`, `thinking_off`"
+                ));
+            }
+        };
+        let share_table = share.as_table().ok_or_else(|| {
+            format!("{file}: [llm.overlays]: the `{key}` share must be a table (a JSON object)")
+        })?;
+        let mut map = Map::new();
+        for (name, item) in share_table {
+            let json = toml_value_to_json(item)
+                .map_err(|why| format!("{file}: [llm.overlays.{key}]: `{name}` {why}"))?;
+            map.insert(name.clone(), json);
+        }
+        if !map.is_empty() {
+            *field = Some(map); // an empty share is the off form, like blank
+        }
+    }
+    Ok(overlays)
+}
+
+/// The folded raw state of the post-0019 keys, resolved from every
+/// layer before the fold: the effective values (last layer wins; the
+/// overlays node replaces wholesale, like the old extra-body hold) plus
+/// the first offender on the non-blocking branch.
+struct NewKeys {
+    format: Option<Format>,
+    switch: Option<bool>,
+    overlays: Option<Overlays>,
+    broken: Option<String>,
+}
+
+/// Resolve and validate the post-0019 keys across the layers. A
+/// malformed `format` refuses the whole load (the blocking side of the
+/// bad-file boundary); a malformed switch/overlays marks the thinking
+/// group broken without blocking (ADR-0019 item 3).
+fn resolve_new_keys(
+    layers: &[spokenrectifier_config::Layer<LlmSection>],
+) -> Result<NewKeys, ConfigError> {
+    let mut keys = NewKeys {
+        format: None,
+        switch: None,
+        overlays: None,
+        broken: None,
+    };
+    for layer in layers {
+        let file = layer.source.file_name();
+        if let Some(value) = &layer.value.format {
+            match value.as_str().and_then(Format::from_str_name) {
+                Some(format) => keys.format = Some(format),
+                None => {
+                    let got = value.as_str().map_or_else(
+                        || "a non-string value".to_string(),
+                        |text| format!("\"{text}\""),
+                    );
+                    return Err(ConfigError(format!(
+                        "{file}: [llm]: format accepts only {}; got {got}",
+                        Format::accepted()
+                    )));
+                }
+            }
+        }
+        if let Some(value) = &layer.value.thinking_fields {
+            match value.as_bool() {
+                Some(on) => keys.switch = Some(on),
+                None => {
+                    keys.broken.get_or_insert(format!(
+                        "{file}: [llm]: thinking_fields must be a boolean (true/false)"
+                    ));
+                }
+            }
+        }
+        if let Some(value) = &layer.value.overlays {
+            match parse_overlays_node(value, file) {
+                Ok(overlays) => keys.overlays = Some(overlays),
+                Err(detail) => {
+                    keys.broken.get_or_insert(detail);
+                }
+            }
+        }
+    }
+    Ok(keys)
 }
 
 fn apply(config: &mut LlmConfig, llm: LlmSection, flat: &mut FlatPair) {
@@ -434,15 +670,18 @@ fn apply(config: &mut LlmConfig, llm: LlmSection, flat: &mut FlatPair) {
     if let Some(v) = llm.vendor {
         config.model.vendor = v;
     }
-    // Replaced wholesale: a local override redefines the extra body.
+    // Replaced wholesale: a local override redefines the hold (legacy
+    // read — the grandfather folds it into the thinking shares at load).
     if let Some(v) = llm.extra_body {
-        config.model.extra_body = Some(v);
+        config.legacy_extra_body = Some(v);
     }
     for (vendor, overlay) in [
         (Vendor::DeepSeek, llm.deepseek),
         (Vendor::Volcengine, llm.volcengine),
         (Vendor::Qwen, llm.qwen),
         (Vendor::OpenAi, llm.openai),
+        (Vendor::Anthropic, llm.anthropic),
+        (Vendor::Gemini, llm.gemini),
     ]
     .into_iter()
     .filter_map(|(vendor, overlay)| overlay.map(|overlay| (vendor, overlay)))
@@ -522,6 +761,12 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
         }
     }
     let rectify_layers = load_rectify_layers(dirs)?;
+    // The post-0019 keys resolve from the raw layers up front (ADR-0019
+    // item 3): a malformed format refuses the load here, before any
+    // folding; a malformed switch/overlays rides as the broken marker.
+    let new_keys = resolve_new_keys(&llm_layers)?;
+    let new_keys_world =
+        new_keys.format.is_some() || new_keys.switch.is_some() || new_keys.overlays.is_some();
     for source in [LayerSource::Shared, LayerSource::Local] {
         if let Some(at) = llm_layers.iter().position(|layer| layer.source == source) {
             let layer = llm_layers.swap_remove(at);
@@ -555,17 +800,56 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
         .filter(|text| !text.trim().is_empty());
     // The save path's migration input: the flat pair as left behind.
     config.legacy_flat = flat;
-    // Resolve the ACTIVE face (ADR-0018): a custom endpoint speaks the
-    // slot's stored dialect and carries the custom overlay; every other
-    // vendor speaks its own shape, and the custom overlay sleeps.
-    config.model.thinking_dialect = if config.model.vendor == Vendor::Custom {
-        config.custom.thinking_dialect
+    config.new_keys_world = new_keys_world;
+    // Resolve the connection face's format and thinking group.
+    if new_keys_world {
+        // The files speak the post-0019 keys: the group resolves from
+        // the folded raw state. A broken group voids the overlays
+        // wholesale (整组作废, ADR-0019 item 2).
+        config.model.format = new_keys.format.unwrap_or(Format::OpenaiChat);
+        config.model.thinking = if let Some(detail) = new_keys.broken {
+            ConnectionThinking {
+                state: ThinkingState::Broken(detail),
+                overlays: Overlays::default(),
+            }
+        } else {
+            let overlays = new_keys.overlays.unwrap_or_default();
+            let state = match new_keys.switch {
+                // Switch on needs a non-empty on-share to mean anything
+                // (a save refuses the empty pair; a load reads it as
+                // unconfigured).
+                Some(true) if overlays.thinking_on.is_some() => ThinkingState::On,
+                Some(false) => ThinkingState::Off,
+                _ => ThinkingState::Unconfigured,
+            };
+            ConnectionThinking { state, overlays }
+        };
     } else {
-        config.model.vendor
-    };
-    config.model.custom_extra_body = (config.model.vendor == Vendor::Custom)
-        .then(|| config.custom.extra_body.clone())
-        .flatten();
+        // The read-time grandfather (ADR-0019 item 4): a legacy (or
+        // bare-default) file set never touches disk — the dialect, the
+        // custom overlay (awake only under the custom slot, ADR-0018's
+        // dormancy), and the hold expand into the new keys here, byte
+        // for byte, and the first connection-domain save writes them
+        // down (the ratchet in `save_llm_connection`).
+        let dialect = if config.model.vendor == Vendor::Custom {
+            config.custom.thinking_dialect
+        } else {
+            config.model.vendor
+        };
+        let custom_extra = (config.model.vendor == Vendor::Custom)
+            .then_some(config.custom.extra_body.as_ref())
+            .flatten();
+        let folded = presets::grandfather(dialect, custom_extra, config.legacy_extra_body.as_ref());
+        config.model.format = folded.format;
+        config.model.thinking = ConnectionThinking {
+            state: ThinkingState::On,
+            overlays: Overlays {
+                body: None,
+                thinking_on: (!folded.thinking_on.is_empty()).then_some(folded.thinking_on),
+                thinking_off: (!folded.thinking_off.is_empty()).then_some(folded.thinking_off),
+            },
+        };
+    }
     // Resolve the ACTIVE vendor's pair: its own slot first, the legacy
     // flat pair as the grandfather, the vendor's conventional env last.
     let resolved = config.resolved_keys(config.model.vendor);
@@ -823,19 +1107,17 @@ pub struct LlmConnectionEdit {
     pub base_url: String,
     pub model: String,
     pub api_key: KeyEdit,
-    /// The custom chip's fields (ADR-0018). Read only when `vendor` is
-    /// `Custom`: a save from another chip never touches the slot.
+    /// The custom chip's legacy fields (ADR-0018): under a legacy file
+    /// set the ratchet composes them into the new shares; from a
+    /// new-keys file set they ride unread — the pane's post-0019 face
+    /// edits the switch and overlays directly (ADR-0019).
     pub custom: CustomConnectionEdit,
 }
 
 /// The custom slot's editor fields (ADR-0018): the thinking dialect and
-/// the request-body overlay as the JSON text the pane's box holds. The
-/// slot's base_url/model are not edits — an active-custom save mirrors
-/// the common segment's values into the slot (the invariant "the same
-/// value, written to both places together"), so the common pair is the
-/// one source of truth. `extra_body_json` blank, `{}`, or `None` = no
-/// overlay (the key is removed); anything not a JSON object root
-/// refuses the save before a single file is touched.
+/// the request-body overlay as the JSON text the pane's box holds.
+/// `extra_body_json` blank, `{}`, or `None` = no overlay; anything not
+/// a JSON object root refuses the save before a single file is touched.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomConnectionEdit {
     pub thinking_dialect: Vendor,
@@ -848,18 +1130,21 @@ fn slot_section(vendor: Vendor) -> String {
 }
 
 /// Write the connection editor's model back into the layer files. The
-/// endpoint fields land in the layer that owns `[llm]` (section-
-/// preserving); the key edit lands in THE EDIT'S VENDOR's sub-section of
-/// the local file only — never the committable shared file, whose loader
-/// rejects a key outright (the layering ironclad, ADR-0008; per-vendor
-/// slots per ADR-0011).
+/// endpoint fields and the post-0019 keys land in the layer that owns
+/// `[llm]` (section-preserving, one file for `[llm]` and
+/// `[llm.overlays]` together); the key edit lands in THE EDIT'S
+/// VENDOR's sub-section of the local file only — never the committable
+/// shared file, whose loader rejects a key outright (the layering
+/// ironclad, ADR-0008; per-vendor slots per ADR-0011).
 ///
-/// A save with `vendor = custom` writes the slot too (ADR-0018): the
-/// common segment's base_url/model mirrored into `[llm.custom]`, the
-/// thinking dialect always, and the request-body overlay as a TOML
-/// table (blank/`{}`/unset removes it; a non-object root or shapeless
-/// JSON refuses the whole save up front). A save from any other chip
-/// leaves the slot untouched.
+/// Every save is the ratchet (ADR-0019 item 4): the new keys
+/// (`format`/`thinking_fields`/`[llm.overlays]`) are written and every
+/// legacy key retires — the dialect and both extra-body cabins strip
+/// from every layer, the hold's bytes already folded into the shares a
+/// legacy file set leaves behind. From a legacy file set the group is
+/// composed exactly as the read-time grandfather would for the endpoint
+/// this save leaves behind (the edit's dialect under the custom chip);
+/// from a new-keys file set the loaded group rides along verbatim.
 ///
 /// The legacy flat `[llm] api_key` pair is migrated first: it
 /// authenticated the vendor the files named, so it parks in that
@@ -879,10 +1164,9 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
             "[llm] base_url is empty: name a real endpoint".into(),
         ));
     }
-    // The custom overlay parses and shape-checks up front (ADR-0018): a
-    // bad overlay refuses the whole save before a single file is
-    // touched. Read only when custom is ACTIVE — a save from another
-    // chip leaves the slot exactly as stored.
+    // The custom overlay parses and shape-checks up front (ADR-0018
+    // shape, ADR-0019 use): a bad overlay refuses the whole save before
+    // a single file is touched. Read only when custom is ACTIVE.
     let custom_overlay = if edit.vendor == Vendor::Custom {
         parse_custom_overlay(edit.custom.extra_body_json.as_deref())?
     } else {
@@ -892,6 +1176,16 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
     // authenticated; a malformed layer refuses the whole save, exactly
     // like the write path below.
     let current = load_llm_config(dirs)?;
+    // A malformed thinking group refuses the save whole, before a single
+    // file is touched: the ratchet cannot truthfully rewrite a group it
+    // cannot read, and destroying it is worse than refusing (the
+    // zero-write refusal, ADR-0018 precedent).
+    if let ThinkingState::Broken(detail) = &current.model.thinking.state {
+        return Err(ConfigError(format!(
+            "[llm] the thinking fields are malformed and cannot be saved; fix the file \
+             first: {detail}"
+        )));
+    }
     let previous = current.model.vendor;
     let previous_slot = current
         .vendor_keys
@@ -917,44 +1211,103 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
             .map_err(|err| ConfigError(err.0))?;
         }
     }
-    let fields = vec![
+    // The ratchet's group: preserved verbatim from a new-keys file set,
+    // composed from the legacy world otherwise.
+    let (format, switch, overlays) = if current.new_keys_world {
+        (
+            current.model.format,
+            match current.model.thinking.state {
+                ThinkingState::On => Some(true),
+                ThinkingState::Off => Some(false),
+                ThinkingState::Unconfigured | ThinkingState::Broken(_) => None,
+            },
+            current.model.thinking.overlays.clone(),
+        )
+    } else {
+        let dialect = match edit.vendor {
+            Vendor::Custom => edit.custom.thinking_dialect,
+            other => other,
+        };
+        let custom_extra = (edit.vendor == Vendor::Custom)
+            .then_some(custom_overlay.as_ref())
+            .flatten();
+        let folded =
+            presets::grandfather(dialect, custom_extra, current.legacy_extra_body.as_ref());
+        (
+            folded.format,
+            Some(true),
+            Overlays {
+                body: None,
+                thinking_on: (!folded.thinking_on.is_empty()).then_some(folded.thinking_on),
+                thinking_off: (!folded.thinking_off.is_empty()).then_some(folded.thinking_off),
+            },
+        )
+    };
+    // The shares' shapes validate before any write — the same refusal
+    // the write itself would raise, but with nothing written first.
+    for share in [
+        &overlays.body,
+        &overlays.thinking_on,
+        &overlays.thinking_off,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        validate_json_table_shape(share)
+            .map_err(|err| ConfigError(format!("[llm.overlays] {}", err.0)))?;
+    }
+    // One layer file for the whole common segment: `[llm]` and
+    // `[llm.overlays]` land together, wherever `[llm]` lives.
+    let owner = owning_layer(dirs, "llm");
+    let mut fields = vec![
         SectionField::str("vendor", edit.vendor.as_str()),
         SectionField::str("base_url", base_url),
         SectionField::str("model", model),
-        // The flat pair is parked above; the fields themselves go.
-        SectionField::reset("api_key"),
-        SectionField::reset("api_key_env"),
+        SectionField::str("format", format.as_str()),
     ];
-    spokenrectifier_config::section_write::write_section_fields(
+    fields.push(match switch {
+        Some(on) => SectionField::bool("thinking_fields", on),
+        None => SectionField::reset("thinking_fields"),
+    });
+    // The flat pair is parked above; the legacy hold folded into the
+    // shares — both strip from every layer here.
+    fields.push(SectionField::reset("api_key"));
+    fields.push(SectionField::reset("api_key_env"));
+    fields.push(SectionField::reset("extra_body"));
+    write_section_fields(dirs, "llm", &fields, owner).map_err(|err| ConfigError(err.0))?;
+    let overlay_field = |name: &str, share: &Option<Map<String, Value>>| match share {
+        Some(map) => SectionField::Table {
+            name: name.into(),
+            value: map.clone(),
+        },
+        None => SectionField::reset(name),
+    };
+    write_section_fields(
         dirs,
-        "llm",
-        &fields,
+        "llm.overlays",
+        &[
+            overlay_field("body", &overlays.body),
+            overlay_field("thinking_on", &overlays.thinking_on),
+            overlay_field("thinking_off", &overlays.thinking_off),
+        ],
+        owner,
+    )
+    .map_err(|err| ConfigError(err.0))?;
+    // `[llm.custom]` shrinks to the pure key slot (ADR-0019 item 4):
+    // the restore cache, dialect, and overlay cabins strip from every
+    // layer; the slot's key pair rides untouched.
+    write_section_fields(
+        dirs,
+        "llm.custom",
+        &[
+            SectionField::reset("base_url"),
+            SectionField::reset("model"),
+            SectionField::reset("thinking_dialect"),
+            SectionField::reset("extra_body"),
+        ],
         WriteLayer::Owning,
     )
     .map_err(|err| ConfigError(err.0))?;
-    // The custom slot write (ADR-0018), active saves only: the common
-    // segment's values mirrored into the restore cache, the dialect
-    // always written down (a missing key's openai default included),
-    // the overlay as a TOML table or removed. An inactive save writes
-    // nothing here — the slot rides along untouched. Like the ASR save,
-    // the non-secret fields go BEFORE the key write, so the owning
-    // resolution isn't captured by the local section the key creates.
-    if edit.vendor == Vendor::Custom {
-        let mut fields = vec![
-            SectionField::str("base_url", base_url),
-            SectionField::str("model", model),
-            SectionField::str("thinking_dialect", edit.custom.thinking_dialect.as_str()),
-        ];
-        fields.push(match &custom_overlay {
-            Some(map) => SectionField::Table {
-                name: "extra_body".into(),
-                value: map.clone(),
-            },
-            None => SectionField::reset("extra_body"),
-        });
-        write_section_fields(dirs, "llm.custom", &fields, WriteLayer::Owning)
-            .map_err(|err| ConfigError(err.0))?;
-    }
     edit.api_key
         .clone()
         .write_to_local(dirs, &slot_section(edit.vendor), "api_key")
@@ -1826,6 +2179,13 @@ mod tests {
         let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
         assert!(shared.contains("vendor = \"volcengine\""), "got: {shared}");
         assert!(shared.contains("doubao-seed-2.0-lite"));
+        // The ratchet's new keys land with the endpoint fields.
+        assert!(shared.contains("format = \"openai_chat\""), "got: {shared}");
+        assert!(shared.contains("thinking_fields = true"), "got: {shared}");
+        assert!(
+            shared.contains("[llm.overlays.thinking_on]"),
+            "got: {shared}"
+        );
         assert!(
             !shared.contains("api_key"),
             "key leaked into shared: {shared}"
@@ -2045,6 +2405,8 @@ mod tests {
             (Vendor::Volcengine, "ARK_API_KEY"),
             (Vendor::Qwen, "DASHSCOPE_API_KEY"),
             (Vendor::OpenAi, "OPENAI_API_KEY"),
+            (Vendor::Anthropic, "ANTHROPIC_API_KEY"),
+            (Vendor::Gemini, "GEMINI_API_KEY"),
         ] {
             assert_eq!(
                 config.resolved_keys(vendor).api_key_env.as_deref(),
@@ -2058,9 +2420,10 @@ mod tests {
     // -- the custom slot (ADR-0018) ---------------------------------------
 
     /// The slot sits DORMANT while another vendor is active — cached, not
-    /// adopted — and wakes (dialect + overlay onto the active face) when
-    /// the files name custom. The endpoint itself always lives in the
-    /// common segment; the slot's URL is a cache the save mirrors.
+    /// adopted — and wakes (dialect + overlay folded into the
+    /// grandfathered shares) when the files name custom. The endpoint
+    /// itself always lives in the common segment; the slot's URL is a
+    /// legacy cache the ratchet retires.
     #[test]
     fn a_custom_slot_loads_dormant_until_custom_is_active() {
         let dir = scratch("sr-llm-custom-dormant");
@@ -2073,28 +2436,33 @@ mod tests {
         )
         .unwrap();
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-        // Dormant: the active face speaks deepseek, the slot caches.
+        // Dormant: the grandfathered shares speak deepseek alone — the
+        // slot's dialect and overlay never fold in while another vendor
+        // is active (ADR-0018's dormancy, honored by the grandfather).
         assert_eq!(config.model.vendor, Vendor::DeepSeek);
-        assert_eq!(config.model.thinking_dialect, Vendor::DeepSeek);
-        assert!(config.model.custom_extra_body.is_none());
+        let on = config.model.thinking.overlays.thinking_on.as_ref().unwrap();
+        assert_eq!(
+            on["thinking"],
+            serde_json::json!({"type": "enabled"}),
+            "shares not the deepseek dictionary: {on:?}"
+        );
+        assert!(
+            !on.contains_key("top_p"),
+            "the dormant custom overlay leaked into the shares: {on:?}"
+        );
         assert_eq!(
             config.custom.base_url.as_deref(),
             Some("https://my-endpoint")
         );
-        assert_eq!(config.custom.model.as_deref(), Some("my-model"));
         assert_eq!(config.custom.thinking_dialect, Vendor::Qwen);
-        assert_eq!(
-            config.custom.extra_body.as_ref().unwrap()["top_p"],
-            serde_json::json!(0.9)
-        );
 
         std::fs::write(dir.join(LOCAL_FILE), "[llm]\nvendor = \"custom\"\n").unwrap();
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-        assert_eq!(config.model.thinking_dialect, Vendor::Qwen);
-        assert_eq!(
-            config.model.custom_extra_body.as_ref().unwrap()["top_p"],
-            serde_json::json!(0.9)
-        );
+        // Awake: the shares compose dict[qwen] ∘ custom overlay —
+        // enable_thinking plus top_p, byte for byte the pre-0019 body.
+        let on = config.model.thinking.overlays.thinking_on.as_ref().unwrap();
+        assert_eq!(on["enable_thinking"], serde_json::json!(true));
+        assert_eq!(on["top_p"], serde_json::json!(0.9));
         // The common segment stays the endpoint's truth (the default URL
         // here): the slot's cache never feeds the active endpoint.
         assert_eq!(config.model.base_url, "https://api.deepseek.com");
@@ -2163,11 +2531,13 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// An active-custom save mirrors the common segment into the slot and
-    /// writes the dialect down (ADR-0018): two places, same values, one
-    /// save. The key lands in the slot's local sub-section only.
+    /// An active-custom save under a legacy file set is the ratchet in
+    /// full (ADR-0019 item 4): the edit's dialect and overlay compose
+    /// into the new shares, `[llm]` gains format + the switch, and the
+    /// `[llm.custom]` cabins strip. The key lands in the slot's local
+    /// sub-section only.
     #[test]
-    fn a_custom_save_mirrors_the_common_segment_into_the_slot() {
+    fn a_custom_save_composes_the_new_shares_and_strips_the_cabins() {
         let dir = scratch("sr-llm-custom-save-mirror");
         let mut custom_edit = edit(KeyEdit::Set("sk-mine".into()));
         custom_edit.vendor = Vendor::Custom;
@@ -2181,13 +2551,24 @@ mod tests {
         let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
         assert!(shared.contains("vendor = \"custom\""), "got: {shared}");
         assert!(shared.contains("https://my-endpoint"), "got: {shared}");
-        assert!(shared.contains("[llm.custom]"), "got: {shared}");
+        assert!(shared.contains("format = \"openai_chat\""), "got: {shared}");
+        assert!(shared.contains("thinking_fields = true"), "got: {shared}");
         assert!(
-            shared.contains("thinking_dialect = \"qwen\""),
-            "dialect not written: {shared}"
+            shared.contains("[llm.overlays.thinking_on]"),
+            "shares not written: {shared}"
         );
-        assert!(shared.contains("[llm.custom.extra_body]"), "got: {shared}");
+        assert!(shared.contains("enable_thinking = true"), "got: {shared}");
         assert!(shared.contains("top_p = 0.9"), "got: {shared}");
+        // The cabins are gone: the slot is a pure key slot now (the
+        // reset pass leaves an empty header behind, which is nothing).
+        assert!(
+            !shared.contains("thinking_dialect"),
+            "cabin survived: {shared}"
+        );
+        assert!(
+            shared.trim_end().ends_with("[llm.custom]"),
+            "cabin content survived: {shared}"
+        );
         assert!(
             !shared.contains("api_key"),
             "key leaked into shared: {shared}"
@@ -2197,50 +2578,58 @@ mod tests {
             local.contains("[llm.custom]") && local.contains("api_key = \"sk-mine\""),
             "key not slotted: {local}"
         );
-        // The load returns the whole save: active custom, dialect awake,
-        // overlay live.
+        // The load returns the whole save from the new keys alone:
+        // awake custom shares, no grandfathering involved.
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert!(config.new_keys_world);
         assert_eq!(config.model.vendor, Vendor::Custom);
         assert_eq!(config.model.base_url, "https://my-endpoint");
-        assert_eq!(config.model.thinking_dialect, Vendor::Qwen);
-        assert_eq!(
-            config.model.custom_extra_body.as_ref().unwrap()["top_p"],
-            serde_json::json!(0.9)
-        );
+        let on = config.model.thinking.overlays.thinking_on.as_ref().unwrap();
+        assert_eq!(on["enable_thinking"], serde_json::json!(true));
+        assert_eq!(on["top_p"], serde_json::json!(0.9));
         assert_eq!(config.model.resolve_key().as_deref(), Some("sk-mine"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A save from another chip never touches the slot: the restore cache
-    /// rides along untouched, so switching away and back loses nothing.
+    /// A save from another chip in a legacy file set retires the custom
+    /// cabins (ADR-0019 kills the restore cache) and composes the shares
+    /// from the EDIT's vendor — the stored custom dialect and overlay
+    /// never bleed into another vendor's shares.
     #[test]
-    fn an_inactive_save_leaves_the_custom_slot_untouched() {
+    fn an_inactive_save_composes_from_the_edit_vendor_and_retires_the_cabins() {
         let dir = scratch("sr-llm-custom-save-untouched");
         std::fs::write(
             dir.join(SHARED_FILE),
-            "[llm.custom]\nbase_url = \"https://my-endpoint\"\nmodel = \"my-model\"\n\
+            "[llm]\nvendor = \"custom\"\n\
+             [llm.custom]\nbase_url = \"https://my-endpoint\"\nmodel = \"my-model\"\n\
              thinking_dialect = \"qwen\"\n\
              [llm.custom.extra_body]\ntop_p = 0.9\n",
         )
         .unwrap();
         let mut other = edit(KeyEdit::Keep);
-        other.custom.thinking_dialect = Vendor::OpenAi; // ignored: inactive
+        other.custom.thinking_dialect = Vendor::OpenAi; // unread: inactive
 
         save_llm_connection(std::slice::from_ref(&dir), &other).unwrap();
 
         let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
-        assert!(
-            shared.contains("thinking_dialect = \"qwen\""),
-            "slot dialect clobbered: {shared}"
-        );
-        assert!(shared.contains("top_p = 0.9"), "overlay lost: {shared}");
         assert!(!shared.contains("vendor = \"custom\""), "got: {shared}");
-        // And the loaded slot still caches for the chip's return.
-        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-        assert_eq!(
-            config.custom.base_url.as_deref(),
-            Some("https://my-endpoint")
+        assert!(
+            !shared.contains("thinking_dialect"),
+            "cabin survived: {shared}"
         );
+        assert!(
+            !shared.contains("top_p = 0.9"),
+            "overlay survived: {shared}"
+        );
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        // The volcengine shares, not the custom slot's.
+        let on = config.model.thinking.overlays.thinking_on.as_ref().unwrap();
+        assert_eq!(
+            on["thinking"],
+            serde_json::json!({"type": "enabled"}),
+            "custom dialect bled in: {on:?}"
+        );
+        assert!(!on.contains_key("top_p"), "custom overlay bled in: {on:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2271,10 +2660,11 @@ mod tests {
         }
     }
 
-    /// A blank or empty-object overlay is the OFF form: the key is
-    /// removed, not stored as an empty table.
+    /// A blank or empty-object custom overlay is the OFF form: the
+    /// composed shares carry none of it, and the legacy cabin strips
+    /// with the ratchet either way.
     #[test]
-    fn a_blank_overlay_save_removes_the_key() {
+    fn a_blank_custom_overlay_composes_nothing_into_the_shares() {
         for blank in [None, Some("{}".to_string()), Some("   ".to_string())] {
             let dir = scratch("sr-llm-custom-save-blank");
             std::fs::write(
@@ -2286,20 +2676,21 @@ mod tests {
             custom_edit.vendor = Vendor::Custom;
             custom_edit.base_url = "https://my-endpoint".into();
             custom_edit.model = "m".into();
+            custom_edit.custom.thinking_dialect = Vendor::Qwen;
             custom_edit.custom.extra_body_json = blank;
 
             save_llm_connection(std::slice::from_ref(&dir), &custom_edit).unwrap();
 
             let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
-            assert!(!shared.contains("extra_body"), "not removed: {shared}");
-            assert!(shared.contains("model = \"m\""), "sibling lost: {shared}");
-            assert_eq!(
-                load_llm_config(std::slice::from_ref(&dir))
-                    .unwrap()
-                    .custom
-                    .extra_body,
-                None
+            assert!(!shared.contains("extra_body"), "cabin survived: {shared}");
+            assert!(
+                !shared.contains("top_p"),
+                "the blank overlay leaked: {shared}"
             );
+            let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+            let on = config.model.thinking.overlays.thinking_on.as_ref().unwrap();
+            assert_eq!(on["enable_thinking"], serde_json::json!(true));
+            assert!(!on.contains_key("top_p"), "overlay leaked: {on:?}");
             std::fs::remove_dir_all(dir).unwrap();
         }
     }
@@ -2316,5 +2707,452 @@ mod tests {
         assert!(!dir.join(SHARED_FILE).exists(), "wrote on a refused save");
         assert!(!dir.join(LOCAL_FILE).exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // -- the post-0019 connection keys (ADR-0019) -------------------------
+
+    use crate::client::request_body;
+    use serde_json::json;
+
+    fn prompt() -> crate::prompt::ChatPrompt {
+        crate::prompt::ChatPrompt {
+            system: "sys".into(),
+            user: "usr".into(),
+        }
+    }
+
+    /// The golden-body helper: the effective request body under both
+    /// thinking policies, serialized — the byte-level comparison the
+    /// grandfather and ratchet must survive.
+    fn bodies(config: &LlmConfig) -> [String; 2] {
+        [
+            serde_json::to_string(&request_body(&config.model, &prompt(), true)).unwrap(),
+            serde_json::to_string(&request_body(&config.model, &prompt(), false)).unwrap(),
+        ]
+    }
+
+    /// The new keys load and drive the axis: format, the switch, and the
+    /// three shares, layered like every other key (local wins; the
+    /// overlays node replaces wholesale).
+    #[test]
+    fn the_new_keys_load_and_drive_the_axis() {
+        let dir = scratch("sr-llm-new-keys-load");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nformat = \"anthropic\"\nthinking_fields = true\n\
+             [llm.overlays.body]\ntemperature = 0.1\n\
+             [llm.overlays.thinking_on]\nthinking = { type = \"adaptive\" }\n\
+             [llm.overlays.thinking_off]\nthinking = { type = \"disabled\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(LOCAL_FILE),
+            "[llm]\nformat = \"gemini\"\n\
+             [llm.overlays.thinking_on]\nthoughts = true\n",
+        )
+        .unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert!(config.new_keys_world);
+        assert_eq!(config.model.format, Format::Gemini); // local wins
+        assert_eq!(config.model.thinking.state, ThinkingState::On);
+        // The local node replaced the shared shares wholesale: its
+        // on-share alone stands, the body share is gone.
+        assert_eq!(
+            config.model.thinking.overlays.thinking_on.as_ref().unwrap()["thoughts"],
+            serde_json::json!(true)
+        );
+        assert!(config.model.thinking.overlays.body.is_none());
+        assert!(config.model.thinking.overlays.thinking_off.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The blocking branch of the bad-file boundary (ADR-0019 item 3):
+    /// an illegal format value or type refuses the load, naming the
+    /// file and the accepted values.
+    #[test]
+    fn an_illegal_format_refuses_the_load() {
+        for (name, body) in [
+            ("unknown name", "[llm]\nformat = \"openai\"\n"),
+            ("case variant", "[llm]\nformat = \"Anthropic\"\n"),
+            ("non-string", "[llm]\nformat = 3\n"),
+        ] {
+            let dir = scratch("sr-llm-format-illegal");
+            std::fs::write(dir.join(SHARED_FILE), body).unwrap();
+            let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+            assert!(err.contains("spokenrectifier.toml"), "{name}: {err}");
+            assert!(err.contains("[llm]"), "{name}: {err}");
+            assert!(err.contains("openai_chat"), "{name}: {err}");
+            assert!(!err.contains('\n'), "{name}: multi-line: {err}");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    /// The non-blocking branch: a malformed switch or overlays group
+    /// degrades the thinking group to broken — the load succeeds, the
+    /// whole group voids (shares included), and the detail names the
+    /// file for the warning slot. Requests then carry no thinking keys
+    /// (the client's own gating test covers the body).
+    #[test]
+    fn malformed_thinking_keys_degrade_to_broken_without_blocking() {
+        for (name, body) in [
+            (
+                "non-boolean switch",
+                "[llm]\nformat = \"openai_chat\"\nthinking_fields = \"yes\"\n",
+            ),
+            (
+                "non-table overlays",
+                "[llm]\nformat = \"openai_chat\"\noverlays = 3\n",
+            ),
+            (
+                "unknown share key",
+                "[llm]\nformat = \"openai_chat\"\n[llm.overlays.mystery]\nx = 1\n",
+            ),
+            (
+                "non-table share",
+                "[llm]\nformat = \"openai_chat\"\n[llm.overlays]\nbody = 3\n",
+            ),
+        ] {
+            let dir = scratch("sr-llm-thinking-broken");
+            std::fs::write(dir.join(LOCAL_FILE), body).unwrap();
+            let config = load_llm_config(std::slice::from_ref(&dir))
+                .unwrap_or_else(|err| panic!("{name}: load blocked: {err}"));
+            assert!(config.new_keys_world, "{name}");
+            let ThinkingState::Broken(detail) = &config.model.thinking.state else {
+                panic!("{name}: not broken: {:?}", config.model.thinking.state);
+            };
+            assert!(
+                detail.contains("spokenrectifier.local.toml"),
+                "{name}: detail names no file: {detail}"
+            );
+            // 整组作废: even the healthy shares void with the group.
+            assert!(
+                config
+                    .model
+                    .thinking
+                    .overlays
+                    .body
+                    .as_ref()
+                    .is_none_or(|map| map.is_empty()),
+                "{name}: shares survived the void"
+            );
+            // The resident body never merges while broken — nothing does.
+            assert!(
+                !bodies(&config).iter().any(|body| body.contains("when")),
+                "{name}: broken group leaked into a request body"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    /// The switch absent (or on with no on-share) reads as
+    /// unconfigured: no thinking keys, but the resident body still
+    /// merges.
+    #[test]
+    fn an_unset_switch_reads_as_unconfigured_body_still_merges() {
+        let dir = scratch("sr-llm-unconfigured");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nformat = \"openai_chat\"\n\
+             [llm.overlays.body]\ntop_p = 0.9\n",
+        )
+        .unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(config.model.thinking.state, ThinkingState::Unconfigured);
+        let [on, off] = bodies(&config);
+        for body in [on, off] {
+            assert!(body.contains("top_p"), "body share dropped: {body}");
+            assert!(
+                !body.contains("thinking") && !body.contains("reasoning_effort"),
+                "thinking keys leaked: {body}"
+            );
+        }
+
+        // Switch on with an empty on-share is the same unconfigured
+        // state (a save refuses the pair; a load reads it as void).
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nformat = \"openai_chat\"\nthinking_fields = true\n",
+        )
+        .unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(config.model.thinking.state, ThinkingState::Unconfigured);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A TOML datetime inside a share reads as its string form — the
+    /// same silent coercion the pre-0019 extra-body path performed (the
+    /// serde hop stringifies datetimes before this crate ever sees
+    /// them), so it is a value, not a refusal.
+    #[test]
+    fn a_datetime_share_value_reads_as_its_string_form() {
+        let dir = scratch("sr-llm-datetime-share");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nformat = \"openai_chat\"\n[llm.overlays.body]\nwhen = 1979-05-27\n",
+        )
+        .unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(
+            config.model.thinking.overlays.body.as_ref().unwrap()["when"],
+            serde_json::json!("1979-05-27")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The off switch stores but disables (off is a stance, not a
+    /// deletion — ADR-0015 precedent): both shares stay loaded, no
+    /// thinking key leaves.
+    #[test]
+    fn the_off_switch_stores_but_disables() {
+        let dir = scratch("sr-llm-off-switch");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nformat = \"openai_chat\"\nthinking_fields = false\n\
+             [llm.overlays.thinking_on]\nreasoning_effort = \"high\"\n\
+             [llm.overlays.thinking_off]\nreasoning_effort = \"none\"\n",
+        )
+        .unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(config.model.thinking.state, ThinkingState::Off);
+        assert!(config.model.thinking.overlays.thinking_on.is_some());
+        assert!(config.model.thinking.overlays.thinking_off.is_some());
+        for body in bodies(&config) {
+            assert!(!body.contains("reasoning_effort"), "leaked: {body}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The read-time grandfather's golden bytes (ADR-0019 item 4): for
+    /// every legacy shape — a bare vendor, a hold overriding a thinking
+    /// key, a custom endpoint with dialect + overlay + hold — the
+    /// upgraded build composes request bodies byte-identical to the
+    /// pre-0019 ones, under both thinking policies.
+    #[test]
+    fn legacy_files_send_byte_identical_requests() {
+        struct Case {
+            name: &'static str,
+            file: &'static str,
+            on: Value,
+            off: Value,
+        }
+        let cases = [
+            Case {
+                name: "bare deepseek",
+                file: "[llm]\nmodel = \"deepseek-v4-flash\"\n",
+                on: json_skeleton(
+                    "deepseek-v4-flash",
+                    json!({
+                        "reasoning_effort": "medium", "thinking": {"type": "enabled"}
+                    }),
+                ),
+                off: json_skeleton(
+                    "deepseek-v4-flash",
+                    json!({"thinking": {"type": "disabled"}}),
+                ),
+            },
+            Case {
+                name: "hold overriding a thinking key",
+                file: "[llm]\nvendor = \"deepseek\"\n\
+                       [llm.extra_body]\ntop_p = 0.9\nthinking = { type = \"enabled\" }\n",
+                on: json_skeleton(
+                    "deepseek-v4-flash",
+                    json!({
+                        "reasoning_effort": "medium", "thinking": {"type": "enabled"}, "top_p": 0.9
+                    }),
+                ),
+                off: json_skeleton(
+                    "deepseek-v4-flash",
+                    json!({
+                        "thinking": {"type": "enabled"}, "top_p": 0.9
+                    }),
+                ),
+            },
+            Case {
+                name: "volcengine",
+                file: "[llm]\nvendor = \"volcengine\"\nmodel = \"doubao-seed-2.0-lite\"\n",
+                on: json_skeleton(
+                    "doubao-seed-2.0-lite",
+                    json!({"thinking": {"type": "enabled"}}),
+                ),
+                off: json_skeleton(
+                    "doubao-seed-2.0-lite",
+                    json!({"thinking": {"type": "disabled"}}),
+                ),
+            },
+            Case {
+                name: "custom with dialect and overlay",
+                file: "[llm]\nvendor = \"custom\"\nmodel = \"my-model\"\n\
+                       [llm.custom]\nthinking_dialect = \"qwen\"\n\
+                       [llm.custom.extra_body]\ntop_k = 5\n",
+                on: json_skeleton("my-model", json!({"enable_thinking": true, "top_k": 5})),
+                off: json_skeleton("my-model", json!({"enable_thinking": false, "top_k": 5})),
+            },
+        ];
+        for case in cases {
+            let dir = scratch("sr-llm-grandfather-golden");
+            std::fs::write(dir.join(SHARED_FILE), case.file).unwrap();
+            let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+            assert!(!config.new_keys_world, "{}", case.name);
+            let [on, off] = bodies(&config);
+            assert_eq!(
+                on,
+                serde_json::to_string(&case.on).unwrap(),
+                "{}: on-policy body drifted",
+                case.name
+            );
+            assert_eq!(
+                off,
+                serde_json::to_string(&case.off).unwrap(),
+                "{}: off-policy body drifted",
+                case.name
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    /// The save-time ratchet's golden bytes: a legacy file set saved
+    /// once carries new keys only, the legacy keys strip from every
+    /// layer, and the requests stay byte-identical across the whole
+    /// hop — the upgrade's behavior-faithfulness contract.
+    #[test]
+    fn the_ratchet_keeps_request_bytes_and_strips_the_legacy_keys() {
+        let dir = scratch("sr-llm-ratchet-golden");
+        let dirs = std::slice::from_ref(&dir);
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nvendor = \"deepseek\"\nmodel = \"deepseek-v4-flash\"\n\
+             [llm.extra_body]\ntop_p = 0.9\n",
+        )
+        .unwrap();
+        // The save keeps the endpoint exactly as loaded — only the key
+        // layout is under test here, not a vendor switch.
+        let mut same = edit(KeyEdit::Keep);
+        same.vendor = Vendor::DeepSeek;
+        same.base_url = "https://api.deepseek.com".into();
+        same.model = "deepseek-v4-flash".into();
+        let before = bodies(&load_llm_config(dirs).unwrap());
+
+        save_llm_connection(dirs, &same).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(shared.contains("format = \"openai_chat\""), "got: {shared}");
+        assert!(shared.contains("thinking_fields = true"), "got: {shared}");
+        assert!(
+            shared.contains("[llm.overlays.thinking_on]"),
+            "shares missing: {shared}"
+        );
+        assert!(shared.contains("top_p = 0.9"), "hold bytes lost: {shared}");
+        assert!(
+            !shared.contains("[llm.extra_body]"),
+            "hold survived: {shared}"
+        );
+        assert!(
+            !shared.contains("thinking_dialect"),
+            "dialect survived: {shared}"
+        );
+
+        let after_config = load_llm_config(dirs).unwrap();
+        assert!(after_config.new_keys_world);
+        let after = bodies(&after_config);
+        assert_eq!(before, after, "the ratchet changed the request bytes");
+        // A second save is a steady state: same files' truth, same bytes.
+        save_llm_connection(dirs, &same).unwrap();
+        assert_eq!(bodies(&load_llm_config(dirs).unwrap()), after);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// From a new-keys file set the group rides along verbatim: a save
+    /// changes the endpoint fields only, and an off switch stays off
+    /// with its shares stored.
+    #[test]
+    fn a_new_keys_save_preserves_the_thinking_group() {
+        let dir = scratch("sr-llm-new-keys-preserve");
+        let dirs = std::slice::from_ref(&dir);
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nvendor = \"openai\"\nformat = \"anthropic\"\nthinking_fields = false\n\
+             base_url = \"https://api.anthropic.com\"\nmodel = \"claude-sonnet-5\"\n\
+             [llm.overlays.thinking_on]\nthinking = { type = \"adaptive\" }\n\
+             [llm.overlays.thinking_off]\nthinking = { type = \"disabled\" }\n",
+        )
+        .unwrap();
+        let mut endpoint = edit(KeyEdit::Keep);
+        endpoint.vendor = Vendor::Anthropic;
+        endpoint.base_url = "https://api.anthropic.com".into();
+        endpoint.model = "claude-sonnet-5".into();
+
+        save_llm_connection(dirs, &endpoint).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+        assert!(shared.contains("format = \"anthropic\""), "got: {shared}");
+        assert!(shared.contains("thinking_fields = false"), "got: {shared}");
+        assert!(
+            shared.contains("type = \"adaptive\""),
+            "shares lost: {shared}"
+        );
+        let config = load_llm_config(dirs).unwrap();
+        assert_eq!(config.model.thinking.state, ThinkingState::Off);
+        assert!(config.model.thinking.overlays.thinking_on.is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A broken thinking group refuses the save whole, before a single
+    /// file is touched: the ratchet cannot truthfully rewrite a group
+    /// it cannot read.
+    #[test]
+    fn a_broken_thinking_group_refuses_the_save_writing_nothing() {
+        let dir = scratch("sr-llm-save-broken-group");
+        let before = "[llm]\nmodel = \"m\"\nformat = \"openai_chat\"\nthinking_fields = 3\n";
+        std::fs::write(dir.join(SHARED_FILE), before).unwrap();
+
+        let err = save_llm_connection(std::slice::from_ref(&dir), &edit(KeyEdit::Keep))
+            .unwrap_err()
+            .0;
+        assert!(err.contains("thinking"), "got: {err}");
+        assert!(
+            err.contains("spokenrectifier.toml"),
+            "the refusal names the file: {err}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap(),
+            before,
+            "wrote on refusal"
+        );
+        assert!(!dir.join(LOCAL_FILE).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The grandfather serves the bare default too: no files at all is
+    /// the deepseek dictionary on the default model, byte for byte the
+    /// pre-0019 default request.
+    #[test]
+    fn bare_defaults_are_the_deepseek_dictionary() {
+        let config = LlmConfig::defaults();
+        assert_eq!(config.model.format, Format::OpenaiChat);
+        assert_eq!(config.model.thinking.state, ThinkingState::On);
+        let (on, off) = presets::legacy_shares(Vendor::DeepSeek);
+        assert_eq!(config.model.thinking.overlays.thinking_on, Some(on));
+        assert_eq!(config.model.thinking.overlays.thinking_off, Some(off));
+    }
+
+    /// The pre-0019 request body the golden tests compare against: the
+    /// skeleton plus the thinking-era keys, exactly as the old client
+    /// assembled them (skeleton → dialect pairs → custom overlay →
+    /// hold, all flattened here into one key set).
+    fn json_skeleton(model: &str, extra: Value) -> Value {
+        let mut body = serde_json::json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "usr"},
+            ],
+            "stream": true,
+            "temperature": 0.2,
+        });
+        let map = body.as_object_mut().unwrap();
+        for (key, value) in extra.as_object().unwrap() {
+            map.insert(key.clone(), value.clone());
+        }
+        body
     }
 }

@@ -17,10 +17,9 @@ use spokenrectifier_engine::provider::llm::{
     RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
 };
 
-use crate::config::{LlmConfig, ModelConfig, ThinkingPolicy};
+use crate::config::{LlmConfig, ModelConfig, ThinkingPolicy, ThinkingState};
 use crate::intensity::{Intensity, select_intensity};
 use crate::prompt::{ChatPrompt, compose_prompt_with_extra, has_pins};
-use crate::vendor::Vendor;
 
 /// A rectify LLM backed by any OpenAI-compatible endpoint.
 pub struct OpenAiCompatLlm {
@@ -128,7 +127,10 @@ impl RectifyLlm for OpenAiCompatLlm {
                 status.as_u16()
             )));
         }
-        Ok(Box::pin(sse_token_stream(response, self.reasoning_chars.clone())))
+        Ok(Box::pin(sse_token_stream(
+            response,
+            self.reasoning_chars.clone(),
+        )))
     }
 
     /// Read-and-reset over the attached counter: one call pairs with one
@@ -143,7 +145,16 @@ impl RectifyLlm for OpenAiCompatLlm {
 
 // -- request ----------------------------------------------------------------
 
-fn request_body(model: &ModelConfig, prompt: &ChatPrompt, thinking: bool) -> Value {
+/// The request body under the fixed merge order (ADR-0019 item 2):
+/// skeleton, then the resident share, then the selected thinking share
+/// — the thinking share keeps the last word. The connection domain's
+/// thinking state gates the whole group: off, unconfigured, or broken
+/// sends no thinking keys at all, leaving the endpoint on its own
+/// default (ADR-0019 item 3). Overlaid onto a legacy (grandfathered)
+/// config this reproduces the pre-0019 body byte for byte — the
+/// shares compose in the old precedence (dialect, custom overlay,
+/// hold) at load.
+pub(crate) fn request_body(model: &ModelConfig, prompt: &ChatPrompt, thinking: bool) -> Value {
     let mut body = json!({
         "model": model.model,
         "messages": [
@@ -154,23 +165,22 @@ fn request_body(model: &ModelConfig, prompt: &ChatPrompt, thinking: bool) -> Val
         // Rewriting wants stable output, not creativity.
         "temperature": 0.2,
     });
-    // The merge order (ADR-0018): the dialect fields first, then the
-    // custom overlay — only while custom is active; dormant otherwise —
-    // then the hand-edit hold `[llm.extra_body]`, which keeps the last
-    // word over both.
-    for (field, value) in model.thinking_dialect.thinking_fields(thinking) {
-        body[field] = value;
-    }
-    if model.vendor == Vendor::Custom
-        && let Some(extra) = &model.custom_extra_body
-    {
-        for (field, value) in extra {
+    let group = &model.thinking;
+    if let Some(resident) = &group.overlays.body {
+        for (field, value) in resident {
             body[field.as_str()] = value.clone();
         }
     }
-    if let Some(extra) = &model.extra_body {
-        for (field, value) in extra {
-            body[field.as_str()] = value.clone();
+    if group.state == ThinkingState::On {
+        let share = if thinking {
+            &group.overlays.thinking_on
+        } else {
+            &group.overlays.thinking_off
+        };
+        if let Some(share) = share {
+            for (field, value) in share {
+                body[field.as_str()] = value.clone();
+            }
         }
     }
     body
@@ -526,54 +536,54 @@ mod tests {
         assert_eq!(body["messages"][1]["content"], "usr");
         assert_eq!(body["thinking"], json!({"type": "disabled"}));
 
-        model.extra_body = Some(
+        // The resident share merges before the thinking share, so the
+        // thinking share keeps the last word (ADR-0019's fixed order).
+        model.thinking.overlays.body = Some(
             serde_json::from_str::<serde_json::Map<String, Value>>(
                 r#"{"top_p": 0.9, "thinking": {"type": "enabled"}}"#,
             )
             .unwrap(),
         );
         let body = request_body(&model, &prompt, false);
-        // extra_body merges last, so it can override anything.
         assert_eq!(body["top_p"], 0.9);
-        assert_eq!(body["thinking"], json!({"type": "enabled"}));
+        assert_eq!(body["thinking"], json!({"type": "disabled"}));
+        let body = request_body(&model, &prompt, true);
+        assert_eq!(
+            body["thinking"],
+            json!({"type": "enabled"}),
+            "the on-share keeps the last word over the resident share"
+        );
+        assert_eq!(body["reasoning_effort"], "medium");
     }
 
-    /// The custom overlay's merge order (ADR-0018): the dialect fields
-    /// first, the custom overlay between, the hold `[llm.extra_body]`
-    /// last — and the overlay sleeps entirely while another vendor is
-    /// active, whatever the slot stores.
+    /// The connection domain's thinking state gates the whole group
+    /// (ADR-0019 item 3): off, unconfigured, and broken all send no
+    /// thinking keys — whatever the shares store — while the resident
+    /// body still merges.
     #[test]
-    fn the_custom_overlay_merges_between_the_dialect_and_the_hold() {
-        fn overlay(text: &str) -> serde_json::Map<String, Value> {
-            serde_json::from_str::<serde_json::Map<String, Value>>(text).unwrap()
-        }
+    fn a_disabled_thinking_state_sends_no_thinking_keys() {
+        let mut model = LlmConfig::defaults().model;
+        model.thinking.overlays.body = Some(
+            serde_json::from_str::<serde_json::Map<String, Value>>(r#"{"top_p": 0.9}"#).unwrap(),
+        );
         let prompt = ChatPrompt {
             system: "sys".into(),
             user: "usr".into(),
         };
-        let mut model = LlmConfig::defaults().model;
-        model.vendor = Vendor::Custom;
-        model.thinking_dialect = Vendor::Volcengine;
-        model.custom_extra_body = Some(overlay(
-            r#"{"thinking": {"type": "enabled"}, "top_p": 0.9}"#,
-        ));
-        model.extra_body = Some(overlay(r#"{"top_p": 0.5}"#));
-
-        let body = request_body(&model, &prompt, false);
-        // The dialect wrote disabled; the custom overlay overrode it; the
-        // hold kept the last word on top_p.
-        assert_eq!(body["thinking"], json!({"type": "enabled"}));
-        assert_eq!(body["top_p"], 0.5);
-
-        // Dormancy: the same slot on a deepseek vendor leaves the body
-        // stock deepseek (disabled thinking, no top_p but the hold's).
-        let mut dormant = model.clone();
-        dormant.vendor = Vendor::DeepSeek;
-        dormant.thinking_dialect = Vendor::DeepSeek;
-        dormant.custom_extra_body = Some(overlay(r#"{"thinking": {"type": "enabled"}}"#));
-        dormant.extra_body = None;
-        let body = request_body(&dormant, &prompt, false);
-        assert_eq!(body["thinking"], json!({"type": "disabled"}));
-        assert!(body.get("top_p").is_none());
+        for state in [
+            ThinkingState::Off,
+            ThinkingState::Unconfigured,
+            ThinkingState::Broken("spokenrectifier.toml: [llm.overlays]: must be a table".into()),
+        ] {
+            model.thinking.state = state.clone();
+            for thinking in [true, false] {
+                let body = request_body(&model, &prompt, thinking);
+                assert!(
+                    body.get("thinking").is_none() && body.get("reasoning_effort").is_none(),
+                    "{state:?} thinking={thinking}: thinking keys leaked: {body}"
+                );
+                assert_eq!(body["top_p"], 0.9, "the resident share still merges");
+            }
+        }
     }
 }
