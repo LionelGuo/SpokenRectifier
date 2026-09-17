@@ -176,25 +176,28 @@ const PLACEHOLDER_HEADER_TAIL: &str = "记号不受本段书面化与包裹禁�
 /// The placeholder rule's raw pass-through variant (ADR-0014, prefill
 /// off): the model absorbs nothing and writes no values — each mark rides
 /// the rectified text exactly as censused, the user fills the slots
-/// afterwards. Five of the on-form's bullets survive, each guarding one
-/// loss path: the definition (deliberate slot, not noise the transforms
-/// may eat), verbatim pass-through (no rewriting, translation,
-/// normalization or wrapping), no dedup between slots (no merging,
-/// trimming, or fabricating numbers), ordinary syntax (reorganization
-/// must not tear a mark from what it hugs), and self-correction (a mark
-/// is neither a correction lead-in nor the replaced content). The value
-/// grammar, the empty-prefill bare form, and the whole absorption subtree
-/// are gone — in this form there is no value to write and nothing to
-/// absorb, and teaching the grammar would invite the model to invent one.
-/// The ticket's grilling round settled each bullet by recommendation
-/// (`.scratch/prefill-switch/issues/01-prefill-off-variant.md`).
+/// afterwards. Now the two-step thin process, the on-form flow's little
+/// sibling (`.scratch/placeholder-process/issues/02-off-form-process.md`):
+/// three bullets stand as constraints — the definition (a deliberate
+/// slot, not noise the transforms may eat), no dedup between slots with
+/// the numbering kept verbatim, and the no-wrapping ban — then step 1
+/// disciplines the transforms (each mark an ordinary syntactic
+/// constituent: reorganization must not tear it from what it hugs,
+/// correction must not eat it as lead-in or replaced content) and step 2
+/// censuses the transcript's marks, each written in place as the bare
+/// `‡编号‡`, once, no backtracking. The value grammar, the empty-prefill
+/// clause and the whole absorption subtree stay gone — in this form
+/// there is no value to write and nothing to absorb, and teaching the
+/// grammar would invite the model to invent one. The probe passed this
+/// arm 3x 7/7 before the swap landed
+/// (`.scratch/placeholder-process/issues/03-probe-and-verdict.md`).
 const PLACEHOLDER_RULE_OFF: &str = "\
 【占位符】(【保真铁律】管事实与意思,本条管槽;本条高于其他一切规则)
 - 转写里的 ‡数字‡ 记号(如 ‡1‡)是用户特意放进转写的待填槽:不是措辞、不是冗余、不是标点,也不是数字读法。
-- 记号原样保留:照转写里的原样输出记号本身,不改写、不翻译、不规范化,也不加引号或代码块等任何包裹。
-- 槽与槽之间不算冗余:不合并、不删减,也不新增转写里没有的记号;编号不按【中文数字规范化】转换。
-- 占位符是普通的句法成分:重组句子时,不得把它从紧挨着的内容上撕开。
-- 应用口头更正时,不得把槽当成更正引导语或被替代的内容删掉。";
+- 槽与槽之间不算冗余:不合并、不删减,也不新增转写里没有的记号;编号原样保留,不改写、不翻译、不规范化,也不按【中文数字规范化】转换。
+- 槽都不得加引号或代码块等任何包裹。
+1. 做【五类变换】时,每个槽当普通的句法成分:重组句子不得把它从紧挨着的内容上撕开;应用口头更正不得把槽当成更正引导语或被替代的内容删掉。
+2. 转写里每个 ‡数字‡ 记号,原位照转写里的原样只写记号本身 ‡编号‡。每个只走一遍,写完即下一个,不回头。";
 
 /// Light-touch with pins commands absorption outright (ticket 32): the
 /// real machine showed the model widening 原样保留 over the slot
@@ -935,7 +938,7 @@ mod tests {
 
     #[test]
     fn prefill_off_composes_the_pass_through_variant_with_zero_inline_trace() {
-        // The off form carries its five-bullet rule, the shared header
+        // The off form carries its two-step rule, the shared header
         // tail and exception rewrites, and its own closing reminder — and
         // not one glyph of the inline grammar: no `‡编号:值‡` anywhere,
         // no census table, no absorption language at all.
@@ -976,10 +979,14 @@ mod tests {
         assert!(prompt.user.ends_with(PLACEHOLDER_REMINDER_OFF));
         assert!(!prompt.user.contains(PLACEHOLDER_REMINDER));
         // Same precedence tier as the inline form: fidelity < the rule <
-        // the transforms.
+        // the transforms. The rule's step 1 names the transforms in
+        // passing, so anchor the section head, not the bare phrase.
         let fidelity_at = prompt.system.find("【保真铁律】").expect("fidelity rule");
         let placeholder_at = prompt.system.find("【占位符】").expect("off rule");
-        let transforms_at = prompt.system.find("【五类变换】").expect("transforms");
+        let transforms_at = prompt
+            .system
+            .find("\n【五类变换】\n")
+            .expect("transforms");
         assert!(fidelity_at < placeholder_at);
         assert!(placeholder_at < transforms_at);
     }
