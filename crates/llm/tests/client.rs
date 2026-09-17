@@ -1,5 +1,5 @@
-//! The OpenAI-compatible client against a mock server: request shape
-//! (auth, single model, thinking field), SSE streaming, error mapping.
+//! The three-format streaming client against a mock server: request
+//! shape (auth, path, thinking field), SSE dialects, error mapping.
 
 mod common;
 
@@ -186,12 +186,54 @@ async fn vllm_reasoning_field_is_counted_and_never_leaked() {
     assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(1));
 }
 
+/// Official streaming-doc frames (contract §2.5): thinking block then
+/// text block, closed by `message_stop`. No `[DONE]`.
+fn anthropic_sse_body() -> String {
+    concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-5\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":25,\"output_tokens\":1}}}\n\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n",
+        "event: ping\n",
+        "data: {\"type\":\"ping\"}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"想\"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"EqQBCgIYAhIM1gbcDa9GJwZA2b3hGgxBdjrkzLoky3dl1pkiMOYds...\"}}\n\n",
+        "event: content_block_stop\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"会议\"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"纪要\"}}\n\n",
+        "event: content_block_stop\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":15}}\n\n",
+        "event: message_stop\n",
+        "data: {\"type\":\"message_stop\"}\n\n",
+    )
+    .into()
+}
+
+/// `alt=sse` GenerateContentResponse frames (contract §3.5): thought
+/// part then unmarked text, no sentinel, stream ends with the body.
+fn gemini_sse_body() -> String {
+    concat!(
+        "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"想\",\"thought\":true}]},\"index\":0}]}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"会议\"}]},\"index\":0}]}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"纪要\"}]},\"index\":0}]}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thoughtSignature\":\"EjQKMgEM\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"thoughtsTokenCount\":8}}\n\n",
+    )
+    .into()
+}
+
 #[tokio::test]
-async fn anthropic_and_gemini_formats_post_to_their_own_path_and_headers() {
-    // Ticket 02 lands the request shape; ticket 03 swaps the SSE
-    // dialect. The openai_chat decoder still reads the mock body.
+async fn anthropic_streams_text_deltas_skips_thinking_and_stops_at_message_stop() {
     let server = MockServer::start();
-    let anthropic = server.mock(|when, then| {
+    let mock = server.mock(|when, then| {
         when.method(Method::POST)
             .path("/v1/messages")
             .header("x-api-key", "sk-test")
@@ -200,9 +242,53 @@ async fn anthropic_and_gemini_formats_post_to_their_own_path_and_headers() {
             .body_contains("\"max_tokens\":");
         then.status(200)
             .header("content-type", "text/event-stream")
-            .body(sse_body());
+            .body(anthropic_sse_body());
     });
-    let gemini = server.mock(|when, then| {
+
+    let mut config = config_with_base(server.base_url(), false);
+    config.model.format = Format::Anthropic;
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let llm = OpenAiCompatLlm::new(config)
+        .unwrap()
+        .with_reasoning_counter(counter);
+    let deltas = collect(&llm, long_request()).await;
+    assert_eq!(deltas, vec!["会议", "纪要"]);
+    assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(1));
+    mock.assert_hits(1);
+}
+
+#[tokio::test]
+async fn anthropic_error_event_fails_the_stream() {
+    let body = concat!(
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"会\"}}\n\n",
+        "event: error\n",
+        "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n",
+    );
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(Method::POST).path("/v1/messages");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(body);
+    });
+
+    let mut config = config_with_base(server.base_url(), false);
+    config.model.format = Format::Anthropic;
+    let llm = OpenAiCompatLlm::new(config).unwrap();
+    let mut stream = llm.rectify(long_request()).await.expect("stream opens");
+    assert_eq!(stream.next().await.unwrap().unwrap(), "会");
+    let err = match stream.next().await {
+        Some(Err(err)) => err.0,
+        other => panic!("expected stream error, got {other:?}"),
+    };
+    assert!(err.contains("Overloaded"), "got: {err}");
+}
+
+#[tokio::test]
+async fn gemini_streams_unmarked_parts_skips_thoughts_and_ends_with_the_body() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
         when.method(Method::POST)
             .path("/models/test-model:streamGenerateContent")
             .query_param("alt", "sse")
@@ -211,18 +297,44 @@ async fn anthropic_and_gemini_formats_post_to_their_own_path_and_headers() {
             .body_contains("\"contents\"");
         then.status(200)
             .header("content-type", "text/event-stream")
-            .body(sse_body());
+            .body(gemini_sse_body());
     });
 
-    let mut anthropic_config = config_with_base(server.base_url(), false);
-    anthropic_config.model.format = Format::Anthropic;
-    let llm = OpenAiCompatLlm::new(anthropic_config).unwrap();
-    collect(&llm, long_request()).await;
-    anthropic.assert_hits(1);
+    let mut config = config_with_base(server.base_url(), false);
+    config.model.format = Format::Gemini;
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let llm = OpenAiCompatLlm::new(config)
+        .unwrap()
+        .with_reasoning_counter(counter);
+    let deltas = collect(&llm, long_request()).await;
+    assert_eq!(deltas, vec!["会议", "纪要"]);
+    assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(1));
+    mock.assert_hits(1);
+}
 
-    let mut gemini_config = config_with_base(server.base_url(), false);
-    gemini_config.model.format = Format::Gemini;
-    let llm = OpenAiCompatLlm::new(gemini_config).unwrap();
-    collect(&llm, long_request()).await;
-    gemini.assert_hits(1);
+#[tokio::test]
+async fn gemini_error_object_fails_the_stream() {
+    let body = concat!(
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"会\"}]}}]}\n\n",
+        "data: {\"error\":{\"code\":429,\"message\":\"Resource exhausted\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n\n",
+    );
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/models/test-model:streamGenerateContent");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(body);
+    });
+
+    let mut config = config_with_base(server.base_url(), false);
+    config.model.format = Format::Gemini;
+    let llm = OpenAiCompatLlm::new(config).unwrap();
+    let mut stream = llm.rectify(long_request()).await.expect("stream opens");
+    assert_eq!(stream.next().await.unwrap().unwrap(), "会");
+    let err = match stream.next().await {
+        Some(Err(err)) => err.0,
+        other => panic!("expected stream error, got {other:?}"),
+    };
+    assert!(err.contains("Resource exhausted"), "got: {err}");
 }

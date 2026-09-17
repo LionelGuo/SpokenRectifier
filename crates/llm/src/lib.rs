@@ -7,21 +7,21 @@
 //! - [`compose_prompt`] renders the fidelity rule, the five transforms, and
 //!   the intensity/style/term directives.
 //! - [`live_llm`] builds the production client from a loaded config:
-//!   format picks the implementation. Ticket 02 lands openai_chat;
-//!   anthropic and gemini still construct that client so a rebuild
-//!   already sends the right URL/headers/body (ticket 03 swaps the
-//!   dialects).
+//!   format picks the SSE dialect (openai_chat, anthropic, gemini).
+//!   [`live_llm_with_reasoning_counter`] is the eval observation hook.
 
+mod anthropic;
 mod assembly;
 mod client;
 mod config;
 pub mod format;
+mod gemini;
 mod intensity;
 pub mod presets;
 mod prompt;
 mod vendor;
 
-pub use client::{OpenAiCompatLlm, live_llm};
+pub use client::{OpenAiCompatLlm, live_llm, live_llm_with_reasoning_counter};
 pub use config::{
     ConfigError, ConnectionThinking, CustomConnectionEdit, CustomSlot, LightTouchConfig,
     LightTouchEdit, LlmConfig, LlmConnectionEdit, ModelConfig, Overlays, RectifyBehaviorEdit,

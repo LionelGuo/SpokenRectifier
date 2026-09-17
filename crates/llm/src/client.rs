@@ -1,9 +1,10 @@
-//! The OpenAI Chat Completions rectify client: one `POST` with
-//! `stream: true`, SSE deltas out. Path, auth, and body assembly live
-//! on the format axis ([`Format`], [`crate::assembly`]); this module
-//! owns the openai_chat SSE dialect (`delta.content` vs
-//! `delta.reasoning` / `delta.reasoning_content`) and the shared
-//! HTTP/SSE transport the other two formats plug into (ticket 03).
+//! The shared rectify HTTP/SSE transport: one `POST`, SSE deltas out.
+//! Path, auth, and body assembly live on the format axis ([`Format`],
+//! [`crate::assembly`]); this module owns the openai_chat SSE dialect
+//! (`delta.content` vs `delta.reasoning` / `delta.reasoning_content`)
+//! and dispatches the other two formats onto their own modules
+//! ([`crate::anthropic`], [`crate::gemini`]) — each a replaceable
+//! dialect (ADR-0019 item 6; gemini generateContent is Legacy).
 //!
 //! A thinking-channel token is the 「正在思考」 signal (ADR-0019 item 6):
 //! counted, never leaked into the rectified text. The session-window
@@ -23,9 +24,11 @@ use spokenrectifier_engine::provider::llm::{
     RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
 };
 
+use crate::anthropic::AnthropicDialect;
 use crate::assembly::request_body;
 use crate::config::{LlmConfig, ModelConfig, ThinkingPolicy};
 use crate::format::Format;
+use crate::gemini::GeminiDialect;
 use crate::intensity::{Intensity, select_intensity};
 use crate::prompt::{ChatPrompt, compose_prompt_with_extra, has_pins};
 
@@ -41,20 +44,28 @@ pub(crate) struct ParsedEvent {
     /// into the rectified text. The session-window display is out of
     /// this ticket's scope.
     pub reasoning_chars: u64,
-    /// End of stream (`[DONE]` for openai_chat; other dialects name
-    /// their own sentinel in ticket 03).
+    /// End of stream (`[DONE]` for openai_chat, `message_stop` for
+    /// anthropic). Gemini has no sentinel — the HTTP body ending is
+    /// the closer, so its dialect never sets this.
     pub done: bool,
 }
 
 impl ParsedEvent {
+    pub(crate) fn empty() -> Self {
+        Self {
+            content: None,
+            reasoning_chars: 0,
+            done: false,
+        }
+    }
+
     /// The 「正在思考」 signal: a non-empty thinking-channel token.
     pub(crate) fn is_thinking_signal(&self) -> bool {
         self.reasoning_chars > 0
     }
 }
 
-/// Decode one SSE data payload. One impl per format (ADR-0019 item 6);
-/// today's client is openai_chat.
+/// Decode one SSE data payload. One impl per format (ADR-0019 item 6).
 pub(crate) trait SseDialect: Send + Sync + 'static {
     fn parse_event(&self, data: &str) -> Result<ParsedEvent, String>;
 }
@@ -63,16 +74,43 @@ pub(crate) trait SseDialect: Send + Sync + 'static {
 /// thinking channel's two historical names.
 pub(crate) struct OpenaiChatDialect;
 
+/// Format-picked dialect. The HTTP shell is shared; swapping a format
+/// is swapping this arm (ADR-0019 item 6).
+pub(crate) enum FormatDialect {
+    OpenaiChat(OpenaiChatDialect),
+    Anthropic(AnthropicDialect),
+    Gemini(GeminiDialect),
+}
+
+impl FormatDialect {
+    fn of(format: Format) -> Self {
+        match format {
+            Format::OpenaiChat => Self::OpenaiChat(OpenaiChatDialect),
+            Format::Anthropic => Self::Anthropic(AnthropicDialect),
+            Format::Gemini => Self::Gemini(GeminiDialect),
+        }
+    }
+}
+
+impl SseDialect for FormatDialect {
+    fn parse_event(&self, data: &str) -> Result<ParsedEvent, String> {
+        match self {
+            Self::OpenaiChat(dialect) => dialect.parse_event(data),
+            Self::Anthropic(dialect) => dialect.parse_event(data),
+            Self::Gemini(dialect) => dialect.parse_event(data),
+        }
+    }
+}
+
 impl SseDialect for OpenaiChatDialect {
     fn parse_event(&self, data: &str) -> Result<ParsedEvent, String> {
         parse_openai_chat_event(data)
     }
 }
 
-/// A rectify LLM backed by an OpenAI Chat Completions endpoint. Request
-/// URL, auth, and body still key off [`ModelConfig::format`] so a
-/// rebuild under another format sends the right shape; the SSE decoder
-/// stays openai_chat until ticket 03 swaps the dialect.
+/// The production streaming client. Request URL, auth, body, and SSE
+/// dialect all key off [`ModelConfig::format`] (ADR-0019 item 6). The
+/// type name is historical — openai_chat was the first dialect.
 pub struct OpenAiCompatLlm {
     config: LlmConfig,
     http: reqwest::Client,
@@ -133,20 +171,22 @@ impl OpenAiCompatLlm {
     }
 }
 
-/// The production client for a loaded config. Format picks the
-/// implementation (ADR-0019 item 6); ticket 02 lands openai_chat.
-/// Anthropic and gemini still construct that client so a rebuild
-/// already sends the right URL/headers/body — ticket 03 swaps those
-/// two arms onto their own SSE dialects.
+/// The production client for a loaded config. Format picks the SSE
+/// dialect (ADR-0019 item 6); the HTTP shell is shared.
 pub fn live_llm(config: LlmConfig) -> Result<Arc<dyn RectifyLlm>, RectifyError> {
-    // Ticket 03 splits this match: openai_chat stays, anthropic/gemini
-    // swap onto their own dialects. Until then every format rides this
-    // client, which already posts the format's URL, headers, and body.
-    match config.model.format {
-        Format::OpenaiChat | Format::Anthropic | Format::Gemini => {
-            Ok(Arc::new(OpenAiCompatLlm::new(config)?))
-        }
-    }
+    Ok(Arc::new(OpenAiCompatLlm::new(config)?))
+}
+
+/// Eval-only: the production client with the reasoning-char observation
+/// counter attached. Format still picks the dialect, so a connection
+/// on anthropic or gemini is counted the same way as openai_chat.
+pub fn live_llm_with_reasoning_counter(
+    config: LlmConfig,
+    counter: Arc<AtomicU64>,
+) -> Result<Arc<dyn RectifyLlm>, RectifyError> {
+    Ok(Arc::new(
+        OpenAiCompatLlm::new(config)?.with_reasoning_counter(counter),
+    ))
 }
 
 #[async_trait]
@@ -179,7 +219,7 @@ impl RectifyLlm for OpenAiCompatLlm {
         Ok(Box::pin(sse_token_stream(
             response,
             self.reasoning_chars.clone(),
-            OpenaiChatDialect,
+            FormatDialect::of(model.format),
         )))
     }
 
@@ -193,8 +233,8 @@ impl RectifyLlm for OpenAiCompatLlm {
     }
 }
 
-/// POST the assembled body with the format's auth headers. Shared with
-/// ticket 03's clients.
+/// POST the assembled body with the format's auth headers. Shared by
+/// every dialect.
 pub(crate) async fn post_sse(
     http: &reqwest::Client,
     model: &ModelConfig,
@@ -276,19 +316,11 @@ fn reasoning_chars(delta: &Delta) -> u64 {
     text.chars().count() as u64
 }
 
-fn empty_event() -> ParsedEvent {
-    ParsedEvent {
-        content: None,
-        reasoning_chars: 0,
-        done: false,
-    }
-}
-
 /// One openai_chat SSE data payload: content, thinking, keep-alive,
 /// `[DONE]`, or a stream error.
 pub(crate) fn parse_openai_chat_event(data: &str) -> Result<ParsedEvent, String> {
     if data.trim().is_empty() {
-        return Ok(empty_event());
+        return Ok(ParsedEvent::empty());
     }
     if data.trim() == "[DONE]" {
         return Ok(ParsedEvent {
@@ -303,7 +335,7 @@ pub(crate) fn parse_openai_chat_event(data: &str) -> Result<ParsedEvent, String>
         return Err(format!("stream error: {}", err.message));
     }
     let Some(choice) = chunk.choices.into_iter().next() else {
-        return Ok(empty_event());
+        return Ok(ParsedEvent::empty());
     };
     let reasoning_chars = reasoning_chars(&choice.delta);
     Ok(ParsedEvent {
@@ -580,9 +612,15 @@ mod tests {
         assert!(event.is_thinking_signal());
 
         let empty = r#"{"choices":[{"delta":{}}]}"#;
-        assert_eq!(parse_openai_chat_event(empty).unwrap(), empty_event());
+        assert_eq!(
+            parse_openai_chat_event(empty).unwrap(),
+            ParsedEvent::empty()
+        );
         let keep_alive = "  ";
-        assert_eq!(parse_openai_chat_event(keep_alive).unwrap(), empty_event());
+        assert_eq!(
+            parse_openai_chat_event(keep_alive).unwrap(),
+            ParsedEvent::empty()
+        );
     }
 
     /// The observation seam (placeholder-process 06): an attached counter
@@ -612,8 +650,16 @@ mod tests {
     }
 
     #[test]
-    fn live_llm_builds_the_openai_chat_client() {
-        let llm = live_llm(LlmConfig::defaults()).expect("client builds");
-        assert_eq!(llm.take_reasoning_chars(), None);
+    fn live_llm_builds_every_format() {
+        for format in [Format::OpenaiChat, Format::Anthropic, Format::Gemini] {
+            let mut config = LlmConfig::defaults();
+            config.model.format = format;
+            let llm = live_llm(config).expect("client builds");
+            assert_eq!(llm.take_reasoning_chars(), None, "{format:?}");
+        }
+        let counted =
+            live_llm_with_reasoning_counter(LlmConfig::defaults(), Arc::new(AtomicU64::new(0)))
+                .expect("eval client builds");
+        assert_eq!(counted.take_reasoning_chars(), Some(0));
     }
 }

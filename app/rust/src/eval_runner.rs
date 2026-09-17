@@ -9,11 +9,9 @@
 //! types, not the machinery.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 use crate::api::{BridgeEvalCaseDetail, BridgeEvalCategory, BridgeEvalEvent, BridgeEvalSummary};
 use crate::frb_generated::StreamSink;
-use spokenrectifier_engine::RectifyLlm;
 use spokenrectifier_eval::cases::embedded_suite;
 use spokenrectifier_eval::report::{EvalSummary, BASELINE_PASS_RATE};
 use spokenrectifier_eval::runner::{run_suite, RunEvent, RUN_ABORTED};
@@ -104,14 +102,10 @@ fn run(
     let mut off_config = llm_config.clone().for_eval();
     off_config.rectify.full.prefill = false;
     off_config.rectify.light_touch.tier.prefill = false;
-    let on_llm: Arc<dyn RectifyLlm> = Arc::new(
-        spokenrectifier_llm::OpenAiCompatLlm::new(on_config)
-            .map_err(|err| format!("LLM {}", err.0))?,
-    );
-    let off_llm: Arc<dyn RectifyLlm> = Arc::new(
-        spokenrectifier_llm::OpenAiCompatLlm::new(off_config)
-            .map_err(|err| format!("LLM {}", err.0))?,
-    );
+    let on_llm =
+        spokenrectifier_llm::live_llm(on_config).map_err(|err| format!("LLM {}", err.0))?;
+    let off_llm =
+        spokenrectifier_llm::live_llm(off_config).map_err(|err| format!("LLM {}", err.0))?;
 
     // The settings-window run is the on-form regression net (the 94.3%
     // anchor, ADR-0014): off-form cases live in the same suite for the

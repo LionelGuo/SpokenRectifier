@@ -20,11 +20,10 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-use spokenrectifier_engine::RectifyLlm;
 use spokenrectifier_eval::cases::{EvalCase, default_suite_path, load_suite};
 use spokenrectifier_eval::report::{ReportMeta, build_report};
 use spokenrectifier_eval::runner::{RunEvent, run_suite};
-use spokenrectifier_llm::{OpenAiCompatLlm, load_llm_config};
+use spokenrectifier_llm::{live_llm_with_reasoning_counter, load_llm_config};
 
 fn short_commit() -> String {
     std::process::Command::new("git")
@@ -131,16 +130,10 @@ async fn run() -> Result<(), String> {
     // Both arms carry a reasoning-char counter (placeholder-process 06):
     // the report's observation column reads it per case through the
     // runner — falsifier data, never gate-blocking.
-    let on_llm: Arc<dyn RectifyLlm> = Arc::new(
-        OpenAiCompatLlm::new(on_config)
-            .map_err(|err| err.0)?
-            .with_reasoning_counter(Arc::new(AtomicU64::new(0))),
-    );
-    let off_llm: Arc<dyn RectifyLlm> = Arc::new(
-        OpenAiCompatLlm::new(off_config)
-            .map_err(|err| err.0)?
-            .with_reasoning_counter(Arc::new(AtomicU64::new(0))),
-    );
+    let on_llm = live_llm_with_reasoning_counter(on_config, Arc::new(AtomicU64::new(0)))
+        .map_err(|err| err.0)?;
+    let off_llm = live_llm_with_reasoning_counter(off_config, Arc::new(AtomicU64::new(0)))
+        .map_err(|err| err.0)?;
 
     let outcomes = run_suite(on_llm, off_llm, &selected, &|event| {
         match event {
