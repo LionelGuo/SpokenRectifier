@@ -217,6 +217,11 @@ class _SessionPanelState extends State<SessionPanel> {
       ),
       child: Row(
         children: [
+          // 左上 (downRight): the orb owns this row's start — the phase
+          // cluster yields as one unit (让位按簇: the reserve is a row-edge
+          // placeholder, never inserted inside the cluster).
+          if (!widget.dir.growUp && !widget.dir.growLeft)
+            const SizedBox(width: SrGeometry.anchorHeaderReserve),
           _PhaseDot(color: dotColor, live: live),
           const SizedBox(width: SrSpace.sm),
           Text(label, style: SrType.body.copyWith(color: pal.textPrimary)),
@@ -227,16 +232,27 @@ class _SessionPanelState extends State<SessionPanel> {
               style: SrType.micro.copyWith(color: pal.textTertiary),
             ),
           ],
-          const Spacer(),
           // A picker over an empty library has nothing to pick between:
           // the chip hides until the settings editor fills one in. A
           // one-time pick session (ticket 23's scenario, ticket 28's
           // 默认) paints the same shape with that pick's name — same
-          // format, no special badge.
-          if (c.scenarios.isNotEmpty) _ScenarioChip(label: '场景 · $scenario'),
-          // Down-growth anchors the orb at this row's end: the same
-          // equator-level reserve the footer keeps for the ball.
-          if (!widget.dir.growUp) const SizedBox(width: SrGeometry.anchorInset),
+          // format, no special badge. 右上 squeezes this row from the
+          // end (行尾 56): the chip single-line-ellipsizes (场景 · …)
+          // instead of overflowing — the Align keeps it at the row end
+          // and lets it shrink only when the space runs out.
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: c.scenarios.isNotEmpty
+                  ? _ScenarioChip(label: '场景 · $scenario')
+                  : const SizedBox.shrink(),
+            ),
+          ),
+          // 右上 (downLeft): the orb owns this row's end — the header
+          // reserve (56, not the footer's 48: the recording ring extends
+          // 6px past the ball and must clear the chip; spec §3 义务层).
+          if (!widget.dir.growUp && widget.dir.growLeft)
+            const SizedBox(width: SrGeometry.anchorHeaderReserve),
         ],
       ),
     );
@@ -246,54 +262,98 @@ class _SessionPanelState extends State<SessionPanel> {
     final recording = c.phase == BridgeSessionState.recording;
     final editor = _editor;
     final previewing = _isPreview && editor != null;
-    return Padding(
-      // Straight-edge body content: contentInset (below the corner band).
-      padding: const EdgeInsets.fromLTRB(
-        SrSpace.contentInset,
-        SrSpace.md,
-        SrSpace.contentInset,
-        SrSpace.sm,
-      ),
-      child: Stack(
-        children: [
-          if (recording && c.liveText.isEmpty)
-            Text(
-              '开始说话…',
-              style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
+    // Top-anchored orb (右上/左上): the ball's lower half rides over this
+    // region — the body keeps a 48 top padding (scrolled to top, the
+    // first line rests exactly at the fade's lower edge) under a
+    // surface-colored fade that dissolves arriving content into the card
+    // below the header (锚边渐隐, spec §3). Bottom-anchored orb: no body
+    // fade — the footer row plus its 48 reserve carry the bottom edge.
+    final orbAtTop = !widget.dir.growUp;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Padding(
+            // Straight-edge body content: contentInset (below the corner
+            // band).
+            padding: EdgeInsets.fromLTRB(
+              SrSpace.contentInset,
+              orbAtTop ? SrGeometry.anchorInset : SrSpace.md,
+              SrSpace.contentInset,
+              SrSpace.sm,
             ),
-          if (previewing)
-            // The editable preview (ticket 22): the self-drawn fill
-            // capsule surface over the slot document. Each round bumps
-            // the reset token; edits adopt their substituted text at once.
-            SingleChildScrollView(
-              controller: _scroll,
-              child: SlotSurface(
-                key: const Key('session-text'),
-                mode: SlotSurfaceMode.preview,
-                editor: editor,
-                focusNode: _focus,
-                scrollController: _scroll,
-                resetToken: _round,
-                onChanged: _onSlotChanged,
-              ),
-            )
-          else
-            // The read-only stream surface (listening / rectifying):
-            // sentinels render as capsules — the bare `‡N‡` never shows
-            // on the main surface (ticket 21). Rectifying reads the same
-            // projection, so sentinels appearing mid-stream collapse into
-            // capsules the moment their shape completes.
-            SlotSurface(
-              key: const Key('session-stream'),
-              mode: SlotSurfaceMode.stream,
-              text: recording ? c.liveText : c.previewText,
-              streamStyle: SrType.bodyLarge.copyWith(
-                color: recording ? pal.textSecondary : pal.textPrimary,
-              ),
-              scrollController: _scroll,
+            child: Stack(
+              children: [
+                if (recording && c.liveText.isEmpty)
+                  Text(
+                    '开始说话…',
+                    style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
+                  ),
+                if (previewing)
+                  // The editable preview (ticket 22): the self-drawn fill
+                  // capsule surface over the slot document. Each round
+                  // bumps the reset token; edits adopt their substituted
+                  // text at once.
+                  SingleChildScrollView(
+                    controller: _scroll,
+                    child: SlotSurface(
+                      key: const Key('session-text'),
+                      mode: SlotSurfaceMode.preview,
+                      editor: editor,
+                      focusNode: _focus,
+                      scrollController: _scroll,
+                      resetToken: _round,
+                      onChanged: _onSlotChanged,
+                    ),
+                  )
+                else
+                  // The read-only stream surface (listening / rectifying):
+                  // sentinels render as capsules — the bare `‡N‡` never
+                  // shows on the main surface (ticket 21). Rectifying
+                  // reads the same projection, so sentinels appearing
+                  // mid-stream collapse into capsules the moment their
+                  // shape completes.
+                  SlotSurface(
+                    key: const Key('session-stream'),
+                    mode: SlotSurfaceMode.stream,
+                    text: recording ? c.liveText : c.previewText,
+                    streamStyle: SrType.bodyLarge.copyWith(
+                      color: recording ? pal.textSecondary : pal.textPrimary,
+                    ),
+                    scrollController: _scroll,
+                  ),
+              ],
             ),
-        ],
-      ),
+          ),
+        ),
+        if (orbAtTop)
+          // Full-width, flush under the header row: opaque surface at
+          // the top dissolving to transparent 48 in (the bottom fade's
+          // mirror). The orb (stage layer) paints above it and stays
+          // crisp; content under the fade is inert to the pointer.
+          Positioned(
+            key: const Key('session-top-fade'),
+            left: 0,
+            right: 0,
+            top: 0,
+            height: SrGeometry.anchorInset,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      pal.surface,
+                      pal.surface,
+                      pal.surface.withValues(alpha: 0),
+                    ],
+                    stops: const [0.0, 0.25, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -391,18 +451,27 @@ class _SessionPanelState extends State<SessionPanel> {
       ),
       child: Row(
         children: [
-          // The anchor reserve mirrors with the growth direction (see
-          // the row-end twin below); absent entirely when the orb
-          // anchors the header's corner (down-growth).
+          // 左下 (upRight): the orb owns this row's start — one
+          // anchorInset, not two: the ball's right edge sits anchorInset +
+          // orbBall/2 = 76 from the window's left edge, while this row's
+          // content starts cardMargin + hairline + cornerInset = 33 from
+          // it — the true overlap is 43, and 48 keeps a 5px gap. The
+          // header's twin keeps 56 instead (the recording ring's reach;
+          // the footer band never carries one).
           if (widget.dir.growUp && !widget.dir.growLeft)
             const SizedBox(width: SrGeometry.anchorInset),
           // Capsules keep their intrinsic width (icon-only shrinking is a
           // later change). At the reshape floor they no longer fit beside
           // the reserve — clip the overflow so the debug stripe stays gone
           // (ticket 01's 420-wide pin still holds; 360 is 60px tighter).
+          // 左下 alone right-aligns the group (仅左下底栏钮组右对齐:
+          // the orb holds the row's start, the three buttons yield to the
+          // far side — their ORDER stays frozen, 对照 → 重新生成 → 取消).
           Expanded(
             child: UnconstrainedBox(
-              alignment: Alignment.centerLeft,
+              alignment: widget.dir.growUp && !widget.dir.growLeft
+                  ? Alignment.centerRight
+                  : Alignment.centerLeft,
               constrainedAxis: Axis.vertical,
               clipBehavior: Clip.hardEdge,
               child: Row(
@@ -440,15 +509,12 @@ class _SessionPanelState extends State<SessionPanel> {
               ),
             ),
           ),
-          // Anchor zone: the orb button lives here, above this row. One
-          // anchorInset, not two: the ball's left edge sits anchorInset +
-          // orbBall/2 = 76 from the window's right edge, while this row's
-          // content ends cardMargin + hairline + cornerInset = 33 from it —
-          // the true overlap is 43, and 48 keeps a 5px gap. The old 96
-          // (the ball's full diameter) over-reserved and left the preview
-          // footer's three capsules no room: the row overflowed ~48px and
-          // the debug stripe painted right under the ball.
-          if (widget.dir.growUp) const SizedBox(width: SrGeometry.anchorInset),
+          // 右下 (upLeft) alone: the orb button lives here, above this
+          // row's end. Top-anchored orbs (右上/左上) put no reserve in the
+          // footer at all — the ball shares the HEADER's row there, and
+          // obligations follow the anchor's edge only (义务随锚点角走).
+          if (widget.dir.growUp && widget.dir.growLeft)
+            const SizedBox(width: SrGeometry.anchorInset),
         ],
       ),
     );
@@ -612,7 +678,14 @@ class _ScenarioChip extends StatelessWidget {
         // Capsule: a corner-band control (preview-approved).
         borderRadius: BorderRadius.circular(SrRadius.capsule),
       ),
-      child: Text(label, style: SrType.micro.copyWith(color: pal.accentText)),
+      // Single-line ellipsis (场景 · …) when 右上's row-end reserve
+      // squeezes the row — the yield is the chip's, never the cluster's.
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: SrType.micro.copyWith(color: pal.accentText),
+      ),
     );
   }
 }

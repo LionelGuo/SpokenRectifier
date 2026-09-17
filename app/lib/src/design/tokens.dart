@@ -295,6 +295,13 @@ abstract final class SrGeometry {
   /// (orb footprint half). Panel anchor buttons sit at this offset.
   static const anchorInset = 48.0;
 
+  /// The HEADER row's orb-side reserve (spec §3 四向 chrome 契约): the
+  /// footer keeps the bare [anchorInset] (ball-core overlap 43 + 5px
+  /// seam), but the header band can carry the recording orb, whose level
+  /// ring extends 6px past the ball horizontally — 48 + 8 keeps ~8px
+  /// beyond the ring's outer edge.
+  static const anchorHeaderReserve = anchorInset + 8;
+
   /// Pointer slop before a press resolves as a drag instead of a click
   /// (logical px; spec §3 拖拽与尺寸调节 — inside it, the window never
   /// moves and the press stays a tap).

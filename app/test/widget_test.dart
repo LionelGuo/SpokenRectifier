@@ -33,7 +33,7 @@ import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
 import 'package:spokenrectifier_app/src/shell/session_flow.dart' show StageKind;
 import 'package:spokenrectifier_app/src/shell/window_stage.dart'
     as stage
-    show GrowthDirection, StageWindow, stageBounds;
+    show GrowthDirection, GrowthDirectionX, StageWindow, stageBounds;
 import 'package:spokenrectifier_app/ui_prefs.dart';
 
 import 'fake_gateway.dart';
@@ -2066,5 +2066,197 @@ void main() {
         await tester.pump(const Duration(milliseconds: 350));
       }
     });
+  });
+
+  // -- ticket 29: the four-way panel chrome contract ------------------------
+
+  group('four-way panel chrome contract', () {
+    /// The orb's VISIBLE extent: the ball core, radially inflated by the
+    /// recording ring's reach when one paints. The contract's reserve
+    /// math (header 56 / footer 48) deliberately lands content a few px
+    /// inside the 96px footprint's transparent bleed ring — what chrome
+    /// must never touch is the ball itself (plus its ring on the
+    /// recording header row).
+    Rect orbCoreInView(WidgetTester tester, {double inflate = 0}) {
+      final foot = tester.getRect(find.byType(OrbButton));
+      return Rect.fromCenter(
+        center: foot.center,
+        width: SrGeometry.orbBall + inflate * 2,
+        height: SrGeometry.orbBall + inflate * 2,
+      );
+    }
+
+    void expectClearOfOrb(
+      WidgetTester tester,
+      Finder finder,
+      Rect orb,
+      String what,
+    ) {
+      // Rect.intersect does NOT return Rect.zero for disjoint rects —
+      // it clamps each edge independently and yields a degenerate
+      // (left > right) rect; emptiness is the disjointness test.
+      expect(
+        tester.getRect(finder).intersect(orb).isEmpty,
+        isTrue,
+        reason:
+            '$what must stay clear of the orb core $orb '
+            '(found at ${tester.getRect(finder)})',
+      );
+    }
+
+    /// Pumps the shell with the orb anchored in [dir]'s quadrant of the
+    /// default (0,0,1920,1080) work area, so the first expand grows that
+    /// way (the direction is derived at expand, ticket 20).
+    Future<SpeechController> pumpAtQuadrant(
+      WidgetTester tester, {
+      required stage.GrowthDirection dir,
+      FakeGateway? gateway,
+    }) async {
+      final anchor = switch (dir) {
+        stage.GrowthDirection.upLeft => const Offset(1500, 900),
+        stage.GrowthDirection.upRight => const Offset(400, 900),
+        stage.GrowthDirection.downLeft => const Offset(1500, 200),
+        stage.GrowthDirection.downRight => const Offset(400, 200),
+      };
+      final window = RecordingStageWindow(anchor - const Offset(48, 48));
+      final controller = await pumpController(
+        tester,
+        gateway ?? FakeGateway(),
+        stageWindow: window,
+      );
+      if (gateway != null) {
+        await controller.loadScenarios();
+        await tester.pump();
+      }
+      return controller;
+    }
+
+    for (final dir in stage.GrowthDirection.values) {
+      testWidgets('session chrome clears the orb (${dir.name})', (
+        tester,
+      ) async {
+        // The scenario chip needs a library; the recording header is the
+        // worst case (phase word + timer + chip + ring-bearing ball).
+        final gateway = FakeGateway()
+          ..scenarioLibrary.add(
+            const BridgeScenario(name: '正式文档', directive: '正式书面语体'),
+          );
+        final controller = await pumpAtQuadrant(
+          tester,
+          dir: dir,
+          gateway: gateway,
+        );
+        await pumpToRecording(tester, controller);
+
+        // The header row: the ring can be at full glow, so the guard is
+        // the ring's reach (ball + 6), not the bare core.
+        final orb = orbCoreInView(tester, inflate: 6);
+        expectClearOfOrb(tester, find.text('聆听中'), orb, 'the phase word');
+        expectClearOfOrb(
+          tester,
+          find.byKey(const Key('scenario-chip')),
+          orb,
+          'the scenario chip',
+        );
+        // The body's fade + padding pair rides the anchor's edge only
+        // (义务随锚点角走): top pair exactly while the orb shares the
+        // header row, never while it sits on the footer's edge.
+        expect(
+          find.byKey(const Key('session-top-fade')),
+          dir.growUp ? findsNothing : findsOneWidget,
+        );
+        if (!dir.growUp) {
+          // At rest the first body line (the placeholder paints while
+          // nothing is dictated) must sit below the fade's lower edge,
+          // clear of the ball.
+          expectClearOfOrb(
+            tester,
+            find.text('开始说话…'),
+            orbCoreInView(tester),
+            'the body\'s first line',
+          );
+        }
+        await windDown(tester, controller);
+      });
+
+      testWidgets('session footer clears the orb (${dir.name})', (tester) async {
+        final gateway = FakeGateway();
+        final controller = await pumpAtQuadrant(
+          tester,
+          dir: dir,
+          gateway: gateway,
+        );
+        await pumpToPreview(tester, controller, gateway);
+
+        // Preview is the widest footer (three capsules); no ring paints
+        // outside recording, so the bare core is the guard.
+        final orb = orbCoreInView(tester);
+        for (final key in [
+          const Key('session-raw-toggle'),
+          const Key('session-reroll'),
+          const Key('session-cancel'),
+        ]) {
+          expectClearOfOrb(tester, find.byKey(key), orb, 'the footer ($key)');
+        }
+        // 钮序四向冻结: 对照原文 → 重新生成 → 取消, whatever side the
+        // group hugs.
+        final raw = tester.getRect(find.byKey(const Key('session-raw-toggle')));
+        final reroll = tester.getRect(find.byKey(const Key('session-reroll')));
+        final cancel = tester.getRect(find.byKey(const Key('session-cancel')));
+        expect(raw.left, lessThan(reroll.left));
+        expect(reroll.left, lessThan(cancel.left));
+
+        // 仅左底栏钮组右对齐: the orb holds the row's start there, so the
+        // group yields to the far side — flush with the card's inner
+        // right edge. Every other quadrant hugs the row's start corner
+        // inset instead. Both measured against the CARD (the slot pins
+        // it to the anchor corner of the 800x600 view, wherever that is).
+        final slot = tester.getRect(find.byType(SessionPanel));
+        final rowStart =
+            slot.left + SrGeometry.cardMargin + SrSpace.cornerInset;
+        final rowEnd =
+            slot.right - SrGeometry.cardMargin - SrSpace.cornerInset;
+        if (dir == stage.GrowthDirection.upRight) {
+          expect(cancel.right, closeTo(rowEnd, 1), reason: '左下右对齐');
+        } else {
+          expect(raw.left, closeTo(rowStart, 1), reason: 'row-start aligned');
+        }
+        await windDown(tester, controller);
+      });
+
+      testWidgets('quick panel chrome clears the orb (${dir.name})', (
+        tester,
+      ) async {
+        final controller = await pumpAtQuadrant(tester, dir: dir);
+        await pumpQuickOpen(tester, controller);
+
+        // The idle orb (✕) paints no ring: the bare core is the guard.
+        final orb = orbCoreInView(tester);
+        expectClearOfOrb(tester, find.text('快捷设置'), orb, 'the title');
+        expectClearOfOrb(tester, find.text('Esc 关闭'), orb, 'the Esc hint');
+        // The list's head content: while the orb anchors the top edge,
+        // the 48 padding parks the first section below the fade.
+        if (!dir.growUp) {
+          expectClearOfOrb(
+            tester,
+            find.text('场景'),
+            orb,
+            'the first section label',
+          );
+        }
+        // The fades ride the anchor's edge only, at the contract's
+        // heights (bottom 96 = 2x anchorInset, top 48 = 1x).
+        expect(
+          find.byKey(const Key('quick-bottom-fade')),
+          dir.growUp ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byKey(const Key('quick-top-fade')),
+          dir.growUp ? findsNothing : findsOneWidget,
+        );
+        await controller.closeQuick();
+        await tester.pump(const Duration(milliseconds: 350));
+      });
+    }
   });
 }

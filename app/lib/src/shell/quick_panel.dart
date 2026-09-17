@@ -14,10 +14,12 @@
 /// and the theme tri-state (writes the app-owned ui.toml — the
 /// read/write loop). The orb-visibility switch lives in the tray only.
 ///
-/// The body's trailing edge dissolves into the card surface toward the
-/// anchor (✕): a bottom scrim fades scrolling content out before it can
-/// crowd the button zone, while the orb itself paints above it (stage
-/// stack) and stays crisp.
+/// The body's anchor edge dissolves into the card surface toward the
+/// orb (✕): a surface scrim fades scrolling content out before it can
+/// crowd the anchor zone — at the bottom (96) while the orb grows the
+/// panel up, at the top (48, flush under the header) while it grows
+/// down — and the orb itself paints above it (stage stack), staying
+/// crisp.
 
 library;
 
@@ -54,9 +56,10 @@ class QuickPanel extends StatefulWidget {
   /// panel's own behavior.
   final void Function(SettingsDomain domain)? onOpenSettings;
 
-  /// Which corner the orb (✕) anchors: the header keeps the ball's
-  /// equator-level reserve on that side, and the scroll tail's anchor
-  /// clearance + fade exist only while the anchor is at the bottom.
+  /// Which corner the orb (✕) anchors: obligations follow the anchor's
+  /// edge only (义务随锚点角走, spec §3) — the header keeps its orb-side
+  /// reserve (56), and the scroll fade + clearance sit on the anchor's
+  /// edge (bottom 96 while growing up, top 48 while growing down).
   final GrowthDirection dir;
 
   /// The header-row move grip (面板上沿拖动=整体移动); null in tests.
@@ -94,13 +97,19 @@ class _QuickPanelState extends State<QuickPanel> {
       ),
       child: Row(
         children: [
+          // 左上 (downRight): the orb (✕) owns this row's start — the
+          // title cluster (标题 + Esc 提示) yields as one unit (让位按簇).
+          if (!widget.dir.growUp && !widget.dir.growLeft)
+            const SizedBox(width: SrGeometry.anchorHeaderReserve),
           Text('快捷设置', style: SrType.title.copyWith(color: pal.textPrimary)),
           const SizedBox(width: SrSpace.sm),
           Text('Esc 关闭', style: SrType.micro.copyWith(color: pal.textTertiary)),
-          // Down-growth anchors the orb (✕) at this row's end: the
-          // equator-level reserve the scroll tail keeps for the
-          // ball, moved up to the edge row that now hosts it.
-          if (!widget.dir.growUp) const SizedBox(width: SrGeometry.anchorInset),
+          // 右上 (downLeft): the orb owns this row's end — the header
+          // reserve (56), one contract with the session window's header
+          // (the footer keeps 48; the header band is the ring-bearing
+          // row; spec §3 义务层).
+          if (!widget.dir.growUp && widget.dir.growLeft)
+            const SizedBox(width: SrGeometry.anchorHeaderReserve),
         ],
       ),
     );
@@ -126,13 +135,13 @@ class _QuickPanelState extends State<QuickPanel> {
                   Positioned.fill(
                     child: ListView(
                       // Straight-edge body content: contentInset. The
-                      // trailing anchor clearance (96) pairs with the
-                      // bottom scrim's height below — at end-of-scroll the
-                      // last row rests exactly at the scrim's top edge,
+                      // leading/trailing anchor paddings pair with the
+                      // fades below — at rest (or end-of-scroll) the first
+                      // (last) row rests exactly at its fade's far edge,
                       // never inside the fade.
-                      padding: const EdgeInsets.fromLTRB(
+                      padding: EdgeInsets.fromLTRB(
                         SrSpace.contentInset,
-                        12,
+                        widget.dir.growUp ? 12 : SrGeometry.anchorInset,
                         SrSpace.contentInset,
                         0,
                       ),
@@ -274,23 +283,24 @@ class _QuickPanelState extends State<QuickPanel> {
                           onOpen: _openSettings,
                         ),
                         // Anchor zone clearance — only while the anchor
-                        // sits at the bottom edge (up-growth); a
-                        // top-anchored orb never overlaps the scroll
-                        // region, so the tail has no obligation.
+                        // sits at the bottom edge (up-growth): the orb's
+                        // whole footprint rides this band. A top-anchored
+                        // orb's obligations live at the list's head (fade
+                        // + padding above), so the tail carries none.
                         if (widget.dir.growUp)
                           const SizedBox(height: SrGeometry.anchorInset * 2),
                       ],
                     ),
                   ),
-                  // The anchor-zone fade: surface-colored, fully opaque
-                  // at the card's bottom edge and transparent by the top
-                  // of the anchor clearance (96). Content scrolling toward
-                  // the ✕ dissolves into the card instead of crowding the
-                  // button; over the empty surface below short content it
-                  // paints surface-on-surface and is invisible. The orb
-                  // sits above (stage stack), so the ✕ stays crisp.
-                  // Up-growth only — a top-anchored orb never sees
-                  // scrolling content pass under it.
+                  // The anchor-zone fades: surface-colored, fully opaque
+                  // at the card's anchor edge and transparent by the
+                  // matching clearance's far edge (bottom 96, top 48).
+                  // Content scrolling toward the ✕ dissolves into the
+                  // card instead of crowding the button; over the empty
+                  // surface beside short content it paints
+                  // surface-on-surface and is invisible. The orb sits
+                  // above (stage stack), so the ✕ stays crisp. Each edge
+                  // carries its fade only while the anchor sits on it.
                   if (widget.dir.growUp)
                     Positioned(
                       key: const Key('quick-bottom-fade'),
@@ -304,6 +314,30 @@ class _QuickPanelState extends State<QuickPanel> {
                             gradient: LinearGradient(
                               begin: Alignment.bottomCenter,
                               end: Alignment.topCenter,
+                              colors: [
+                                pal.surface,
+                                pal.surface,
+                                pal.surface.withValues(alpha: 0),
+                              ],
+                              stops: const [0.0, 0.25, 1.0],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (!widget.dir.growUp)
+                    Positioned(
+                      key: const Key('quick-top-fade'),
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      height: SrGeometry.anchorInset,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
                               colors: [
                                 pal.surface,
                                 pal.surface,
