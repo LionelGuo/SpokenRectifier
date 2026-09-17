@@ -41,6 +41,7 @@ import 'package:flutter/material.dart';
 
 import '../design/controls.dart' show SrButton, SrCard, SrField;
 import '../design/hover.dart';
+import '../design/toast.dart';
 import '../design/tokens.dart';
 import 'connection_store.dart';
 
@@ -110,7 +111,6 @@ class SettingsConnectionPane extends StatefulWidget {
 
 class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   String? _error;
-  String? _savedNote;
   bool _loaded = false;
 
   // LLM fields. The key block is one controller per vendor: a key
@@ -408,8 +408,10 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
       setState(() {
         _adoptLlm(saved);
         _error = null;
-        _savedNote = '修正模型已保存';
       });
+      // The save confirmation is the window toast's first caller (the
+      // inline note row is retired with it).
+      SrToast.of(context).show('修正模型已保存', tone: SrToastTone.success);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = '修正模型保存失败:$e');
@@ -508,8 +510,8 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         _asrAzureRegion.text = saved.azure.region ?? '';
         _asrAzureEndpointId.text = saved.azure.endpointId ?? '';
         _error = null;
-        _savedNote = '语音识别已保存';
       });
+      SrToast.of(context).show('语音识别已保存', tone: SrToastTone.success);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = '语音识别保存失败:$e');
@@ -541,14 +543,6 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
             _error!,
             key: const Key('settings-conn-error'),
             style: SrType.caption.copyWith(color: pal.live),
-          ),
-        ],
-        if (_savedNote != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _savedNote!,
-            key: const Key('settings-conn-saved'),
-            style: SrType.caption.copyWith(color: pal.textSecondary),
           ),
         ],
         const SizedBox(height: 16),

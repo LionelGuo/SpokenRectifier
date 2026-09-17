@@ -22,6 +22,7 @@ import '../../ui_prefs.dart';
 import '../design/controls.dart' show SrButton;
 import '../design/hover.dart';
 import '../design/theme.dart' show srTheme;
+import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeScenario;
 import 'caption_theme.dart';
@@ -359,23 +360,30 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
         // Palette lookups must resolve BELOW MaterialApp: on the state's
         // own context (above it) Theme.of silently falls back to the
         // light fallback theme, which once left the scaffold and divider
-        // light while dark mode darkened everything else.
-        builder: (context) => Scaffold(
-          backgroundColor: srPalette(context).surface,
-          body: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _Sidebar(
-                selected: _domain,
-                onSelect: (domain) => setState(() => _domain = domain),
-              ),
-              VerticalDivider(
-                width: 1,
-                thickness: 1,
-                color: srPalette(context).hairline,
-              ),
-              Expanded(child: _domainPane(context)),
-            ],
+        // light while dark mode darkened everything else. The toast
+        // scope rides the same builder: top-center, below the OS caption
+        // (the home body starts under it already, so 12 just keeps the
+        // capsule off the header line).
+        builder: (context) => SrToastScope(
+          anchor: SrToastAnchor.top,
+          clearance: 12,
+          child: Scaffold(
+            backgroundColor: srPalette(context).surface,
+            body: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Sidebar(
+                  selected: _domain,
+                  onSelect: (domain) => setState(() => _domain = domain),
+                ),
+                VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: srPalette(context).hairline,
+                ),
+                Expanded(child: _domainPane(context)),
+              ],
+            ),
           ),
         ),
       ),

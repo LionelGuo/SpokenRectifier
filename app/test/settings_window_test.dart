@@ -2500,7 +2500,8 @@ void main() {
     expect(save.model, 'deepseek-v4-pro');
     expect(save.baseUrl, 'https://api.deepseek.com'); // untouched field rides
     expect(save.key, isA<ApiKeyKeep>()); // the echoed key, unchanged
-    expect(find.byKey(const Key('settings-conn-saved')), findsOneWidget);
+    // The save note is the window toast now (top-center overlay).
+    expect(textOf(tester, const Key('sr-toast')), '修正模型已保存');
   });
 
   // -- the custom chip (ADR-0018) ---------------------------------------
@@ -2718,7 +2719,7 @@ void main() {
       textOf(tester, const Key('settings-conn-error')),
       contains('extra_body is not valid JSON'),
     );
-    expect(find.byKey(const Key('settings-conn-saved')), findsNothing);
+    expect(find.byKey(const Key('sr-toast')), findsNothing);
     expect(store.applyCalls, 0); // no adoption after a refused save
   });
 
@@ -3162,11 +3163,9 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pump();
     expect(store.applyCalls, 1);
-    // The save button's ensureVisible scrolled the header rows out of
-    // the viewport; bring the note back before asserting it.
-    await scrollPaneTo(tester, const Key('settings-conn-saved'));
-    await tester.pump();
-    expect(textOf(tester, const Key('settings-conn-saved')), '修正模型已保存');
+    // The save note is the window toast now — a top-center overlay, no
+    // scrolling back to reach it.
+    expect(textOf(tester, const Key('sr-toast')), '修正模型已保存');
     expect(find.byKey(const Key('settings-conn-error')), findsNothing);
 
     // Same for the ASR card, one adoption per save.
@@ -3175,9 +3174,7 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
     await tester.pump();
     expect(store.applyCalls, 2);
-    await scrollPaneTo(tester, const Key('settings-conn-saved'));
-    await tester.pump();
-    expect(textOf(tester, const Key('settings-conn-saved')), '语音识别已保存');
+    expect(textOf(tester, const Key('sr-toast')), '语音识别已保存');
   });
 
   testWidgets(
@@ -3201,11 +3198,11 @@ void main() {
       // without masquerading as a save failure — the previous providers
       // keep running (ADR-0010's failure-keeps-old).
       expect(store.asrSaves, hasLength(1));
-      // The error row sits above the saved note; scroll to it and the
-      // note rides along into the viewport.
+      // The error row still needs its scroll (lazy list); the saved
+      // note is the top-center toast and rides no scroll.
       await scrollPaneTo(tester, const Key('settings-conn-error'));
       await tester.pump();
-      expect(textOf(tester, const Key('settings-conn-saved')), '语音识别已保存');
+      expect(textOf(tester, const Key('sr-toast')), '语音识别已保存');
       expect(
         textOf(tester, const Key('settings-conn-error')),
         contains('已保存,但引擎沿用上一配置'),

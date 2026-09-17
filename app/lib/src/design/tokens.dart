@@ -233,6 +233,12 @@ abstract final class SrMotion {
   /// so no duration lives outside the table.
   static const tooltipWait = Duration(milliseconds: 500);
 
+  /// Toast dwell: a success confirmation leaves quickly, an error
+  /// notice lingers (ui-copy toast spec: 成功 2000 / 错误 3000, both
+  /// click-to-dismiss and new-replaces-old).
+  static const toastSuccess = Duration(milliseconds: 2000);
+  static const toastError = Duration(milliseconds: 3000);
+
   static const curveEnter = Curves.easeOutCubic;
   static const curveExit = Curves.easeInCubic;
   static const curveEmphasized = Curves.easeInOutCubicEmphasized;

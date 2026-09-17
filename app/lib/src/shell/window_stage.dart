@@ -32,6 +32,7 @@ import 'package:screen_retriever/screen_retriever.dart' as sr;
 import 'package:window_manager/window_manager.dart';
 
 import '../../app_state.dart';
+import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeSessionState;
 import '../settings/settings_domain.dart';
@@ -809,21 +810,33 @@ class _StageHostState extends State<StageHost> {
             _panelSlot(
               child: Stack(
                 children: [
+                  // The panel stage's toast layer (ui-copy toast spec):
+                  // bottom-center IN the card, fixed — never flipped by
+                  // the growth direction. The scope wraps the panel at
+                  // the slot, so the slot edge is the card's outer
+                  // bounds (the card paints its 8px margin inside) and
+                  // 72 parks the capsule above the session footer band
+                  // and the quick panel's bottom content — the value
+                  // the verdict was judged on in the prototype.
                   Positioned.fill(
-                    child: _displayed == StageKind.session
-                        ? SessionPanel(
-                            controller: c,
-                            exiting: _exiting,
-                            dir: _dir,
-                            grip: _grip,
-                          )
-                        : QuickPanel(
-                            controller: c,
-                            exiting: _exiting,
-                            onOpenSettings: widget.onOpenSettings,
-                            dir: _dir,
-                            grip: _grip,
-                          ),
+                    child: SrToastScope(
+                      anchor: SrToastAnchor.bottom,
+                      clearance: 72,
+                      child: _displayed == StageKind.session
+                          ? SessionPanel(
+                              controller: c,
+                              exiting: _exiting,
+                              dir: _dir,
+                              grip: _grip,
+                            )
+                          : QuickPanel(
+                              controller: c,
+                              exiting: _exiting,
+                              onOpenSettings: widget.onOpenSettings,
+                              dir: _dir,
+                              grip: _grip,
+                            ),
+                    ),
                   ),
                   // The resize affordances ride above the panel, flush to
                   // the slot's free edges (the shared footprint resizes
