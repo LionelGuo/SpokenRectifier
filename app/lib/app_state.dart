@@ -178,6 +178,12 @@ class SpeechController extends ChangeNotifier {
   /// Current session phase, mirrored from state-change events.
   BridgeSessionState phase = BridgeSessionState.idle;
 
+  /// This recording was upgraded to quick mode (ADR-0020). Set on
+  /// [BridgeEvent_QuickMarked]; cleared the moment listening ends
+  /// (Recording → *). The session window paints 「快速」 only while
+  /// [phase] is still recording and this is true.
+  bool quickMarked = false;
+
   /// Live transcript as the ASR fake streams it (paragraphs as newlines).
   String liveText = '';
 
@@ -382,7 +388,7 @@ class SpeechController extends ChangeNotifier {
   /// dropped silently: the session is over, there is no slot to pin
   /// into, and no half state exists to report.
   Future<void> pinAction() async {
-    if (phase != BridgeSessionState.recording) return;
+    if (phase != BridgeSessionState.recording || quickMarked) return;
     try {
       await gateway.pinPlaceholder();
     } catch (_) {
@@ -396,7 +402,9 @@ class SpeechController extends ChangeNotifier {
   /// ([_hotkeysPaused]) and an empty bind both skip the register.
   Future<void> _armPinHotkey() async {
     final hotkey = pinHotkey;
-    if (hotkey == null || _hotkeysPaused || pinChord.isNone) return;
+    if (hotkey == null || _hotkeysPaused || pinChord.isNone || quickMarked) {
+      return;
+    }
     try {
       await hotkey.register(pinChord, pinAction);
     } catch (e) {
@@ -1053,6 +1061,9 @@ class SpeechController extends ChangeNotifier {
           speaking = false;
           recordStartedAt = DateTime.now();
           _startMicBreath();
+          // A leftover true would skip this session's pin arm; the
+          // previous Recording→* already cleared it, this is the belt.
+          quickMarked = false;
           unawaited(_armPinHotkey());
         } else {
           recordStartedAt = null;
@@ -1064,6 +1075,7 @@ class SpeechController extends ChangeNotifier {
             unawaited(_disarmPinHotkey());
             _hotkeyHoldActive = false;
             _holdArmed = false;
+            quickMarked = false;
           }
         }
         // An active session takes over from the quick panel — recording
@@ -1103,12 +1115,11 @@ class SpeechController extends ChangeNotifier {
       case BridgeEvent_ParagraphMarked():
         paragraphMarks += 1;
       case BridgeEvent_QuickMarked():
-        // The recording session was upgraded to quick mode (ADR-0020).
-        // The window's reaction — the 聆听中 phase word and the
-        // pin-hotkey disarm — belongs to the quick-mode card ticket and
-        // is not wired yet; the engine's own refusals already hold the
-        // line (no pins after an upgrade, no preview on the way out).
-        break;
+        // Upgrade stays in Recording: the header word flips to 「快速」
+        // and the pin chord goes back to the system (engine also
+        // refuses PinPlaceholder; this is the shell-side belt).
+        quickMarked = true;
+        unawaited(_disarmPinHotkey());
       case BridgeEvent_SpeechActivityChanged(:final speaking):
         this.speaking = speaking;
       case BridgeEvent_RectifiedTextChunk(:final delta):

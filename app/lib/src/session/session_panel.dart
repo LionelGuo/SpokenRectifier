@@ -206,7 +206,14 @@ class _SessionPanelState extends State<SessionPanel> {
 
   Widget _header(BuildContext context, SrPalette pal) {
     final (label, dotColor, live) = switch (c.phase) {
-      BridgeSessionState.recording => ('聆听中', pal.live, true),
+      // Upgrade keeps the recording-red breath (ADR-0020); only the
+      // word flips. Rectifying and Preview (incl. a failed demotion)
+      // ignore the flag — the engine has already cleared it.
+      BridgeSessionState.recording => (
+        c.quickMarked ? '快速' : '聆听中',
+        pal.live,
+        true,
+      ),
       BridgeSessionState.rectifying => ('修正中', pal.accent, false),
       _ => ('预览', pal.success, false),
     };

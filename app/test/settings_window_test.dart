@@ -4,7 +4,7 @@
 /// one dialog), the fidelity-eval domain (run states through the
 /// controller), the history domain (browse/retrieve/retention/
 /// keep-nothing/clear), the terms domain (add/rename/remove over the
-/// same dictionary file), the rectify domain (the two behavior cards,
+/// same dictionary file), the rectify domain (the three behavior cards,
 /// pick-to-save whole-model writes, the combination warning), the
 /// connection domain (the two endpoint forms, preset chips, the
 /// diff-echo key block), the advanced domain (the editable timing form
@@ -1944,11 +1944,11 @@ void main() {
   // The rectify domain (修正)
   // -----------------------------------------------------------------------
 
-  /// A tall surface so both cards (and the light card's tail) build at
-  /// once — a lazy ListView drops off-screen rows, and the default
-  /// 800×600 test window clips the extra-directive field.
+  /// A tall surface so the three cards (and the light / quick tails)
+  /// build at once — a lazy ListView drops off-screen rows, and the
+  /// default 800×600 test window clips the extra-directive fields.
   void tallRectifySurface(WidgetTester tester) {
-    tester.view.physicalSize = const Size(1000, 1800);
+    tester.view.physicalSize = const Size(1000, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -2406,6 +2406,255 @@ void main() {
       expect(store.saves.last.fullPrefill, isFalse);
       expect(textOf(tester, const Key('sr-toast')), '已保存,引擎沿用上一配置');
       expect(store.applyCalls, 1); // the refusal was not an adoption
+    },
+  );
+
+  testWidgets(
+    'the quick card paints disabled-not-hidden; a master pick commits the whole model',
+    (tester) async {
+      tallRectifySurface(tester);
+      final store = FakeRectifyBehaviorStore();
+      await pumpSettings(
+        tester,
+        rectifyStore: store,
+        domain: SettingsDomain.rectify,
+      );
+      await tester.pump();
+
+      expect(find.text('快速模式 [rectify.quick]'), findsOneWidget);
+      expect(
+        tester
+            .widget<Switch>(
+              find.byKey(const Key('settings-rectify-quick-enabled')),
+            )
+            .value,
+        isFalse,
+      );
+
+      // Default master-off: the tail still paints, but its controls are
+      // shielded — a tap on 启用修正 or the save saves nothing.
+      await scrollRectifyTo(
+        tester,
+        const Key('settings-rectify-quick-rectify'),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const Key('settings-rectify-quick-rectify')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('settings-rectify-quick-rectify')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      expect(store.saves, isEmpty);
+
+      await scrollRectifyTo(tester, const Key('settings-rectify-quick-extra'));
+      await tester.pump();
+      expect(
+        find.byKey(const Key('settings-rectify-quick-extra')),
+        findsOneWidget,
+      );
+      await scrollRectifyTo(tester, const Key('settings-rectify-quick-save'));
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('settings-rectify-quick-save')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      expect(store.saves, isEmpty);
+
+      // A draft extra is never swept along by a pick: the field holds
+      // text, but flipping the master commits the committed (null) extra.
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-quick-extra')),
+        '短句节奏',
+      );
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-rectify-quick-enabled')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-rectify-quick-enabled')));
+      await tester.pump();
+      final pick = store.saves.single;
+      expect(pick.quickEnabled, isTrue);
+      expect(pick.quickRectify, isTrue); // default rides
+      expect(pick.quickExtraDirective, isNull); // not the draft
+      expect(pick.fullThinkingPolicy, 'always');
+      expect(pick.lightTouchMaxChars, 40);
+      expect(store.applyCalls, 1);
+    },
+  );
+
+  testWidgets(
+    "the quick card's rectify switch shields the extra; its save blanks to unset",
+    (tester) async {
+      tallRectifySurface(tester);
+      final store = FakeRectifyBehaviorStore(
+        const RectifyBehavior(
+          fullThinkingPolicy: 'always',
+          fullPrefill: true,
+          lightTouchEnabled: true,
+          lightTouchMaxChars: 40,
+          lightTouchThinkingPolicy: 'always',
+          lightTouchPrefill: true,
+          quickEnabled: true,
+        ),
+      );
+      await pumpSettings(
+        tester,
+        rectifyStore: store,
+        domain: SettingsDomain.rectify,
+      );
+      await tester.pump();
+
+      // Quiet at rest: no change, no commit.
+      await scrollRectifyTo(tester, const Key('settings-rectify-quick-save'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<SrButton>(
+              find.byKey(const Key('settings-rectify-quick-save')),
+            )
+            .onTap,
+        isNull,
+      );
+
+      await scrollRectifyTo(tester, const Key('settings-rectify-quick-extra'));
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-quick-extra')),
+        '  保持短句  ',
+      );
+      await scrollRectifyTo(tester, const Key('settings-rectify-quick-save'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<SrButton>(
+              find.byKey(const Key('settings-rectify-quick-save')),
+            )
+            .onTap,
+        isNotNull,
+      );
+      await tester.tap(find.byKey(const Key('settings-rectify-quick-save')));
+      await tester.pump();
+
+      final save = store.saves.single;
+      expect(save.quickExtraDirective, '保持短句');
+      expect(save.quickEnabled, isTrue);
+      expect(save.lightTouchExtraDirective, isNull); // the other extra rides
+      expect(store.applyCalls, 1);
+      expect(
+        fieldText(tester, const Key('settings-rectify-quick-extra')),
+        '保持短句',
+      );
+      expect(
+        tester
+            .widget<SrButton>(
+              find.byKey(const Key('settings-rectify-quick-save')),
+            )
+            .onTap,
+        isNull,
+      );
+
+      // Blanking the directive is the off switch.
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-quick-extra')),
+        '   ',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-rectify-quick-save')));
+      await tester.pump();
+      expect(store.saves.last.quickExtraDirective, isNull);
+
+      // 启用修正 off: the extra still paints, but its controls are
+      // shielded — a tap on the save saves nothing further.
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-rectify-quick-rectify')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-rectify-quick-rectify')));
+      await tester.pump();
+      expect(store.saves.last.quickRectify, isFalse);
+      final afterFlip = store.saves.length;
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-quick-extra')),
+        '不该落盘',
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('settings-rectify-quick-save')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      expect(store.saves, hasLength(afterFlip));
+      expect(
+        find.byKey(const Key('settings-rectify-quick-extra')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'a light pick never consumes a quick extra draft, and the reverse',
+    (tester) async {
+      tallRectifySurface(tester);
+      final store = FakeRectifyBehaviorStore(
+        const RectifyBehavior(
+          fullThinkingPolicy: 'always',
+          fullPrefill: true,
+          lightTouchEnabled: true,
+          lightTouchMaxChars: 40,
+          lightTouchThinkingPolicy: 'always',
+          lightTouchPrefill: true,
+          quickEnabled: true,
+        ),
+      );
+      await pumpSettings(
+        tester,
+        rectifyStore: store,
+        domain: SettingsDomain.rectify,
+      );
+      await tester.pump();
+
+      // Dirty the light extra, then flip the quick master: the light
+      // draft stays out of that write.
+      await scrollRectifyTo(tester, const Key('settings-rectify-light-extra'));
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-light-extra')),
+        '轻修草稿',
+      );
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-rectify-quick-enabled')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-rectify-quick-enabled')));
+      await tester.pump();
+      expect(store.saves.single.lightTouchExtraDirective, isNull);
+      expect(store.saves.single.quickEnabled, isFalse);
+
+      // Dirty the quick extra, then flip the light master: the quick
+      // draft stays out of that write.
+      await tester.tap(find.byKey(const Key('settings-rectify-quick-enabled')));
+      await tester.pump();
+      await scrollRectifyTo(tester, const Key('settings-rectify-quick-extra'));
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-quick-extra')),
+        '快速草稿',
+      );
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const Key('settings-rectify-light-enabled')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings-rectify-light-enabled')));
+      await tester.pump();
+      expect(store.saves.last.quickExtraDirective, isNull);
+      expect(store.saves.last.lightTouchEnabled, isFalse);
     },
   );
 

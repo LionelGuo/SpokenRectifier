@@ -1,17 +1,20 @@
-/// The 修正 domain: the `[rectify]` behavior as two cards — 全量修正 on
+/// The 修正 domain: the `[rectify]` behavior as three cards — 全量修正 on
 /// top (the default path), 轻修 below with its master switch and
 /// threshold riding the same `[rectify.light_touch]` section (ADR-0015,
-/// the layout map's ruling).
+/// the layout map's ruling), then 快速模式 `[rectify.quick]` (ADR-0020)
+/// with its own master switch, rectify gate, and extra directive. The
+/// quick card has no thinking chips, no prefill, no threshold.
 ///
 /// PICK-TO-SAVE: every Switch flip and chip click commits at once, and
-/// every commit writes the editor's WHOLE model — the two inputs (the
-/// threshold, the extra directive) contribute their COMMITTED values,
-/// never the unsaved drafts sitting in their fields; only the light
-/// card's explicit save button writes those (validate the threshold,
-/// blank the directive to unset). A master-switch-off light card
+/// every commit writes the editor's WHOLE model — the inputs (the
+/// threshold, each extra directive) contribute their COMMITTED values,
+/// never the unsaved drafts sitting in their fields; only each card's
+/// explicit save button writes those (validate the threshold, blank the
+/// directive to unset). A master-switch-off light or quick card
 /// disables its whole tail without hiding it — the values still paint,
 /// still ride every whole-model write, and the file keeps the keys
-/// (runtime just stops consulting them).
+/// (runtime just stops consulting them). The quick card's extra field
+/// further disables when 启用修正 is off (the directive is unused).
 ///
 /// The thinking-off × prefill-on warning is a STATEMENT, not a block
 /// (ADR-0015): it lights live per tier from the form as painted —
@@ -82,9 +85,12 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
   late bool _ltEnabled;
   late String _ltPolicy;
   late bool _ltPrefill;
+  late bool _quickEnabled;
+  late bool _quickRectify;
 
   late final TextEditingController _threshold = TextEditingController();
   late final TextEditingController _extra = TextEditingController();
+  late final TextEditingController _quickExtra = TextEditingController();
 
   @override
   void initState() {
@@ -93,6 +99,7 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     // enable follows), without threading onChanged through SrField.
     _threshold.addListener(_onInput);
     _extra.addListener(_onInput);
+    _quickExtra.addListener(_onInput);
     _reload();
   }
 
@@ -100,6 +107,7 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
   void dispose() {
     _threshold.dispose();
     _extra.dispose();
+    _quickExtra.dispose();
     super.dispose();
   }
 
@@ -133,12 +141,17 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     _ltEnabled = behavior.lightTouchEnabled;
     _ltPolicy = behavior.lightTouchThinkingPolicy;
     _ltPrefill = behavior.lightTouchPrefill;
+    _quickEnabled = behavior.quickEnabled;
+    _quickRectify = behavior.quickRectify;
     _threshold.removeListener(_onInput);
     _extra.removeListener(_onInput);
+    _quickExtra.removeListener(_onInput);
     _threshold.text = '${behavior.lightTouchMaxChars}';
     _extra.text = behavior.lightTouchExtraDirective ?? '';
+    _quickExtra.text = behavior.quickExtraDirective ?? '';
     _threshold.addListener(_onInput);
     _extra.addListener(_onInput);
+    _quickExtra.addListener(_onInput);
   }
 
   /// The whole model as the form's PICKS stand, over the committed
@@ -149,14 +162,22 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     lightTouchEnabled: _ltEnabled,
     lightTouchThinkingPolicy: _ltPolicy,
     lightTouchPrefill: _ltPrefill,
+    quickEnabled: _quickEnabled,
+    quickRectify: _quickRectify,
   );
 
-  /// True while either input field holds text the committed truth
-  /// doesn't (the save button's enable; the pick path never consults
-  /// it — drafts are never swept along).
+  /// True while either light input field holds text the committed
+  /// truth doesn't (the light save button's enable; the pick path
+  /// never consults it — drafts are never swept along).
   bool get _inputsDirty =>
       _threshold.text.trim() != '${_model!.lightTouchMaxChars}' ||
       _extra.text.trim() != (_model!.lightTouchExtraDirective ?? '');
+
+  /// The quick extra field's own dirty flag — a separate save, so a
+  /// light pick never consumes this draft and a light save never
+  /// reseeds it.
+  bool get _quickInputsDirty =>
+      _quickExtra.text.trim() != (_model!.quickExtraDirective ?? '');
 
   /// A pick: paint the flip at once, then commit the whole model with
   /// the inputs left at their committed values.
@@ -167,8 +188,10 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
       _ltEnabled = update.lightTouchEnabled;
       _ltPolicy = update.lightTouchThinkingPolicy;
       _ltPrefill = update.lightTouchPrefill;
+      _quickEnabled = update.quickEnabled;
+      _quickRectify = update.quickRectify;
     });
-    _save(_liveModel, reseedInputs: false);
+    _save(_liveModel);
   }
 
   /// The light card's explicit save: validate the threshold, blank the
@@ -188,15 +211,30 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
         lightTouchMaxChars: value,
         lightTouchExtraDirective: extra.isEmpty ? null : extra,
       ),
-      reseedInputs: true,
+      reseedLightInputs: true,
+    );
+  }
+
+  /// The quick card's explicit save: blank the directive to unset,
+  /// commit the whole model with the picks as they paint. Does not
+  /// touch the light inputs' drafts.
+  Future<void> _saveQuickInputs() async {
+    final extra = _quickExtra.text.trim();
+    await _save(
+      _liveModel.copyWith(quickExtraDirective: extra.isEmpty ? null : extra),
+      reseedQuickExtra: true,
     );
   }
 
   /// Commit the whole model, adopt the re-read truth, then hand the
-  /// files to the live engine (ADR-0010). [reseedInputs] re-baselines
-  /// the two input fields — only the explicit save path changes what
-  /// they hold.
-  Future<void> _save(RectifyBehavior next, {required bool reseedInputs}) async {
+  /// files to the live engine (ADR-0010). Each reseed flag re-baselines
+  /// only that card's input fields — a pick never reseeds, and one
+  /// card's save never consumes the other's draft.
+  Future<void> _save(
+    RectifyBehavior next, {
+    bool reseedLightInputs = false,
+    bool reseedQuickExtra = false,
+  }) async {
     try {
       final saved = await widget.store.save(next);
       if (!mounted) return;
@@ -207,13 +245,20 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
         _ltEnabled = saved.lightTouchEnabled;
         _ltPolicy = saved.lightTouchThinkingPolicy;
         _ltPrefill = saved.lightTouchPrefill;
-        if (reseedInputs) {
+        _quickEnabled = saved.quickEnabled;
+        _quickRectify = saved.quickRectify;
+        if (reseedLightInputs) {
           _threshold.removeListener(_onInput);
           _extra.removeListener(_onInput);
           _threshold.text = '${saved.lightTouchMaxChars}';
           _extra.text = saved.lightTouchExtraDirective ?? '';
           _threshold.addListener(_onInput);
           _extra.addListener(_onInput);
+        }
+        if (reseedQuickExtra) {
+          _quickExtra.removeListener(_onInput);
+          _quickExtra.text = saved.quickExtraDirective ?? '';
+          _quickExtra.addListener(_onInput);
         }
       });
       SrToast.of(context).show('已保存,下一次修正尝试生效', tone: SrToastTone.success);
@@ -282,6 +327,16 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
             onPrefill: (on) =>
                 _pick(_liveModel.copyWith(lightTouchPrefill: on)),
             onSaveInputs: _saveInputs,
+          ),
+          const SizedBox(height: 16),
+          _QuickCard(
+            enabled: _quickEnabled,
+            rectify: _quickRectify,
+            extra: _quickExtra,
+            inputsDirty: _quickInputsDirty,
+            onEnabled: (on) => _pick(_liveModel.copyWith(quickEnabled: on)),
+            onRectify: (on) => _pick(_liveModel.copyWith(quickRectify: on)),
+            onSaveInputs: _saveQuickInputs,
           ),
           const SizedBox(height: 20),
           Text(
@@ -545,6 +600,170 @@ class _LightCard extends StatelessWidget {
                     primary: inputsDirty,
                     label: '保存轻修设置',
                     onTap: inputsDirty ? onSaveInputs : null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 快速模式 `[rectify.quick]`: the master switch first (always live),
+/// then the tail — 启用修正, extra directive, its own save button —
+/// disabled in place while the switch is off. The extra field further
+/// disables when 启用修正 is off (the directive is unused then). No
+/// thinking chips, no prefill, no threshold (ADR-0020).
+class _QuickCard extends StatelessWidget {
+  const _QuickCard({
+    required this.enabled,
+    required this.rectify,
+    required this.extra,
+    required this.inputsDirty,
+    required this.onEnabled,
+    required this.onRectify,
+    required this.onSaveInputs,
+  });
+
+  final bool enabled;
+  final bool rectify;
+  final TextEditingController extra;
+  final bool inputsDirty;
+  final ValueChanged<bool> onEnabled;
+  final ValueChanged<bool> onRectify;
+  final VoidCallback onSaveInputs;
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = srPalette(context);
+    return SrCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '快速模式 [rectify.quick]',
+            style: SrType.body.copyWith(
+              color: pal.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '总开关关闭时手势与今日同;开启后按住超阈值松手即发送',
+            style: SrType.micro.copyWith(color: pal.textTertiary),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '启用快速模式',
+                  style: SrType.caption.copyWith(color: pal.textSecondary),
+                ),
+              ),
+              Switch(
+                key: const Key('settings-rectify-quick-enabled'),
+                value: enabled,
+                onChanged: onEnabled,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AnimatedOpacity(
+            duration: SrMotion.fade,
+            curve: SrMotion.curveFade,
+            opacity: enabled ? 1 : 0.5,
+            child: AbsorbPointer(
+              absorbing: !enabled,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '启用修正',
+                          style: SrType.caption.copyWith(
+                            color: pal.textSecondary,
+                          ),
+                        ),
+                      ),
+                      Switch(
+                        key: const Key('settings-rectify-quick-rectify'),
+                        value: rectify,
+                        onChanged: onRectify,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '关闭时升级后直贴原始转写;开启时走轻修段与快速额外指令',
+                    style: SrType.micro.copyWith(color: pal.textTertiary),
+                  ),
+                  const SizedBox(height: 12),
+                  AnimatedOpacity(
+                    duration: SrMotion.fade,
+                    curve: SrMotion.curveFade,
+                    opacity: rectify ? 1 : 0.5,
+                    child: AbsorbPointer(
+                      absorbing: !rectify,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '快速额外指令',
+                            style: SrType.caption.copyWith(
+                              color: pal.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '仅在快速模式走修正时注入,只塑形式与语气;留空则不注入',
+                            style: SrType.micro.copyWith(
+                              color: pal.textTertiary,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          KeyedSubtree(
+                            key: const Key('settings-rectify-quick-extra'),
+                            child: TextField(
+                              controller: extra,
+                              minLines: 2,
+                              maxLines: 5,
+                              style: SrType.body.copyWith(
+                                color: pal.textPrimary,
+                              ),
+                              cursorColor: pal.accent,
+                              decoration: InputDecoration(
+                                isCollapsed: true,
+                                border: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                filled: true,
+                                fillColor: pal.surfaceOverlay,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 9,
+                                ),
+                                hintText: '例:保留技术术语原文',
+                                hintStyle: SrType.body.copyWith(
+                                  color: pal.textTertiary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          SrButton(
+                            key: const Key('settings-rectify-quick-save'),
+                            primary: inputsDirty,
+                            label: '保存快速设置',
+                            onTap: inputsDirty ? onSaveInputs : null,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
