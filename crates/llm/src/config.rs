@@ -166,18 +166,41 @@ pub struct LightTouchConfig {
     pub extra_directive: Option<String>,
 }
 
-/// The folded `[rectify]` section: the full and light-touch tiers.
-/// Missing section, missing keys = today's behavior on every field.
+/// The `[rectify.quick]` sub-section (ADR-0020): the quick-mode gesture's
+/// master switch, whether a quick session rectifies at all, and the quick
+/// extra directive. No grandfather — the section is new, so a file
+/// without it reads as the master switch off, today's gesture unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuickConfig {
+    /// The quick-mode master switch. Off means no held hotkey ever
+    /// upgrades a session; the keys below stay stored, just unadopted
+    /// (ADR-0015's stance for a switch that is off, applied here).
+    pub enabled: bool,
+    /// Whether a quick session runs rectify (on) or pastes the raw
+    /// transcript straight through (off — no model call at all).
+    pub rectify: bool,
+    /// The quick extra directive (ADR-0020): injected as its own section
+    /// after the light-touch intensity section, on quick-mode rectifies
+    /// only, where it replaces the light-touch directive. `None` (key
+    /// absent, empty, or all-whitespace) = not injected.
+    pub extra_directive: Option<String>,
+}
+
+/// The folded `[rectify]` section: the full and light-touch tiers plus
+/// the quick-mode sub-section (ADR-0020). Missing section, missing keys
+/// = today's behavior on every field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RectifyConfig {
     pub full: RectifyTier,
     pub light_touch: LightTouchConfig,
+    pub quick: QuickConfig,
 }
 
 impl RectifyConfig {
     /// Today's defaults: both tiers think always with prefill on, the
-    /// light-touch gate open at 40 characters, no extra directive —
-    /// existing users migrate nothing.
+    /// light-touch gate open at 40 characters, no extra directive, quick
+    /// mode off (so no hold upgrades anything) but rectifying whenever it
+    /// is enabled — existing users migrate nothing.
     fn today() -> Self {
         RectifyConfig {
             full: RectifyTier {
@@ -191,6 +214,11 @@ impl RectifyConfig {
                     thinking_policy: ThinkingPolicy::Always,
                     prefill: true,
                 },
+                extra_directive: None,
+            },
+            quick: QuickConfig {
+                enabled: false,
+                rectify: true,
                 extra_directive: None,
             },
         }
@@ -369,12 +397,13 @@ impl LlmConfig {
     }
 
     /// The fidelity-eval copy of this config: the eval never runs user
-    /// directive text (ADR-0006 posture; ADR-0016 for this key), so the
-    /// light-touch extra directive is stripped whatever the layers
-    /// carry — style and global are already `None` per request by
-    /// construction.
+    /// directive text (ADR-0006 posture; ADR-0016 for the light-touch
+    /// key, ADR-0020 for the quick one), so both extra directives are
+    /// stripped whatever the layers carry — style and global are already
+    /// `None` per request by construction.
     pub fn for_eval(mut self) -> Self {
         self.rectify.light_touch.extra_directive = None;
+        self.rectify.quick.extra_directive = None;
         self
     }
 }
@@ -790,11 +819,18 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
             apply_rectify(&mut config.rectify, &layer.value);
         }
     }
-    // A blank extra directive is no directive (ADR-0016) — folded last
-    // so a local blank still overrides a shared text into nothing.
+    // A blank extra directive is no directive (ADR-0016/0020) — folded
+    // last so a local blank still overrides a shared text into nothing.
+    // Both directive slots fold the same way, each on its own key.
     config.rectify.light_touch.extra_directive = config
         .rectify
         .light_touch
+        .extra_directive
+        .take()
+        .filter(|text| !text.trim().is_empty());
+    config.rectify.quick.extra_directive = config
+        .rectify
+        .quick
         .extra_directive
         .take()
         .filter(|text| !text.trim().is_empty());
@@ -878,6 +914,7 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
 struct RectifyOverlay {
     full: TierOverlay,
     light_touch: LightTouchOverlay,
+    quick: QuickOverlay,
 }
 
 #[derive(Debug, Default)]
@@ -894,8 +931,17 @@ struct LightTouchOverlay {
     extra_directive: Option<String>,
 }
 
+#[derive(Debug, Default)]
+struct QuickOverlay {
+    enabled: Option<bool>,
+    rectify: Option<bool>,
+    extra_directive: Option<String>,
+}
+
 /// Fold one validated `[rectify]` overlay onto the config, field by
-/// field — the two tiers never touch each other (ADR-0015).
+/// field — the two tiers never touch each other (ADR-0015), and the
+/// quick sub-section stands beside them: its keys land on `quick` alone,
+/// whatever the tiers say (ADR-0020).
 fn apply_rectify(config: &mut RectifyConfig, overlay: &RectifyOverlay) {
     if let Some(v) = overlay.full.thinking_policy {
         config.full.thinking_policy = v;
@@ -918,16 +964,26 @@ fn apply_rectify(config: &mut RectifyConfig, overlay: &RectifyOverlay) {
     if let Some(v) = &overlay.light_touch.extra_directive {
         config.light_touch.extra_directive = Some(v.clone());
     }
+    if let Some(v) = overlay.quick.enabled {
+        config.quick.enabled = v;
+    }
+    if let Some(v) = overlay.quick.rectify {
+        config.quick.rectify = v;
+    }
+    if let Some(v) = &overlay.quick.extra_directive {
+        config.quick.extra_directive = Some(v.clone());
+    }
 }
 
-/// The strict `[rectify]` read (ADR-0015/0016): the section allows only
-/// `full` / `light_touch`, each sub-section only its listed keys, and
-/// every value must be exactly its type — `thinking_policy` the three
-/// lowercase strings (never a bool), `max_chars` an integer ≥ 1,
-/// `enabled` / `prefill` booleans, `extra_directive` a string. Anything
-/// else fails the whole load, naming the file and the section. The
-/// section is loaded raw and validated here (not by serde) so the error
-/// can name the offending sub-section.
+/// The strict `[rectify]` read (ADR-0015/0016/0020): the section allows
+/// only `full` / `light_touch` / `quick`, each sub-section only its
+/// listed keys, and every value must be exactly its type —
+/// `thinking_policy` the three lowercase strings (never a bool),
+/// `max_chars` an integer ≥ 1, `enabled` / `prefill` / `rectify`
+/// booleans, `extra_directive` a string. Anything else fails the whole
+/// load, naming the file and the section. The section is loaded raw and
+/// validated here (not by serde) so the error can name the offending
+/// sub-section.
 fn load_rectify_layers(
     dirs: &[PathBuf],
 ) -> Result<Vec<spokenrectifier_config::Layer<RectifyOverlay>>, ConfigError> {
@@ -1018,7 +1074,47 @@ fn validate_rectify(table: &toml::Table, file: &str) -> Result<RectifyOverlay, C
                     }
                 }
             }
-            other => return Err(unknown_key(file, "rectify", other, "`full`, `light_touch`")),
+            "quick" => {
+                let sub = value.as_table().ok_or_else(|| {
+                    ConfigError(format!("{file}: [rectify.quick] must be a table"))
+                })?;
+                for (name, field) in sub {
+                    match name.as_str() {
+                        "enabled" => {
+                            overlay.quick.enabled =
+                                Some(expect_bool(field, file, "rectify.quick", "enabled")?)
+                        }
+                        "rectify" => {
+                            overlay.quick.rectify =
+                                Some(expect_bool(field, file, "rectify.quick", "rectify")?)
+                        }
+                        "extra_directive" => {
+                            overlay.quick.extra_directive = Some(expect_string(
+                                field,
+                                file,
+                                "rectify.quick",
+                                "extra_directive",
+                            )?)
+                        }
+                        other => {
+                            return Err(unknown_key(
+                                file,
+                                "rectify.quick",
+                                other,
+                                "`enabled`, `rectify`, `extra_directive`",
+                            ));
+                        }
+                    }
+                }
+            }
+            other => {
+                return Err(unknown_key(
+                    file,
+                    "rectify",
+                    other,
+                    "`full`, `light_touch`, `quick`",
+                ));
+            }
         }
     }
     Ok(overlay)
@@ -1360,13 +1456,27 @@ pub struct LightTouchEdit {
     pub extra_directive: Option<String>,
 }
 
+/// The quick-mode editor fields, mirroring `[rectify.quick]` (ADR-0020).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuickEdit {
+    /// The quick-mode master switch (off = no hold upgrades a session).
+    pub enabled: bool,
+    /// Whether a quick session rectifies or pastes the raw transcript.
+    pub rectify: bool,
+    /// The quick extra directive's text; `None` or blank = unset (the
+    /// key is removed — empty is the off form, ADR-0016's shape).
+    pub extra_directive: Option<String>,
+}
+
 /// What the rectify editor writes back: the whole `[rectify]` model —
-/// both tiers, the gate, and the extra directive. Saving writes exactly
-/// this, so the next load returns what the user saw.
+/// both tiers, the gate, the extra directive, and the quick sub-section.
+/// Saving writes exactly this, so the next load returns what the user
+/// saw.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RectifyBehaviorEdit {
     pub full: TierEdit,
     pub light_touch: LightTouchEdit,
+    pub quick: QuickEdit,
 }
 
 impl RectifyBehaviorEdit {
@@ -1380,8 +1490,9 @@ impl RectifyBehaviorEdit {
 
 /// Write the rectify editor's model back into the layer files. The
 /// model lands in the layer that owns each `[rectify.*]` sub-section
-/// (the shared file when none does); the extra directive's blank form
-/// removes the key.
+/// (the shared file when none does); every extra directive's blank form
+/// removes the key. Three sub-sections ride one save: `full`,
+/// `light_touch`, and — since ADR-0020 — `quick`.
 ///
 /// The first rectify-domain save also retires the legacy `[llm]`
 /// `thinking` / `prefill` / `light_touch_max_chars` keys, per layer
@@ -1475,15 +1586,6 @@ pub fn save_rectify_behavior(
         WriteLayer::Owning,
     )
     .map_err(|err| ConfigError(err.0))?;
-    let extra = edit
-        .light_touch
-        .extra_directive
-        .as_deref()
-        .filter(|text| !text.trim().is_empty());
-    let extra_field = match extra {
-        Some(text) => SectionField::str("extra_directive", text),
-        None => SectionField::reset("extra_directive"),
-    };
     write_section_fields(
         dirs,
         "rectify.light_touch",
@@ -1495,12 +1597,35 @@ pub fn save_rectify_behavior(
                 edit.light_touch.tier.thinking_policy.as_str(),
             ),
             SectionField::bool("prefill", edit.light_touch.tier.prefill),
-            extra_field,
+            directive_field(edit.light_touch.extra_directive.as_deref()),
+        ],
+        WriteLayer::Owning,
+    )
+    .map_err(|err| ConfigError(err.0))?;
+    // The quick sub-section rides the same whole-model write (ADR-0020):
+    // its three keys, no tier keys.
+    write_section_fields(
+        dirs,
+        "rectify.quick",
+        &[
+            SectionField::bool("enabled", edit.quick.enabled),
+            SectionField::bool("rectify", edit.quick.rectify),
+            directive_field(edit.quick.extra_directive.as_deref()),
         ],
         WriteLayer::Owning,
     )
     .map_err(|err| ConfigError(err.0))?;
     Ok(())
+}
+
+/// One extra directive's write form: blank (`None`, empty, or
+/// all-whitespace) removes the key rather than storing an empty string —
+/// empty is the off form (ADR-0016).
+fn directive_field(edit: Option<&str>) -> SectionField {
+    match edit.filter(|text| !text.trim().is_empty()) {
+        Some(text) => SectionField::str("extra_directive", text),
+        None => SectionField::reset("extra_directive"),
+    }
 }
 
 #[cfg(test)]
@@ -1521,6 +1646,11 @@ mod tests {
         );
         assert!(config.rectify.light_touch.tier.prefill);
         assert_eq!(config.rectify.light_touch.extra_directive, None);
+        // Quick mode is stored but off — no hold upgrades anything —
+        // and rectifies whenever it is turned on (ADR-0020).
+        assert!(!config.rectify.quick.enabled);
+        assert!(config.rectify.quick.rectify);
+        assert_eq!(config.rectify.quick.extra_directive, None);
         assert_eq!(config.model.model, "deepseek-v4-flash");
         assert_eq!(config.model.vendor, Vendor::DeepSeek);
         assert_eq!(
@@ -1722,6 +1852,10 @@ mod tests {
             ),
             ("full key", "[rectify.full]\nextra = 1\n"),
             ("light_touch key", "[rectify.light_touch]\nthreshold = 40\n"),
+            // Quick mode has no tier keys: its three are the whole
+            // sub-section (ADR-0020), so a tier key here is a refusal
+            // like any other unknown key.
+            ("quick key", "[rectify.quick]\nthinking_policy = \"off\"\n"),
         ] {
             let dir = scratch("sr-llm-rectify-unknown");
             std::fs::write(dir.join("spokenrectifier.toml"), body).unwrap();
@@ -1759,6 +1893,8 @@ mod tests {
         for (name, body) in [
             ("enabled", "[rectify.light_touch]\nenabled = \"on\"\n"),
             ("prefill", "[rectify.full]\nprefill = 1\n"),
+            ("quick enabled", "[rectify.quick]\nenabled = \"on\"\n"),
+            ("quick rectify", "[rectify.quick]\nrectify = 1\n"),
         ] {
             let dir = scratch("sr-llm-rectify-gate-type");
             std::fs::write(dir.join("spokenrectifier.toml"), body).unwrap();
@@ -1813,29 +1949,130 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// The eval copy never carries the user's directive text (ADR-0016).
+    /// The eval copy never carries the user's directive text (ADR-0016;
+    /// ADR-0020 for the quick key, which is the same stance).
     #[test]
     fn for_eval_strips_the_extra_directive() {
         let mut config = LlmConfig::defaults();
         config.rectify.light_touch.extra_directive = Some("用户的私货".into());
+        config.rectify.quick.extra_directive = Some("快速私货".into());
         let eval = config.clone().for_eval();
         assert_eq!(eval.rectify.light_touch.extra_directive, None);
+        assert_eq!(eval.rectify.quick.extra_directive, None);
         // The source config is untouched.
         assert_eq!(
             config.rectify.light_touch.extra_directive.as_deref(),
             Some("用户的私货")
         );
+        assert_eq!(
+            config.rectify.quick.extra_directive.as_deref(),
+            Some("快速私货")
+        );
+    }
+
+    // -- the [rectify.quick] sub-section (ADR-0020) ------------------------
+
+    /// The quick keys layer field by field like every other key, local
+    /// last; a file that never speaks them leaves the master switch off
+    /// — today's gesture, unchanged.
+    #[test]
+    fn quick_keys_layer_field_by_field_and_default_to_off() {
+        let dir = scratch("sr-llm-quick-layers");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.quick]\nenabled = true\nextra_directive = \"短句留节奏\"\n",
+        )
+        .unwrap();
+
+        // Shared only: the keys it names, the defaults for the rest.
+        let shared = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert!(shared.rectify.quick.enabled);
+        assert!(shared.rectify.quick.rectify); // untouched default
+        assert_eq!(
+            shared.rectify.quick.extra_directive.as_deref(),
+            Some("短句留节奏")
+        );
+
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[rectify.quick]\nrectify = false\n",
+        )
+        .unwrap();
+        let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert!(config.rectify.quick.enabled); // shared only
+        assert!(!config.rectify.quick.rectify); // local wins
+        // The quick keys never touch the tiers, and the tiers never touch
+        // quick: they are three separate sub-sections.
+        assert!(config.rectify.light_touch.enabled);
+        assert_eq!(config.rectify.light_touch.max_chars, 40);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The quick directive's blank forms read as unset and layer like
+    /// any field — a local blank still overrides a shared text into
+    /// nothing (ADR-0016's shape, on the quick key).
+    #[test]
+    fn a_blank_quick_extra_directive_reads_as_unset() {
+        let dir = scratch("sr-llm-quick-extra-blank");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.quick]\nextra_directive = \"短句留节奏\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("spokenrectifier.local.toml"),
+            "[rectify.quick]\nextra_directive = \"   \"\n",
+        )
+        .unwrap();
+
+        let loaded = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+        assert_eq!(loaded.rectify.quick.extra_directive, None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_non_string_quick_extra_directive_is_rejected() {
+        let dir = scratch("sr-llm-quick-extra-type");
+        std::fs::write(
+            dir.join("spokenrectifier.toml"),
+            "[rectify.quick]\nextra_directive = 3\n",
+        )
+        .unwrap();
+        let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+        assert!(err.contains("[rectify.quick]"), "got: {err}");
+        assert!(
+            err.contains("extra_directive must be a string"),
+            "got: {err}"
+        );
+        assert!(!err.contains('\n'), "multi-line error: {err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A non-table `[rectify.quick]` (`quick = 3`, or a dotted-key
+    /// collision) refuses the load like every other sub-section.
+    #[test]
+    fn a_non_table_quick_sub_section_is_rejected() {
+        let dir = scratch("sr-llm-quick-non-table");
+        std::fs::write(dir.join("spokenrectifier.toml"), "[rectify]\nquick = 3\n").unwrap();
+        let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
+        assert!(err.contains("[rectify.quick] must be a table"), "got: {err}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     // -- the rectify editor's write path (ticket 13) ----------------------
 
-    use super::{LightTouchEdit, RectifyBehaviorEdit, TierEdit, save_rectify_behavior};
+    use super::{LightTouchEdit, QuickEdit, RectifyBehaviorEdit, TierEdit, save_rectify_behavior};
 
     fn behavior_edit() -> RectifyBehaviorEdit {
         RectifyBehaviorEdit {
             full: TierEdit {
                 thinking_policy: ThinkingPolicy::Always,
                 prefill: true,
+            },
+            quick: QuickEdit {
+                enabled: false,
+                rectify: true,
+                extra_directive: None,
             },
             light_touch: LightTouchEdit {
                 enabled: true,
@@ -1913,9 +2150,22 @@ mod tests {
         save_rectify_behavior(std::slice::from_ref(&dir), &edit).unwrap();
 
         let shared = std::fs::read_to_string(dir.join("spokenrectifier.toml")).unwrap();
-        assert!(
-            !shared.contains("[rectify"),
-            "local values promoted into shared: {shared}"
+        // No value the user had in local reaches the committable file.
+        // The quick sub-section is the exception that proves the rule:
+        // it is new, so it has no legacy key to follow into local — its
+        // own write lands on the shared default layer, carrying the file
+        // defaults and nothing else (ADR-0020).
+        for key in ["thinking_policy", "prefill", "max_chars", "extra_directive"] {
+            assert!(
+                !shared.contains(key),
+                "a local value was promoted into shared: {shared}"
+            );
+        }
+        let quick = section(&shared, "[rectify.quick]");
+        assert_eq!(
+            quick.trim(),
+            "enabled = false\nrectify = true",
+            "the quick write carried more than its defaults: {quick}"
         );
         assert!(shared.contains("model = \"m\""), "sibling lost: {shared}");
         let local = std::fs::read_to_string(dir.join("spokenrectifier.local.toml")).unwrap();
@@ -2008,6 +2258,55 @@ mod tests {
                 .extra_directive,
             None
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The quick sub-section rides the same whole-model save: its three
+    /// keys written beside the tiers, a blank directive removing the key
+    /// rather than storing an empty string (ADR-0020).
+    #[test]
+    fn a_quick_save_round_trips_and_a_blank_directive_removes_the_key() {
+        let dir = scratch("sr-llm-quick-save");
+        let dirs = std::slice::from_ref(&dir);
+        let mut edit = behavior_edit();
+        edit.quick.enabled = true;
+        edit.quick.rectify = false;
+        edit.quick.extra_directive = Some("短句留节奏".into());
+
+        save_rectify_behavior(dirs, &edit).unwrap();
+
+        let shared = std::fs::read_to_string(dir.join("spokenrectifier.toml")).unwrap();
+        let quick = section(&shared, "[rectify.quick]");
+        assert!(quick.contains("enabled = true"), "got: {quick}");
+        assert!(quick.contains("rectify = false"), "got: {quick}");
+        assert!(
+            quick.contains("extra_directive = \"短句留节奏\""),
+            "got: {quick}"
+        );
+        // No tier key leaked into the quick sub-section.
+        assert!(!quick.contains("thinking_policy"), "got: {quick}");
+        assert!(!quick.contains("prefill"), "got: {quick}");
+        assert!(!quick.contains("max_chars"), "got: {quick}");
+        let loaded = load_llm_config(dirs).unwrap();
+        assert!(loaded.rectify.quick.enabled);
+        assert!(!loaded.rectify.quick.rectify);
+        assert_eq!(
+            loaded.rectify.quick.extra_directive.as_deref(),
+            Some("短句留节奏")
+        );
+
+        // A blank directive save removes the key and leaves the two
+        // boolean gates exactly where they were.
+        let mut blank = edit.clone();
+        blank.quick.extra_directive = Some("   ".into());
+        save_rectify_behavior(dirs, &blank).unwrap();
+        let shared = std::fs::read_to_string(dir.join("spokenrectifier.toml")).unwrap();
+        let quick = section(&shared, "[rectify.quick]");
+        assert!(!quick.contains("extra_directive"), "not removed: {quick}");
+        let loaded = load_llm_config(dirs).unwrap();
+        assert_eq!(loaded.rectify.quick.extra_directive, None);
+        assert!(loaded.rectify.quick.enabled, "the master switch was lost");
+        assert!(!loaded.rectify.quick.rectify, "the rectify gate was lost");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2167,6 +2466,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// One written section's body, header to the next header (or EOF) —
+    /// so a key's presence is asserted inside the sub-section it belongs
+    /// to, never by a substring that a sibling could satisfy.
+    fn section<'a>(text: &'a str, header: &str) -> &'a str {
+        let at = text
+            .find(header)
+            .unwrap_or_else(|| panic!("no {header} in: {text}"));
+        let rest = &text[at + header.len()..];
+        match rest.find("\n[") {
+            Some(end) => &rest[..end],
+            None => rest,
+        }
     }
 
     #[test]

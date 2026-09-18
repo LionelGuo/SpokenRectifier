@@ -1158,11 +1158,12 @@ pub fn apply_connection_configs() -> anyhow::Result<()> {
 
 /// The `[rectify]` behavior as the settings pane paints and saves it:
 /// both tiers' thinking policy and prefill, the light-touch master
-/// switch, threshold, and extra directive (ADR-0015/0016). One struct
-/// both ways — the read paints the initial form, the save writes exactly
-/// the model it receives. The thinking policy rides the wire as its
-/// lowercase string; `light_touch_extra_directive` is `None` when unset
-/// (empty saves remove the key).
+/// switch, threshold, and extra directive (ADR-0015/0016), plus the
+/// quick-mode sub-section (ADR-0020). One struct both ways — the read
+/// paints the initial form, the save writes exactly the model it
+/// receives. The thinking policy rides the wire as its lowercase string;
+/// `light_touch_extra_directive` and `quick_extra_directive` are `None`
+/// when unset (empty saves remove the key).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BridgeRectifyBehavior {
     /// `always` | `placeholders` | `off` (ADR-0015).
@@ -1173,6 +1174,16 @@ pub struct BridgeRectifyBehavior {
     pub light_touch_thinking_policy: String,
     pub light_touch_prefill: bool,
     pub light_touch_extra_directive: Option<String>,
+    /// `[rectify.quick]` (ADR-0020): holding the main hotkey past the
+    /// threshold upgrades the session, which then skips preview and
+    /// pastes on its own. `quick_enabled` is the master switch (off by
+    /// default: no hold upgrades anything), `quick_rectify` whether the
+    /// session still rectifies (off = paste the raw transcript),
+    /// `quick_extra_directive` the quick-mode-only directive (`None` =
+    /// unset; an empty save removes the key).
+    pub quick_enabled: bool,
+    pub quick_rectify: bool,
+    pub quick_extra_directive: Option<String>,
 }
 
 fn rectify_view(rectify: &spokenrectifier_llm::RectifyConfig) -> BridgeRectifyBehavior {
@@ -1189,6 +1200,9 @@ fn rectify_view(rectify: &spokenrectifier_llm::RectifyConfig) -> BridgeRectifyBe
             .to_string(),
         light_touch_prefill: rectify.light_touch.tier.prefill,
         light_touch_extra_directive: rectify.light_touch.extra_directive.clone(),
+        quick_enabled: rectify.quick.enabled,
+        quick_rectify: rectify.quick.rectify,
+        quick_extra_directive: rectify.quick.extra_directive.clone(),
     }
 }
 
@@ -1245,11 +1259,17 @@ pub fn set_rectify_behavior(edit: BridgeRectifyBehavior) -> anyhow::Result<Bridg
         },
         extra_directive: edit.light_touch_extra_directive,
     };
+    let quick = spokenrectifier_llm::QuickEdit {
+        enabled: edit.quick_enabled,
+        rectify: edit.quick_rectify,
+        extra_directive: edit.quick_extra_directive,
+    };
     spokenrectifier_llm::save_rectify_behavior(
         &dirs,
         &spokenrectifier_llm::RectifyBehaviorEdit {
             full,
             light_touch: light,
+            quick,
         },
     )
     .map_err(|err| anyhow!("LLM {}", err.0))?;
@@ -1876,7 +1896,9 @@ mod tests {
     /// config layer; this locks the bridge mapping itself).
     #[test]
     fn the_rectify_view_mirrors_the_config_field_by_field() {
-        use spokenrectifier_llm::{LightTouchConfig, RectifyConfig, RectifyTier, ThinkingPolicy};
+        use spokenrectifier_llm::{
+            LightTouchConfig, QuickConfig, RectifyConfig, RectifyTier, ThinkingPolicy,
+        };
         let rectify = RectifyConfig {
             full: RectifyTier {
                 thinking_policy: ThinkingPolicy::Placeholders,
@@ -1891,6 +1913,11 @@ mod tests {
                 },
                 extra_directive: Some("短句保留节奏".into()),
             },
+            quick: QuickConfig {
+                enabled: true,
+                rectify: false,
+                extra_directive: Some("快速短句保留节奏".into()),
+            },
         };
         let view = rectify_view(&rectify);
         assert_eq!(view.full_thinking_policy, "placeholders");
@@ -1902,6 +1929,13 @@ mod tests {
         assert_eq!(
             view.light_touch_extra_directive.as_deref(),
             Some("短句保留节奏")
+        );
+        // The quick sub-section (ADR-0020) rides the same mirror.
+        assert!(view.quick_enabled);
+        assert!(!view.quick_rectify);
+        assert_eq!(
+            view.quick_extra_directive.as_deref(),
+            Some("快速短句保留节奏")
         );
         // An unknown policy name is refused naming the section — the
         // wire never accepts a fourth tier.

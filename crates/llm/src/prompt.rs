@@ -224,6 +224,19 @@ const INTENSITY_LIGHT_TOUCH_PLACEHOLDERS: &str = "\
 /// remaining form rules).
 const LIGHT_TOUCH_EXTRA_SCOPE: &str = "(仅轻修时生效的额外指令,必须严格执行;只塑形式与语气,恒受保真铁律约束;与【目标语体】或【全局指令】冲突时,以后者为准)";
 
+/// The quick extra directive's section title and scope line (ADR-0020):
+/// its own slot at the light-touch directive's rank, and the two never
+/// trigger together — a quick attempt replaces the light-touch section
+/// with this one. Same shape: one scope sentence, the user's text under
+/// it, no precedence row of its own, no trailing reminder. Only the
+/// 「仅快速模式时生效」 clause differs — the stance (form and tone only,
+/// always under the fidelity rule, yielding to the scenario and global
+/// directives) is the light-touch one word for word.
+const QUICK_EXTRA_TITLE: &str = "【快速额外指令】";
+
+/// See [`QUICK_EXTRA_TITLE`].
+const QUICK_EXTRA_SCOPE: &str = "(仅快速模式时生效的额外指令,必须严格执行;只塑形式与语气,恒受保真铁律约束;与【目标语体】或【全局指令】冲突时,以后者为准)";
+
 /// The directive-precedence line with pins: the placeholder rule joins the
 /// fidelity rule in the exception list — a directive may not restyle or
 /// absorb a slot (ticket 12's injection-time rewrites). Grammar-agnostic,
@@ -324,11 +337,13 @@ pub fn compose_prompt(request: &RectifyRequest, intensity: Intensity) -> ChatPro
     compose_prompt_with_extra(request, intensity, None)
 }
 
-/// Compose with a light-touch extra directive (`None` or blank = the
-/// section is absent entirely, both pinned forms included — the
-/// injection is orthogonal to the pin state; ADR-0016). Full rectify
-/// never carries the section: the directive hangs on the light-touch
-/// intensity tier alone.
+/// Compose with an extra directive (`None` or blank = the section is
+/// absent entirely, both pinned forms included — the injection is
+/// orthogonal to the pin state; ADR-0016). Full rectify never carries
+/// the section: the directive hangs on the light-touch intensity tier
+/// alone. `request.quick` picks which directive that slot holds, the
+/// light-touch one or the quick one (ADR-0020); the caller passes the
+/// text of the one the request is entitled to.
 pub fn compose_prompt_with_extra(
     request: &RectifyRequest,
     intensity: Intensity,
@@ -394,14 +409,23 @@ pub fn compose_prompt_with_extra(
         .into(),
     );
     system_sections.push(String::new());
-    // The light-touch extra directive's own section, right after the
-    // intensity section it hangs on (ADR-0016): absent when unset or
-    // blank, present in both pinned forms (orthogonal to the pin state),
-    // never in full rectify. No precedence row, no user-message reminder.
+    // The extra directive's own section, right after the intensity
+    // section it hangs on (ADR-0016): absent when unset or blank, present
+    // in both pinned forms (orthogonal to the pin state), never in full
+    // rectify. No precedence row, no user-message reminder. The request's
+    // quick flag picks WHICH directive this slot carries (ADR-0020) — a
+    // quick attempt takes the quick one, the two never ride together —
+    // and nothing else about the section moves: same tier, same position,
+    // same rank, and a quick request has no pins to pin it to anyway.
     if let Intensity::LightTouch = intensity
         && let Some(text) = extra_directive.filter(|text| !text.trim().is_empty())
     {
-        system_sections.push(format!("【轻修额外指令】{LIGHT_TOUCH_EXTRA_SCOPE}\n{text}"));
+        let (title, scope) = if request.quick {
+            (QUICK_EXTRA_TITLE, QUICK_EXTRA_SCOPE)
+        } else {
+            ("【轻修额外指令】", LIGHT_TOUCH_EXTRA_SCOPE)
+        };
+        system_sections.push(format!("{title}{scope}\n{text}"));
         system_sections.push(String::new());
     }
     // The global directive's own block, one step above 【目标语体】 in the
@@ -508,6 +532,19 @@ mod tests {
             global_directive: global_directive.map(String::from),
             terms: terms.into_iter().map(String::from).collect(),
             prefill: true,
+            quick: false,
+        }
+    }
+
+    /// [`request`] asked for as a held-hotkey pass-through (ADR-0020).
+    fn quick_request(
+        style_directive: Option<&str>,
+        global_directive: Option<&str>,
+        terms: Vec<&str>,
+    ) -> RectifyRequest {
+        RectifyRequest {
+            quick: true,
+            ..request(style_directive, global_directive, terms)
         }
     }
 
@@ -712,6 +749,7 @@ mod tests {
             global_directive: global_directive.map(String::from),
             terms: terms.into_iter().map(String::from).collect(),
             prefill: true,
+            quick: false,
         }
     }
 
@@ -1085,6 +1123,74 @@ mod tests {
             compose_prompt_with_extra(&request(None, None, vec![]), Intensity::Full, Some(EXTRA));
         assert!(!prompt.system.contains("【轻修额外指令】"));
         assert!(!prompt.system.contains(EXTRA));
+    }
+
+    // -- the quick extra directive (ADR-0020) --------------------------------
+
+    #[test]
+    fn the_quick_directive_takes_the_light_touch_sections_place() {
+        // Same slot, same tier, same position: only the title and the
+        // scope line's 「仅快速模式时生效」 differ — the two directives
+        // never ride one prompt.
+        let prompt = compose_prompt_with_extra(
+            &quick_request(None, Some(GLOBAL), vec![]),
+            Intensity::LightTouch,
+            Some(EXTRA),
+        );
+        assert!(prompt.system.contains(QUICK_EXTRA_TITLE));
+        assert!(prompt.system.contains(QUICK_EXTRA_SCOPE));
+        assert!(!prompt.system.contains("【轻修额外指令】"));
+        assert!(!prompt.system.contains(LIGHT_TOUCH_EXTRA_SCOPE));
+        let intensity_at = prompt.system.find("【整理强度】").expect("intensity");
+        let section_at = prompt.system.find(QUICK_EXTRA_TITLE).expect("quick");
+        let scope_at = prompt.system.find(QUICK_EXTRA_SCOPE).expect("scope");
+        let extra_at = prompt.system.find(EXTRA).expect("extra text");
+        let global_at = prompt.system.find(GLOBAL).expect("global directive");
+        assert!(intensity_at < section_at);
+        assert!(scope_at < extra_at, "the scope line rides above the text");
+        assert!(extra_at < global_at, "the section precedes the global block");
+        // No trailing reminder in the user message, same as the
+        // light-touch form.
+        assert!(!prompt.user.contains(QUICK_EXTRA_TITLE));
+    }
+
+    #[test]
+    fn a_quick_request_without_a_directive_leaves_no_trace() {
+        // Blank and unset both compose with no section at all, in either
+        // request form — and the quick section never appears on a
+        // non-quick request (the flag picks it, not the intensity alone).
+        for text in [None, Some("   ")] {
+            let prompt = compose_prompt_with_extra(
+                &quick_request(None, None, vec![]),
+                Intensity::LightTouch,
+                text,
+            );
+            assert!(!prompt.system.contains(QUICK_EXTRA_TITLE));
+            assert!(!prompt.system.contains(QUICK_EXTRA_SCOPE));
+            assert!(!prompt.system.contains("【轻修额外指令】"));
+        }
+        let plain = compose_prompt_with_extra(
+            &request(None, None, vec![]),
+            Intensity::LightTouch,
+            Some(EXTRA),
+        );
+        assert!(!plain.system.contains(QUICK_EXTRA_TITLE));
+        assert!(plain.system.contains("【轻修额外指令】"));
+    }
+
+    #[test]
+    fn a_quick_pinless_composition_is_the_plain_light_touch_prompt() {
+        // A quick request carries no extra directive text beyond its own
+        // slot: with none set, the composition is the light-touch prompt
+        // byte for byte — quick-ness lives in which directive is handed
+        // in, and in nothing else in this module.
+        let quick = compose_prompt_with_extra(
+            &quick_request(None, None, vec![]),
+            Intensity::LightTouch,
+            None,
+        );
+        let plain = compose_prompt(&request(None, None, vec![]), Intensity::LightTouch);
+        assert_eq!(quick, plain);
     }
 
     #[test]

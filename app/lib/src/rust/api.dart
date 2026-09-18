@@ -1270,11 +1270,12 @@ class BridgePrefillRow {
 
 /// The `[rectify]` behavior as the settings pane paints and saves it:
 /// both tiers' thinking policy and prefill, the light-touch master
-/// switch, threshold, and extra directive (ADR-0015/0016). One struct
-/// both ways — the read paints the initial form, the save writes exactly
-/// the model it receives. The thinking policy rides the wire as its
-/// lowercase string; `light_touch_extra_directive` is `None` when unset
-/// (empty saves remove the key).
+/// switch, threshold, and extra directive (ADR-0015/0016), plus the
+/// quick-mode sub-section (ADR-0020). One struct both ways — the read
+/// paints the initial form, the save writes exactly the model it
+/// receives. The thinking policy rides the wire as its lowercase string;
+/// `light_touch_extra_directive` and `quick_extra_directive` are `None`
+/// when unset (empty saves remove the key).
 class BridgeRectifyBehavior {
   /// `always` | `placeholders` | `off` (ADR-0015).
   final String fullThinkingPolicy;
@@ -1285,6 +1286,17 @@ class BridgeRectifyBehavior {
   final bool lightTouchPrefill;
   final String? lightTouchExtraDirective;
 
+  /// `[rectify.quick]` (ADR-0020): holding the main hotkey past the
+  /// threshold upgrades the session, which then skips preview and
+  /// pastes on its own. `quick_enabled` is the master switch (off by
+  /// default: no hold upgrades anything), `quick_rectify` whether the
+  /// session still rectifies (off = paste the raw transcript),
+  /// `quick_extra_directive` the quick-mode-only directive (`None` =
+  /// unset; an empty save removes the key).
+  final bool quickEnabled;
+  final bool quickRectify;
+  final String? quickExtraDirective;
+
   const BridgeRectifyBehavior({
     required this.fullThinkingPolicy,
     required this.fullPrefill,
@@ -1293,6 +1305,9 @@ class BridgeRectifyBehavior {
     required this.lightTouchThinkingPolicy,
     required this.lightTouchPrefill,
     this.lightTouchExtraDirective,
+    required this.quickEnabled,
+    required this.quickRectify,
+    this.quickExtraDirective,
   });
 
   @override
@@ -1303,7 +1318,10 @@ class BridgeRectifyBehavior {
       lightTouchMaxChars.hashCode ^
       lightTouchThinkingPolicy.hashCode ^
       lightTouchPrefill.hashCode ^
-      lightTouchExtraDirective.hashCode;
+      lightTouchExtraDirective.hashCode ^
+      quickEnabled.hashCode ^
+      quickRectify.hashCode ^
+      quickExtraDirective.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1316,7 +1334,10 @@ class BridgeRectifyBehavior {
           lightTouchMaxChars == other.lightTouchMaxChars &&
           lightTouchThinkingPolicy == other.lightTouchThinkingPolicy &&
           lightTouchPrefill == other.lightTouchPrefill &&
-          lightTouchExtraDirective == other.lightTouchExtraDirective;
+          lightTouchExtraDirective == other.lightTouchExtraDirective &&
+          quickEnabled == other.quickEnabled &&
+          quickRectify == other.quickRectify &&
+          quickExtraDirective == other.quickExtraDirective;
 }
 
 /// Dart-side mirror of one scenario (场景): a user-named style directive

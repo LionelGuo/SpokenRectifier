@@ -5,7 +5,9 @@
 //! - [`select_intensity`] picks light-touch vs full rectify by utterance
 //!   length — a prompt-level choice only; the configured model serves both.
 //! - [`compose_prompt`] renders the fidelity rule, the five transforms, and
-//!   the intensity/style/term directives.
+//!   the intensity/style/term directives; a quick-mode request (ADR-0020)
+//!   takes the light-touch section with the quick extra directive in the
+//!   light-touch one's place, and never thinks.
 //! - [`live_llm`] builds the production client from a loaded config:
 //!   format picks the SSE dialect (openai_chat, anthropic, gemini).
 //!   [`live_llm_with_reasoning_counter`] is the eval observation hook.
@@ -24,9 +26,9 @@ mod vendor;
 pub use client::{OpenAiCompatLlm, live_llm, live_llm_with_reasoning_counter};
 pub use config::{
     ConfigError, ConnectionThinking, CustomConnectionEdit, CustomSlot, LightTouchConfig,
-    LightTouchEdit, LlmConfig, LlmConnectionEdit, ModelConfig, Overlays, RectifyBehaviorEdit,
-    RectifyConfig, RectifyTier, ThinkingPolicy, ThinkingState, TierEdit, load_llm_config,
-    save_llm_connection, save_rectify_behavior,
+    LightTouchEdit, LlmConfig, LlmConnectionEdit, ModelConfig, Overlays, QuickConfig, QuickEdit,
+    RectifyBehaviorEdit, RectifyConfig, RectifyTier, ThinkingPolicy, ThinkingState, TierEdit,
+    load_llm_config, save_llm_connection, save_rectify_behavior,
 };
 pub use format::Format;
 pub use intensity::{Intensity, select_intensity};

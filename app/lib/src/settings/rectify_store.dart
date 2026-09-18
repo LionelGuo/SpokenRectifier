@@ -1,5 +1,6 @@
 /// The settings window's rectify seam: the effective `[rectify.full]` /
-/// `[rectify.light_touch]` behavior (ADR-0015/0016) from the layer files,
+/// `[rectify.light_touch]` / `[rectify.quick]` behavior (ADR-0015/0016/0020)
+/// from the layer files,
 /// legacy `[llm]` keys already folded in through the grandfather. One
 /// model both ways — the read paints the initial form, every save writes
 /// the whole model (the owning layers and the per-layer legacy-key
@@ -28,7 +29,9 @@ const _unset = Object();
 
 /// The `[rectify]` behavior as the pane paints and saves it: both tiers'
 /// thinking policy and prefill, the light-touch master switch,
-/// threshold, and extra directive. Two tiers, never inheriting.
+/// threshold, and extra directive, plus the quick-mode sub-section
+/// (master switch, rectify gate, its own directive). Two tiers, never
+/// inheriting; quick stands beside them rather than above.
 class RectifyBehavior {
   const RectifyBehavior({
     required this.fullThinkingPolicy,
@@ -38,6 +41,9 @@ class RectifyBehavior {
     required this.lightTouchThinkingPolicy,
     required this.lightTouchPrefill,
     this.lightTouchExtraDirective,
+    this.quickEnabled = false,
+    this.quickRectify = true,
+    this.quickExtraDirective,
   });
 
   /// `always` | `placeholders` | `off` (ADR-0015).
@@ -54,6 +60,18 @@ class RectifyBehavior {
   /// (ADR-0016: an empty save removes the key).
   final String? lightTouchExtraDirective;
 
+  /// The quick-mode master switch (ADR-0020): off — the file default —
+  /// means no held hotkey ever upgrades a session.
+  final bool quickEnabled;
+
+  /// Whether an upgraded session still rectifies; off pastes the raw
+  /// transcript straight through.
+  final bool quickRectify;
+
+  /// The quick-mode-only directive, taken in place of the light-touch
+  /// one on quick attempts; null/blank = not injected (ADR-0020).
+  final String? quickExtraDirective;
+
   /// A copy with the named fields replaced — the pick-to-save flow's
   /// builder (a chip click or a switch flip writes the whole model with
   /// everything else as committed).
@@ -65,6 +83,9 @@ class RectifyBehavior {
     String? lightTouchThinkingPolicy,
     bool? lightTouchPrefill,
     Object? lightTouchExtraDirective = _unset,
+    bool? quickEnabled,
+    bool? quickRectify,
+    Object? quickExtraDirective = _unset,
   }) => RectifyBehavior(
     fullThinkingPolicy: fullThinkingPolicy ?? this.fullThinkingPolicy,
     fullPrefill: fullPrefill ?? this.fullPrefill,
@@ -76,6 +97,11 @@ class RectifyBehavior {
     lightTouchExtraDirective: identical(lightTouchExtraDirective, _unset)
         ? this.lightTouchExtraDirective
         : lightTouchExtraDirective as String?,
+    quickEnabled: quickEnabled ?? this.quickEnabled,
+    quickRectify: quickRectify ?? this.quickRectify,
+    quickExtraDirective: identical(quickExtraDirective, _unset)
+        ? this.quickExtraDirective
+        : quickExtraDirective as String?,
   );
 
   @override
@@ -87,7 +113,10 @@ class RectifyBehavior {
       other.lightTouchMaxChars == lightTouchMaxChars &&
       other.lightTouchThinkingPolicy == lightTouchThinkingPolicy &&
       other.lightTouchPrefill == lightTouchPrefill &&
-      other.lightTouchExtraDirective == lightTouchExtraDirective;
+      other.lightTouchExtraDirective == lightTouchExtraDirective &&
+      other.quickEnabled == quickEnabled &&
+      other.quickRectify == quickRectify &&
+      other.quickExtraDirective == quickExtraDirective;
 
   @override
   int get hashCode => Object.hash(
@@ -98,6 +127,9 @@ class RectifyBehavior {
     lightTouchThinkingPolicy,
     lightTouchPrefill,
     lightTouchExtraDirective,
+    quickEnabled,
+    quickRectify,
+    quickExtraDirective,
   );
 }
 
@@ -144,6 +176,9 @@ class RustRectifyBehaviorStore implements RectifyBehaviorStore {
         lightTouchThinkingPolicy: behavior.lightTouchThinkingPolicy,
         lightTouchPrefill: behavior.lightTouchPrefill,
         lightTouchExtraDirective: behavior.lightTouchExtraDirective,
+        quickEnabled: behavior.quickEnabled,
+        quickRectify: behavior.quickRectify,
+        quickExtraDirective: behavior.quickExtraDirective,
       );
 
   static RectifyBehavior _fromWire(rust.BridgeRectifyBehavior view) =>
@@ -155,5 +190,8 @@ class RustRectifyBehaviorStore implements RectifyBehaviorStore {
         lightTouchThinkingPolicy: view.lightTouchThinkingPolicy,
         lightTouchPrefill: view.lightTouchPrefill,
         lightTouchExtraDirective: view.lightTouchExtraDirective,
+        quickEnabled: view.quickEnabled,
+        quickRectify: view.quickRectify,
+        quickExtraDirective: view.quickExtraDirective,
       );
 }

@@ -38,6 +38,15 @@ pub struct RectifyRequest {
     /// table (ADR-0014). Meaningless without pins — a no-pin composition
     /// is byte-identical either way (ADR-0012).
     pub prefill: bool,
+    /// Whether this attempt is a quick-mode pass-through (ADR-0020): the
+    /// session was upgraded by holding the hotkey past the threshold, so
+    /// there is no preview, no edit phase, and never a placeholder slot.
+    /// The client answers it by taking the light-touch intensity section
+    /// whatever the length and the master switch say, swapping the quick
+    /// extra directive in for the light-touch one, and forcing thinking
+    /// off. `false` — every ordinary attempt — composes exactly as
+    /// before: the flag changes nothing by itself.
+    pub quick: bool,
 }
 
 /// Stream of rectified-text token deltas.

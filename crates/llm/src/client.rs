@@ -148,10 +148,21 @@ impl OpenAiCompatLlm {
     /// default; the client owns the truth, so a runtime re-adoption (a
     /// rebuilt client) carries a changed key for free (ADR-0014/0015).
     fn composed_prompt(&self, request: &RectifyRequest, intensity: Intensity) -> ChatPrompt {
-        let tier = self.config.rectify.tier(intensity);
         let mut shaped = request.clone();
-        shaped.prefill = tier.prefill;
+        if !request.quick {
+            // The tier's prefill key rides onto the request here. A
+            // quick-mode attempt never consults it (ADR-0020): there are
+            // no slots to absorb, so the key has nothing to say — and the
+            // request's own flag stays untouched, keeping this hop out of
+            // the quick path's composition.
+            shaped.prefill = self.config.rectify.tier(intensity).prefill;
+        }
         let extra = match intensity {
+            // The quick slot replaces the light-touch one, never riding
+            // with it (ADR-0020).
+            Intensity::LightTouch if request.quick => {
+                self.config.rectify.quick.extra_directive.as_deref()
+            }
             Intensity::LightTouch => self.config.rectify.light_touch.extra_directive.as_deref(),
             Intensity::Full => None,
         };
@@ -161,12 +172,20 @@ impl OpenAiCompatLlm {
     /// The chosen tier's thinking policy folded to the boolean the
     /// request body carries (ADR-0015's evaluation): `placeholders`
     /// runs the census the prompt's injection gate runs — the two can
-    /// never disagree (one census, two consumers).
-    fn thinking_enabled(&self, raw_transcript: &str, intensity: Intensity) -> bool {
+    /// never disagree (one census, two consumers). A quick-mode attempt
+    /// never thinks (ADR-0020): the policy is forced off whatever the
+    /// tier says, so the request carries the connection's off share when
+    /// it has one — and no thinking key at all when the fields are
+    /// unconfigured, off, or broken, leaving the endpoint on its own
+    /// default (ADR-0019).
+    fn thinking_enabled(&self, request: &RectifyRequest, intensity: Intensity) -> bool {
+        if request.quick {
+            return false;
+        }
         match self.config.rectify.tier(intensity).thinking_policy {
             ThinkingPolicy::Always => true,
             ThinkingPolicy::Off => false,
-            ThinkingPolicy::Placeholders => has_pins(raw_transcript),
+            ThinkingPolicy::Placeholders => has_pins(&request.raw_transcript),
         }
     }
 }
@@ -195,9 +214,15 @@ impl RectifyLlm for OpenAiCompatLlm {
         // The gate plus length pick the intensity — how the prompt asks
         // for rectify — never the model: one endpoint serves both
         // (ADR-0015's evaluation order: intensity first, then that
-        // tier's policy and prefill).
-        let gate = &self.config.rectify.light_touch;
-        let intensity = select_intensity(&request.raw_transcript, gate.enabled, gate.max_chars);
+        // tier's policy and prefill). A quick-mode attempt skips the
+        // choice entirely (ADR-0020): it always takes the light-touch
+        // section, whatever the length and the master switch say.
+        let intensity = if request.quick {
+            Intensity::LightTouch
+        } else {
+            let gate = &self.config.rectify.light_touch;
+            select_intensity(&request.raw_transcript, gate.enabled, gate.max_chars)
+        };
         let model = &self.config.model;
         let key = model.resolve_key().ok_or_else(|| {
             let env_hint = model
@@ -212,7 +237,7 @@ impl RectifyLlm for OpenAiCompatLlm {
             ))
         })?;
         let prompt = self.composed_prompt(&request, intensity);
-        let thinking = self.thinking_enabled(&request.raw_transcript, intensity);
+        let thinking = self.thinking_enabled(&request, intensity);
         let url = model.format.complete_url(&model.base_url, &model.model);
         let body = request_body(model, &prompt, thinking);
         let response = post_sse(&self.http, model, &key, &url, &body).await?;
@@ -483,6 +508,7 @@ mod tests {
             global_directive: None,
             terms: Vec::new(),
             prefill: true, // the engine's seam default
+            quick: false,
         };
         let mut off_config = LlmConfig::defaults();
         off_config.rectify.full.prefill = false;
@@ -509,17 +535,138 @@ mod tests {
         let mut config = LlmConfig::defaults();
         config.rectify.full.thinking_policy = ThinkingPolicy::Placeholders;
         let llm = OpenAiCompatLlm::new(config).unwrap();
-        assert!(llm.thinking_enabled("记一下‡1‡的安排", Intensity::Full));
-        assert!(!llm.thinking_enabled("没有记号的短句", Intensity::Full));
+        let pinned = request_for("记一下‡1‡的安排");
+        assert!(llm.thinking_enabled(&pinned, Intensity::Full));
+        let plain = request_for("没有记号的短句");
+        assert!(!llm.thinking_enabled(&plain, Intensity::Full));
         // The tiers never inherit: the untouched light-touch tier stays
         // always-on, and each tier reads its own policy.
-        assert!(llm.thinking_enabled("没有记号的短句", Intensity::LightTouch));
+        assert!(llm.thinking_enabled(&plain, Intensity::LightTouch));
 
         let mut off = LlmConfig::defaults();
         off.rectify.light_touch.tier.thinking_policy = ThinkingPolicy::Off;
         let off = OpenAiCompatLlm::new(off).unwrap();
-        assert!(!off.thinking_enabled("记一下‡1‡的安排", Intensity::LightTouch));
-        assert!(off.thinking_enabled("记一下‡1‡的安排", Intensity::Full));
+        assert!(!off.thinking_enabled(&pinned, Intensity::LightTouch));
+        assert!(off.thinking_enabled(&pinned, Intensity::Full));
+    }
+
+    /// A request over `text` — the probe every client-level test builds
+    /// from; `quick` flips it to the held-hotkey form (ADR-0020).
+    fn request_for(text: &str) -> RectifyRequest {
+        RectifyRequest {
+            raw_transcript: text.into(),
+            paragraphs: vec![text.into()],
+            style_directive: None,
+            global_directive: None,
+            terms: Vec::new(),
+            prefill: true,
+            quick: false,
+        }
+    }
+
+    /// A quick-mode attempt always takes the light-touch section, and the
+    /// directive slot right under it carries the quick directive — never
+    /// the light-touch one (ADR-0020). Which intensity the client derives
+    /// is the `rectify()` call's business (the integration test below
+    /// covers it end to end); here the section that intensity selects is
+    /// the one under test.
+    #[test]
+    fn a_quick_attempt_carries_the_quick_directive_not_the_light_touch_one() {
+        let mut config = LlmConfig::defaults();
+        config.rectify.light_touch.extra_directive = Some("轻修私货".into());
+        config.rectify.quick.extra_directive = Some("快速私货".into());
+        let llm = OpenAiCompatLlm::new(config).unwrap();
+
+        let quick = request_for("嗯你好世界");
+        let quick = RectifyRequest { quick: true, ..quick };
+        let prompt = llm.composed_prompt(&quick, Intensity::LightTouch);
+        assert!(prompt.system.contains("【快速额外指令】"), "got: {}", prompt.system);
+        assert!(prompt.system.contains("快速私货"));
+        assert!(!prompt.system.contains("轻修私货"));
+        assert!(!prompt.system.contains("【轻修额外指令】"));
+
+        // The same utterance unquickened keeps the light-touch directive:
+        // the flag picks the slot's occupant, nothing else moves.
+        let plain = llm.composed_prompt(&request_for("嗯你好世界"), Intensity::LightTouch);
+        assert!(plain.system.contains("轻修私货"));
+        assert!(!plain.system.contains("快速私货"));
+    }
+
+    /// Quick mode never thinks (ADR-0020): the policy is forced off
+    /// whatever the tier — even a `placeholders` policy over a pinned
+    /// transcript, and even the tier left always-on.
+    #[test]
+    fn a_quick_attempt_never_thinks() {
+        let mut config = LlmConfig::defaults();
+        config.rectify.full.thinking_policy = ThinkingPolicy::Placeholders;
+        let llm = OpenAiCompatLlm::new(config).unwrap();
+
+        let quick = RectifyRequest {
+            quick: true,
+            ..request_for("记一下‡1‡的安排")
+        };
+        for intensity in [Intensity::LightTouch, Intensity::Full] {
+            assert!(!llm.thinking_enabled(&quick, intensity), "{intensity:?}");
+        }
+        // The unquickened twin still thinks — the census tier included,
+        // so the forcing is the flag and not a broken policy read.
+        let plain = request_for("记一下‡1‡的安排");
+        assert!(llm.thinking_enabled(&plain, Intensity::Full));
+    }
+
+    /// A quick attempt never consults the prefill key (ADR-0020): with
+    /// pins in the transcript the composition follows the request's own
+    /// flag, not the config's. Unreachable in production — a quick
+    /// session can pin nothing — but the contract is what the ticket
+    /// bought, so it is pinned here.
+    #[test]
+    fn a_quick_attempt_ignores_the_prefill_key() {
+        let mut config = LlmConfig::defaults();
+        config.rectify.full.prefill = false;
+        config.rectify.light_touch.tier.prefill = false;
+        let llm = OpenAiCompatLlm::new(config).unwrap();
+
+        let quick = RectifyRequest {
+            quick: true,
+            ..request_for("记一下‡1‡的安排")
+        };
+        let prompt = llm.composed_prompt(&quick, Intensity::LightTouch);
+        assert!(
+            prompt.user.contains("【占位符清单】"),
+            "the config's prefill key reached a quick attempt: {}",
+            prompt.user
+        );
+
+        // The unquickened twin takes the config's key and drops the table.
+        let plain = request_for("记一下‡1‡的安排");
+        let plain = llm.composed_prompt(&plain, Intensity::LightTouch);
+        assert!(!plain.user.contains("【占位符清单】"));
+    }
+
+    /// The quick config is inert for every ordinary attempt — the hard
+    /// invariant of the ticket: with the whole quick sub-section
+    /// configured, a `quick: false` request composes exactly what the
+    /// no-config entry point composes.
+    #[test]
+    fn the_quick_config_changes_nothing_for_a_plain_attempt() {
+        let mut config = LlmConfig::defaults();
+        config.rectify.quick.enabled = true;
+        config.rectify.quick.rectify = false;
+        config.rectify.quick.extra_directive = Some("快速私货".into());
+        let llm = OpenAiCompatLlm::new(config).unwrap();
+
+        for text in ["嗯你好世界", "记一下‡1‡的安排"] {
+            let request = request_for(text);
+            for intensity in [Intensity::LightTouch, Intensity::Full] {
+                assert_eq!(
+                    llm.composed_prompt(&request, intensity),
+                    crate::prompt::compose_prompt(&request, intensity),
+                    "{text} / {intensity:?}: the quick keys leaked"
+                );
+            }
+        }
+        let request = request_for("没有记号的短句");
+        assert!(llm.thinking_enabled(&request, Intensity::LightTouch));
     }
 
     fn feed_all(chunks: &[&str]) -> Vec<String> {

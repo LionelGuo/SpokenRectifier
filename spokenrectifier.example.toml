@@ -136,6 +136,8 @@ retention_days = 30         # sessions older than this are swept on launch
 # keys stay stored, just unadopted), the threshold, and the extra
 # directive (blank = not injected; injected only on light-touch
 # attempts, as its own section after the intensity one).
+# [rectify.quick] is the third sub-section, for the held-hotkey
+# pass-through (ADR-0020) — see its own note below.
 # Every key below is optional: defaults are today's behavior. The
 # settings window's 修正 domain edits this section; its first save
 # translates the retired legacy [llm] thinking / prefill /
@@ -151,6 +153,24 @@ max_chars = 40                          # strictly below: light-touch; at or abo
 thinking_policy = "always"
 prefill = true
 # extra_directive = "短句尽量保留口语节奏" # light-touch attempts only (ADR-0016)
+
+# Quick mode (快速模式, ADR-0020): holding the main flow hotkey past the
+# fixed threshold upgrades the session — release ends recording, the
+# window never waits for a confirmation, no edit phase, and no
+# placeholder may be pinned into it. The master switch is OFF by
+# default, so every existing gesture keeps today's meaning. A quick
+# session always takes the light-touch intensity section — never the
+# character threshold, never the light-touch master switch — and swaps
+# its own extra directive in for the light-touch one; thinking is forced
+# off (with no thinking fields configured the request carries no
+# thinking key at all, leaving the endpoint on its own default). With
+# rectify = false the raw transcript is pasted straight through and no
+# model is called. A blank extra_directive = not injected. A failed
+# rectify or insertion falls back to the normal preview.
+[rectify.quick]
+enabled = false                         # off: no hold upgrades a session
+rectify = true                          # off: paste the raw transcript as-is
+# extra_directive = "短句尽量保留口语节奏" # quick-mode attempts only, replaces the light-touch directive
 
 # Rectify LLM: any OpenAI-compatible endpoint, bring your own key.
 # One model per mode: light-touch vs full rectify is decided by

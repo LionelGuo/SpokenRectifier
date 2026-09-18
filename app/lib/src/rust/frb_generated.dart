@@ -1843,8 +1843,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BridgeRectifyBehavior dco_decode_bridge_rectify_behavior(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return BridgeRectifyBehavior(
       fullThinkingPolicy: dco_decode_String(arr[0]),
       fullPrefill: dco_decode_bool(arr[1]),
@@ -1853,6 +1853,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lightTouchThinkingPolicy: dco_decode_String(arr[4]),
       lightTouchPrefill: dco_decode_bool(arr[5]),
       lightTouchExtraDirective: dco_decode_opt_String(arr[6]),
+      quickEnabled: dco_decode_bool(arr[7]),
+      quickRectify: dco_decode_bool(arr[8]),
+      quickExtraDirective: dco_decode_opt_String(arr[9]),
     );
   }
 
@@ -2655,6 +2658,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_lightTouchThinkingPolicy = sse_decode_String(deserializer);
     var var_lightTouchPrefill = sse_decode_bool(deserializer);
     var var_lightTouchExtraDirective = sse_decode_opt_String(deserializer);
+    var var_quickEnabled = sse_decode_bool(deserializer);
+    var var_quickRectify = sse_decode_bool(deserializer);
+    var var_quickExtraDirective = sse_decode_opt_String(deserializer);
     return BridgeRectifyBehavior(
       fullThinkingPolicy: var_fullThinkingPolicy,
       fullPrefill: var_fullPrefill,
@@ -2663,6 +2669,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lightTouchThinkingPolicy: var_lightTouchThinkingPolicy,
       lightTouchPrefill: var_lightTouchPrefill,
       lightTouchExtraDirective: var_lightTouchExtraDirective,
+      quickEnabled: var_quickEnabled,
+      quickRectify: var_quickRectify,
+      quickExtraDirective: var_quickExtraDirective,
     );
   }
 
@@ -3445,6 +3454,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.lightTouchThinkingPolicy, serializer);
     sse_encode_bool(self.lightTouchPrefill, serializer);
     sse_encode_opt_String(self.lightTouchExtraDirective, serializer);
+    sse_encode_bool(self.quickEnabled, serializer);
+    sse_encode_bool(self.quickRectify, serializer);
+    sse_encode_opt_String(self.quickExtraDirective, serializer);
   }
 
   @protected

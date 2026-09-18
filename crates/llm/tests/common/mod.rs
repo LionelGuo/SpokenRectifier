@@ -56,6 +56,16 @@ pub fn request(text: &str) -> RectifyRequest {
         global_directive: None,
         terms: vec![],
         prefill: true,
+        quick: false,
+    }
+}
+
+/// The quick-mode twin of [`request`] (ADR-0020): the same utterance
+/// asked for as a held-hotkey pass-through.
+pub fn quick_request(text: &str) -> RectifyRequest {
+    RectifyRequest {
+        quick: true,
+        ..request(text)
     }
 }
 

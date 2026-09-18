@@ -471,6 +471,10 @@ impl Engine {
                     // the [llm] prefill config over this before
                     // composing (ADR-0014).
                     prefill: true,
+                    // A rectified text never came from a held hotkey:
+                    // quick mode is a gesture on a live session, and
+                    // this path has no session to upgrade (ADR-0020).
+                    quick: false,
                 },
                 timings,
             )
@@ -794,6 +798,10 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         // the [llm] prefill config over this before
                         // composing (ADR-0014).
                         prefill: true,
+                        // The session's quick flag lands here once the
+                        // engine tracks the hold; no attempt is quick
+                        // yet (ADR-0020).
+                        quick: false,
                     },
                     timings,
                 )
@@ -819,6 +827,10 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         // the [llm] prefill config over this before
                         // composing (ADR-0014).
                         prefill: true,
+                        // The session's quick flag lands here once the
+                        // engine tracks the hold; no attempt is quick
+                        // yet (ADR-0020).
+                        quick: false,
                     },
                     timings,
                 )

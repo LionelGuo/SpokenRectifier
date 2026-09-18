@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{config_with_base, long_request, request};
+use common::{config_with_base, long_request, quick_request, request};
 use futures::StreamExt;
 use httpmock::{Method, MockServer};
 use spokenrectifier_engine::provider::llm::{RectifyLlm, RectifyRequest};
@@ -337,4 +337,55 @@ async fn gemini_error_object_fails_the_stream() {
         other => panic!("expected stream error, got {other:?}"),
     };
     assert!(err.contains("Resource exhausted"), "got: {err}");
+}
+
+/// A quick-mode attempt end to end (ADR-0020): the transcript is long
+/// enough for full rectify, the light-touch master switch is open, and
+/// the request still goes out with the light-touch intensity section,
+/// the quick extra directive in the light-touch one's place, and the
+/// thinking off share. The two never-firing mocks are the negative half:
+/// neither the full-rectify form nor the light-touch directive rides
+/// this body.
+#[tokio::test]
+async fn a_quick_attempt_streams_the_light_touch_section_with_the_quick_directive() {
+    let server = MockServer::start();
+    let quick = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/chat/completions")
+            .body_contains("轻修(本次输入较短)")
+            .body_contains("【快速额外指令】")
+            .body_contains("快速私货")
+            .body_contains("\"thinking\":{\"type\":\"disabled\"}");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(sse_body());
+    });
+    let full_form = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/chat/completions")
+            .body_contains("全量修正(本次输入为中长段)");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(sse_body());
+    });
+    let light_directive = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/chat/completions")
+            .body_contains("【轻修额外指令】");
+        then.status(200)
+            .header("content-type", "text/event-stream")
+            .body(sse_body());
+    });
+
+    let mut config = config_with_base(server.base_url(), true);
+    config.rectify.light_touch.extra_directive = Some("轻修私货".into());
+    config.rectify.quick.extra_directive = Some("快速私货".into());
+    let llm = OpenAiCompatLlm::new(config).unwrap();
+
+    let deltas = collect(&llm, quick_request(&"字".repeat(40))).await;
+    assert_eq!(deltas, vec!["会议", "纪要"]);
+
+    quick.assert_hits(1);
+    full_form.assert_hits(0);
+    light_directive.assert_hits(0);
 }

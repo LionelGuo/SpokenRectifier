@@ -2014,6 +2014,9 @@ impl SseDecode for crate::api::BridgeRectifyBehavior {
         let mut var_lightTouchThinkingPolicy = <String>::sse_decode(deserializer);
         let mut var_lightTouchPrefill = <bool>::sse_decode(deserializer);
         let mut var_lightTouchExtraDirective = <Option<String>>::sse_decode(deserializer);
+        let mut var_quickEnabled = <bool>::sse_decode(deserializer);
+        let mut var_quickRectify = <bool>::sse_decode(deserializer);
+        let mut var_quickExtraDirective = <Option<String>>::sse_decode(deserializer);
         return crate::api::BridgeRectifyBehavior {
             full_thinking_policy: var_fullThinkingPolicy,
             full_prefill: var_fullPrefill,
@@ -2022,6 +2025,9 @@ impl SseDecode for crate::api::BridgeRectifyBehavior {
             light_touch_thinking_policy: var_lightTouchThinkingPolicy,
             light_touch_prefill: var_lightTouchPrefill,
             light_touch_extra_directive: var_lightTouchExtraDirective,
+            quick_enabled: var_quickEnabled,
+            quick_rectify: var_quickRectify,
+            quick_extra_directive: var_quickExtraDirective,
         };
     }
 }
@@ -3067,6 +3073,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeRectifyBehavior {
             self.light_touch_extra_directive
                 .into_into_dart()
                 .into_dart(),
+            self.quick_enabled.into_into_dart().into_dart(),
+            self.quick_rectify.into_into_dart().into_dart(),
+            self.quick_extra_directive.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3648,6 +3657,9 @@ impl SseEncode for crate::api::BridgeRectifyBehavior {
         <String>::sse_encode(self.light_touch_thinking_policy, serializer);
         <bool>::sse_encode(self.light_touch_prefill, serializer);
         <Option<String>>::sse_encode(self.light_touch_extra_directive, serializer);
+        <bool>::sse_encode(self.quick_enabled, serializer);
+        <bool>::sse_encode(self.quick_rectify, serializer);
+        <Option<String>>::sse_encode(self.quick_extra_directive, serializer);
     }
 }
 

@@ -712,6 +712,7 @@ prefill = [{ pin = 1, any = [\" \"] }]
                 global_directive: None,
                 terms: suite.terms.clone(),
                 prefill: !case.pass_through,
+                quick: false,
             };
             let prompt = compose_prompt(&request, select_intensity(&case.transcript, true, 40));
             let pinned = !sentinel_counts(&case.transcript).is_empty();

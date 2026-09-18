@@ -44,6 +44,7 @@ fn request(
         global_directive: global_directive.map(str::to_string),
         terms: terms.iter().map(|t| t.to_string()).collect(),
         prefill: true,
+        quick: false,
     }
 }
 
