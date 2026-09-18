@@ -291,31 +291,114 @@ class AsrAzureEdit {
   final String? endpointId;
 }
 
+/// One preset chip's fill, read from the engine-side single source
+/// (`crates/llm::presets` behind the bridge's read-only port): the
+/// pane never copies the table (ADR-0019 item 5). The blank 自定义
+/// chip is the pane's own — it names no preset.
+class LlmPreset {
+  const LlmPreset({
+    required this.name,
+    required this.format,
+    required this.baseUrl,
+    required this.model,
+    required this.thinkingFields,
+    required this.thinkingOnJson,
+    required this.thinkingOffJson,
+  });
+
+  /// The chip's wire name — also the vendor slot it names.
+  final String name;
+  final String format;
+  final String baseUrl;
+  final String model;
+
+  /// The 「设置思考字段」 switch the chip stamps.
+  final bool thinkingFields;
+  final String thinkingOnJson;
+  final String thinkingOffJson;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LlmPreset &&
+      other.name == name &&
+      other.format == format &&
+      other.baseUrl == baseUrl &&
+      other.model == model &&
+      other.thinkingFields == thinkingFields &&
+      other.thinkingOnJson == thinkingOnJson &&
+      other.thinkingOffJson == thinkingOffJson;
+
+  @override
+  int get hashCode => Object.hash(
+    name,
+    format,
+    baseUrl,
+    model,
+    thinkingFields,
+    thinkingOnJson,
+    thinkingOffJson,
+  );
+}
+
 /// The effective `[llm]` connection as the pane paints it. [key] is the
 /// ACTIVE vendor's resolved pair; [keys] carries every vendor's — a key
 /// authenticates exactly one vendor, so the pane re-binds its key block
 /// per vendor chip and a switch never shows another vendor's key
-/// (ADR-0011). [custom] is the `[llm.custom]` slot (ADR-0018): the
-/// restore cache the custom chip paints on its return, plus the dialect
-/// and overlay fields only that chip edits.
+/// (ADR-0011).
+///
+/// The open shape (ADR-0019): [format] is the one behavioral axis, the
+/// thinking group rides as its four-state reading plus the three
+/// overlays' JSON text, and the vendor is only the active slot + last
+/// clicked preset pointer.
 class LlmConnection {
   const LlmConnection({
     required this.vendor,
     required this.baseUrl,
     required this.model,
+    required this.format,
     required this.key,
     required this.keys,
-    required this.custom,
+    required this.thinkingState,
+    this.thinkingDetail,
+    this.bodyJson,
+    this.thinkingOnJson,
+    this.thinkingOffJson,
   });
 
   final String vendor;
   final String baseUrl;
   final String model;
+
+  /// `openai_chat` / `anthropic` / `gemini`.
+  final String format;
   final KeyInfo key;
 
   /// Every vendor's resolved key pair, keyed by vendor name.
   final Map<String, KeyInfo> keys;
-  final LlmCustom custom;
+
+  /// `on` / `off` / `unconfigured` / `broken` — the thinking group's
+  /// reading. Only `on` is the switch's painted state (ADR-0019 item 3).
+  final String thinkingState;
+
+  /// The broken branch's file-and-key detail, for the card's warning.
+  final String? thinkingDetail;
+
+  /// The three overlays as the JSON text the boxes hold; null unset.
+  final String? bodyJson;
+  final String? thinkingOnJson;
+  final String? thinkingOffJson;
+
+  /// The switch as painted: only `on` turns the fields on.
+  bool get thinkingFields => thinkingState == 'on';
+
+  /// The disable condition off, unconfigured, and broken share — what
+  /// the rectify cards read (ADR-0019 item 3, design-spec §4.4).
+  bool get thinkingDisabled => thinkingState != 'on';
+
+  /// A malformed group: the connection domain refuses every save until
+  /// the file is hand-fixed (the ratchet cannot rewrite a group it
+  /// cannot read — 01's bad-file boundary).
+  bool get thinkingBroken => thinkingState == 'broken';
 
   @override
   bool operator ==(Object other) =>
@@ -323,59 +406,58 @@ class LlmConnection {
       other.vendor == vendor &&
       other.baseUrl == baseUrl &&
       other.model == model &&
+      other.format == format &&
       other.key == key &&
       MapEquality().equals(other.keys, keys) &&
-      other.custom == custom;
+      other.thinkingState == thinkingState &&
+      other.thinkingDetail == thinkingDetail &&
+      other.bodyJson == bodyJson &&
+      other.thinkingOnJson == thinkingOnJson &&
+      other.thinkingOffJson == thinkingOffJson;
 
   @override
-  int get hashCode =>
-      Object.hash(vendor, baseUrl, model, key, keys.length, custom);
+  int get hashCode => Object.hash(
+    vendor,
+    baseUrl,
+    model,
+    format,
+    key,
+    keys.length,
+    thinkingState,
+    thinkingDetail,
+    bodyJson,
+    thinkingOnJson,
+    thinkingOffJson,
+  );
 }
 
-/// The `[llm.custom]` slot as the pane paints it (ADR-0018): the
-/// endpoint's restore cache, the thinking dialect (always resolved — a
-/// missing key reads as openai), and the request-body overlay as the
-/// JSON text the box holds.
-class LlmCustom {
-  const LlmCustom({
+/// The editor's whole `[llm]` card: the endpoint fields, the format
+/// axis, the thinking switch, and the three overlay boxes as the JSON
+/// text they hold (blank or `{}` = that share unset). Saving writes
+/// exactly this model; the Rust side refuses a bad box or an on switch
+/// whose on-share is empty before a single file is touched.
+class LlmEdit {
+  const LlmEdit({
+    required this.vendor,
     required this.baseUrl,
     required this.model,
-    required this.thinkingDialect,
-    required this.extraBodyJson,
+    required this.format,
+    required this.thinkingFields,
+    this.bodyJson,
+    this.thinkingOnJson,
+    this.thinkingOffJson,
+    required this.apiKey,
   });
 
-  /// The restore cache; empty while never configured.
-  final String? baseUrl;
-  final String? model;
-
-  /// One of the four adapted shape names.
-  final String thinkingDialect;
-
-  /// The stored overlay as pretty JSON; null when unset.
-  final String? extraBodyJson;
-
-  @override
-  bool operator ==(Object other) =>
-      other is LlmCustom &&
-      other.baseUrl == baseUrl &&
-      other.model == model &&
-      other.thinkingDialect == thinkingDialect &&
-      other.extraBodyJson == extraBodyJson;
-
-  @override
-  int get hashCode =>
-      Object.hash(baseUrl, model, thinkingDialect, extraBodyJson);
-}
-
-/// The custom slot's editable fields (ADR-0018): the dialect and the
-/// overlay's JSON text (blank/`{}` = unset). The slot's base_url/model
-/// are not edits — an active-custom save mirrors the common fields; a
-/// save from another chip leaves the slot alone.
-class LlmCustomEdit {
-  const LlmCustomEdit({required this.thinkingDialect, this.extraBodyJson});
-
-  final String thinkingDialect;
-  final String? extraBodyJson;
+  final String vendor;
+  final String baseUrl;
+  final String model;
+  final String format;
+  final bool thinkingFields;
+  final String? bodyJson;
+  final String? thinkingOnJson;
+  final String? thinkingOffJson;
+  final ApiKeyEdit apiKey;
 }
 
 /// Connection persistence as the connection domain needs it.
@@ -399,16 +481,13 @@ abstract class ConnectionStore {
     String? appId,
   });
 
-  /// Write the editor's `[llm]` model; returns the re-read view. The
-  /// custom edit rides along but is read only when the vendor chip is
-  /// custom (ADR-0018).
-  Future<LlmConnection> saveLlm({
-    required String vendor,
-    required String baseUrl,
-    required String model,
-    required ApiKeyEdit apiKey,
-    required LlmCustomEdit custom,
-  });
+  /// The preset chip row, from the engine-side single source (ADR-0019
+  /// item 5) — read once, never copied into Dart.
+  Future<List<LlmPreset>> presets();
+
+  /// Write the editor's whole `[llm]` card; returns the re-read view
+  /// (the file's truth, not the ask).
+  Future<LlmConnection> saveLlm({required LlmEdit edit});
 
   /// Adopt the saved connections into the live engine at once
   /// (ADR-0010): the next session opens with the saved ASR provider,
@@ -451,23 +530,35 @@ class RustConnectionStore implements ConnectionStore {
   );
 
   @override
-  Future<LlmConnection> saveLlm({
-    required String vendor,
-    required String baseUrl,
-    required String model,
-    required ApiKeyEdit apiKey,
-    required LlmCustomEdit custom,
-  }) => rust
+  Future<List<LlmPreset>> presets() => rust.llmPresets().then(
+    (rows) => rows
+        .map(
+          (row) => LlmPreset(
+            name: row.name,
+            format: row.format,
+            baseUrl: row.baseUrl,
+            model: row.model,
+            thinkingFields: row.thinkingFields,
+            thinkingOnJson: row.thinkingOnJson,
+            thinkingOffJson: row.thinkingOffJson,
+          ),
+        )
+        .toList(),
+  );
+
+  @override
+  Future<LlmConnection> saveLlm({required LlmEdit edit}) => rust
       .setLlmConnection(
         edit: rust.BridgeLlmEdit(
-          vendor: vendor,
-          baseUrl: baseUrl,
-          model: model,
-          apiKey: _keyToWire(apiKey),
-          custom: rust.BridgeLlmCustomEdit(
-            thinkingDialect: custom.thinkingDialect,
-            extraBodyJson: custom.extraBodyJson,
-          ),
+          vendor: edit.vendor,
+          baseUrl: edit.baseUrl,
+          model: edit.model,
+          format: edit.format,
+          thinkingFields: edit.thinkingFields,
+          bodyJson: edit.bodyJson,
+          thinkingOnJson: edit.thinkingOnJson,
+          thinkingOffJson: edit.thinkingOffJson,
+          apiKey: _keyToWire(edit.apiKey),
         ),
       )
       .then(_llmFromWire);
@@ -552,15 +643,15 @@ class RustConnectionStore implements ConnectionStore {
         vendor: llm.vendor,
         baseUrl: llm.baseUrl,
         model: llm.model,
+        format: llm.format,
         key: _keyFromWire(llm.key),
         keys: {
           for (final entry in llm.keys) entry.vendor: _keyFromWire(entry.key),
         },
-        custom: LlmCustom(
-          baseUrl: llm.custom.baseUrl,
-          model: llm.custom.model,
-          thinkingDialect: llm.custom.thinkingDialect,
-          extraBodyJson: llm.custom.extraBodyJson,
-        ),
+        thinkingState: llm.thinkingState,
+        thinkingDetail: llm.thinkingDetail,
+        bodyJson: llm.bodyJson,
+        thinkingOnJson: llm.thinkingOnJson,
+        thinkingOffJson: llm.thinkingOffJson,
       );
 }

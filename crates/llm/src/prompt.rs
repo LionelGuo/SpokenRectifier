@@ -1021,10 +1021,7 @@ mod tests {
         // passing, so anchor the section head, not the bare phrase.
         let fidelity_at = prompt.system.find("【保真铁律】").expect("fidelity rule");
         let placeholder_at = prompt.system.find("【占位符】").expect("off rule");
-        let transforms_at = prompt
-            .system
-            .find("\n【五类变换】\n")
-            .expect("transforms");
+        let transforms_at = prompt.system.find("\n【五类变换】\n").expect("transforms");
         assert!(fidelity_at < placeholder_at);
         assert!(placeholder_at < transforms_at);
     }
@@ -1148,7 +1145,10 @@ mod tests {
         let global_at = prompt.system.find(GLOBAL).expect("global directive");
         assert!(intensity_at < section_at);
         assert!(scope_at < extra_at, "the scope line rides above the text");
-        assert!(extra_at < global_at, "the section precedes the global block");
+        assert!(
+            extra_at < global_at,
+            "the section precedes the global block"
+        );
         // No trailing reminder in the user message, same as the
         // light-touch form.
         assert!(!prompt.user.contains(QUICK_EXTRA_TITLE));

@@ -3,19 +3,22 @@
 /// through the bridge (section-preserving into the layer files) and
 /// repaints from the re-read view — the file's truth, not the ask.
 ///
-/// The LLM vendor chips are PRESETS: clicking one adopts that vendor's
-/// default base_url (unconditionally — an endpoint switch is the point
-/// of the click) and its default model only when the current name is
-/// empty or happens to be some vendor's default, so a customized model
-/// never gets clobbered. The chip also selects the dialect (vendor) —
-/// except the fifth chip, 自定义 (ADR-0018): it presets nothing, keeps
-/// its own draft fields (endpoint, thinking dialect, request-body JSON)
-/// so a switch away and back loses nothing, and only while selected
-/// paints the dialect row and the JSON box. A custom save writes the
-/// common endpoint and the `[llm.custom]` slot together; a save from
-/// another chip leaves the slot untouched. The overlay's merge order is
-/// dialect fields → custom overlay → the hand-edit `[llm.extra_body]`
-/// hold, which keeps the last word and never shows in the JSON box.
+/// The LLM card is the OPEN shape (ADR-0019): the endpoint as three
+/// fields plus the format trio (the one behavioral axis), the resident
+/// request-body box, and the 「设置思考字段」 switch governing the
+/// thinking pair. The seven chips are PRESETS read from the engine-side
+/// single source over the bridge (never copied here): a click stamps
+/// that preset's format, base_url (unconditionally — an endpoint switch
+/// is the point of the click), model (only when the current name is
+/// empty or still some preset's, so a hand-edited name survives), the
+/// switch, and the two thinking shares. The resident box is never
+/// stamped — it is not a preset field. The last chip 自定义 is the
+/// BLANK preset: it clears the endpoint, the switch, and both thinking
+/// shares, keeps the format, and prefills nothing.
+///
+/// A broken thinking group refuses every save (the ratchet cannot
+/// rewrite a group it cannot read), so the card says so and holds the
+/// save button until the file is hand-fixed.
 ///
 /// The ASR card is isomorphic to the `[asr]` schema (ADR-0009): the
 /// provider chip switches which vendor sub-section paints, while the
@@ -45,35 +48,15 @@ import '../design/toast.dart';
 import '../design/tokens.dart';
 import 'connection_store.dart';
 
-/// The LLM vendor chips, in display order — the custom chip last, its
-/// label 自定义 (ADR-0018): no preset, its own draft fields.
-const _vendors = ['deepseek', 'volcengine', 'qwen', 'openai', 'custom'];
-const _vendorLabels = {'custom': '自定义'};
+/// The blank seventh chip (ADR-0018's custom slot, kept by ADR-0019
+/// item 5): it names a key slot and a blank preset, never a preset row.
+const _customVendor = 'custom';
+const _vendorLabels = {_customVendor: '自定义'};
 
-/// The thinking-dialect chips (ADR-0018): the four adapted shapes, the
-/// same names the vendor row uses. Only the custom chip paints them.
-const _dialects = ['deepseek', 'volcengine', 'qwen', 'openai'];
-
-/// What one vendor chip prefills: the endpoint to switch to, and the
-/// model to adopt only when the field is empty or holds some vendor's
-/// default. Custom has no entry — clicking it paints the drafts.
-const _presets = <String, ({String baseUrl, String model})>{
-  'deepseek': (baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash'),
-  'volcengine': (
-    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    model: 'doubao-seed-2.0-lite',
-  ),
-  'qwen': (
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    model: 'qwen3.5-flash',
-  ),
-  'openai': (baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.2'),
-};
-
-/// The model names any preset would have written — the values a chip
-/// click may freely replace (a customized name is never one of them).
-bool _isSomeVendorDefault(String model) =>
-    _presets.values.any((preset) => preset.model == model);
+/// The format trio (ADR-0019 item 1): the one behavioral axis. A
+/// protocol constant, not preset content — the preset rows that carry
+/// it come over the bridge.
+const _formats = ['openai_chat', 'anthropic', 'gemini'];
 
 /// The ASR provider chips' labels, in display order (the ADR-0009
 /// enum; every sub-section paints, adapter or not — the caption below
@@ -113,44 +96,42 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   String? _error;
   bool _loaded = false;
 
-  // LLM fields. The key block is one controller per vendor: a key
-  // authenticates exactly one vendor, so each chip binds its own pair
-  // and a switch never carries (or loses) another vendor's key
-  // (ADR-0011) — same rule as the ASR card's vendor sub-fields.
+  // LLM fields. The key block is one controller per vendor, made on
+  // demand: a key authenticates exactly one vendor, so each chip binds
+  // its own pair and a switch never carries (or loses) another vendor's
+  // key (ADR-0011). The vendor list is the preset port's plus the
+  // custom slot — nothing here hard-codes it.
   late final TextEditingController _llmBaseUrl = TextEditingController();
   late final TextEditingController _llmModel = TextEditingController();
-  static const _llmVendors = [
-    'deepseek',
-    'volcengine',
-    'qwen',
-    'openai',
-    'custom',
-  ];
-  final Map<String, TextEditingController> _llmKeys = {
-    for (final vendor in _llmVendors) vendor: TextEditingController(),
-  };
-  final Map<String, KeyInfo> _llmKeyInfos = {
-    for (final vendor in _llmVendors)
-      vendor: const KeyInfo(status: KeyPlacement.unset),
-  };
+  late final TextEditingController _llmBody = TextEditingController();
+  late final TextEditingController _llmThinkingOn = TextEditingController();
+  late final TextEditingController _llmThinkingOff = TextEditingController();
+  final Map<String, TextEditingController> _llmKeys = {};
+  final Map<String, KeyInfo> _llmKeyInfos = {};
+
+  /// The preset rows, read once from the bridge's read-only port
+  /// (ADR-0019 item 5). Empty until the first load lands.
+  List<LlmPreset> _presets = const [];
   String _llmVendor = 'deepseek';
+  String _llmFormat = 'openai_chat';
+  bool _llmThinkingFields = false;
+
+  /// The loaded group's reading: drives the switch's caption and the
+  /// refusal a broken group forces on every save.
+  String _llmThinkingState = 'unconfigured';
+  String? _llmThinkingDetail;
+
+  /// The chip row: every preset, then the blank custom seventh.
+  List<String> get _llmVendors => [
+    for (final preset in _presets) preset.name,
+    _customVendor,
+  ];
+
+  TextEditingController _llmKey(String vendor) =>
+      _llmKeys.putIfAbsent(vendor, TextEditingController.new);
+
   KeyInfo get _llmKeyInfo =>
       _llmKeyInfos[_llmVendor] ?? const KeyInfo(status: KeyPlacement.unset);
-  TextEditingController get _llmKey => _llmKeys[_llmVendor]!;
-
-  // The custom chip's draft slot (ADR-0018): its own endpoint fields,
-  // so the draft survives switching away and back, and a fresh slot
-  // paints empty — no preset. While custom is active these ARE the
-  // painted endpoint fields; a save writes the common segment and the
-  // slot together.
-  late final TextEditingController _customBaseUrl = TextEditingController();
-  late final TextEditingController _customModel = TextEditingController();
-  late final TextEditingController _customJson = TextEditingController();
-  String _customDialect = 'openai';
-  TextEditingController get _activeBaseUrl =>
-      _llmVendor == 'custom' ? _customBaseUrl : _llmBaseUrl;
-  TextEditingController get _activeModel =>
-      _llmVendor == 'custom' ? _customModel : _llmModel;
 
   // ASR fields: the common segment, then one group per vendor
   // sub-section — a provider switch repaints, never clears.
@@ -230,9 +211,9 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     for (final controller in [
       _llmBaseUrl,
       _llmModel,
-      _customBaseUrl,
-      _customModel,
-      _customJson,
+      _llmBody,
+      _llmThinkingOn,
+      _llmThinkingOff,
       ..._llmKeys.values,
       _asrModel,
       _asrLanguage,
@@ -256,9 +237,13 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
 
   Future<void> _reload() async {
     try {
-      final config = await widget.store.load();
+      final (config, presets) = await (
+        widget.store.load(),
+        widget.store.presets(),
+      ).wait;
       if (!mounted) return;
       setState(() {
+        _presets = presets;
         _adopt(config.llm, config.asr);
         _loaded = true;
         _error = null;
@@ -272,29 +257,23 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     }
   }
 
-  /// Adopt the LLM view's truth into the form: the endpoint fields, and
+  /// Adopt the LLM view's truth into the form: the endpoint fields, the
+  /// format axis, the thinking group (switch, reading, three boxes), and
   /// every vendor's key pair (a local-file key echoes into that vendor's
-  /// field — the diff base; an env or unset key leaves it empty). The
-  /// custom slot's drafts adopt too (ADR-0018): while custom is active
-  /// the endpoint fields themselves are the drafts' truth (a save
-  /// mirrors them into the slot); while dormant the slot's cache paints
-  /// for the chip's return.
+  /// field — the diff base; an env or unset key leaves it empty).
   void _adoptLlm(LlmConnection llm) {
     _llmVendor = llm.vendor;
     _llmBaseUrl.text = llm.baseUrl;
     _llmModel.text = llm.model;
-    _customBaseUrl.text = llm.vendor == 'custom'
-        ? llm.baseUrl
-        : (llm.custom.baseUrl ?? '');
-    _customModel.text = llm.vendor == 'custom'
-        ? llm.model
-        : (llm.custom.model ?? '');
-    _customDialect = llm.custom.thinkingDialect;
-    _customJson.text = llm.custom.extraBodyJson ?? '';
+    _llmFormat = llm.format;
+    _llmThinkingState = llm.thinkingState;
+    _llmThinkingDetail = llm.thinkingDetail;
+    _llmThinkingFields = llm.thinkingFields;
+    _llmBody.text = llm.bodyJson ?? '';
+    _llmThinkingOn.text = llm.thinkingOnJson ?? '';
+    _llmThinkingOff.text = llm.thinkingOffJson ?? '';
     for (final entry in llm.keys.entries) {
-      final controller = _llmKeys[entry.key];
-      if (controller == null) continue;
-      controller.text = entry.value.storedKey ?? '';
+      _llmKey(entry.key).text = entry.value.storedKey ?? '';
       _llmKeyInfos[entry.key] = entry.value;
     }
   }
@@ -330,24 +309,44 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     _asrAzureEndpointId.text = asr.azure.endpointId ?? '';
   }
 
-  /// A chip click: the preset's base_url unconditionally, its model only
-  /// when the current name is empty or some vendor's default. The custom
-  /// chip presets nothing — its own draft fields take the paint (a fresh
-  /// slot empty; a returning slot as left).
+  /// A chip click stamps the preset (ADR-0019 item 5): format, base_url
+  /// unconditionally, the model only when the current name is empty or
+  /// still some preset's, the switch, and both thinking shares. The
+  /// resident box is NOT a preset field and is never stamped.
+  ///
+  /// The blank custom chip clears the endpoint, the switch, and both
+  /// thinking shares, keeps the current format, and prefills nothing.
   void _applyVendorPreset(String vendor) {
     setState(() {
       _llmVendor = vendor;
-      if (vendor == 'custom') return; // no preset (ADR-0018)
-      final preset = _presets[vendor]!;
+      if (vendor == _customVendor) {
+        _llmBaseUrl.text = '';
+        _llmModel.text = '';
+        _llmThinkingFields = false;
+        _llmThinkingOn.text = '';
+        _llmThinkingOff.text = '';
+        return;
+      }
+      final preset = _presets.firstWhere((row) => row.name == vendor);
       // The key block re-binds to this vendor's own controller on the
       // rebuild — another vendor's key never carries across (ADR-0011).
+      _llmFormat = preset.format;
       _llmBaseUrl.text = preset.baseUrl;
       if (_llmModel.text.trim().isEmpty ||
-          _isSomeVendorDefault(_llmModel.text.trim())) {
+          _isSomePresetModel(_llmModel.text.trim())) {
         _llmModel.text = preset.model;
       }
+      _llmThinkingFields = preset.thinkingFields;
+      _llmThinkingOn.text = preset.thinkingOnJson;
+      _llmThinkingOff.text = preset.thinkingOffJson;
     });
   }
+
+  /// Whether [model] is a name some preset would have written — the
+  /// values a chip click may freely replace (a hand-edited name is
+  /// never one of them).
+  bool _isSomePresetModel(String model) =>
+      _presets.any((preset) => preset.model == model);
 
   /// An ASR provider chip click: switch the painted sub-section and
   /// prefill the model when it is empty or holds some provider's
@@ -388,20 +387,25 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   }
 
   Future<void> _saveLlm() async {
-    final key = await _keyDiff(_llmKey, _llmKeyInfo, '修正模型');
+    final key = await _keyDiff(_llmKey(_llmVendor), _llmKeyInfo, '修正模型');
     if (key == null) return;
-    // The overlay's text rides verbatim (blank = unset); the Rust save
-    // refuses bad JSON before writing anything (ADR-0018).
-    final json = _customJson.text.trim();
+    // The boxes' text rides verbatim (blank = unset); the Rust save
+    // refuses a bad box, and an on switch with an empty on-share,
+    // before writing anything (ADR-0018's shape rule, ADR-0019 item 2).
+    String? box(TextEditingController field) =>
+        field.text.trim().isEmpty ? null : field.text;
     try {
       final saved = await widget.store.saveLlm(
-        vendor: _llmVendor,
-        baseUrl: _activeBaseUrl.text,
-        model: _activeModel.text,
-        apiKey: key,
-        custom: LlmCustomEdit(
-          thinkingDialect: _customDialect,
-          extraBodyJson: json.isEmpty ? null : _customJson.text,
+        edit: LlmEdit(
+          vendor: _llmVendor,
+          baseUrl: _llmBaseUrl.text,
+          model: _llmModel.text,
+          format: _llmFormat,
+          thinkingFields: _llmThinkingFields,
+          bodyJson: box(_llmBody),
+          thinkingOnJson: box(_llmThinkingOn),
+          thinkingOffJson: box(_llmThinkingOff),
+          apiKey: key,
         ),
       );
       if (!mounted) return;
@@ -550,16 +554,23 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
           const Center(child: CircularProgressIndicator(strokeWidth: 2))
         else ...[
           _LlmCard(
+            vendors: _llmVendors,
             vendor: _llmVendor,
             onVendor: _applyVendorPreset,
-            baseUrl: _activeBaseUrl,
-            model: _activeModel,
-            dialect: _customDialect,
-            onDialect: (dialect) => setState(() => _customDialect = dialect),
-            json: _customJson,
-            keyField: _llmKey,
+            baseUrl: _llmBaseUrl,
+            model: _llmModel,
+            format: _llmFormat,
+            onFormat: (format) => setState(() => _llmFormat = format),
+            body: _llmBody,
+            thinkingFields: _llmThinkingFields,
+            thinkingState: _llmThinkingState,
+            thinkingDetail: _llmThinkingDetail,
+            onThinkingFields: (on) => setState(() => _llmThinkingFields = on),
+            thinkingOn: _llmThinkingOn,
+            thinkingOff: _llmThinkingOff,
+            keyField: _llmKey(_llmVendor),
             keyInfo: _llmKeyInfo,
-            onSave: _saveLlm,
+            onSave: _llmThinkingState == 'broken' ? null : _saveLlm,
           ),
           const SizedBox(height: 16),
           _AsrCard(
@@ -763,37 +774,61 @@ class _ChipRow extends StatelessWidget {
 
 class _LlmCard extends StatelessWidget {
   const _LlmCard({
+    required this.vendors,
     required this.vendor,
     required this.onVendor,
     required this.baseUrl,
     required this.model,
-    required this.dialect,
-    required this.onDialect,
-    required this.json,
+    required this.format,
+    required this.onFormat,
+    required this.body,
+    required this.thinkingFields,
+    required this.thinkingState,
+    required this.thinkingDetail,
+    required this.onThinkingFields,
+    required this.thinkingOn,
+    required this.thinkingOff,
     required this.keyField,
     required this.keyInfo,
     required this.onSave,
   });
 
+  /// The chip row: the preset port's names, custom last.
+  final List<String> vendors;
   final String vendor;
   final ValueChanged<String> onVendor;
   final TextEditingController baseUrl;
   final TextEditingController model;
 
-  // The custom chip's fields (ADR-0018), painted only while custom is
-  // selected.
-  final String dialect;
-  final ValueChanged<String> onDialect;
-  final TextEditingController json;
+  /// The format axis (ADR-0019 item 1) and its trio.
+  final String format;
+  final ValueChanged<String> onFormat;
+
+  /// The three overlay boxes: the resident one always live, the thinking
+  /// pair governed by [thinkingFields].
+  final TextEditingController body;
+  final bool thinkingFields;
+  final ValueChanged<bool> onThinkingFields;
+  final TextEditingController thinkingOn;
+  final TextEditingController thinkingOff;
+
+  /// The loaded group's reading, for the state line — and `broken`
+  /// holds the save button (every save is refused until the file is
+  /// hand-fixed).
+  final String thinkingState;
+  final String? thinkingDetail;
 
   final TextEditingController keyField;
   final KeyInfo keyInfo;
-  final VoidCallback onSave;
+
+  /// Null while the group is broken: a disabled button, never a click
+  /// that is certain to fail.
+  final VoidCallback? onSave;
 
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    final isCustom = vendor == 'custom';
+    final broken = thinkingState == 'broken';
     return SrCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -807,23 +842,19 @@ class _LlmCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '任意 OpenAI 兼容端点;轻修与全量修正共用同一模型',
+            '端点 + 格式档自由接入;格式决定路径、鉴权与思考通道;轻修与全量修正共用同一模型',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
           Text(
-            isCustom ? '自定义不预填端点' : '服务商(点击预填端点)',
-            key: Key(
-              isCustom
-                  ? 'settings-conn-llm-vendor-caption-custom'
-                  : 'settings-conn-llm-vendor-caption',
-            ),
+            '服务商预设(点击盖格式/端点/模型/思考份;自定义为空白预设)',
+            key: const Key('settings-conn-llm-vendor-caption'),
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 6),
           _ChipRow(
             testKey: 'settings-conn-llm-vendors',
-            chips: _vendors,
+            chips: vendors,
             selected: vendor,
             onSelect: onVendor,
             labels: _vendorLabels,
@@ -842,29 +873,100 @@ class _LlmCard extends StatelessWidget {
             label: '模型',
             monospace: true,
           ),
-          if (isCustom) ...[
-            const SizedBox(height: 12),
+          const SizedBox(height: 12),
+          Text(
+            '格式(唯一行为轴:路径补全、鉴权头、提示词槽、SSE 分帧)',
+            style: SrType.micro.copyWith(color: pal.textTertiary),
+          ),
+          const SizedBox(height: 6),
+          _ChipRow(
+            testKey: 'settings-conn-llm-format',
+            chips: _formats,
+            selected: format,
+            onSelect: onFormat,
+          ),
+          const SizedBox(height: 12),
+          SrField(
+            key: const Key('settings-conn-llm-body'),
+            controller: body,
+            label: '常驻请求体 JSON(每次请求都合并)',
+            hint: '空 = 不合并;提示词槽与 stream 由软件注入,盖不掉',
+            monospace: true,
+            maxLines: 4,
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '设置思考字段',
+                  style: SrType.caption.copyWith(color: pal.textSecondary),
+                ),
+              ),
+              Switch(
+                key: const Key('settings-conn-llm-thinking-fields'),
+                value: thinkingFields,
+                onChanged: onThinkingFields,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          // The line follows the SWITCH as painted, not the loaded
+          // reading: flipping it must say what the flip means. The
+          // unconfigured branch is the one thing only the file knows —
+          // it is what the save would write a stance over.
+          if (broken)
             Text(
-              '思考方言(思考策略写进请求体的字段形状)',
+              '思考字段配置有误(${thinkingDetail ?? '配置文件'}),'
+              '须手修配置文件后才能保存;修复前本卡不可保存',
+              key: const Key('settings-conn-llm-thinking-broken'),
+              style: SrType.micro.copyWith(color: pal.live),
+            )
+          else
+            Text(
+              thinkingFields
+                  ? '开启:按修正档的思考策略注入「开思考」份'
+                  : thinkingState == 'unconfigured'
+                  ? '未配置:与关闭同效,保存后按关闭写入'
+                  : '关闭:两份照存不启用,请求不带思考键,对端用自家默认',
+              key: const Key('settings-conn-llm-thinking-note'),
               style: SrType.micro.copyWith(color: pal.textTertiary),
             ),
-            const SizedBox(height: 6),
-            _ChipRow(
-              testKey: 'settings-conn-llm-dialect',
-              chips: _dialects,
-              selected: dialect,
-              onSelect: onDialect,
+          const SizedBox(height: 10),
+          // Disabled in place, never hidden: off is a stance, so both
+          // shares stay painted and still ride the save.
+          AnimatedOpacity(
+            duration: SrMotion.fade,
+            curve: SrMotion.curveFade,
+            opacity: thinkingFields ? 1 : 0.5,
+            child: AbsorbPointer(
+              absorbing: !thinkingFields,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: SrField(
+                      key: const Key('settings-conn-llm-thinking-on'),
+                      controller: thinkingOn,
+                      label: '开思考',
+                      monospace: true,
+                      maxLines: 4,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SrField(
+                      key: const Key('settings-conn-llm-thinking-off'),
+                      controller: thinkingOff,
+                      label: '关思考',
+                      monospace: true,
+                      maxLines: 4,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            SrField(
-              key: const Key('settings-conn-llm-json'),
-              controller: json,
-              label: '请求体 JSON',
-              hint: '可覆盖思考字段等请求参数;[llm.extra_body] 舱仍最后合并,不在本框显示',
-              monospace: true,
-              maxLines: 8,
-            ),
-          ],
+          ),
           const SizedBox(height: 12),
           _KeyBlock(id: 'llm', field: keyField, keyInfo: keyInfo),
           const SizedBox(height: 14),

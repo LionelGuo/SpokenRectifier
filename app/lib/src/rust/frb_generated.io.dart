@@ -141,13 +141,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeLlmConnection dco_decode_bridge_llm_connection(dynamic raw);
 
   @protected
-  BridgeLlmCustom dco_decode_bridge_llm_custom(dynamic raw);
-
-  @protected
-  BridgeLlmCustomEdit dco_decode_bridge_llm_custom_edit(dynamic raw);
-
-  @protected
   BridgeLlmEdit dco_decode_bridge_llm_edit(dynamic raw);
+
+  @protected
+  BridgeLlmPreset dco_decode_bridge_llm_preset(dynamic raw);
 
   @protected
   BridgeLlmVendorKey dco_decode_bridge_llm_vendor_key(dynamic raw);
@@ -189,6 +186,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BridgeHistoryEntry> dco_decode_list_bridge_history_entry(dynamic raw);
+
+  @protected
+  List<BridgeLlmPreset> dco_decode_list_bridge_llm_preset(dynamic raw);
 
   @protected
   List<BridgeLlmVendorKey> dco_decode_list_bridge_llm_vendor_key(dynamic raw);
@@ -379,15 +379,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  BridgeLlmCustom sse_decode_bridge_llm_custom(SseDeserializer deserializer);
-
-  @protected
-  BridgeLlmCustomEdit sse_decode_bridge_llm_custom_edit(
-    SseDeserializer deserializer,
-  );
-
-  @protected
   BridgeLlmEdit sse_decode_bridge_llm_edit(SseDeserializer deserializer);
+
+  @protected
+  BridgeLlmPreset sse_decode_bridge_llm_preset(SseDeserializer deserializer);
 
   @protected
   BridgeLlmVendorKey sse_decode_bridge_llm_vendor_key(
@@ -439,6 +434,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BridgeHistoryEntry> sse_decode_list_bridge_history_entry(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<BridgeLlmPreset> sse_decode_list_bridge_llm_preset(
     SseDeserializer deserializer,
   );
 
@@ -683,19 +683,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_bridge_llm_custom(
-    BridgeLlmCustom self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_bridge_llm_custom_edit(
-    BridgeLlmCustomEdit self,
-    SseSerializer serializer,
-  );
-
-  @protected
   void sse_encode_bridge_llm_edit(BridgeLlmEdit self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bridge_llm_preset(
+    BridgeLlmPreset self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_bridge_llm_vendor_key(
@@ -760,6 +754,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_bridge_history_entry(
     List<BridgeHistoryEntry> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_bridge_llm_preset(
+    List<BridgeLlmPreset> self,
     SseSerializer serializer,
   );
 

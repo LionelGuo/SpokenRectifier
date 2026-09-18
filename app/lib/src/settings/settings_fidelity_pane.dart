@@ -75,6 +75,13 @@ class _IdleCard extends StatelessWidget {
             '走真实 LLM(约 1 分钟、约 2 万 token);全程不插入文本、不写入历史、不读本机词表,也不套用场景或全局指令。',
             style: SrType.caption.copyWith(color: pal.textTertiary),
           ),
+          const SizedBox(height: 6),
+          Text(
+            '连接配置(格式与三份请求体 overlay)原样进评测,不可在此覆写;'
+            '思考字段关/未配置时,评测请求同样不带思考键,对端用自家默认。',
+            key: const Key('settings-eval-connection-inherited'),
+            style: SrType.caption.copyWith(color: pal.textTertiary),
+          ),
           const SizedBox(height: 20),
           Row(
             children: [

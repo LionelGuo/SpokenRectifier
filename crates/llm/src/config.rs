@@ -61,11 +61,6 @@ pub struct LlmConfig {
     /// shares at load), retired by the first connection-domain save
     /// (ADR-0019 item 4).
     pub(crate) legacy_extra_body: Option<Map<String, Value>>,
-    /// Whether any layer file spoke a post-0019 key (`format`,
-    /// `thinking_fields`, `[llm.overlays]`): the save-time ratchet's
-    /// branch between composing the grandfather and preserving the
-    /// loaded group (ADR-0019 item 4).
-    pub(crate) new_keys_world: bool,
     /// Whether any layer file shaped the endpoint (model, base_url, or
     /// any key): the user configured a real model, so a missing key is an
     /// error for the caller to surface, not a silent fallback to a demo.
@@ -291,6 +286,28 @@ pub enum ThinkingState {
     Broken(String),
 }
 
+impl ThinkingState {
+    /// The settings wire name (the bridge's paint): the four states'
+    /// lowercase names — `on` / `off` / `unconfigured` / `broken`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ThinkingState::On => "on",
+            ThinkingState::Off => "off",
+            ThinkingState::Unconfigured => "unconfigured",
+            ThinkingState::Broken(_) => "broken",
+        }
+    }
+
+    /// The Broken branch's file-and-key detail, for the settings
+    /// domain's warning slot; `None` on the three good branches.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            ThinkingState::Broken(detail) => Some(detail),
+            _ => None,
+        }
+    }
+}
+
 /// The three `[llm.overlays]` shares; `None` is the off form (an empty
 /// table reads as unset, like the blank extra directive).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -339,7 +356,6 @@ impl LlmConfig {
             endpoint_configured: false,
             legacy_flat: VendorKeys::default(),
             legacy_extra_body: None,
-            new_keys_world: false,
             custom: CustomSlot {
                 base_url: None,
                 model: None,
@@ -836,7 +852,6 @@ pub fn load_llm_config(dirs: &[PathBuf]) -> Result<LlmConfig, ConfigError> {
         .filter(|text| !text.trim().is_empty());
     // The save path's migration input: the flat pair as left behind.
     config.legacy_flat = flat;
-    config.new_keys_world = new_keys_world;
     // Resolve the connection face's format and thinking group.
     if new_keys_world {
         // The files speak the post-0019 keys: the group resolves from
@@ -1197,27 +1212,31 @@ fn unknown_key(file: &str, section: &str, key: &str, allowed: &str) -> ConfigErr
 /// What the connection editor writes back: the GUI-managed subset of
 /// `[llm]`. Values are the editor's whole model — saving writes exactly
 /// these, so the next load returns what the user saw.
+///
+/// The open shape means the edit carries the WHOLE variable part of the
+/// request (ADR-0019 items 1/2): the format axis, the 「设置思考字段」
+/// switch, and the three overlays as the JSON text the pane's boxes
+/// hold. The pane loads the resolved view — under a legacy file set
+/// already the read-time grandfather's expansion — and hands it back, so
+/// the ratchet writes down exactly the request bytes the old files
+/// produced.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmConnectionEdit {
     pub vendor: Vendor,
     pub base_url: String,
     pub model: String,
+    /// The one behavioral axis (ADR-0019 item 1).
+    pub format: Format,
+    /// The 「设置思考字段」 switch. On requires a non-empty on-share:
+    /// an on switch that turns nothing on is a mistake, not a stance
+    /// (ADR-0019 item 2), so the save refuses the pair.
+    pub thinking_fields: bool,
+    /// The resident overlay's JSON text — merged into every request, and
+    /// never blanked by a chip click.
+    pub body_json: Option<String>,
+    pub thinking_on_json: Option<String>,
+    pub thinking_off_json: Option<String>,
     pub api_key: KeyEdit,
-    /// The custom chip's legacy fields (ADR-0018): under a legacy file
-    /// set the ratchet composes them into the new shares; from a
-    /// new-keys file set they ride unread — the pane's post-0019 face
-    /// edits the switch and overlays directly (ADR-0019).
-    pub custom: CustomConnectionEdit,
-}
-
-/// The custom slot's editor fields (ADR-0018): the thinking dialect and
-/// the request-body overlay as the JSON text the pane's box holds.
-/// `extra_body_json` blank, `{}`, or `None` = no overlay; anything not
-/// a JSON object root refuses the save before a single file is touched.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CustomConnectionEdit {
-    pub thinking_dialect: Vendor,
-    pub extra_body_json: Option<String>,
 }
 
 /// The sub-section a vendor's key slot lives in (`[llm.deepseek]`, …).
@@ -1236,11 +1255,10 @@ fn slot_section(vendor: Vendor) -> String {
 /// Every save is the ratchet (ADR-0019 item 4): the new keys
 /// (`format`/`thinking_fields`/`[llm.overlays]`) are written and every
 /// legacy key retires — the dialect and both extra-body cabins strip
-/// from every layer, the hold's bytes already folded into the shares a
-/// legacy file set leaves behind. From a legacy file set the group is
-/// composed exactly as the read-time grandfather would for the endpoint
-/// this save leaves behind (the edit's dialect under the custom chip);
-/// from a new-keys file set the loaded group rides along verbatim.
+/// from every layer. The group written is the EDIT's, composed by the
+/// caller from the loaded view; the read-time grandfather is what makes
+/// that view equal to the old request bytes, so a legacy file set's
+/// first save writes them down rather than re-deriving them here.
 ///
 /// The legacy flat `[llm] api_key` pair is migrated first: it
 /// authenticated the vendor the files named, so it parks in that
@@ -1260,14 +1278,24 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
             "[llm] base_url is empty: name a real endpoint".into(),
         ));
     }
-    // The custom overlay parses and shape-checks up front (ADR-0018
-    // shape, ADR-0019 use): a bad overlay refuses the whole save before
-    // a single file is touched. Read only when custom is ACTIVE.
-    let custom_overlay = if edit.vendor == Vendor::Custom {
-        parse_custom_overlay(edit.custom.extra_body_json.as_deref())?
-    } else {
-        None
+    // The three overlay boxes parse and shape-check up front (ADR-0018's
+    // shape rule, ADR-0019's three boxes): a bad box refuses the whole
+    // save before a single file is touched.
+    let overlays = Overlays {
+        body: parse_overlay(edit.body_json.as_deref(), "body")?,
+        thinking_on: parse_overlay(edit.thinking_on_json.as_deref(), "thinking_on")?,
+        thinking_off: parse_overlay(edit.thinking_off_json.as_deref(), "thinking_off")?,
     };
+    // An on switch with an empty on-share would write a group that means
+    // nothing (a load reads it straight back as unconfigured): refuse the
+    // pair rather than write a switch that turns nothing on.
+    if edit.thinking_fields && overlays.thinking_on.is_none() {
+        return Err(ConfigError(
+            "[llm.overlays] thinking_on is empty: the thinking-fields switch is on, so the \
+             on-share must carry the thinking keys (or turn the switch off)"
+                .into(),
+        ));
+    }
     // The migration needs to know which vendor the flat pair
     // authenticated; a malformed layer refuses the whole save, exactly
     // like the write path below.
@@ -1307,38 +1335,6 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
             .map_err(|err| ConfigError(err.0))?;
         }
     }
-    // The ratchet's group: preserved verbatim from a new-keys file set,
-    // composed from the legacy world otherwise.
-    let (format, switch, overlays) = if current.new_keys_world {
-        (
-            current.model.format,
-            match current.model.thinking.state {
-                ThinkingState::On => Some(true),
-                ThinkingState::Off => Some(false),
-                ThinkingState::Unconfigured | ThinkingState::Broken(_) => None,
-            },
-            current.model.thinking.overlays.clone(),
-        )
-    } else {
-        let dialect = match edit.vendor {
-            Vendor::Custom => edit.custom.thinking_dialect,
-            other => other,
-        };
-        let custom_extra = (edit.vendor == Vendor::Custom)
-            .then_some(custom_overlay.as_ref())
-            .flatten();
-        let folded =
-            presets::grandfather(dialect, custom_extra, current.legacy_extra_body.as_ref());
-        (
-            folded.format,
-            Some(true),
-            Overlays {
-                body: None,
-                thinking_on: (!folded.thinking_on.is_empty()).then_some(folded.thinking_on),
-                thinking_off: (!folded.thinking_off.is_empty()).then_some(folded.thinking_off),
-            },
-        )
-    };
     // The shares' shapes validate before any write — the same refusal
     // the write itself would raise, but with nothing written first.
     for share in [
@@ -1359,12 +1355,9 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
         SectionField::str("vendor", edit.vendor.as_str()),
         SectionField::str("base_url", base_url),
         SectionField::str("model", model),
-        SectionField::str("format", format.as_str()),
+        SectionField::str("format", edit.format.as_str()),
+        SectionField::bool("thinking_fields", edit.thinking_fields),
     ];
-    fields.push(match switch {
-        Some(on) => SectionField::bool("thinking_fields", on),
-        None => SectionField::reset("thinking_fields"),
-    });
     // The flat pair is parked above; the legacy hold folded into the
     // shares — both strip from every layer here.
     fields.push(SectionField::reset("api_key"));
@@ -1411,26 +1404,28 @@ pub fn save_llm_connection(dirs: &[PathBuf], edit: &LlmConnectionEdit) -> Result
     Ok(())
 }
 
-/// One custom overlay's JSON text (ADR-0018): blank = no overlay; a
-/// non-object root or a JSON shape TOML cannot render refuses the save.
-fn parse_custom_overlay(
+/// One overlay box's JSON text (ADR-0018's shape rule, ADR-0019's three
+/// boxes): blank or `{}` = no overlay; a non-object root or a JSON shape
+/// TOML cannot render refuses the save, naming the share.
+fn parse_overlay(
     text: Option<&str>,
+    share: &str,
 ) -> Result<Option<serde_json::Map<String, Value>>, ConfigError> {
     let Some(text) = text.map(str::trim).filter(|text| !text.is_empty()) else {
         return Ok(None);
     };
     let value: Value = serde_json::from_str(text)
-        .map_err(|err| ConfigError(format!("[llm.custom] extra_body is not valid JSON: {err}")))?;
+        .map_err(|err| ConfigError(format!("[llm.overlays] {share} is not valid JSON: {err}")))?;
     let map = value.as_object().ok_or_else(|| {
-        ConfigError(
-            "[llm.custom] extra_body must be a JSON object (the request-body overlay)".into(),
-        )
+        ConfigError(format!(
+            "[llm.overlays] {share} must be a JSON object (the request-body overlay)"
+        ))
     })?;
     if map.is_empty() {
         return Ok(None); // the empty object is the off form, like blank
     }
     spokenrectifier_config::section_write::validate_json_table_shape(map)
-        .map_err(|err| ConfigError(format!("[llm.custom] extra_body: {}", err.0)))?;
+        .map_err(|err| ConfigError(format!("[llm.overlays] {share}: {}", err.0)))?;
     Ok(Some(map.clone()))
 }
 
@@ -2055,7 +2050,10 @@ mod tests {
         let dir = scratch("sr-llm-quick-non-table");
         std::fs::write(dir.join("spokenrectifier.toml"), "[rectify]\nquick = 3\n").unwrap();
         let err = load_llm_config(std::slice::from_ref(&dir)).unwrap_err().0;
-        assert!(err.contains("[rectify.quick] must be a table"), "got: {err}");
+        assert!(
+            err.contains("[rectify.quick] must be a table"),
+            "got: {err}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2448,16 +2446,46 @@ mod tests {
     use spokenrectifier_config::section_write::KeyEdit;
     use spokenrectifier_config::{LOCAL_FILE, SHARED_FILE};
 
+    /// An overlay share as the pane's JSON box holds it (pretty-printed
+    /// by the bridge; the save takes the text verbatim).
+    fn box_text(share: &Option<Map<String, Value>>) -> Option<String> {
+        share
+            .as_ref()
+            .map(|map| serde_json::to_string(&Value::Object(map.clone())).unwrap())
+    }
+
+    /// The edit a pane hands back: the endpoint fields as painted plus
+    /// the whole group. The volcengine preset's, matching the endpoint
+    /// below — what a chip click stamps (ADR-0019 item 5).
     fn edit(api_key: KeyEdit) -> LlmConnectionEdit {
+        let preset = crate::presets::by_name("volcengine").expect("volcengine has a preset");
         LlmConnectionEdit {
             vendor: Vendor::Volcengine,
             base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
             model: "doubao-seed-2.0-lite".into(),
+            format: preset.format,
+            thinking_fields: preset.thinking_fields,
+            body_json: None,
+            thinking_on_json: box_text(&Some(preset.thinking_on)),
+            thinking_off_json: box_text(&Some(preset.thinking_off)),
             api_key,
-            custom: CustomConnectionEdit {
-                thinking_dialect: Vendor::OpenAi,
-                extra_body_json: None,
-            },
+        }
+    }
+
+    /// The pane's model built from a LOADED view — what the connection
+    /// card paints and would hand back untouched. The grandfather is
+    /// what makes this equal to a legacy file set's old request bytes.
+    fn edit_of(config: &LlmConfig, api_key: KeyEdit) -> LlmConnectionEdit {
+        LlmConnectionEdit {
+            vendor: config.model.vendor,
+            base_url: config.model.base_url.clone(),
+            model: config.model.model.clone(),
+            format: config.model.format,
+            thinking_fields: config.model.thinking.state == ThinkingState::On,
+            body_json: box_text(&config.model.thinking.overlays.body),
+            thinking_on_json: box_text(&config.model.thinking.overlays.thinking_on),
+            thinking_off_json: box_text(&config.model.thinking.overlays.thinking_off),
+            api_key,
         }
     }
 
@@ -2844,20 +2872,28 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// An active-custom save under a legacy file set is the ratchet in
-    /// full (ADR-0019 item 4): the edit's dialect and overlay compose
-    /// into the new shares, `[llm]` gains format + the switch, and the
-    /// `[llm.custom]` cabins strip. The key lands in the slot's local
-    /// sub-section only.
+    /// The ratchet in full (ADR-0019 item 4) over the custom chip's own
+    /// endpoint: the edit's group lands as the new keys, the `[llm.custom]`
+    /// cabins strip, and the slot is a pure key slot after. The key lands
+    /// in the slot's local sub-section only.
     #[test]
-    fn a_custom_save_composes_the_new_shares_and_strips_the_cabins() {
+    fn a_custom_save_writes_the_edits_group_and_strips_the_cabins() {
         let dir = scratch("sr-llm-custom-save-mirror");
+        std::fs::write(
+            dir.join(SHARED_FILE),
+            "[llm]\nvendor = \"custom\"\n\
+             [llm.custom]\nbase_url = \"https://old-endpoint\"\nmodel = \"old-model\"\n\
+             thinking_dialect = \"qwen\"\n\
+             [llm.custom.extra_body]\ntop_p = 0.5\n",
+        )
+        .unwrap();
         let mut custom_edit = edit(KeyEdit::Set("sk-mine".into()));
         custom_edit.vendor = Vendor::Custom;
         custom_edit.base_url = "https://my-endpoint".into();
         custom_edit.model = "my-model".into();
-        custom_edit.custom.thinking_dialect = Vendor::Qwen;
-        custom_edit.custom.extra_body_json = Some(r#"{"top_p": 0.9, "stop": ["嗯"]}"#.into());
+        custom_edit.thinking_on_json =
+            Some(r#"{"enable_thinking": true, "top_p": 0.9, "stop": ["嗯"]}"#.into());
+        custom_edit.thinking_off_json = Some(r#"{"enable_thinking": false, "top_p": 0.9}"#.into());
 
         save_llm_connection(std::slice::from_ref(&dir), &custom_edit).unwrap();
 
@@ -2879,7 +2915,10 @@ mod tests {
             "cabin survived: {shared}"
         );
         assert!(
-            shared.trim_end().ends_with("[llm.custom]"),
+            !shared.contains("https://old-endpoint")
+                && !shared.contains("top_p = 0.5")
+                && !shared.contains("extra_body")
+                && !shared.contains("old-model"),
             "cabin content survived: {shared}"
         );
         assert!(
@@ -2891,10 +2930,9 @@ mod tests {
             local.contains("[llm.custom]") && local.contains("api_key = \"sk-mine\""),
             "key not slotted: {local}"
         );
-        // The load returns the whole save from the new keys alone:
-        // awake custom shares, no grandfathering involved.
+        // The load returns the whole save from the new keys alone: the
+        // edit's shares, no grandfathering involved.
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-        assert!(config.new_keys_world);
         assert_eq!(config.model.vendor, Vendor::Custom);
         assert_eq!(config.model.base_url, "https://my-endpoint");
         let on = config.model.thinking.overlays.thinking_on.as_ref().unwrap();
@@ -2905,11 +2943,10 @@ mod tests {
     }
 
     /// A save from another chip in a legacy file set retires the custom
-    /// cabins (ADR-0019 kills the restore cache) and composes the shares
-    /// from the EDIT's vendor — the stored custom dialect and overlay
-    /// never bleed into another vendor's shares.
+    /// cabins (ADR-0019 kills the restore cache), and the stored custom
+    /// dialect and overlay never bleed into the shares the edit wrote.
     #[test]
-    fn an_inactive_save_composes_from_the_edit_vendor_and_retires_the_cabins() {
+    fn an_inactive_save_writes_the_edits_group_and_retires_the_cabins() {
         let dir = scratch("sr-llm-custom-save-untouched");
         std::fs::write(
             dir.join(SHARED_FILE),
@@ -2919,10 +2956,8 @@ mod tests {
              [llm.custom.extra_body]\ntop_p = 0.9\n",
         )
         .unwrap();
-        let mut other = edit(KeyEdit::Keep);
-        other.custom.thinking_dialect = Vendor::OpenAi; // unread: inactive
 
-        save_llm_connection(std::slice::from_ref(&dir), &other).unwrap();
+        save_llm_connection(std::slice::from_ref(&dir), &edit(KeyEdit::Keep)).unwrap();
 
         let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
         assert!(!shared.contains("vendor = \"custom\""), "got: {shared}");
@@ -2935,7 +2970,7 @@ mod tests {
             "overlay survived: {shared}"
         );
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-        // The volcengine shares, not the custom slot's.
+        // The volcengine shares the edit carried, not the custom slot's.
         let on = config.model.thinking.overlays.thinking_on.as_ref().unwrap();
         assert_eq!(
             on["thinking"],
@@ -2946,66 +2981,91 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A bad overlay refuses the whole save before a single file is
+    /// A bad overlay box refuses the whole save before a single file is
     /// touched: malformed JSON, a non-object root, and a JSON shape TOML
-    /// cannot render all name [llm.custom].
+    /// cannot render all name the share they came from.
     #[test]
     fn bad_overlays_refuse_the_save_writing_nothing() {
         for (name, json) in [
-            ("malformed", Some(r#"{"top_p": 0.9"#.into())),
-            ("non-object root", Some(r#"["top_p"]"#.into())),
-            ("shapeless", Some(r#"{"top_p": null}"#.into())),
+            ("malformed", r#"{"top_p": 0.9"#),
+            ("non-object root", r#"["top_p"]"#),
+            ("shapeless", r#"{"top_p": null}"#),
         ] {
-            let dir = scratch("sr-llm-custom-save-bad-json");
-            let mut custom_edit = edit(KeyEdit::Keep);
-            custom_edit.vendor = Vendor::Custom;
-            custom_edit.base_url = "https://my-endpoint".into();
-            custom_edit.model = "my-model".into();
-            custom_edit.custom.extra_body_json = json;
+            for share in ["body", "thinking_on", "thinking_off"] {
+                let dir = scratch("sr-llm-save-bad-json");
+                let mut bad = edit(KeyEdit::Keep);
+                match share {
+                    "body" => bad.body_json = Some(json.into()),
+                    "thinking_on" => bad.thinking_on_json = Some(json.into()),
+                    _ => bad.thinking_off_json = Some(json.into()),
+                }
 
-            let err = save_llm_connection(std::slice::from_ref(&dir), &custom_edit)
-                .unwrap_err()
-                .0;
-            assert!(err.contains("[llm.custom]"), "{name}: got: {err}");
-            assert!(!dir.join(SHARED_FILE).exists(), "{name}: wrote on refusal");
-            assert!(!dir.join(LOCAL_FILE).exists(), "{name}: wrote on refusal");
+                let err = save_llm_connection(std::slice::from_ref(&dir), &bad)
+                    .unwrap_err()
+                    .0;
+                assert!(
+                    err.contains("[llm.overlays]") && err.contains(share),
+                    "{name}/{share}: got: {err}"
+                );
+                assert!(!dir.join(SHARED_FILE).exists(), "{name}: wrote on refusal");
+                assert!(!dir.join(LOCAL_FILE).exists(), "{name}: wrote on refusal");
+                std::fs::remove_dir_all(dir).unwrap();
+            }
+        }
+    }
+
+    /// A blank (or `{}`) box is the OFF form for that share: the key
+    /// resets rather than a table landing, and the switch rides the edit
+    /// as given.
+    #[test]
+    fn a_blank_box_is_the_off_form() {
+        for blank in [None, Some("{}".to_string()), Some("   ".to_string())] {
+            let dir = scratch("sr-llm-save-blank-box");
+            let mut off = edit(KeyEdit::Keep);
+            off.thinking_fields = false;
+            off.body_json = blank.clone();
+            off.thinking_on_json = blank.clone();
+            off.thinking_off_json = blank;
+
+            save_llm_connection(std::slice::from_ref(&dir), &off).unwrap();
+
+            let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
+            assert!(shared.contains("thinking_fields = false"), "got: {shared}");
+            // The reset pass leaves a bare `[llm.overlays]` header behind
+            // (an empty table, which reads back as three unset shares);
+            // no share of its own may land.
+            for share in ["body", "thinking_on", "thinking_off"] {
+                assert!(
+                    !shared.contains(&format!("[llm.overlays.{share}]")),
+                    "wrote the {share} box: {shared}"
+                );
+            }
+            let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
+            assert_eq!(config.model.thinking.state, ThinkingState::Off);
+            assert!(config.model.thinking.overlays.body.is_none());
+            assert!(config.model.thinking.overlays.thinking_on.is_none());
+            assert!(config.model.thinking.overlays.thinking_off.is_none());
             std::fs::remove_dir_all(dir).unwrap();
         }
     }
 
-    /// A blank or empty-object custom overlay is the OFF form: the
-    /// composed shares carry none of it, and the legacy cabin strips
-    /// with the ratchet either way.
+    /// An on switch with an empty on-share is refused: the group would
+    /// load straight back as unconfigured, so the pair is a mistake
+    /// rather than a stance (ADR-0019 item 2).
     #[test]
-    fn a_blank_custom_overlay_composes_nothing_into_the_shares() {
-        for blank in [None, Some("{}".to_string()), Some("   ".to_string())] {
-            let dir = scratch("sr-llm-custom-save-blank");
-            std::fs::write(
-                dir.join(SHARED_FILE),
-                "[llm.custom]\nmodel = \"m\"\n[llm.custom.extra_body]\ntop_p = 0.9\n",
-            )
-            .unwrap();
-            let mut custom_edit = edit(KeyEdit::Keep);
-            custom_edit.vendor = Vendor::Custom;
-            custom_edit.base_url = "https://my-endpoint".into();
-            custom_edit.model = "m".into();
-            custom_edit.custom.thinking_dialect = Vendor::Qwen;
-            custom_edit.custom.extra_body_json = blank;
+    fn an_on_switch_without_an_on_share_is_refused_writing_nothing() {
+        let dir = scratch("sr-llm-save-on-empty");
+        let mut on = edit(KeyEdit::Set("sk".into()));
+        on.thinking_fields = true;
+        on.thinking_on_json = None;
 
-            save_llm_connection(std::slice::from_ref(&dir), &custom_edit).unwrap();
-
-            let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
-            assert!(!shared.contains("extra_body"), "cabin survived: {shared}");
-            assert!(
-                !shared.contains("top_p"),
-                "the blank overlay leaked: {shared}"
-            );
-            let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-            let on = config.model.thinking.overlays.thinking_on.as_ref().unwrap();
-            assert_eq!(on["enable_thinking"], serde_json::json!(true));
-            assert!(!on.contains_key("top_p"), "overlay leaked: {on:?}");
-            std::fs::remove_dir_all(dir).unwrap();
-        }
+        let err = save_llm_connection(std::slice::from_ref(&dir), &on)
+            .unwrap_err()
+            .0;
+        assert!(err.contains("thinking_on"), "got: {err}");
+        assert!(!dir.join(SHARED_FILE).exists(), "wrote on a refused save");
+        assert!(!dir.join(LOCAL_FILE).exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -3065,7 +3125,6 @@ mod tests {
         )
         .unwrap();
         let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-        assert!(config.new_keys_world);
         assert_eq!(config.model.format, Format::Gemini); // local wins
         assert_eq!(config.model.thinking.state, ThinkingState::On);
         // The local node replaced the shared shares wholesale: its
@@ -3129,7 +3188,6 @@ mod tests {
             std::fs::write(dir.join(LOCAL_FILE), body).unwrap();
             let config = load_llm_config(std::slice::from_ref(&dir))
                 .unwrap_or_else(|err| panic!("{name}: load blocked: {err}"));
-            assert!(config.new_keys_world, "{name}");
             let ThinkingState::Broken(detail) = &config.model.thinking.state else {
                 panic!("{name}: not broken: {:?}", config.model.thinking.state);
             };
@@ -3305,7 +3363,6 @@ mod tests {
             let dir = scratch("sr-llm-grandfather-golden");
             std::fs::write(dir.join(SHARED_FILE), case.file).unwrap();
             let config = load_llm_config(std::slice::from_ref(&dir)).unwrap();
-            assert!(!config.new_keys_world, "{}", case.name);
             let [on, off] = bodies(&config);
             assert_eq!(
                 on,
@@ -3338,12 +3395,11 @@ mod tests {
         )
         .unwrap();
         // The save keeps the endpoint exactly as loaded — only the key
-        // layout is under test here, not a vendor switch.
-        let mut same = edit(KeyEdit::Keep);
-        same.vendor = Vendor::DeepSeek;
-        same.base_url = "https://api.deepseek.com".into();
-        same.model = "deepseek-v4-flash".into();
-        let before = bodies(&load_llm_config(dirs).unwrap());
+        // layout is under test here, not a vendor switch — so the edit
+        // is the loaded view handed straight back, as the card does.
+        let loaded = load_llm_config(dirs).unwrap();
+        let before = bodies(&loaded);
+        let same = edit_of(&loaded, KeyEdit::Keep);
 
         save_llm_connection(dirs, &same).unwrap();
 
@@ -3364,19 +3420,18 @@ mod tests {
             "dialect survived: {shared}"
         );
 
-        let after_config = load_llm_config(dirs).unwrap();
-        assert!(after_config.new_keys_world);
-        let after = bodies(&after_config);
+        let after = bodies(&load_llm_config(dirs).unwrap());
         assert_eq!(before, after, "the ratchet changed the request bytes");
         // A second save is a steady state: same files' truth, same bytes.
-        save_llm_connection(dirs, &same).unwrap();
+        let again = load_llm_config(dirs).unwrap();
+        save_llm_connection(dirs, &edit_of(&again, KeyEdit::Keep)).unwrap();
         assert_eq!(bodies(&load_llm_config(dirs).unwrap()), after);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// From a new-keys file set the group rides along verbatim: a save
-    /// changes the endpoint fields only, and an off switch stays off
-    /// with its shares stored.
+    /// From a new-keys file set the card's model IS the file's truth: a
+    /// save changes the endpoint fields only, and the loaded group —
+    /// format, off switch, both shares — rides back verbatim.
     #[test]
     fn a_new_keys_save_preserves_the_thinking_group() {
         let dir = scratch("sr-llm-new-keys-preserve");
@@ -3389,12 +3444,10 @@ mod tests {
              [llm.overlays.thinking_off]\nthinking = { type = \"disabled\" }\n",
         )
         .unwrap();
-        let mut endpoint = edit(KeyEdit::Keep);
-        endpoint.vendor = Vendor::Anthropic;
-        endpoint.base_url = "https://api.anthropic.com".into();
-        endpoint.model = "claude-sonnet-5".into();
+        let loaded = load_llm_config(dirs).unwrap();
+        let before = bodies(&loaded);
 
-        save_llm_connection(dirs, &endpoint).unwrap();
+        save_llm_connection(dirs, &edit_of(&loaded, KeyEdit::Keep)).unwrap();
 
         let shared = std::fs::read_to_string(dir.join(SHARED_FILE)).unwrap();
         assert!(shared.contains("format = \"anthropic\""), "got: {shared}");
@@ -3404,8 +3457,12 @@ mod tests {
             "shares lost: {shared}"
         );
         let config = load_llm_config(dirs).unwrap();
+        assert_eq!(config.model.format, Format::Anthropic);
         assert_eq!(config.model.thinking.state, ThinkingState::Off);
         assert!(config.model.thinking.overlays.thinking_on.is_some());
+        // The off switch keeps the request bodies off: a save with the
+        // card's own model changes no request bytes.
+        assert_eq!(bodies(&config), before);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3467,5 +3524,33 @@ mod tests {
             map.insert(key.clone(), value.clone());
         }
         body
+    }
+
+    /// The thinking state's wire names are the settings window's
+    /// contract (the connection card's switch and warning, the rectify
+    /// card's disable condition): four lowercase strings, and the
+    /// detail only on the broken branch.
+    #[test]
+    fn the_thinking_states_wire_names_are_the_settings_contract() {
+        assert_eq!(ThinkingState::On.as_str(), "on");
+        assert_eq!(ThinkingState::Off.as_str(), "off");
+        assert_eq!(ThinkingState::Unconfigured.as_str(), "unconfigured");
+        let broken =
+            ThinkingState::Broken("f.toml: [llm]: thinking_fields must be a boolean".into());
+        assert_eq!(broken.as_str(), "broken");
+        assert_eq!(
+            broken.detail(),
+            Some("f.toml: [llm]: thinking_fields must be a boolean")
+        );
+        for state in [
+            ThinkingState::On,
+            ThinkingState::Off,
+            ThinkingState::Unconfigured,
+        ] {
+            assert_eq!(state.detail(), None, "{state:?}");
+        }
+        // The switch paints on exactly one state; the rectify domain's
+        // disable condition is the other three (ADR-0019 item 3).
+        assert_eq!(ThinkingState::On.as_str(), "on");
     }
 }

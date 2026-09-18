@@ -27,8 +27,8 @@ use tokio::runtime::Runtime;
 use crate::frb_generated::StreamSink;
 
 use spokenrectifier_asr::schema::{
-    load_asr_config, save_asr_connection, AliyunConfig, AliyunEdit, AsrConfig, AsrConnectionEdit,
-    AsrProviderKind, AzureEdit, TencentConfig, TencentEdit, VolcengineEdit,
+    AliyunConfig, AliyunEdit, AsrConfig, AsrConnectionEdit, AsrProviderKind, AzureEdit,
+    TencentConfig, TencentEdit, VolcengineEdit, load_asr_config, save_asr_connection,
 };
 use spokenrectifier_engine::fakes::{
     AsrFeed, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedLlm,
@@ -39,7 +39,7 @@ use spokenrectifier_engine::{
 };
 use spokenrectifier_history::HistoryStore;
 
-use crate::engine_factory::{llm_choice, production_inserter, LlmChoice};
+use crate::engine_factory::{LlmChoice, llm_choice, production_inserter};
 
 // -- wire types ---------------------------------------------------------------
 
@@ -859,49 +859,67 @@ pub struct BridgeAsrAzureEdit {
 /// vendor's — a key authenticates exactly one vendor, so the pane
 /// re-binds its key block per vendor chip and a switch never shows
 /// another vendor's key (ADR-0011).
+///
+/// The open shape (ADR-0019) rides here resolved: the format axis, the
+/// thinking switch's four-state reading, and the three overlays as the
+/// JSON text the pane's boxes hold (pretty, so a reopen reformats
+/// whatever the file's table ordering was).
 #[derive(Debug, Clone, PartialEq)]
 pub struct BridgeLlmConnection {
     pub vendor: String,
     pub base_url: String,
     pub model: String,
+    /// `openai_chat` | `anthropic` | `gemini` (ADR-0019 item 1).
+    pub format: String,
     pub key: BridgeKeyStatus,
     pub keys: Vec<BridgeLlmVendorKey>,
-    /// The `[llm.custom]` slot (ADR-0018): restore cache, dialect, and
-    /// the overlay as the JSON text the pane's box holds (pretty, so a
-    /// reopen reformats whatever the file's table ordering was).
-    pub custom: BridgeLlmCustom,
+    /// The thinking group's reading: `on` | `off` | `unconfigured` |
+    /// `broken`. Only `on` is the switch's painted state — the other
+    /// three are one semantic for every consumer (ADR-0019 item 3).
+    pub thinking_state: String,
+    /// `broken`'s file-and-key detail, for the card's warning slot.
+    pub thinking_detail: Option<String>,
+    /// The resident overlay's JSON text; `None` when unset.
+    pub body_json: Option<String>,
+    pub thinking_on_json: Option<String>,
+    pub thinking_off_json: Option<String>,
 }
 
-/// The `[llm.custom]` slot as the pane paints it (ADR-0018).
+/// One chip's fill, straight from the engine-side single source
+/// (`crates/llm::presets`) — the pane never copies the table (ADR-0019
+/// item 5). The model rule (only when empty or still a preset name) and
+/// the blank custom seventh chip live in the pane, not here.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BridgeLlmCustom {
-    /// The restore cache; `None` while never configured.
-    pub base_url: Option<String>,
-    pub model: Option<String>,
-    /// One of the four adapted shapes; always resolved (a missing key
-    /// reads as `openai`), so a custom save always writes one down.
-    pub thinking_dialect: String,
-    /// The stored overlay as pretty JSON; `None` when unset.
-    pub extra_body_json: Option<String>,
+pub struct BridgeLlmPreset {
+    /// The chip's wire name — also the vendor slot it names.
+    pub name: String,
+    pub format: String,
+    pub base_url: String,
+    pub model: String,
+    /// The 「设置思考字段」 switch the chip stamps.
+    pub thinking_fields: bool,
+    /// The two shares as JSON text, for the boxes.
+    pub thinking_on_json: String,
+    pub thinking_off_json: String,
 }
 
-/// The editor's whole `[llm]` card: the active endpoint plus the custom
-/// slot's editable fields (ADR-0018 — read only when the vendor chip is
-/// custom; a save from another chip leaves the slot untouched).
+/// The editor's whole `[llm]` card: the endpoint fields, the format
+/// axis, the thinking switch, and the three overlay boxes as the JSON
+/// text they hold (blank or `{}` = that share unset). The save writes
+/// exactly this model, so the next load returns what the user saw.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BridgeLlmEdit {
     pub vendor: String,
     pub base_url: String,
     pub model: String,
+    /// One of the three format wire names (validated on the Rust side).
+    pub format: String,
+    pub thinking_fields: bool,
+    /// The resident overlay's JSON text; blank/`{}`/None = unset.
+    pub body_json: Option<String>,
+    pub thinking_on_json: Option<String>,
+    pub thinking_off_json: Option<String>,
     pub api_key: BridgeKeyEdit,
-    pub custom: BridgeLlmCustomEdit,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BridgeLlmCustomEdit {
-    pub thinking_dialect: String,
-    /// The request-body overlay's JSON text; blank/`{}`/None = unset.
-    pub extra_body_json: Option<String>,
 }
 
 /// One vendor's resolved key pair, for the pane's per-vendor key block.
@@ -955,23 +973,49 @@ fn llm_view(config: spokenrectifier_llm::LlmConfig) -> BridgeLlmConnection {
             }
         })
         .collect();
-    let custom = BridgeLlmCustom {
-        base_url: config.custom.base_url.clone(),
-        model: config.custom.model.clone(),
-        thinking_dialect: config.custom.thinking_dialect.as_str().to_string(),
-        extra_body_json: config.custom.extra_body.as_ref().map(|map| {
+    let share = |share: &Option<serde_json::Map<String, serde_json::Value>>| {
+        share.as_ref().map(|map| {
             serde_json::to_string_pretty(&serde_json::Value::Object(map.clone()))
                 .unwrap_or_default()
-        }),
+        })
     };
     BridgeLlmConnection {
         key: bridge_key(config.model.api_key, config.model.api_key_env),
         vendor: config.model.vendor.as_str().to_string(),
         base_url: config.model.base_url,
         model: config.model.model,
+        format: config.model.format.as_str().to_string(),
         keys,
-        custom,
+        thinking_state: config.model.thinking.state.as_str().to_string(),
+        thinking_detail: config.model.thinking.state.detail().map(str::to_string),
+        body_json: share(&config.model.thinking.overlays.body),
+        thinking_on_json: share(&config.model.thinking.overlays.thinking_on),
+        thinking_off_json: share(&config.model.thinking.overlays.thinking_off),
     }
+}
+
+/// The preset port (ADR-0019 item 5): the settings pane's chip row, read
+/// from the engine-side single source rather than copied into Dart. The
+/// blank 自定义 seventh chip is the pane's own — it names no preset.
+pub fn llm_presets() -> Vec<BridgeLlmPreset> {
+    spokenrectifier_llm::presets::all()
+        .into_iter()
+        .map(|preset| {
+            let share = |map: &serde_json::Map<String, serde_json::Value>| {
+                serde_json::to_string_pretty(&serde_json::Value::Object(map.clone()))
+                    .unwrap_or_default()
+            };
+            BridgeLlmPreset {
+                name: preset.name.to_string(),
+                format: preset.format.as_str().to_string(),
+                base_url: preset.base_url.to_string(),
+                model: preset.model.to_string(),
+                thinking_fields: preset.thinking_fields,
+                thinking_on_json: share(&preset.thinking_on),
+                thinking_off_json: share(&preset.thinking_off),
+            }
+        })
+        .collect()
 }
 
 /// The effective `[asr]` and `[llm]` connections from the layer files —
@@ -1086,9 +1130,11 @@ pub fn asr_endpoint_preview(
 }
 
 /// Write the editor's `[llm]` model back into the layer files (see
-/// `save_llm_connection`) and return the re-read view. The custom slot's
-/// edit rides along but is read only when the vendor chip is custom
-/// (ADR-0018); the dialect names one of the four adapted shapes.
+/// `save_llm_connection`) and return the re-read view — the file's
+/// truth, not the ask. The format and the thinking group ride the edit
+/// whole (ADR-0019 items 1/2); the group's boxes are the JSON text the
+/// pane holds, and a bad one refuses the save before anything is
+/// written.
 pub fn set_llm_connection(edit: BridgeLlmEdit) -> anyhow::Result<BridgeLlmConnection> {
     let dirs = spokenrectifier_config::search_dirs();
     let vendor = spokenrectifier_llm::Vendor::from_str_name(&edit.vendor).ok_or_else(|| {
@@ -1097,25 +1143,25 @@ pub fn set_llm_connection(edit: BridgeLlmEdit) -> anyhow::Result<BridgeLlmConnec
             edit.vendor
         )
     })?;
-    let dialect = spokenrectifier_llm::Vendor::dialect_from_name(&edit.custom.thinking_dialect)
-        .ok_or_else(|| {
-            anyhow!(
-                "[llm.custom] thinking_dialect \"{}\" is unknown: pick one of \
-                     \"deepseek\", \"volcengine\", \"qwen\", \"openai\"",
-                edit.custom.thinking_dialect
-            )
-        })?;
+    let format = spokenrectifier_llm::Format::from_str_name(&edit.format).ok_or_else(|| {
+        anyhow!(
+            "[llm] format \"{}\" is unknown: pick {}",
+            edit.format,
+            spokenrectifier_llm::Format::accepted()
+        )
+    })?;
     spokenrectifier_llm::save_llm_connection(
         &dirs,
         &spokenrectifier_llm::LlmConnectionEdit {
             vendor,
             base_url: edit.base_url,
             model: edit.model,
+            format,
+            thinking_fields: edit.thinking_fields,
+            body_json: edit.body_json,
+            thinking_on_json: edit.thinking_on_json,
+            thinking_off_json: edit.thinking_off_json,
             api_key: edit.api_key.into(),
-            custom: spokenrectifier_llm::CustomConnectionEdit {
-                thinking_dialect: dialect,
-                extra_body_json: edit.custom.extra_body_json,
-            },
         },
     )
     .map_err(|err| anyhow!("LLM {}", err.0))?;
@@ -1184,9 +1230,18 @@ pub struct BridgeRectifyBehavior {
     pub quick_enabled: bool,
     pub quick_rectify: bool,
     pub quick_extra_directive: Option<String>,
+    /// The CONNECTION domain's thinking reading (`on` / `off` /
+    /// `unconfigured` / `broken`): the two cards' thinking-policy chips
+    /// are disabled and the combination warning silenced while the
+    /// connection's fields are inert (ADR-0019 item 3; design-spec
+    /// §4.4's 修正 section). Carried on this read because the cards
+    /// paint from it and nothing else — one round trip, and a chip
+    /// click's re-read keeps the disable state fresh.
+    pub connection_thinking: String,
 }
 
-fn rectify_view(rectify: &spokenrectifier_llm::RectifyConfig) -> BridgeRectifyBehavior {
+fn rectify_view(config: &spokenrectifier_llm::LlmConfig) -> BridgeRectifyBehavior {
+    let rectify = &config.rectify;
     BridgeRectifyBehavior {
         full_thinking_policy: rectify.full.thinking_policy.as_str().to_string(),
         full_prefill: rectify.full.prefill,
@@ -1203,6 +1258,7 @@ fn rectify_view(rectify: &spokenrectifier_llm::RectifyConfig) -> BridgeRectifyBe
         quick_enabled: rectify.quick.enabled,
         quick_rectify: rectify.quick.rectify,
         quick_extra_directive: rectify.quick.extra_directive.clone(),
+        connection_thinking: config.model.thinking.state.as_str().to_string(),
     }
 }
 
@@ -1224,7 +1280,7 @@ pub fn rectify_behavior() -> anyhow::Result<BridgeRectifyBehavior> {
     let dirs = spokenrectifier_config::search_dirs();
     let config =
         spokenrectifier_llm::load_llm_config(&dirs).map_err(|err| anyhow!("LLM {}", err.0))?;
-    Ok(rectify_view(&config.rectify))
+    Ok(rectify_view(&config))
 }
 
 /// Write the rectify editor's whole model back into the layer files (see
@@ -1919,7 +1975,9 @@ mod tests {
                 extra_directive: Some("快速短句保留节奏".into()),
             },
         };
-        let view = rectify_view(&rectify);
+        let mut config = spokenrectifier_llm::LlmConfig::defaults();
+        config.rectify = rectify;
+        let view = rectify_view(&config);
         assert_eq!(view.full_thinking_policy, "placeholders");
         assert!(!view.full_prefill);
         assert!(!view.light_touch_enabled);
@@ -1937,6 +1995,11 @@ mod tests {
             view.quick_extra_directive.as_deref(),
             Some("快速短句保留节奏")
         );
+        // The connection's reading rides the same view: the cards'
+        // disable condition (ADR-0019 item 3). The default is `on`.
+        assert_eq!(view.connection_thinking, "on");
+        config.model.thinking.state = spokenrectifier_llm::ThinkingState::Unconfigured;
+        assert_eq!(rectify_view(&config).connection_thinking, "unconfigured");
         // An unknown policy name is refused naming the section — the
         // wire never accepts a fourth tier.
         let err = parse_policy("rectify.full", "sometimes")
@@ -1946,34 +2009,80 @@ mod tests {
         assert!(err.contains("sometimes"), "got: {err}");
     }
 
-    /// The custom slot mirrors field by field (ADR-0018): the restore
-    /// cache, the always-resolved dialect (a missing key's openai
-    /// default included), and the overlay as pretty JSON for the pane's
-    /// box — plus a key entry for the custom chip's block.
+    /// The connection view mirrors the open shape field by field
+    /// (ADR-0019): the format axis, the thinking group's four-state
+    /// reading with its broken detail, the three boxes as pretty JSON,
+    /// and a key entry for every vendor slot.
     #[test]
-    fn the_llm_view_mirrors_the_custom_slot_field_by_field() {
+    fn the_llm_view_mirrors_the_open_shape_field_by_field() {
         let mut config = spokenrectifier_llm::LlmConfig::defaults();
-        config.custom.base_url = Some("https://my-endpoint".into());
-        config.custom.model = Some("my-model".into());
-        config.custom.thinking_dialect = spokenrectifier_llm::Vendor::Qwen;
-        config.custom.extra_body =
-            Some(serde_json::from_str(r#"{"top_p": 0.9, "stop": ["嗯"]}"#).unwrap());
+        config.model.format = spokenrectifier_llm::Format::Gemini;
+        config.model.thinking.overlays.body =
+            Some(serde_json::from_str(r#"{"temperature": 0.1}"#).unwrap());
         let view = llm_view(config);
-        assert_eq!(view.custom.base_url.as_deref(), Some("https://my-endpoint"));
-        assert_eq!(view.custom.model.as_deref(), Some("my-model"));
-        assert_eq!(view.custom.thinking_dialect, "qwen");
-        let json = view.custom.extra_body_json.expect("overlay present");
-        assert!(json.contains("\"top_p\": 0.9"), "got: {json}");
-        assert!(json.contains('\n'), "not pretty: {json}");
+        assert_eq!(view.format, "gemini");
+        assert_eq!(view.thinking_state, "on");
+        assert_eq!(view.thinking_detail, None);
+        let body = view.body_json.expect("the resident share paints");
+        assert!(body.contains("\"temperature\": 0.1"), "got: {body}");
+        assert!(body.contains('\n'), "not pretty: {body}");
+        assert!(view.thinking_on_json.is_some(), "the default on-share");
         assert!(
             view.keys.iter().any(|key| key.vendor == "custom"),
             "custom key entry missing"
         );
-        // The unset default paints the openai dialect and no JSON.
-        let view = llm_view(spokenrectifier_llm::LlmConfig::defaults());
-        assert_eq!(view.custom.thinking_dialect, "openai");
-        assert_eq!(view.custom.base_url, None);
-        assert_eq!(view.custom.extra_body_json, None);
+
+        // The broken branch carries its detail, and the group reads inert.
+        let mut broken = spokenrectifier_llm::LlmConfig::defaults();
+        broken.model.thinking.state =
+            spokenrectifier_llm::ThinkingState::Broken("f.toml: [llm]: thinking_fields".into());
+        broken.model.thinking.overlays = Default::default();
+        let view = llm_view(broken);
+        assert_eq!(view.thinking_state, "broken");
+        assert_eq!(
+            view.thinking_detail.as_deref(),
+            Some("f.toml: [llm]: thinking_fields")
+        );
+        assert_eq!(view.thinking_on_json, None);
+        assert_eq!(view.thinking_off_json, None);
+    }
+
+    /// The preset port carries the engine-side table (ADR-0019 item 5):
+    /// six named chips, the custom seventh is the pane's own, and every
+    /// share rides as JSON text the boxes can take verbatim.
+    #[test]
+    fn the_preset_port_carries_the_engine_table() {
+        let presets = llm_presets();
+        assert_eq!(presets.len(), 6, "custom is the pane's blank seventh");
+        let row = |name: &str| {
+            presets
+                .iter()
+                .find(|preset| preset.name == name)
+                .unwrap_or_else(|| panic!("{name} missing"))
+        };
+        let anthropic = row("anthropic");
+        assert_eq!(anthropic.format, "anthropic");
+        assert_eq!(anthropic.base_url, "https://api.anthropic.com");
+        assert!(anthropic.thinking_fields);
+        assert!(anthropic.thinking_on_json.contains("adaptive"));
+        let gemini = row("gemini");
+        assert_eq!(gemini.format, "gemini");
+        assert!(gemini.thinking_on_json.contains("includeThoughts"));
+        // Every row's JSON parses back to an object — the boxes hold text.
+        for preset in &presets {
+            for json in [&preset.thinking_on_json, &preset.thinking_off_json] {
+                let value: serde_json::Value = serde_json::from_str(json).unwrap();
+                assert!(value.is_object(), "{}: {json}", preset.name);
+            }
+        }
+        // The names are the vendor slot names the edit sends back.
+        for preset in &presets {
+            assert!(
+                spokenrectifier_llm::Vendor::from_str_name(&preset.name).is_some(),
+                "{} names no slot",
+                preset.name
+            );
+        }
     }
 
     /// The quick panel's close-restore is a quiet no-op on the fake

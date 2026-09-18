@@ -268,37 +268,125 @@ class FakeRectifyBehaviorStore implements RectifyBehaviorStore {
   }
 }
 
-/// The never-configured custom slot (ADR-0018).
-const _unsetCustomSlot = LlmCustom(
-  baseUrl: null,
-  model: null,
-  thinkingDialect: 'openai',
-  extraBodyJson: null,
-);
+/// Every vendor slot unset — the key map's floor for the view helpers.
+const _noKeys = <String, KeyInfo>{
+  'deepseek': KeyInfo(status: KeyPlacement.unset),
+  'volcengine': KeyInfo(status: KeyPlacement.unset),
+  'qwen': KeyInfo(status: KeyPlacement.unset),
+  'openai': KeyInfo(status: KeyPlacement.unset),
+  'anthropic': KeyInfo(status: KeyPlacement.unset),
+  'gemini': KeyInfo(status: KeyPlacement.unset),
+  'custom': KeyInfo(status: KeyPlacement.unset),
+};
+
+/// A connection view for the card tests: the default endpoint over the
+/// named slots, the thinking group's reading, and the three boxes'
+/// text. [keys] merges over [_noKeys].
+LlmConnection fakeLlm({
+  String vendor = 'deepseek',
+  String baseUrl = 'https://api.deepseek.com',
+  String model = 'deepseek-v4-flash',
+  String format = 'openai_chat',
+  KeyInfo? key,
+  Map<String, KeyInfo> keys = const {},
+  String thinkingState = 'on',
+  String? thinkingDetail,
+  String? bodyJson,
+  String? thinkingOnJson,
+  String? thinkingOffJson,
+}) {
+  final merged = {..._noKeys, ...keys};
+  return LlmConnection(
+    vendor: vendor,
+    baseUrl: baseUrl,
+    model: model,
+    format: format,
+    key: key ?? merged[vendor] ?? const KeyInfo(status: KeyPlacement.unset),
+    keys: merged,
+    thinkingState: thinkingState,
+    thinkingDetail: thinkingDetail,
+    bodyJson: bodyJson,
+    thinkingOnJson: thinkingOnJson,
+    thinkingOffJson: thinkingOffJson,
+  );
+}
+
+/// The bridge's preset port mirrored for the fakes (the same six rows
+/// `crates/llm::presets` carries; the pane copies nothing, so the tests
+/// hand it the list the Rust port would).
+const fakeLlmPresets = <LlmPreset>[
+  LlmPreset(
+    name: 'deepseek',
+    format: 'openai_chat',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-flash',
+    thinkingFields: true,
+    thinkingOnJson: '{"thinking": {"type": "enabled"}}',
+    thinkingOffJson: '{"thinking": {"type": "disabled"}}',
+  ),
+  LlmPreset(
+    name: 'volcengine',
+    format: 'openai_chat',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: 'doubao-seed-2.0-lite',
+    thinkingFields: true,
+    thinkingOnJson: '{"thinking": {"type": "enabled"}}',
+    thinkingOffJson: '{"thinking": {"type": "disabled"}}',
+  ),
+  LlmPreset(
+    name: 'qwen',
+    format: 'openai_chat',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen3.8-flash',
+    thinkingFields: true,
+    thinkingOnJson: '{"enable_thinking": true}',
+    thinkingOffJson: '{"enable_thinking": false}',
+  ),
+  LlmPreset(
+    name: 'openai',
+    format: 'openai_chat',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-5.6-terra',
+    thinkingFields: true,
+    thinkingOnJson: '{"reasoning_effort": "medium"}',
+    thinkingOffJson: '{"reasoning_effort": "none"}',
+  ),
+  LlmPreset(
+    name: 'anthropic',
+    format: 'anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    model: 'claude-sonnet-5',
+    thinkingFields: true,
+    thinkingOnJson: '{"thinking": {"type": "adaptive"}}',
+    thinkingOffJson: '{"thinking": {"type": "disabled"}}',
+  ),
+  LlmPreset(
+    name: 'gemini',
+    format: 'gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    model: 'gemini-3.8-flash',
+    thinkingFields: true,
+    thinkingOnJson:
+        '{"generationConfig": {"thinkingConfig": {"includeThoughts": true}}}',
+    thinkingOffJson: '{"generationConfig": {"thinkingConfig": {}}}',
+  ),
+];
 
 /// The connection domain's fake: the two views in memory; a save
 /// records the ask and returns it as the re-read truth; the post-save
 /// engine adoption ([applyCalls]) is recorded and can be refused
 /// ([FakeConnectionStore.failNextApply]).
 class FakeConnectionStore implements ConnectionStore {
-  FakeConnectionStore({AsrConnection? asr, LlmConnection? llm})
-    : asr = asr ?? _defaultAsr,
-      llm =
-          llm ??
-          const LlmConnection(
-            vendor: 'deepseek',
-            baseUrl: 'https://api.deepseek.com',
-            model: 'deepseek-v4-flash',
-            key: KeyInfo(status: KeyPlacement.unset),
-            keys: {
-              'deepseek': KeyInfo(status: KeyPlacement.unset),
-              'volcengine': KeyInfo(status: KeyPlacement.unset),
-              'qwen': KeyInfo(status: KeyPlacement.unset),
-              'openai': KeyInfo(status: KeyPlacement.unset),
-              'custom': KeyInfo(status: KeyPlacement.unset),
-            },
-            custom: _unsetCustomSlot,
-          );
+  FakeConnectionStore({
+    AsrConnection? asr,
+    LlmConnection? llm,
+    List<LlmPreset>? presets,
+  }) : asr = asr ?? _defaultAsr,
+       llm = llm ?? fakeLlm(),
+       presetRows = presets ?? fakeLlmPresets;
+
+  /// The port's answer; a test may hand the pane a different table.
+  List<LlmPreset> presetRows;
 
   static const _defaultAsr = AsrConnection(
     provider: 'aliyun',
@@ -324,16 +412,7 @@ class FakeConnectionStore implements ConnectionStore {
   AsrConnection asr;
   LlmConnection llm;
 
-  final llmSaves =
-      <
-        ({
-          String vendor,
-          String baseUrl,
-          String model,
-          ApiKeyEdit key,
-          LlmCustomEdit custom,
-        })
-      >[];
+  final llmSaves = <LlmEdit>[];
   final asrSaves = <AsrEdit>[];
 
   /// When set, the next save throws (an unwritable layer file).
@@ -350,56 +429,46 @@ class FakeConnectionStore implements ConnectionStore {
       (asr: asr, llm: llm);
 
   @override
-  Future<LlmConnection> saveLlm({
-    required String vendor,
-    required String baseUrl,
-    required String model,
-    required ApiKeyEdit apiKey,
-    required LlmCustomEdit custom,
-  }) async {
+  Future<List<LlmPreset>> presets() async => presetRows;
+
+  @override
+  Future<LlmConnection> saveLlm({required LlmEdit edit}) async {
     if (failNextSave != null) {
       final failure = failNextSave;
       failNextSave = null;
       throw failure!;
     }
-    llmSaves.add((
-      vendor: vendor,
-      baseUrl: baseUrl,
-      model: model,
-      key: apiKey,
-      custom: custom,
-    ));
+    llmSaves.add(edit);
     // Only the saved vendor's slot moves; every other vendor's key pair
     // survives the save untouched (ADR-0011).
     final keys = Map.of(llm.keys);
-    keys[vendor] = switch (apiKey) {
+    keys[edit.vendor] = switch (edit.apiKey) {
       ApiKeySet(:final key) => KeyInfo(
         status: KeyPlacement.inLocalFile,
         storedKey: key,
       ),
       ApiKeyClear() => const KeyInfo(status: KeyPlacement.unset),
-      ApiKeyKeep() => keys[vendor] ?? const KeyInfo(status: KeyPlacement.unset),
+      ApiKeyKeep() =>
+        keys[edit.vendor] ?? const KeyInfo(status: KeyPlacement.unset),
     };
-    // A custom save mirrors the endpoint into the slot and adopts the
-    // dialect/overlay; another vendor's save leaves the slot alone
-    // (ADR-0018).
-    final slot = vendor == 'custom'
-        ? LlmCustom(
-            baseUrl: baseUrl,
-            model: model,
-            thinkingDialect: custom.thinkingDialect,
-            extraBodyJson: (custom.extraBodyJson ?? '').trim().isEmpty
-                ? null
-                : custom.extraBodyJson,
-          )
-        : llm.custom;
+    // Blank and `{}` are the off form, exactly as the Rust save reads
+    // them.
+    String? box(String? text) {
+      final trimmed = (text ?? '').trim();
+      return trimmed.isEmpty || trimmed == '{}' ? null : text;
+    }
+
     llm = LlmConnection(
-      vendor: vendor,
-      baseUrl: baseUrl,
-      model: model,
-      key: keys[vendor]!,
+      vendor: edit.vendor,
+      baseUrl: edit.baseUrl,
+      model: edit.model,
+      format: edit.format,
+      key: keys[edit.vendor]!,
       keys: keys,
-      custom: slot,
+      thinkingState: edit.thinkingFields ? 'on' : 'off',
+      bodyJson: box(edit.bodyJson),
+      thinkingOnJson: box(edit.thinkingOnJson),
+      thinkingOffJson: box(edit.thinkingOffJson),
     );
     return llm;
   }
@@ -771,6 +840,15 @@ Future<void> pumpSettings(
   String? selected,
   void Function(Brightness brightness)? captionTheme,
 }) async {
+  // A taller surface than the default 800×600: the connection card's
+  // open shape (format row, three JSON boxes, the thinking switch) is
+  // taller than that, and the panes' lazy lists never build what sits
+  // below the fold — the ASR card would stop existing for the finders.
+  // The real window is 920×640 and scrolls; scrolling is not what these
+  // tests are about.
+  tester.view.physicalSize = const Size(1000, 1600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
   await tester.pumpWidget(
     SettingsWindowApp(
       store: store ?? FakeScenarioStore(_seeded),
@@ -1196,6 +1274,21 @@ void main() {
     // The isolation is by construction (the runner's own engine instance
     // never receives a directive); the copy states the contract.
     expect(find.textContaining('不套用场景或全局指令'), findsOneWidget);
+  });
+
+  testWidgets('the eval entry notes it inherits the connection shape', (
+    tester,
+  ) async {
+    await pumpSettings(tester, domain: SettingsDomain.fidelity);
+    // ADR-0019: the eval adopts the connection config whole and cannot
+    // override it here, thinking switch included.
+    final note = textOf(
+      tester,
+      const Key('settings-eval-connection-inherited'),
+    );
+    expect(note, contains('连接配置'));
+    expect(note, contains('不可在此覆写'));
+    expect(note, contains('不带思考键'));
   });
 
   testWidgets('a run walks idle → running → finished with the summary', (
@@ -2031,6 +2124,107 @@ void main() {
   );
 
   testWidgets(
+    'an inert connection locks both thinking chip rows and silences both warnings',
+    (tester) async {
+      tallRectifySurface(tester);
+      // Both tiers carry the 思考关 × 预填开 combination and the light
+      // master is on, so both warnings would light — but the connection
+      // domain's thinking fields are off, so neither does (ADR-0019
+      // item 3: 开关关 / 未配置 / 坏配置 are one semantic for the
+      // rectify domain).
+      for (final state in ['off', 'unconfigured', 'broken']) {
+        final store = FakeRectifyBehaviorStore(
+          RectifyBehavior(
+            fullThinkingPolicy: 'off',
+            fullPrefill: true,
+            lightTouchEnabled: true,
+            lightTouchMaxChars: 40,
+            lightTouchThinkingPolicy: 'off',
+            lightTouchPrefill: true,
+            connectionThinking: state,
+          ),
+        );
+        await pumpSettings(
+          tester,
+          rectifyStore: store,
+          domain: SettingsDomain.rectify,
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(const Key('settings-rectify-full-warning')),
+          findsNothing,
+          reason: '$state: the full warning must stay silent',
+        );
+        expect(
+          find.byKey(const Key('settings-rectify-light-warning')),
+          findsNothing,
+          reason: '$state: the light warning must stay silent',
+        );
+        expect(
+          textOf(tester, const Key('settings-rectify-full-thinking-off')),
+          contains('「模型与连接」'),
+          reason: '$state: the full card must say where recovery lives',
+        );
+        expect(
+          textOf(tester, const Key('settings-rectify-light-thinking-off')),
+          contains('暂不可选'),
+          reason: '$state: the light card must say the same',
+        );
+
+        // The chips answer no tap: the model never moves.
+        await tester.tap(
+          find.byKey(const Key('settings-rectify-full-policy:always')),
+        );
+        await tester.pump();
+        expect(
+          store.saves,
+          isEmpty,
+          reason: '$state: a disabled chip must not commit',
+        );
+      }
+    },
+  );
+
+  testWidgets('a live connection leaves both chip rows and warnings alone', (
+    tester,
+  ) async {
+    tallRectifySurface(tester);
+    // The same combination with the connection's fields live: the chips
+    // answer and the warning lights — recovery is exactly this state.
+    final store = FakeRectifyBehaviorStore(
+      const RectifyBehavior(
+        fullThinkingPolicy: 'off',
+        fullPrefill: true,
+        lightTouchEnabled: true,
+        lightTouchMaxChars: 40,
+        lightTouchThinkingPolicy: 'off',
+        lightTouchPrefill: true,
+      ),
+    );
+    await pumpSettings(
+      tester,
+      rectifyStore: store,
+      domain: SettingsDomain.rectify,
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('settings-rectify-full-thinking-off')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('settings-rectify-full-warning')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const Key('settings-rectify-full-policy:always')),
+    );
+    await tester.pump();
+    expect(store.saves.single.fullThinkingPolicy, 'always');
+  });
+
+  testWidgets(
     "the light card's one button commits both inputs; blank unsets the directive",
     (tester) async {
       tallRectifySurface(tester);
@@ -2223,12 +2417,8 @@ void main() {
     tester,
   ) async {
     final store = FakeConnectionStore(
-      llm: const LlmConnection(
-        vendor: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek-v4-flash',
-        key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
-        keys: {
+      llm: fakeLlm(
+        keys: const {
           'deepseek': KeyInfo(
             status: KeyPlacement.inLocalFile,
             storedKey: 'sk-stored',
@@ -2237,10 +2427,7 @@ void main() {
             status: KeyPlacement.inLocalFile,
             storedKey: 'ark-stored',
           ),
-          'qwen': KeyInfo(status: KeyPlacement.unset),
-          'openai': KeyInfo(status: KeyPlacement.unset),
         },
-        custom: _unsetCustomSlot,
       ),
     );
     await pumpSettings(
@@ -2278,21 +2465,13 @@ void main() {
     tester,
   ) async {
     final store = FakeConnectionStore(
-      llm: const LlmConnection(
-        vendor: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek-v4-flash',
-        key: KeyInfo(status: KeyPlacement.fromEnv, envName: 'DEEPSEEK_API_KEY'),
-        keys: {
+      llm: fakeLlm(
+        keys: const {
           'deepseek': KeyInfo(
             status: KeyPlacement.fromEnv,
             envName: 'DEEPSEEK_API_KEY',
           ),
-          'volcengine': KeyInfo(status: KeyPlacement.unset),
-          'qwen': KeyInfo(status: KeyPlacement.unset),
-          'openai': KeyInfo(status: KeyPlacement.unset),
         },
-        custom: _unsetCustomSlot,
       ),
     );
     await pumpSettings(
@@ -2317,8 +2496,10 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    // The model holds deepseek's default, so the volcengine chip may
-    // switch both it and the endpoint.
+    // The painted model is the v1 default (deepseek-v4-flash), which is
+    // NOT any preset's name — so the chip switches the endpoint and
+    // leaves the running model alone (ADR-0019 item 5: a hand-edited or
+    // already-running name survives).
     await tester.tap(
       find.byKey(const Key('settings-conn-llm-vendors:volcengine')),
     );
@@ -2329,14 +2510,13 @@ void main() {
     );
     expect(
       fieldText(tester, const Key('settings-conn-llm-model')),
-      'doubao-seed-2.0-lite',
+      'deepseek-v4-flash',
     );
 
-    // A customized model survives a chip click; the endpoint switches
-    // unconditionally (that is the point of the click).
+    // A model that IS some preset's name is freely replaced.
     await tester.enterText(
       find.byKey(const Key('settings-conn-llm-model')),
-      'my-own-model',
+      'claude-sonnet-5',
     );
     await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:qwen')));
     await tester.pump();
@@ -2346,7 +2526,38 @@ void main() {
     );
     expect(
       fieldText(tester, const Key('settings-conn-llm-model')),
+      'qwen3.8-flash',
+    );
+
+    // A hand-typed name survives the next chip click; the endpoint
+    // switches unconditionally (that is the point of the click).
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-model')),
       'my-own-model',
+    );
+    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:openai')));
+    await tester.pump();
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-baseurl')),
+      'https://api.openai.com/v1',
+    );
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-model')),
+      'my-own-model',
+    );
+
+    // An empty field is filled.
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-model')),
+      '',
+    );
+    await tester.tap(
+      find.byKey(const Key('settings-conn-llm-vendors:deepseek')),
+    );
+    await tester.pump();
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-model')),
+      'deepseek-flash',
     );
   });
 
@@ -2358,12 +2569,8 @@ void main() {
     // its own pair (ADR-0011) — a stored key shows its own, a vendor
     // without one shows empty, and a round trip loses nothing.
     final store = FakeConnectionStore(
-      llm: const LlmConnection(
-        vendor: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek-v4-flash',
-        key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
-        keys: {
+      llm: fakeLlm(
+        keys: const {
           'deepseek': KeyInfo(
             status: KeyPlacement.inLocalFile,
             storedKey: 'sk-stored',
@@ -2372,10 +2579,7 @@ void main() {
             status: KeyPlacement.inLocalFile,
             storedKey: 'ark-stored',
           ),
-          'qwen': KeyInfo(status: KeyPlacement.unset),
-          'openai': KeyInfo(status: KeyPlacement.unset),
         },
-        custom: _unsetCustomSlot,
       ),
     );
     await pumpSettings(
@@ -2411,21 +2615,13 @@ void main() {
     tester,
   ) async {
     final store = FakeConnectionStore(
-      llm: const LlmConnection(
-        vendor: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek-v4-flash',
-        key: KeyInfo(status: KeyPlacement.inLocalFile, storedKey: 'sk-stored'),
-        keys: {
+      llm: fakeLlm(
+        keys: const {
           'deepseek': KeyInfo(
             status: KeyPlacement.inLocalFile,
             storedKey: 'sk-stored',
           ),
-          'volcengine': KeyInfo(status: KeyPlacement.unset),
-          'qwen': KeyInfo(status: KeyPlacement.unset),
-          'openai': KeyInfo(status: KeyPlacement.unset),
         },
-        custom: _unsetCustomSlot,
       ),
     );
     await pumpSettings(
@@ -2454,7 +2650,10 @@ void main() {
 
     final save = store.llmSaves.single;
     expect(save.vendor, 'volcengine');
-    expect(save.key, isA<ApiKeySet>().having((k) => k.key, 'key', 'ark-new'));
+    expect(
+      save.apiKey,
+      isA<ApiKeySet>().having((k) => k.key, 'key', 'ark-new'),
+    );
     // The re-read truth: volcengine's slot moves, deepseek's survives.
     expect(store.llm.keys['volcengine']!.storedKey, 'ark-new');
     expect(store.llm.keys['deepseek']!.storedKey, 'sk-stored');
@@ -2481,58 +2680,14 @@ void main() {
     expect(save.vendor, 'deepseek');
     expect(save.model, 'deepseek-v4-pro');
     expect(save.baseUrl, 'https://api.deepseek.com'); // untouched field rides
-    expect(save.key, isA<ApiKeyKeep>()); // the echoed key, unchanged
+    expect(save.apiKey, isA<ApiKeyKeep>()); // the echoed key, unchanged
     // The save note is the window toast now (top-center overlay).
     expect(textOf(tester, const Key('sr-toast')), '修正模型已保存');
   });
 
-  // -- the custom chip (ADR-0018) ---------------------------------------
+  // -- the open shape: format, boxes, the blank custom chip (ADR-0019) --
 
-  testWidgets(
-    'the custom chip paints empty fields, the dialect row, and the JSON box',
-    (tester) async {
-      final store = FakeConnectionStore();
-      await pumpSettings(
-        tester,
-        connectionStore: store,
-        domain: SettingsDomain.connection,
-      );
-
-      // Dormant first: no dialect row, no JSON box, no custom caption.
-      expect(find.byKey(const Key('settings-conn-llm-dialect')), findsNothing);
-      expect(find.byKey(const Key('settings-conn-llm-json')), findsNothing);
-      expect(
-        find.byKey(const Key('settings-conn-llm-vendor-caption-custom')),
-        findsNothing,
-      );
-
-      await tester.tap(
-        find.byKey(const Key('settings-conn-llm-vendors:custom')),
-      );
-      await tester.pump();
-
-      // No preset (ADR-0018): the fresh slot's endpoint fields are empty,
-      // the caption says so, and the dialect row (openai default) plus the
-      // JSON box appear.
-      expect(find.text('自定义'), findsOneWidget);
-      expect(
-        textOf(tester, const Key('settings-conn-llm-vendor-caption-custom')),
-        '自定义不预填端点',
-      );
-      expect(
-        fieldText(tester, const Key('settings-conn-llm-baseurl')),
-        isEmpty,
-      );
-      expect(fieldText(tester, const Key('settings-conn-llm-model')), isEmpty);
-      expect(
-        find.byKey(const Key('settings-conn-llm-dialect:openai')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('settings-conn-llm-json')), findsOneWidget);
-    },
-  );
-
-  testWidgets('a custom save carries the dialect and the JSON overlay', (
+  testWidgets('the card paints the format trio and the three boxes', (
     tester,
   ) async {
     final store = FakeConnectionStore();
@@ -2542,22 +2697,83 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:custom')));
-    await tester.pump();
-    await tester.enterText(
-      find.byKey(const Key('settings-conn-llm-baseurl')),
-      'https://my.example',
+    // The format chips over the three wire names, the loaded one selected.
+    for (final format in ['openai_chat', 'anthropic', 'gemini']) {
+      expect(
+        find.byKey(Key('settings-conn-llm-format:$format')),
+        findsOneWidget,
+      );
+    }
+    // The boxes: the resident one, and the thinking pair under the switch.
+    expect(find.byKey(const Key('settings-conn-llm-body')), findsOneWidget);
+    expect(
+      find.byKey(const Key('settings-conn-llm-thinking-on')),
+      findsOneWidget,
     );
+    expect(
+      find.byKey(const Key('settings-conn-llm-thinking-off')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-conn-llm-thinking-fields')),
+      findsOneWidget,
+    );
+    // The preset chip row is the port's — six presets plus 自定义.
+    expect(
+      find.byKey(const Key('settings-conn-llm-vendors:custom')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-conn-llm-vendors:anthropic')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-conn-llm-vendors:gemini')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a preset chip stamps format, endpoint, model, and both shares', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // The harness paints nothing yet (the fake's view carries no shares),
+    // so a chip click is what fills the boxes. The endpoint's model is
+    // cleared first: the painted v1 default is not a preset name, so the
+    // chip would keep it (ADR-0019 item 5).
     await tester.enterText(
       find.byKey(const Key('settings-conn-llm-model')),
-      'my-model',
+      '',
     );
-    await tester.tap(find.byKey(const Key('settings-conn-llm-dialect:qwen')));
+    await tester.tap(
+      find.byKey(const Key('settings-conn-llm-vendors:anthropic')),
+    );
     await tester.pump();
-    await tester.enterText(
-      find.byKey(const Key('settings-conn-llm-json')),
-      '{"top_p": 0.9}',
+
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-baseurl')),
+      'https://api.anthropic.com',
     );
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-model')),
+      'claude-sonnet-5',
+    );
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-thinking-on')),
+      contains('adaptive'),
+    );
+    expect(
+      fieldText(tester, const Key('settings-conn-llm-thinking-off')),
+      contains('disabled'),
+    );
+
+    // The stamp rides the save whole: format, switch, and the shares.
     Scrollable.ensureVisible(
       tester.element(find.byKey(const Key('settings-conn-llm-save'))),
       alignment: 0.5,
@@ -2567,26 +2783,46 @@ void main() {
     await tester.pump();
 
     final save = store.llmSaves.single;
-    expect(save.vendor, 'custom');
-    expect(save.baseUrl, 'https://my.example');
-    expect(save.model, 'my-model');
-    expect(save.custom.thinkingDialect, 'qwen');
-    expect(save.custom.extraBodyJson, '{"top_p": 0.9}');
-    // The re-read truth mirrors the slot; the form keeps painting it.
-    expect(store.llm.custom.thinkingDialect, 'qwen');
-    expect(store.llm.custom.baseUrl, 'https://my.example');
-    expect(
-      fieldText(tester, const Key('settings-conn-llm-baseurl')),
-      'https://my.example',
+    expect(save.vendor, 'anthropic');
+    expect(save.format, 'anthropic');
+    expect(save.thinkingFields, isTrue);
+    expect(save.thinkingOnJson, contains('adaptive'));
+    expect(save.thinkingOffJson, contains('disabled'));
+  });
+
+  testWidgets('the format chips switch the axis without touching the boxes', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore();
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
     );
-    expect(
-      fieldText(tester, const Key('settings-conn-llm-json')),
-      contains('top_p'),
+
+    await tester.enterText(
+      find.byKey(const Key('settings-conn-llm-body')),
+      '{"temperature": 0.1}',
     );
+    await tester.tap(find.byKey(const Key('settings-conn-llm-format:gemini')));
+    await tester.pump();
+
+    Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('settings-conn-llm-save'))),
+      alignment: 0.5,
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+
+    final save = store.llmSaves.single;
+    expect(save.format, 'gemini');
+    // The resident box is the user's own text, not a preset field.
+    expect(save.bodyJson, '{"temperature": 0.1}');
   });
 
   testWidgets(
-    'custom drafts survive a switch away and back; another vendor save leaves the slot alone',
+    'the custom chip is the blank preset: it clears and keeps the format',
     (tester) async {
       final store = FakeConnectionStore();
       await pumpSettings(
@@ -2595,8 +2831,47 @@ void main() {
         domain: SettingsDomain.connection,
       );
 
+      // Start from a painted preset, then blank it.
+      await tester.tap(
+        find.byKey(const Key('settings-conn-llm-vendors:gemini')),
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('settings-conn-llm-body')),
+        '{"top_p": 0.9}',
+      );
       await tester.tap(
         find.byKey(const Key('settings-conn-llm-vendors:custom')),
+      );
+      await tester.pump();
+
+      expect(find.text('自定义'), findsOneWidget);
+      expect(
+        fieldText(tester, const Key('settings-conn-llm-baseurl')),
+        isEmpty,
+      );
+      expect(fieldText(tester, const Key('settings-conn-llm-model')), isEmpty);
+      expect(
+        fieldText(tester, const Key('settings-conn-llm-thinking-on')),
+        isEmpty,
+      );
+      expect(
+        fieldText(tester, const Key('settings-conn-llm-thinking-off')),
+        isEmpty,
+      );
+      // The format keeps the current 档 and the resident box is untouched.
+      expect(
+        tester
+            .widget<Switch>(
+              find.byKey(const Key('settings-conn-llm-thinking-fields')),
+            )
+            .value,
+        isFalse,
+      );
+
+      Scrollable.ensureVisible(
+        tester.element(find.byKey(const Key('settings-conn-llm-save'))),
+        alignment: 0.5,
       );
       await tester.pump();
       await tester.enterText(
@@ -2604,55 +2879,131 @@ void main() {
         'https://my.example',
       );
       await tester.enterText(
-        find.byKey(const Key('settings-conn-llm-json')),
-        '{"top_p": 0.9}',
+        find.byKey(const Key('settings-conn-llm-model')),
+        'my-model',
       );
-
-      // Switch away: the shared fields paint deepseek's preset; the custom
-      // rows hide.
-      await tester.tap(
-        find.byKey(const Key('settings-conn-llm-vendors:deepseek')),
-      );
-      await tester.pump();
-      expect(
-        fieldText(tester, const Key('settings-conn-llm-baseurl')),
-        'https://api.deepseek.com',
-      );
-      expect(find.byKey(const Key('settings-conn-llm-json')), findsNothing);
-
-      // Switch back: the drafts are exactly as left, unsaved.
-      await tester.tap(
-        find.byKey(const Key('settings-conn-llm-vendors:custom')),
-      );
-      await tester.pump();
-      expect(
-        fieldText(tester, const Key('settings-conn-llm-baseurl')),
-        'https://my.example',
-      );
-      expect(
-        fieldText(tester, const Key('settings-conn-llm-json')),
-        '{"top_p": 0.9}',
-      );
-
-      // A deepseek save never writes the slot (ADR-0018: the Rust save
-      // reads the custom edit only when custom is active).
-      await tester.tap(
-        find.byKey(const Key('settings-conn-llm-vendors:deepseek')),
-      );
-      await tester.pump();
       await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
       await tester.pump();
-      expect(store.llmSaves.single.vendor, 'deepseek');
-      expect(store.llm.custom.baseUrl, isNull); // the slot untouched
+
+      final save = store.llmSaves.single;
+      expect(save.vendor, 'custom');
+      expect(save.format, 'gemini'); // the current 档 survives the blank
+      expect(save.thinkingFields, isFalse);
+      expect(save.thinkingOnJson, isNull);
+      expect(save.bodyJson, '{"top_p": 0.9}'); // never a preset field
     },
   );
 
-  testWidgets('a refused custom save relays the error and adopts nothing', (
+  testWidgets('the switch governs the two boxes but both still ride the save', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore(
+      llm: fakeLlm(
+        thinkingState: 'off',
+        thinkingOnJson: '{"thinking": {"type": "adaptive"}}',
+        thinkingOffJson: '{"thinking": {"type": "disabled"}}',
+      ),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    // An off switch paints off and says what off means.
+    expect(
+      tester
+          .widget<Switch>(
+            find.byKey(const Key('settings-conn-llm-thinking-fields')),
+          )
+          .value,
+      isFalse,
+    );
+    expect(
+      textOf(tester, const Key('settings-conn-llm-thinking-note')),
+      contains('请求不带思考键'),
+    );
+
+    // Flipping it on turns the fields live; both boxes keep their text.
+    await tester.tap(
+      find.byKey(const Key('settings-conn-llm-thinking-fields')),
+    );
+    await tester.pump();
+    expect(
+      textOf(tester, const Key('settings-conn-llm-thinking-note')),
+      contains('开启'),
+    );
+
+    Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('settings-conn-llm-save'))),
+      alignment: 0.5,
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
+    await tester.pump();
+
+    // Off is a stance, not a deletion: both shares ride the save.
+    final save = store.llmSaves.single;
+    expect(save.thinkingFields, isTrue);
+    expect(save.thinkingOnJson, contains('adaptive'));
+    expect(save.thinkingOffJson, contains('disabled'));
+  });
+
+  testWidgets('an unconfigured group paints off and says so', (tester) async {
+    final store = FakeConnectionStore(
+      llm: fakeLlm(thinkingState: 'unconfigured'),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    expect(
+      textOf(tester, const Key('settings-conn-llm-thinking-note')),
+      contains('未配置'),
+    );
+  });
+
+  testWidgets('a broken group paints its detail and holds the save', (
+    tester,
+  ) async {
+    final store = FakeConnectionStore(
+      llm: fakeLlm(
+        thinkingState: 'broken',
+        thinkingDetail:
+            'spokenrectifier.toml: [llm]: thinking_fields must be a boolean',
+      ),
+    );
+    await pumpSettings(
+      tester,
+      connectionStore: store,
+      domain: SettingsDomain.connection,
+    );
+
+    expect(
+      textOf(tester, const Key('settings-conn-llm-thinking-broken')),
+      contains('thinking_fields must be a boolean'),
+    );
+    expect(
+      textOf(tester, const Key('settings-conn-llm-thinking-broken')),
+      contains('手修配置文件'),
+    );
+    // The save button is disabled, never a click certain to fail.
+    expect(
+      tester
+          .widget<SrButton>(find.byKey(const Key('settings-conn-llm-save')))
+          .onTap,
+      isNull,
+    );
+  });
+
+  testWidgets('a refused save relays the error and adopts nothing', (
     tester,
   ) async {
     final store = FakeConnectionStore()
       ..failNextSave = Exception(
-        '[llm.custom] extra_body is not valid JSON: expected value',
+        '[llm.overlays] thinking_on is not valid JSON: expected value',
       );
     await pumpSettings(
       tester,
@@ -2660,19 +3011,13 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    await tester.tap(find.byKey(const Key('settings-conn-llm-vendors:custom')));
-    await tester.pump();
     await tester.enterText(
       find.byKey(const Key('settings-conn-llm-baseurl')),
       'https://my.example',
     );
     await tester.enterText(
-      find.byKey(const Key('settings-conn-llm-model')),
-      'my-model',
-    );
-    await tester.enterText(
-      find.byKey(const Key('settings-conn-llm-json')),
-      '{"top_p": ',
+      find.byKey(const Key('settings-conn-llm-thinking-on')),
+      '{"thinking": ',
     );
     Scrollable.ensureVisible(
       tester.element(find.byKey(const Key('settings-conn-llm-save'))),
@@ -2681,9 +3026,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pumpAndSettle();
-    // The taller custom card scrolled the pane down; the error row rides
-    // the lazy list's top, outside the built extent — jump back to the
-    // top so it mounts.
+    // The card scrolled the pane down; the error row rides the lazy
+    // list's top, outside the built extent — jump back to the top so
+    // it mounts.
     tester
         .state<ScrollableState>(
           find
@@ -2699,7 +3044,7 @@ void main() {
 
     expect(
       textOf(tester, const Key('settings-conn-error')),
-      contains('extra_body is not valid JSON'),
+      contains('thinking_on is not valid JSON'),
     );
     expect(find.byKey(const Key('sr-toast')), findsNothing);
     expect(store.applyCalls, 0); // no adoption after a refused save
@@ -2723,8 +3068,8 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pump();
     final set = store.llmSaves.single;
-    expect(set.key, isA<ApiKeySet>());
-    expect((set.key as ApiKeySet).key, 'sk-new');
+    expect(set.apiKey, isA<ApiKeySet>());
+    expect((set.apiKey as ApiKeySet).key, 'sk-new');
     expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
     expect(fieldText(tester, const Key('settings-conn-llm-key')), 'sk-new');
 
@@ -2744,7 +3089,7 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-conn-clear-ok')));
     await tester.pump();
     final clear = store.llmSaves.last;
-    expect(clear.key, isA<ApiKeyClear>());
+    expect(clear.apiKey, isA<ApiKeyClear>());
     expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
     expect(find.textContaining('已保存在本机 local 文件'), findsNothing);
   });

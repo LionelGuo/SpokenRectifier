@@ -11,7 +11,7 @@ part 'api.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `parse_policy`, `rectify_view`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config carries credentials, the configured
@@ -143,6 +143,12 @@ Future<BridgeHistoryConfig> setHistoryConfig({
   retentionDays: retentionDays,
 );
 
+/// The preset port (ADR-0019 item 5): the settings pane's chip row, read
+/// from the engine-side single source rather than copied into Dart. The
+/// blank 自定义 seventh chip is the pane's own — it names no preset.
+Future<List<BridgeLlmPreset>> llmPresets() =>
+    RustLib.instance.api.crateApiLlmPresets();
+
 /// The effective `[asr]` and `[llm]` connections from the layer files —
 /// the connection domain's initial paint. File-level and
 /// engine-independent: the engine adopts the config at its creation,
@@ -181,9 +187,11 @@ Future<String?> asrEndpointPreview({
 );
 
 /// Write the editor's `[llm]` model back into the layer files (see
-/// `save_llm_connection`) and return the re-read view. The custom slot's
-/// edit rides along but is read only when the vendor chip is custom
-/// (ADR-0018); the dialect names one of the four adapted shapes.
+/// `save_llm_connection`) and return the re-read view — the file's
+/// truth, not the ask. The format and the thinking group ride the edit
+/// whole (ADR-0019 items 1/2); the group's boxes are the JSON text the
+/// pane holds, and a bad one refuses the save before anything is
+/// written.
 Future<BridgeLlmConnection> setLlmConnection({required BridgeLlmEdit edit}) =>
     RustLib.instance.api.crateApiSetLlmConnection(edit: edit);
 
@@ -1085,25 +1093,46 @@ sealed class BridgeKeyStatus with _$BridgeKeyStatus {
 /// vendor's — a key authenticates exactly one vendor, so the pane
 /// re-binds its key block per vendor chip and a switch never shows
 /// another vendor's key (ADR-0011).
+///
+/// The open shape (ADR-0019) rides here resolved: the format axis, the
+/// thinking switch's four-state reading, and the three overlays as the
+/// JSON text the pane's boxes hold (pretty, so a reopen reformats
+/// whatever the file's table ordering was).
 class BridgeLlmConnection {
   final String vendor;
   final String baseUrl;
   final String model;
+
+  /// `openai_chat` | `anthropic` | `gemini` (ADR-0019 item 1).
+  final String format;
   final BridgeKeyStatus key;
   final List<BridgeLlmVendorKey> keys;
 
-  /// The `[llm.custom]` slot (ADR-0018): restore cache, dialect, and
-  /// the overlay as the JSON text the pane's box holds (pretty, so a
-  /// reopen reformats whatever the file's table ordering was).
-  final BridgeLlmCustom custom;
+  /// The thinking group's reading: `on` | `off` | `unconfigured` |
+  /// `broken`. Only `on` is the switch's painted state — the other
+  /// three are one semantic for every consumer (ADR-0019 item 3).
+  final String thinkingState;
+
+  /// `broken`'s file-and-key detail, for the card's warning slot.
+  final String? thinkingDetail;
+
+  /// The resident overlay's JSON text; `None` when unset.
+  final String? bodyJson;
+  final String? thinkingOnJson;
+  final String? thinkingOffJson;
 
   const BridgeLlmConnection({
     required this.vendor,
     required this.baseUrl,
     required this.model,
+    required this.format,
     required this.key,
     required this.keys,
-    required this.custom,
+    required this.thinkingState,
+    this.thinkingDetail,
+    this.bodyJson,
+    this.thinkingOnJson,
+    this.thinkingOffJson,
   });
 
   @override
@@ -1111,9 +1140,14 @@ class BridgeLlmConnection {
       vendor.hashCode ^
       baseUrl.hashCode ^
       model.hashCode ^
+      format.hashCode ^
       key.hashCode ^
       keys.hashCode ^
-      custom.hashCode;
+      thinkingState.hashCode ^
+      thinkingDetail.hashCode ^
+      bodyJson.hashCode ^
+      thinkingOnJson.hashCode ^
+      thinkingOffJson.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1123,88 +1157,45 @@ class BridgeLlmConnection {
           vendor == other.vendor &&
           baseUrl == other.baseUrl &&
           model == other.model &&
+          format == other.format &&
           key == other.key &&
           keys == other.keys &&
-          custom == other.custom;
+          thinkingState == other.thinkingState &&
+          thinkingDetail == other.thinkingDetail &&
+          bodyJson == other.bodyJson &&
+          thinkingOnJson == other.thinkingOnJson &&
+          thinkingOffJson == other.thinkingOffJson;
 }
 
-/// The `[llm.custom]` slot as the pane paints it (ADR-0018).
-class BridgeLlmCustom {
-  /// The restore cache; `None` while never configured.
-  final String? baseUrl;
-  final String? model;
-
-  /// One of the four adapted shapes; always resolved (a missing key
-  /// reads as `openai`), so a custom save always writes one down.
-  final String thinkingDialect;
-
-  /// The stored overlay as pretty JSON; `None` when unset.
-  final String? extraBodyJson;
-
-  const BridgeLlmCustom({
-    this.baseUrl,
-    this.model,
-    required this.thinkingDialect,
-    this.extraBodyJson,
-  });
-
-  @override
-  int get hashCode =>
-      baseUrl.hashCode ^
-      model.hashCode ^
-      thinkingDialect.hashCode ^
-      extraBodyJson.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BridgeLlmCustom &&
-          runtimeType == other.runtimeType &&
-          baseUrl == other.baseUrl &&
-          model == other.model &&
-          thinkingDialect == other.thinkingDialect &&
-          extraBodyJson == other.extraBodyJson;
-}
-
-class BridgeLlmCustomEdit {
-  final String thinkingDialect;
-
-  /// The request-body overlay's JSON text; blank/`{}`/None = unset.
-  final String? extraBodyJson;
-
-  const BridgeLlmCustomEdit({
-    required this.thinkingDialect,
-    this.extraBodyJson,
-  });
-
-  @override
-  int get hashCode => thinkingDialect.hashCode ^ extraBodyJson.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BridgeLlmCustomEdit &&
-          runtimeType == other.runtimeType &&
-          thinkingDialect == other.thinkingDialect &&
-          extraBodyJson == other.extraBodyJson;
-}
-
-/// The editor's whole `[llm]` card: the active endpoint plus the custom
-/// slot's editable fields (ADR-0018 — read only when the vendor chip is
-/// custom; a save from another chip leaves the slot untouched).
+/// The editor's whole `[llm]` card: the endpoint fields, the format
+/// axis, the thinking switch, and the three overlay boxes as the JSON
+/// text they hold (blank or `{}` = that share unset). The save writes
+/// exactly this model, so the next load returns what the user saw.
 class BridgeLlmEdit {
   final String vendor;
   final String baseUrl;
   final String model;
+
+  /// One of the three format wire names (validated on the Rust side).
+  final String format;
+  final bool thinkingFields;
+
+  /// The resident overlay's JSON text; blank/`{}`/None = unset.
+  final String? bodyJson;
+  final String? thinkingOnJson;
+  final String? thinkingOffJson;
   final BridgeKeyEdit apiKey;
-  final BridgeLlmCustomEdit custom;
 
   const BridgeLlmEdit({
     required this.vendor,
     required this.baseUrl,
     required this.model,
+    required this.format,
+    required this.thinkingFields,
+    this.bodyJson,
+    this.thinkingOnJson,
+    this.thinkingOffJson,
     required this.apiKey,
-    required this.custom,
   });
 
   @override
@@ -1212,8 +1203,12 @@ class BridgeLlmEdit {
       vendor.hashCode ^
       baseUrl.hashCode ^
       model.hashCode ^
-      apiKey.hashCode ^
-      custom.hashCode;
+      format.hashCode ^
+      thinkingFields.hashCode ^
+      bodyJson.hashCode ^
+      thinkingOnJson.hashCode ^
+      thinkingOffJson.hashCode ^
+      apiKey.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1223,8 +1218,64 @@ class BridgeLlmEdit {
           vendor == other.vendor &&
           baseUrl == other.baseUrl &&
           model == other.model &&
-          apiKey == other.apiKey &&
-          custom == other.custom;
+          format == other.format &&
+          thinkingFields == other.thinkingFields &&
+          bodyJson == other.bodyJson &&
+          thinkingOnJson == other.thinkingOnJson &&
+          thinkingOffJson == other.thinkingOffJson &&
+          apiKey == other.apiKey;
+}
+
+/// One chip's fill, straight from the engine-side single source
+/// (`crates/llm::presets`) — the pane never copies the table (ADR-0019
+/// item 5). The model rule (only when empty or still a preset name) and
+/// the blank custom seventh chip live in the pane, not here.
+class BridgeLlmPreset {
+  /// The chip's wire name — also the vendor slot it names.
+  final String name;
+  final String format;
+  final String baseUrl;
+  final String model;
+
+  /// The 「设置思考字段」 switch the chip stamps.
+  final bool thinkingFields;
+
+  /// The two shares as JSON text, for the boxes.
+  final String thinkingOnJson;
+  final String thinkingOffJson;
+
+  const BridgeLlmPreset({
+    required this.name,
+    required this.format,
+    required this.baseUrl,
+    required this.model,
+    required this.thinkingFields,
+    required this.thinkingOnJson,
+    required this.thinkingOffJson,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      format.hashCode ^
+      baseUrl.hashCode ^
+      model.hashCode ^
+      thinkingFields.hashCode ^
+      thinkingOnJson.hashCode ^
+      thinkingOffJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeLlmPreset &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          format == other.format &&
+          baseUrl == other.baseUrl &&
+          model == other.model &&
+          thinkingFields == other.thinkingFields &&
+          thinkingOnJson == other.thinkingOnJson &&
+          thinkingOffJson == other.thinkingOffJson;
 }
 
 /// One vendor's resolved key pair, for the pane's per-vendor key block.
@@ -1297,6 +1348,15 @@ class BridgeRectifyBehavior {
   final bool quickRectify;
   final String? quickExtraDirective;
 
+  /// The CONNECTION domain's thinking reading (`on` / `off` /
+  /// `unconfigured` / `broken`): the two cards' thinking-policy chips
+  /// are disabled and the combination warning silenced while the
+  /// connection's fields are inert (ADR-0019 item 3; design-spec
+  /// §4.4's 修正 section). Carried on this read because the cards
+  /// paint from it and nothing else — one round trip, and a chip
+  /// click's re-read keeps the disable state fresh.
+  final String connectionThinking;
+
   const BridgeRectifyBehavior({
     required this.fullThinkingPolicy,
     required this.fullPrefill,
@@ -1308,6 +1368,7 @@ class BridgeRectifyBehavior {
     required this.quickEnabled,
     required this.quickRectify,
     this.quickExtraDirective,
+    required this.connectionThinking,
   });
 
   @override
@@ -1321,7 +1382,8 @@ class BridgeRectifyBehavior {
       lightTouchExtraDirective.hashCode ^
       quickEnabled.hashCode ^
       quickRectify.hashCode ^
-      quickExtraDirective.hashCode;
+      quickExtraDirective.hashCode ^
+      connectionThinking.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1337,7 +1399,8 @@ class BridgeRectifyBehavior {
           lightTouchExtraDirective == other.lightTouchExtraDirective &&
           quickEnabled == other.quickEnabled &&
           quickRectify == other.quickRectify &&
-          quickExtraDirective == other.quickExtraDirective;
+          quickExtraDirective == other.quickExtraDirective &&
+          connectionThinking == other.connectionThinking;
 }
 
 /// Dart-side mirror of one scenario (场景): a user-named style directive

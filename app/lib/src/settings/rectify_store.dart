@@ -32,6 +32,11 @@ const _unset = Object();
 /// threshold, and extra directive, plus the quick-mode sub-section
 /// (master switch, rectify gate, its own directive). Two tiers, never
 /// inheriting; quick stands beside them rather than above.
+///
+/// [connectionThinking] rides along read-only: it is the CONNECTION
+/// domain's reading of its thinking fields, carried on this same read
+/// because it is exactly the cards' disable condition (ADR-0019 item 3)
+/// — one round trip, and a chip click's re-read keeps it fresh.
 class RectifyBehavior {
   const RectifyBehavior({
     required this.fullThinkingPolicy,
@@ -44,6 +49,7 @@ class RectifyBehavior {
     this.quickEnabled = false,
     this.quickRectify = true,
     this.quickExtraDirective,
+    this.connectionThinking = 'on',
   });
 
   /// `always` | `placeholders` | `off` (ADR-0015).
@@ -71,6 +77,19 @@ class RectifyBehavior {
   /// The quick-mode-only directive, taken in place of the light-touch
   /// one on quick attempts; null/blank = not injected (ADR-0020).
   final String? quickExtraDirective;
+
+  /// The connection's thinking reading: `on` / `off` / `unconfigured` /
+  /// `broken` (ADR-0019 item 3). Only `on` leaves the two cards' policy
+  /// chips live — the other three are one semantic, and a broken file
+  /// reads as inert here (the connection card is where its detail
+  /// paints).
+  final String connectionThinking;
+
+  /// True while the connection's thinking fields are inert: the two
+  /// cards' policy chips go unselectable and their combination warning
+  /// silences. Recovery is the connection domain's switch or a fixed
+  /// file — nothing on this pane.
+  bool get thinkingDisabled => connectionThinking != 'on';
 
   /// A copy with the named fields replaced — the pick-to-save flow's
   /// builder (a chip click or a switch flip writes the whole model with
@@ -102,6 +121,7 @@ class RectifyBehavior {
     quickExtraDirective: identical(quickExtraDirective, _unset)
         ? this.quickExtraDirective
         : quickExtraDirective as String?,
+    connectionThinking: connectionThinking,
   );
 
   @override
@@ -116,7 +136,8 @@ class RectifyBehavior {
       other.lightTouchExtraDirective == lightTouchExtraDirective &&
       other.quickEnabled == quickEnabled &&
       other.quickRectify == quickRectify &&
-      other.quickExtraDirective == quickExtraDirective;
+      other.quickExtraDirective == quickExtraDirective &&
+      other.connectionThinking == connectionThinking;
 
   @override
   int get hashCode => Object.hash(
@@ -130,6 +151,7 @@ class RectifyBehavior {
     quickEnabled,
     quickRectify,
     quickExtraDirective,
+    connectionThinking,
   );
 }
 
@@ -179,6 +201,10 @@ class RustRectifyBehaviorStore implements RectifyBehaviorStore {
         quickEnabled: behavior.quickEnabled,
         quickRectify: behavior.quickRectify,
         quickExtraDirective: behavior.quickExtraDirective,
+        // Read-only on this wire: the save path never writes it (the
+        // connection domain owns those keys), but the struct is one
+        // shape both ways and the write rides along untouched.
+        connectionThinking: behavior.connectionThinking,
       );
 
   static RectifyBehavior _fromWire(rust.BridgeRectifyBehavior view) =>
@@ -193,5 +219,6 @@ class RustRectifyBehaviorStore implements RectifyBehaviorStore {
         quickEnabled: view.quickEnabled,
         quickRectify: view.quickRectify,
         quickExtraDirective: view.quickExtraDirective,
+        connectionThinking: view.connectionThinking,
       );
 }

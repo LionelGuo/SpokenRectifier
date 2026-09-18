@@ -19,6 +19,15 @@
 /// saving that combination is always allowed. The light tier's warning
 /// silences with its master switch (a disabled tier consumes nothing).
 ///
+/// The CONNECTION domain's thinking fields gate both cards (ADR-0019
+/// item 3, design-spec §4.4): while its switch is off, its fields are
+/// unconfigured, or its file is broken, the two policy chip rows go
+/// unselectable and both combination warnings fall silent — the tier's
+/// policies are unadopted either way, and a warning about a policy
+/// nothing runs would read as a live consequence. Recovery is the
+/// connection domain's switch or a fixed file; this pane only reads the
+/// state, never writes it.
+///
 /// Every save hands the files to the live engine through the same
 /// adoption the connection domain's saves take (ADR-0010, scope
 /// extended to `[rectify]`): the NEXT attempt — first stop, reroll, a
@@ -45,6 +54,12 @@ const _policyLabels = {'always': '始终', 'placeholders': '仅占位符', 'off'
 /// The warning a 思考关 ∩ 预填开 tier paints (the layout map's exact
 /// wording): a statement of consequence, never a refusal.
 const _comboWarning = '思考已关、预填仍开:占位符吸收依赖思考,关思考后预填初值多为空、需手动填写;此组合仍可使用。';
+
+/// What the two cards say while the connection domain's thinking fields
+/// are inert — the same line on both, naming where the recovery lives.
+const _thinkingDisabledNote =
+    '连接域的思考字段未启用(关 / 未配置 / 坏配置),思考策略暂不可选;'
+    '在「模型与连接」开启或修复后自动恢复。';
 
 class SettingsRectifyPane extends StatefulWidget {
   const SettingsRectifyPane({super.key, required this.store});
@@ -246,6 +261,7 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
           _FullCard(
             policy: _fullPolicy,
             prefill: _fullPrefill,
+            thinkingDisabled: model.thinkingDisabled,
             onPolicy: (policy) =>
                 _pick(_liveModel.copyWith(fullThinkingPolicy: policy)),
             onPrefill: (on) => _pick(_liveModel.copyWith(fullPrefill: on)),
@@ -255,6 +271,7 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
             enabled: _ltEnabled,
             policy: _ltPolicy,
             prefill: _ltPrefill,
+            thinkingDisabled: model.thinkingDisabled,
             threshold: _threshold,
             extra: _extra,
             inputsDirty: _inputsDirty,
@@ -285,16 +302,21 @@ class _FullCard extends StatelessWidget {
   const _FullCard({
     required this.policy,
     required this.prefill,
+    required this.thinkingDisabled,
     required this.onPolicy,
     required this.onPrefill,
   });
 
   final String policy;
   final bool prefill;
+
+  /// The connection domain's fields are inert: the chips go
+  /// unselectable and the warning falls silent (ADR-0019 item 3).
+  final bool thinkingDisabled;
   final ValueChanged<String> onPolicy;
   final ValueChanged<bool> onPrefill;
 
-  bool get _warns => policy == 'off' && prefill;
+  bool get _warns => !thinkingDisabled && policy == 'off' && prefill;
 
   @override
   Widget build(BuildContext context) {
@@ -324,7 +346,16 @@ class _FullCard extends StatelessWidget {
             testKey: 'settings-rectify-full-policy',
             selected: policy,
             onSelect: onPolicy,
+            enabled: !thinkingDisabled,
           ),
+          if (thinkingDisabled) ...[
+            const SizedBox(height: 6),
+            Text(
+              _thinkingDisabledNote,
+              key: const Key('settings-rectify-full-thinking-off'),
+              style: SrType.caption.copyWith(color: pal.textSecondary),
+            ),
+          ],
           if (_warns) ...[
             const SizedBox(height: 6),
             Text(
@@ -348,6 +379,7 @@ class _LightCard extends StatelessWidget {
     required this.enabled,
     required this.policy,
     required this.prefill,
+    required this.thinkingDisabled,
     required this.threshold,
     required this.extra,
     required this.inputsDirty,
@@ -360,6 +392,10 @@ class _LightCard extends StatelessWidget {
   final bool enabled;
   final String policy;
   final bool prefill;
+
+  /// The connection domain's fields are inert (ADR-0019 item 3): same
+  /// rule as the full card's, on top of this card's own master switch.
+  final bool thinkingDisabled;
   final TextEditingController threshold;
   final TextEditingController extra;
   final bool inputsDirty;
@@ -368,7 +404,7 @@ class _LightCard extends StatelessWidget {
   final ValueChanged<bool> onPrefill;
   final VoidCallback onSaveInputs;
 
-  bool get _warns => enabled && policy == 'off' && prefill;
+  bool get _warns => enabled && !thinkingDisabled && policy == 'off' && prefill;
 
   @override
   Widget build(BuildContext context) {
@@ -444,7 +480,16 @@ class _LightCard extends StatelessWidget {
                     testKey: 'settings-rectify-light-policy',
                     selected: policy,
                     onSelect: onPolicy,
+                    enabled: !thinkingDisabled,
                   ),
+                  if (thinkingDisabled) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _thinkingDisabledNote,
+                      key: const Key('settings-rectify-light-thinking-off'),
+                      style: SrType.caption.copyWith(color: pal.textSecondary),
+                    ),
+                  ],
                   if (_warns) ...[
                     const SizedBox(height: 6),
                     Text(
@@ -560,59 +605,69 @@ class _PolicyChips extends StatelessWidget {
     required this.testKey,
     required this.selected,
     required this.onSelect,
+    this.enabled = true,
   });
 
   final String testKey;
   final String selected;
   final ValueChanged<String> onSelect;
 
+  /// False while the connection's thinking fields are inert: the row
+  /// dims in place and no chip answers a tap (ADR-0019 item 3).
+  final bool enabled;
+
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return Wrap(
-      key: Key(testKey),
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final policy in rectifyPolicies)
-          SrHover(
-            builder: (hover) => GestureDetector(
-              onTap: () => onSelect(policy),
-              behavior: HitTestBehavior.opaque,
-              child: AnimatedContainer(
-                key: Key('$testKey:$policy'),
-                duration: SrMotion.fade,
-                curve: SrMotion.curveFade,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: policy == selected
-                      ? pal.accentSoft
-                      : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
-                  borderRadius: BorderRadius.circular(SrRadius.control),
-                  border: Border.all(
-                    color: policy == selected
-                        ? pal.accent.withValues(alpha: 0.6)
-                        : pal.hairline,
+    return AnimatedOpacity(
+      duration: SrMotion.fade,
+      curve: SrMotion.curveFade,
+      opacity: enabled ? 1 : 0.5,
+      child: Wrap(
+        key: Key(testKey),
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final policy in rectifyPolicies)
+            SrHover(
+              builder: (hover) => GestureDetector(
+                onTap: enabled ? () => onSelect(policy) : null,
+                behavior: HitTestBehavior.opaque,
+                child: AnimatedContainer(
+                  key: Key('$testKey:$policy'),
+                  duration: SrMotion.fade,
+                  curve: SrMotion.curveFade,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
                   ),
-                ),
-                child: Text(
-                  _policyLabels[policy] ?? policy,
-                  style: SrType.caption.copyWith(
+                  decoration: BoxDecoration(
                     color: policy == selected
-                        ? pal.accentText
-                        : pal.textSecondary,
-                    fontWeight: policy == selected
-                        ? FontWeight.w600
-                        : FontWeight.w400,
+                        ? pal.accentSoft
+                        : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+                    borderRadius: BorderRadius.circular(SrRadius.control),
+                    border: Border.all(
+                      color: policy == selected
+                          ? pal.accent.withValues(alpha: 0.6)
+                          : pal.hairline,
+                    ),
+                  ),
+                  child: Text(
+                    _policyLabels[policy] ?? policy,
+                    style: SrType.caption.copyWith(
+                      color: policy == selected
+                          ? pal.accentText
+                          : pal.textSecondary,
+                      fontWeight: policy == selected
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

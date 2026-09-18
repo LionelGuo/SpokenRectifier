@@ -578,9 +578,16 @@ mod tests {
         let llm = OpenAiCompatLlm::new(config).unwrap();
 
         let quick = request_for("嗯你好世界");
-        let quick = RectifyRequest { quick: true, ..quick };
+        let quick = RectifyRequest {
+            quick: true,
+            ..quick
+        };
         let prompt = llm.composed_prompt(&quick, Intensity::LightTouch);
-        assert!(prompt.system.contains("【快速额外指令】"), "got: {}", prompt.system);
+        assert!(
+            prompt.system.contains("【快速额外指令】"),
+            "got: {}",
+            prompt.system
+        );
         assert!(prompt.system.contains("快速私货"));
         assert!(!prompt.system.contains("轻修私货"));
         assert!(!prompt.system.contains("【轻修额外指令】"));
