@@ -502,9 +502,14 @@ pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
         // change event round-trips (the forwarder below corrects drift).
         crate::esc_guard::set_armed(true);
     }
-    // Ending a session also ends its fake speech feed.
-    if let SpeechSource::Fake { feed, .. } = &g.source {
-        if matches!(command, BridgeCommand::StopSession | BridgeCommand::Cancel) {
+    // Ending a session also ends its fake speech feed — and any hold
+    // watch: the orb's Stop / Esc Cancel must not race the poller on
+    // MarkQuick or a second Stop. The subscribe loop still stops the
+    // watch on every Recording→* (silence auto-end, the watcher's own
+    // release-stop) so a dropped isolate cannot leave a poller up.
+    if matches!(command, BridgeCommand::StopSession | BridgeCommand::Cancel) {
+        crate::hold_watcher::stop();
+        if let SpeechSource::Fake { feed, .. } = &g.source {
             *feed.lock().unwrap() = None;
         }
     }
@@ -522,6 +527,43 @@ pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
     }
     outcome?;
     Ok(())
+}
+
+/// Arm the primary-hotkey hold watcher (ADR-0020). `vks` are Win32
+/// virtual-key codes of the current main-flow chord. Returns whether a
+/// watch is now live — Dart swallows `WM_HOTKEY` repeats off that.
+///
+/// A quiet `false` (never an error) when the master switch is off, the
+/// engine is not recording, or `vks` is empty: Dart then keeps today's
+/// tap path. `stop_on_early_release` is the later press while already
+/// recording (today's tap-to-stop); the opening hold that started the
+/// session passes false so a short release keeps recording.
+///
+/// Independent of [`execute`] / `StartSession`: the orb click shares
+/// that command and must not start a watch (球左键不跟).
+pub fn watch_hold(vks: Vec<u32>, stop_on_early_release: bool) -> anyhow::Result<bool> {
+    let g = global()?;
+    if !g.engine.quick_mode() {
+        return Ok(false);
+    }
+    if g.engine.state() != SessionState::Recording {
+        return Ok(false);
+    }
+    if vks.is_empty() {
+        return Ok(false);
+    }
+    Ok(crate::hold_watcher::start(
+        vks,
+        stop_on_early_release,
+        g.engine.clone(),
+        &g.rt,
+    ))
+}
+
+/// Whether the hold watcher is currently running. Dart swallows
+/// `WM_HOTKEY` repeats while this is true.
+pub fn is_holding() -> anyhow::Result<bool> {
+    Ok(crate::hold_watcher::is_holding())
 }
 
 /// Current session state, for initial paint before any event arrives.
@@ -1640,13 +1682,20 @@ pub fn subscribe(sink: StreamSink<BridgeEventEnvelope>) -> anyhow::Result<()> {
                     // active phases keep it live, everything else disarms
                     // (an idle Esc belongs to whatever app holds the
                     // keyboard, e.g. closing the quick panel is ours).
-                    if let EngineEvent::SessionStateChanged { to, .. } = &envelope.event {
+                    if let EngineEvent::SessionStateChanged { from, to, .. } = &envelope.event {
                         crate::esc_guard::set_armed(matches!(
                             to,
                             SessionState::Recording
                                 | SessionState::Rectifying
                                 | SessionState::Preview
                         ));
+                        // The watch belongs to one Recording: cancel, a
+                        // silence auto-end, an orb stop, or our own
+                        // release-stop all land here. Independent of Dart
+                        // so a dropped isolate cannot leave a poller up.
+                        if *from == SessionState::Recording && *to != SessionState::Recording {
+                            crate::hold_watcher::stop();
+                        }
                     }
                     if sink.add(envelope.into()).is_err() {
                         break; // Dart side gone

@@ -57,6 +57,15 @@ abstract class SpeechEngineGateway {
   Future<void> fakeSay(String text);
   Future<void> fakeSilence(int elapsedMs);
   Stream<BridgeEventEnvelope> events();
+
+  /// Arm the primary-hotkey hold watcher (ADR-0020). Returns whether a
+  /// watch is now live — Dart swallows `WM_HOTKEY` repeats off that.
+  /// False (never an error) when the master switch is off, the engine
+  /// is not recording, or the host cannot poll (non-Windows).
+  Future<bool> watchHold(List<int> vks, {required bool stopOnEarlyRelease});
+
+  /// Whether the hold watcher is currently running.
+  Future<bool> isHolding();
 }
 
 /// The 900 ms receipt flash the ball shows after a session ends:
@@ -145,6 +154,19 @@ class SpeechController extends ChangeNotifier {
   /// Capture (the settings window is recording a row): both product
   /// chords are unregistered so the recorder can hear the press.
   bool _hotkeysPaused = false;
+
+  /// This physical hold of the primary chord has a watcher (or is
+  /// arming one). Repeats of the same `WM_HOTKEY` are swallowed until
+  /// the watcher ends — otherwise the first auto-repeat would stop the
+  /// session we just started. Independent of the orb, which still
+  /// stops on click through [dispatchInput].
+  bool _hotkeyHoldActive = false;
+
+  /// [gateway.watchHold] returned true for the current hold: the
+  /// poller is live. Distinguishes "arming" (swallow unconditionally)
+  /// from "the opening watch already ended" (the next press is a new
+  /// hold, possibly the tap-to-stop).
+  bool _holdArmed = false;
 
   StreamSubscription<BridgeEventEnvelope>? _subscription;
   Timer? _speechTimer;
@@ -298,7 +320,59 @@ class SpeechController extends ChangeNotifier {
 
   /// The hotkey press — same step as the orb's left click, minus the
   /// panel-close role (a session start force-closes the quick panel).
-  Future<void> hotkeyToggle() => dispatchInput(SessionInput.primary);
+  ///
+  /// When the quick-mode switch is on, a recording press no longer
+  /// stops on keyDown: the hold watcher owns the release (ADR-0020).
+  /// Repeats of the same physical hold are swallowed. The orb still
+  /// goes through [dispatchInput] and stops on click.
+  Future<void> hotkeyToggle() async {
+    if (_hotkeyHoldActive) {
+      // Still handing the chord to the poller: a WM_HOTKEY repeat
+      // during startSession must not fire a second Start.
+      if (!_holdArmed) return;
+      if (await gateway.isHolding()) return;
+      // The opening watch ended (short release); this press is new.
+      _hotkeyHoldActive = false;
+      _holdArmed = false;
+    }
+
+    if (phase == BridgeSessionState.recording) {
+      _hotkeyHoldActive = true;
+      if (await _armHoldWatcher(stopOnEarlyRelease: true)) {
+        _holdArmed = true;
+        return;
+      }
+      _hotkeyHoldActive = false;
+      await dispatchInput(SessionInput.primary);
+      return;
+    }
+
+    final starting = phase == BridgeSessionState.idle;
+    if (starting) _hotkeyHoldActive = true;
+    await dispatchInput(SessionInput.primary);
+    if (starting) {
+      if (await _armHoldWatcher(stopOnEarlyRelease: false)) {
+        _holdArmed = true;
+      } else {
+        _hotkeyHoldActive = false;
+      }
+    }
+  }
+
+  /// Hand the current primary chord to the hold watcher. False means
+  /// Dart keeps today's tap path (switch off, empty bind, not
+  /// recording, or a host that cannot poll).
+  Future<bool> _armHoldWatcher({required bool stopOnEarlyRelease}) async {
+    if (primaryChord.isNone) return false;
+    try {
+      return await gateway.watchHold(
+        primaryChord.win32Vks,
+        stopOnEarlyRelease: stopOnEarlyRelease,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// The pin hotkey's press (ticket 21 / 16): pin a placeholder at the
   /// current end of the spoken segment. The chord is registered exactly
@@ -988,6 +1062,8 @@ class SpeechController extends ChangeNotifier {
           // elsewhere — bookmark menus, undo — stay ours-free at idle).
           if (from == BridgeSessionState.recording) {
             unawaited(_disarmPinHotkey());
+            _hotkeyHoldActive = false;
+            _holdArmed = false;
           }
         }
         // An active session takes over from the quick panel — recording

@@ -32,6 +32,9 @@ SessionCommand? flowAction(BridgeSessionState phase, SessionInput input) {
     case BridgeSessionState.recording:
       switch (input) {
         case SessionInput.primary:
+          // The orb's left click. The primary hotkey does not use this
+          // cell while a hold watch is live (ADR-0020: release stops,
+          // not keyDown); with the switch off it still does.
           return SessionCommand.stop;
         case SessionInput.escape:
           return SessionCommand.cancel;

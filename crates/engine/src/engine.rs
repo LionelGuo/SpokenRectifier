@@ -302,6 +302,27 @@ impl Engine {
         *self.inner.timings.read().unwrap()
     }
 
+    /// Quick-mode master switch as it stands now (config-seeded,
+    /// runtime-switched). The hold watcher reads it before arming so a
+    /// switch-off session never starts a watch (ADR-0020); [`Command::MarkQuick`]
+    /// still no-ops on its own if the watcher races a flip.
+    pub fn quick_mode(&self) -> bool {
+        *self.inner.quick_mode.read().unwrap()
+    }
+
+    /// Whether the current session has been upgraded to quick mode.
+    /// False when idle or when the session stayed ordinary (switch off,
+    /// already pinned, never marked). The hold watcher reads it after
+    /// [`Command::MarkQuick`]: a silent refusal must not treat the release
+    /// as a stop.
+    pub fn is_quick(&self) -> bool {
+        self.inner
+            .state_lock()
+            .session
+            .as_ref()
+            .is_some_and(|session| session.quick)
+    }
+
     /// Swap the ASR provider at runtime: the next session opens with the
     /// new one; a running session keeps the stream it opened (ADR-0010).
     pub fn set_asr_provider(&self, asr: Arc<dyn AsrProvider>) {

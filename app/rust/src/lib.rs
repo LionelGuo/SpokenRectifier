@@ -7,6 +7,7 @@ mod engine_factory;
 mod esc_guard;
 mod eval_runner;
 mod history;
+mod hold_watcher;
 mod settings;
 mod terms;
 

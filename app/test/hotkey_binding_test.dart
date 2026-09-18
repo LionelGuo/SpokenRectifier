@@ -154,4 +154,22 @@ void main() {
     expect(HotkeyBinding.defaultFor(HotkeySlot.primary).wire, 'Ctrl+Alt+V');
     expect(HotkeyBinding.defaultFor(HotkeySlot.pin).wire, 'Alt+B');
   });
+
+  group('win32Vks', () {
+    test('the default primary chord is Ctrl+Alt+V', () {
+      expect(HotkeyBinding.primaryDefault.win32Vks, [0x11, 0x12, 0x56]);
+    });
+
+    test('the default pin chord is Alt+B', () {
+      expect(HotkeyBinding.pinDefault.win32Vks, [0x12, 0x42]);
+    });
+
+    test('an empty bind has no keys to watch', () {
+      expect(const HotkeyBinding.none().win32Vks, isEmpty);
+    });
+
+    test('Shift+F11 is the function-key vk, not a letter', () {
+      expect(HotkeyBinding.tryParse('Shift+F11')!.win32Vks, [0x10, 0x7A]);
+    });
+  });
 }

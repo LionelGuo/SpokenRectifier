@@ -12,6 +12,14 @@ class FakeGateway implements SpeechEngineGateway {
   final commands = <String>[];
   final said = <String>[];
 
+  /// When true, [watchHold] reports a live watch (quick-mode on).
+  /// Default false: widget tests keep today's tap path.
+  bool watchHoldSucceeds = false;
+
+  /// Mirrors the poller's "currently holding" flag after a successful
+  /// [watchHold]; tests flip it to simulate a release.
+  bool holding = false;
+
   /// When set, the next startSession throws this (e.g. no microphone).
   Object? failNextStart;
 
@@ -310,4 +318,25 @@ class FakeGateway implements SpeechEngineGateway {
 
   @override
   Stream<BridgeEventEnvelope> events() => _events.stream;
+
+  @override
+  Future<bool> watchHold(
+    List<int> vks, {
+    required bool stopOnEarlyRelease,
+  }) async {
+    commands.add(
+      'watchHold:${stopOnEarlyRelease ? 'stop' : 'open'}:${vks.join(',')}',
+    );
+    // Mirror the Rust gate: a watch only starts while recording, and
+    // only when the master switch is on (`watchHoldSucceeds`).
+    if (!watchHoldSucceeds || _state != BridgeSessionState.recording) {
+      holding = false;
+      return false;
+    }
+    holding = true;
+    return true;
+  }
+
+  @override
+  Future<bool> isHolding() async => holding;
 }

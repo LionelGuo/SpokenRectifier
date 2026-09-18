@@ -103,4 +103,13 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
 
   @override
   Stream<rust.BridgeEventEnvelope> events() => rust.subscribe();
+
+  @override
+  Future<bool> watchHold(
+    List<int> vks, {
+    required bool stopOnEarlyRelease,
+  }) => rust.watchHold(vks: vks, stopOnEarlyRelease: stopOnEarlyRelease);
+
+  @override
+  Future<bool> isHolding() => rust.isHolding();
 }

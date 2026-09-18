@@ -29,6 +29,9 @@ void main() {
 
   group('flowAction: recording', () {
     test('primary stops into rectification', () {
+      // The orb's left click. The primary hotkey with the quick-mode
+      // switch on does not use this cell (release stops, not keyDown);
+      // with the switch off it still does. Locked in hold_watcher_test.
       expect(
         flowAction(BridgeSessionState.recording, SessionInput.primary),
         SessionCommand.stop,

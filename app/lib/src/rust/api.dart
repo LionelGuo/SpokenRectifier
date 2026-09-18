@@ -41,6 +41,30 @@ Future<void> createFakeEngine({required List<String> llmResponses}) =>
 Future<void> execute({required BridgeCommand command}) =>
     RustLib.instance.api.crateApiExecute(command: command);
 
+/// Arm the primary-hotkey hold watcher (ADR-0020). `vks` are Win32
+/// virtual-key codes of the current main-flow chord. Returns whether a
+/// watch is now live — Dart swallows `WM_HOTKEY` repeats off that.
+///
+/// A quiet `false` (never an error) when the master switch is off, the
+/// engine is not recording, or `vks` is empty: Dart then keeps today's
+/// tap path. `stop_on_early_release` is the later press while already
+/// recording (today's tap-to-stop); the opening hold that started the
+/// session passes false so a short release keeps recording.
+///
+/// Independent of [`execute`] / `StartSession`: the orb click shares
+/// that command and must not start a watch (球左键不跟).
+Future<bool> watchHold({
+  required List<int> vks,
+  required bool stopOnEarlyRelease,
+}) => RustLib.instance.api.crateApiWatchHold(
+  vks: vks,
+  stopOnEarlyRelease: stopOnEarlyRelease,
+);
+
+/// Whether the hold watcher is currently running. Dart swallows
+/// `WM_HOTKEY` repeats while this is true.
+Future<bool> isHolding() => RustLib.instance.api.crateApiIsHolding();
+
 /// Current session state, for initial paint before any event arrives.
 Future<BridgeSessionState> state() => RustLib.instance.api.crateApiState();
 
