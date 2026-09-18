@@ -144,6 +144,11 @@ pub enum BridgeEvent {
         text: String,
     },
     ParagraphMarked,
+    /// The recording session was upgraded to quick mode (ADR-0020): the
+    /// held chord crossed the threshold with nothing pinned. The session
+    /// window hangs the 聆听中 phase word and the pin-hotkey disarm off
+    /// it.
+    QuickMarked,
     SpeechActivityChanged {
         speaking: bool,
     },
@@ -284,6 +289,7 @@ impl From<EngineEvent> for BridgeEvent {
                 BridgeEvent::LiveTranscriptUpdated { text }
             }
             EngineEvent::ParagraphMarked => BridgeEvent::ParagraphMarked,
+            EngineEvent::QuickMarked => BridgeEvent::QuickMarked,
             EngineEvent::SpeechActivityChanged { speaking } => {
                 BridgeEvent::SpeechActivityChanged { speaking }
             }
@@ -387,7 +393,15 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
     // Resolved once: every section loader below reads the same layered
     // files from the same directories.
     let dirs = spokenrectifier_config::search_dirs();
-    let config = engine_config(&dirs)?;
+    let mut config = engine_config(&dirs)?;
+    // Quick mode's two switches live in the rectify section, not under
+    // [engine] — so they are read through the loader the settings window
+    // writes with, and the engine boots on exactly what is saved. From
+    // here on they follow the runtime switches (`set_rectify_behavior`).
+    let rectify =
+        spokenrectifier_llm::load_llm_config(&dirs).map_err(|err| anyhow!("LLM {}", err.0))?;
+    config.quick_mode = rectify.rectify.quick.enabled;
+    config.quick_rectify = rectify.rectify.quick.rectify;
     let asr = crate::engine_factory::asr_provider(&dirs)?;
     let llm: Arc<dyn RectifyLlm> = match llm_choice(&dirs)? {
         LlmChoice::Real(llm) => llm,
@@ -1329,7 +1343,17 @@ pub fn set_rectify_behavior(edit: BridgeRectifyBehavior) -> anyhow::Result<Bridg
         },
     )
     .map_err(|err| anyhow!("LLM {}", err.0))?;
-    rectify_behavior()
+    let saved = rectify_behavior()?;
+    // The live engine adopts the quick switches at once, exactly like the
+    // advanced form's timings: `enabled` gates the next hold, `rectify`
+    // the next session's snapshot. Internal to the save — no Dart-facing
+    // command, because the save itself is one bridge call.
+    let g = global()?;
+    g.rt.block_on(g.engine.execute(Command::SetQuickMode {
+        enabled: saved.quick_enabled,
+        rectify: saved.quick_rectify,
+    }))?;
+    Ok(saved)
 }
 
 // -- the terms domain (术语, ticket 19) ----------------------------------------
@@ -2214,6 +2238,7 @@ mod tests {
                 text: "你好".into(),
             },
             EngineEvent::ParagraphMarked,
+            EngineEvent::QuickMarked,
             EngineEvent::SpeechActivityChanged { speaking: true },
             EngineEvent::RectifiedTextChunk {
                 delta: "好".into()

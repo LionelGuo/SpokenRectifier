@@ -19,6 +19,19 @@ pub struct EngineConfig {
     /// reroll each get a fresh budget). Expiry aborts the session with an
     /// Error event instead of wedging in `Rectifying`.
     pub rectify_timeout_ms: u64,
+    /// The quick-mode master switch (`[rectify.quick] enabled`): with it
+    /// off (the default) a mark can never upgrade a session, so the held
+    /// hotkey keeps today's exact meaning. Switched at runtime by
+    /// [`Command::SetQuickMode`](crate::Command::SetQuickMode) and read
+    /// when the hold crosses the threshold.
+    pub quick_mode: bool,
+    /// Whether an upgraded session runs the model at all
+    /// (`[rectify.quick] rectify`): on, the stop goes through the light
+    /// touch pass and its result is inserted; off, the frozen raw
+    /// transcript is inserted untouched. Snapshotted when each session
+    /// opens — the timings rule — so a switch applies from the next
+    /// session on.
+    pub quick_rectify: bool,
 }
 
 impl Default for EngineConfig {
@@ -28,6 +41,8 @@ impl Default for EngineConfig {
             paragraph_silence_ms: 1200,
             session_end_silence_ms: 3000,
             rectify_timeout_ms: 25_000,
+            quick_mode: false,
+            quick_rectify: true,
         }
     }
 }

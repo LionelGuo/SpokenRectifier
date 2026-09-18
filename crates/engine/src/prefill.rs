@@ -126,6 +126,17 @@ impl ResponseSplitter {
         out
     }
 
+    /// The body as streamed so far: the concatenation of every [`push`]
+    /// output, exactly what the shell has accumulated. The held-back run
+    /// is not included — it never left the engine. Read by an attempt
+    /// that fails mid-stream and must keep what it already showed
+    /// (ADR-0020's degradation into preview).
+    ///
+    /// [`push`]: ResponseSplitter::push
+    pub fn streamed_body(&self) -> &str {
+        &self.body
+    }
+
     /// Close the stream. Returns the preview body and — for an active
     /// response — the prefill table parsed from it. The held run
     /// releases by end-of-stream semantics: a bare run was never a form

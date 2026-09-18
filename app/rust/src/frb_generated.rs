@@ -1804,31 +1804,34 @@ impl SseDecode for crate::api::BridgeEvent {
                 return crate::api::BridgeEvent::ParagraphMarked;
             }
             3 => {
+                return crate::api::BridgeEvent::QuickMarked;
+            }
+            4 => {
                 let mut var_speaking = <bool>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::SpeechActivityChanged {
                     speaking: var_speaking,
                 };
             }
-            4 => {
+            5 => {
                 let mut var_delta = <String>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::RectifiedTextChunk { delta: var_delta };
             }
-            5 => {
+            6 => {
                 let mut var_prefills =
                     <Vec<crate::api::BridgePrefillRow>>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::PreviewPrefills {
                     prefills: var_prefills,
                 };
             }
-            6 => {
+            7 => {
                 let mut var_text = <String>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::PreviewTextUpdated { text: var_text };
             }
-            7 => {
+            8 => {
                 let mut var_text = <String>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::TextInserted { text: var_text };
             }
-            8 => {
+            9 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::Error {
                     message: var_message,
@@ -2827,23 +2830,24 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeEvent {
                 [1.into_dart(), text.into_into_dart().into_dart()].into_dart()
             }
             crate::api::BridgeEvent::ParagraphMarked => [2.into_dart()].into_dart(),
+            crate::api::BridgeEvent::QuickMarked => [3.into_dart()].into_dart(),
             crate::api::BridgeEvent::SpeechActivityChanged { speaking } => {
-                [3.into_dart(), speaking.into_into_dart().into_dart()].into_dart()
+                [4.into_dart(), speaking.into_into_dart().into_dart()].into_dart()
             }
             crate::api::BridgeEvent::RectifiedTextChunk { delta } => {
-                [4.into_dart(), delta.into_into_dart().into_dart()].into_dart()
+                [5.into_dart(), delta.into_into_dart().into_dart()].into_dart()
             }
             crate::api::BridgeEvent::PreviewPrefills { prefills } => {
-                [5.into_dart(), prefills.into_into_dart().into_dart()].into_dart()
+                [6.into_dart(), prefills.into_into_dart().into_dart()].into_dart()
             }
             crate::api::BridgeEvent::PreviewTextUpdated { text } => {
-                [6.into_dart(), text.into_into_dart().into_dart()].into_dart()
-            }
-            crate::api::BridgeEvent::TextInserted { text } => {
                 [7.into_dart(), text.into_into_dart().into_dart()].into_dart()
             }
+            crate::api::BridgeEvent::TextInserted { text } => {
+                [8.into_dart(), text.into_into_dart().into_dart()].into_dart()
+            }
             crate::api::BridgeEvent::Error { message } => {
-                [8.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [9.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
             _ => {
                 unimplemented!("");
@@ -3529,28 +3533,31 @@ impl SseEncode for crate::api::BridgeEvent {
             crate::api::BridgeEvent::ParagraphMarked => {
                 <i32>::sse_encode(2, serializer);
             }
-            crate::api::BridgeEvent::SpeechActivityChanged { speaking } => {
+            crate::api::BridgeEvent::QuickMarked => {
                 <i32>::sse_encode(3, serializer);
+            }
+            crate::api::BridgeEvent::SpeechActivityChanged { speaking } => {
+                <i32>::sse_encode(4, serializer);
                 <bool>::sse_encode(speaking, serializer);
             }
             crate::api::BridgeEvent::RectifiedTextChunk { delta } => {
-                <i32>::sse_encode(4, serializer);
+                <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(delta, serializer);
             }
             crate::api::BridgeEvent::PreviewPrefills { prefills } => {
-                <i32>::sse_encode(5, serializer);
+                <i32>::sse_encode(6, serializer);
                 <Vec<crate::api::BridgePrefillRow>>::sse_encode(prefills, serializer);
             }
             crate::api::BridgeEvent::PreviewTextUpdated { text } => {
-                <i32>::sse_encode(6, serializer);
-                <String>::sse_encode(text, serializer);
-            }
-            crate::api::BridgeEvent::TextInserted { text } => {
                 <i32>::sse_encode(7, serializer);
                 <String>::sse_encode(text, serializer);
             }
-            crate::api::BridgeEvent::Error { message } => {
+            crate::api::BridgeEvent::TextInserted { text } => {
                 <i32>::sse_encode(8, serializer);
+                <String>::sse_encode(text, serializer);
+            }
+            crate::api::BridgeEvent::Error { message } => {
+                <i32>::sse_encode(9, serializer);
                 <String>::sse_encode(message, serializer);
             }
             _ => {

@@ -929,6 +929,12 @@ sealed class BridgeEvent with _$BridgeEvent {
   const factory BridgeEvent.liveTranscriptUpdated({required String text}) =
       BridgeEvent_LiveTranscriptUpdated;
   const factory BridgeEvent.paragraphMarked() = BridgeEvent_ParagraphMarked;
+
+  /// The recording session was upgraded to quick mode (ADR-0020): the
+  /// held chord crossed the threshold with nothing pinned. The session
+  /// window hangs the 聆听中 phase word and the pin-hotkey disarm off
+  /// it.
+  const factory BridgeEvent.quickMarked() = BridgeEvent_QuickMarked;
   const factory BridgeEvent.speechActivityChanged({required bool speaking}) =
       BridgeEvent_SpeechActivityChanged;
   const factory BridgeEvent.rectifiedTextChunk({required String delta}) =

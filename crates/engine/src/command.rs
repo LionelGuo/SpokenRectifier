@@ -54,6 +54,27 @@ pub enum Command {
     /// its non-empty frozen transcript. Rejected with no state change
     /// outside recording.
     PinPlaceholder,
+    /// Upgrade the recording session to quick mode (ADR-0020): the shell's
+    /// hold watcher reports that the hotkey chord crossed the hold
+    /// threshold, so this session's release ends the recording and the
+    /// stop goes straight through — no preview, no confirmation.
+    ///
+    /// A quiet no-op (never a rejection: this is a platform signal, not a
+    /// user command) when the switch is off, when no session is recording,
+    /// when this session already upgraded, or when something is already
+    /// pinned — a pin makes the session an ordinary one for its whole
+    /// life. Emits [`EngineEvent::QuickMarked`](crate::EngineEvent::QuickMarked)
+    /// on the one call that lands.
+    MarkQuick,
+    /// The hotkey chord is physically down (`held`) or no longer down:
+    /// the shell's hold watcher reports it while a session records. A
+    /// held chord suppresses the silence auto-end (ADR-0020) — the
+    /// speaker is mid-gesture, and the release is what ends the session —
+    /// while paragraph marks keep flowing. A quiet no-op outside
+    /// recording: the signal is bookkeeping for a live session, and a
+    /// release that lands after the session moved on has nothing left to
+    /// gate.
+    HoldGate { held: bool },
     /// Abort the session at any point with zero output.
     Cancel,
     /// Insert the (possibly edited) rectified text at the cursor. Valid in
@@ -84,4 +105,11 @@ pub enum Command {
     /// advanced form). Snapshotted when a session opens, so a switch
     /// applies from the next session on. Valid any time.
     SetEngineTimings(EngineTimings),
+    /// Switch the quick-mode settings at runtime (the settings window's
+    /// third card, `[rectify.quick]`), right after the file write, so the
+    /// live engine adopts the saved values at once instead of at the next
+    /// launch (ADR-0010's re-adoption). `enabled` is read when a hold
+    /// crosses the threshold, `rectify` when a session opens; both are
+    /// valid any time.
+    SetQuickMode { enabled: bool, rectify: bool },
 }

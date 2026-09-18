@@ -75,6 +75,15 @@ struct Inner {
     /// advanced form). Snapshotted when each session opens, so a switch
     /// applies from the next session on.
     timings: RwLock<EngineTimings>,
+    /// The quick-mode master switch as it stands now (ADR-0020), seeded
+    /// from the config at construction and switched at runtime (the
+    /// settings window's third card). Read when a hold crosses the
+    /// threshold: with it off, no mark can upgrade a session.
+    quick_mode: RwLock<bool>,
+    /// `[rectify.quick] rectify` as it stands now — same seeding and
+    /// runtime switch as [`Inner::quick_mode`]. Snapshotted when each
+    /// session opens, so a switch applies from the next session on.
+    quick_rectify: RwLock<bool>,
     /// The ASR provider the NEXT session opens with — the
     /// construction-time one, or a runtime replacement (ADR-0010). Read
     /// once at each session open, so a running session's stream never
@@ -156,6 +165,22 @@ struct Session {
     /// Pinned for the session's lifetime: rerolls keep it, and it dies
     /// with the session.
     style: SessionStyle,
+    /// Whether this session was upgraded to quick mode (ADR-0020) by a
+    /// hotkey chord held past the threshold. Decided at most once, and
+    /// dropped the moment the session fails into preview: from there
+    /// every attempt runs the ordinary path again.
+    quick: bool,
+    /// `[rectify.quick] rectify` as snapshotted when the session opened
+    /// (the timings rule): on, a quick stop runs the light-touch pass and
+    /// inserts its result; off, the frozen raw transcript is inserted
+    /// untouched and no model runs.
+    quick_rectify: bool,
+    /// The hotkey chord is physically down right now — the shell's hold
+    /// watcher reporting (ADR-0020). A held chord suppresses the silence
+    /// auto-end: the speaker is mid-gesture and the release ends the
+    /// session. False at open, because the watcher arms only after the
+    /// session starts, so nothing carries over between sessions.
+    hold_gate: bool,
     /// The rectified text as it will be inserted (possibly user-edited).
     preview_text: String,
     /// Ends the ASR stream consumption; fired when recording ends.
@@ -234,6 +259,8 @@ impl Engine {
                 global_directive: RwLock::new(None),
                 passage_mode: RwLock::new(config.passage_mode),
                 timings: RwLock::new(config.timings()),
+                quick_mode: RwLock::new(config.quick_mode),
+                quick_rectify: RwLock::new(config.quick_rectify),
                 asr: RwLock::new(deps.asr),
                 llm: RwLock::new(deps.llm),
                 inserter: deps.inserter,
@@ -311,6 +338,8 @@ impl Engine {
                 Ok(())
             }
             Command::PinPlaceholder => self.pin_placeholder(),
+            Command::MarkQuick => self.mark_quick(),
+            Command::HoldGate { held } => self.hold_gate(held),
             Command::Cancel => self.cancel_session(),
             Command::ConfirmInsert => self.confirm_insert().await,
             Command::Reroll => {
@@ -348,6 +377,11 @@ impl Engine {
                 *self.inner.timings.write().unwrap() = timings;
                 Ok(())
             }
+            Command::SetQuickMode { enabled, rectify } => {
+                *self.inner.quick_mode.write().unwrap() = enabled;
+                *self.inner.quick_rectify.write().unwrap() = rectify;
+                Ok(())
+            }
         }
     }
 
@@ -381,6 +415,7 @@ impl Engine {
                 terms,
                 self.inner.current_passage_mode(),
                 self.inner.current_timings(),
+                self.inner.current_quick_rectify(),
             );
             let cancel = session.asr_cancel.clone();
             st.session = Some(session);
@@ -431,6 +466,7 @@ impl Engine {
                 self.inner.current_terms(),
                 self.inner.current_passage_mode(),
                 self.inner.current_timings(),
+                self.inner.current_quick_rectify(),
             );
             session.frozen = Some(FrozenUtterance {
                 raw_transcript: raw_transcript.clone(),
@@ -505,10 +541,63 @@ impl Engine {
         }
         let sid = current_sid(&st);
         let session = st.session.as_mut().expect("active session");
+        if session.quick {
+            // An upgraded session takes no pins (ADR-0020). The shell
+            // disarms the pin hotkey off the upgrade event, and this is
+            // the belt to that braces: a press that lost the race is
+            // swallowed whole — no sentinel, no error, nothing the user
+            // would have to be told about.
+            return Ok(());
+        }
         session.pin();
         let text = session.live_text();
         self.inner
             .emit(&mut st, sid, EngineEvent::LiveTranscriptUpdated { text });
+        Ok(())
+    }
+
+    /// Upgrade the recording session to quick mode (ADR-0020): the chord
+    /// was held past the threshold with nothing pinned yet, so the release
+    /// now ends the session and its stop goes straight through. The one
+    /// call that lands emits [`EngineEvent::QuickMarked`], which the shell
+    /// turns into the 聆听中 phase word and the pin-hotkey disarm.
+    ///
+    /// Silent in every other case — the master switch off, no session
+    /// recording, an upgrade already made, or a pin already down (a pinned
+    /// session is ordinary for its whole life). Silence, not rejection:
+    /// this is a platform signal the user never issued directly, so there
+    /// is nothing to surface.
+    fn mark_quick(&self) -> Result<(), EngineError> {
+        // Read before the state lock: the switch is a live setting, never
+        // snapshotted into a session.
+        let switch_on = *self.inner.quick_mode.read().unwrap();
+        let mut st = self.inner.state_lock();
+        if !switch_on || st.state != SessionState::Recording {
+            return Ok(());
+        }
+        let sid = current_sid(&st);
+        let session = st.session.as_mut().expect("active session");
+        if session.quick || !session.pins.is_empty() {
+            return Ok(());
+        }
+        session.quick = true;
+        self.inner.emit(&mut st, sid, EngineEvent::QuickMarked);
+        Ok(())
+    }
+
+    /// Report the chord's physical state while a session records. A held
+    /// chord suppresses the silence auto-end (ADR-0020) — the speaker is
+    /// mid-gesture, and their release is what ends the session; paragraph
+    /// marks keep flowing, so a held pause still closes a paragraph. A
+    /// quiet no-op outside recording: the signal belongs to a live
+    /// session, and a release that lands after the session moved on has
+    /// nothing left to gate.
+    fn hold_gate(&self, held: bool) -> Result<(), EngineError> {
+        let mut st = self.inner.state_lock();
+        if st.state != SessionState::Recording {
+            return Ok(());
+        }
+        st.session.as_mut().expect("active session").hold_gate = held;
         Ok(())
     }
 
@@ -659,6 +748,12 @@ impl Inner {
         *self.timings.read().unwrap()
     }
 
+    /// The quick-rectify setting for a session about to open — same
+    /// snapshot rule as [`Inner::current_passage_mode`].
+    fn current_quick_rectify(&self) -> bool {
+        *self.quick_rectify.read().unwrap()
+    }
+
     /// Emit an event; the guard must be held so `seq` order can never
     /// diverge from send order.
     fn emit(&self, st: &mut SharedState, sid: SessionId, event: EngineEvent) {
@@ -714,15 +809,33 @@ impl Inner {
         }
     }
 
-    /// Abort a rectifying session after a failure. No-op if the session
+    /// Abort a rectifying attempt after a failure. No-op if the session
     /// already moved on (e.g. cancelled concurrently).
-    fn abort_rectifying(&self, sid: SessionId, message: String) {
+    ///
+    /// An ordinary session is discarded (error, then `Cancelled`). A
+    /// quick-mode one degrades instead (ADR-0020): it enters `Preview`
+    /// holding whatever it had streamed — [`streamed`], the text the shell
+    /// already shows — with its quick flag cleared, so the reroll there
+    /// and the confirm after it run the ordinary path and nothing
+    /// auto-pastes. That is the safety net: the round's words survive the
+    /// failure.
+    ///
+    /// [`streamed`]: crate::prefill::ResponseSplitter::streamed_body
+    fn abort_rectifying(&self, sid: SessionId, message: String, streamed: String) {
         let mut st = self.state_lock();
         if st.state != SessionState::Rectifying || !session_matches(&st, sid) {
             return;
         }
         self.emit(&mut st, sid, EngineEvent::Error { message });
-        self.finish_session(&mut st, sid, SessionState::Cancelled);
+        let quick = st.session.as_ref().is_some_and(|session| session.quick);
+        if !quick {
+            self.finish_session(&mut st, sid, SessionState::Cancelled);
+            return;
+        }
+        let session = st.session.as_mut().expect("active session");
+        session.preview_text = streamed;
+        session.quick = false;
+        self.transition(&mut st, sid, SessionState::Preview);
     }
 }
 
@@ -739,75 +852,126 @@ fn current_sid(st: &SharedState) -> SessionId {
     st.session.as_ref().expect("active session").id
 }
 
-/// Freeze the recorded raw transcript (on recording end), move to
-/// `Rectifying`, and spawn a rectify attempt. Shared by manual stop,
+/// One straight-through insert's inputs (ADR-0020): what goes in, for
+/// which session, and from where.
+struct Passthrough {
+    session: SessionId,
+    /// The text that goes in: the frozen raw transcript when quick mode
+    /// runs without rectify, the model's body when it runs with it.
+    text: String,
+    /// The session's raw transcript, for the history pair.
+    raw_transcript: String,
+    /// The state the session must still be in for the insert to stand.
+    /// Anything else means it moved on under us — cancelled, stopped
+    /// again, already degraded — and the insert must not land.
+    from: SessionState,
+    /// Whether the shell still needs this text streamed to it. True for a
+    /// round with no model output of its own: the shell builds the
+    /// preview it shows out of the chunk stream, so a paste that degrades
+    /// into preview must stream the very text confirm would insert.
+    /// False when the text already streamed as chunks.
+    announce: bool,
+}
+
+/// What a recording end (or a reroll) leads to.
+enum Plan {
+    /// The model rewrites the transcript; the session is already in
+    /// `Rectifying`.
+    Rectify {
+        sid: SessionId,
+        cancel: CancellationToken,
+        request: RectifyRequest,
+        timings: EngineTimings,
+    },
+    /// Quick mode with 启用修正 off: no model runs and the session never
+    /// enters `Rectifying` — the frozen raw transcript goes straight to
+    /// the inserter (ADR-0020).
+    Paste(Passthrough),
+}
+
+/// Freeze the recorded raw transcript (on recording end) and spawn what
+/// follows: a rectify attempt that lands in `Preview` (or inserts itself,
+/// a quick pass-through), or — quick mode with 启用修正 off — the
+/// straight-through paste of the raw transcript. Shared by manual stop,
 /// silence auto-end (both from `Recording`), and reroll (from `Preview`).
 /// No-op unless the session is in one of those states.
 fn begin_rectify(inner: &Arc<Inner>) {
-    let (sid, cancel, request, timings) = {
+    let plan = {
         let mut st = inner.state_lock();
         let state = st.state;
         let Some(session) = st.session.as_mut() else {
             return;
         };
         let sid = session.id;
-        let (cancel, request, timings) = match state {
+        let plan = match state {
             SessionState::Recording => {
-                session.asr_cancel.cancel();
-                // Speech still in flight when recording ended: the user
-                // said it, so the fidelity rule keeps it in the transcript.
                 // The freeze splices pins through the same join the live
                 // transcript uses — position is never computed twice — and
                 // a pin-only current line counts as content, which is what
-                // keeps a pin-only session alive below.
-                session.current_paragraph.push_str(&session.partial);
-                session.partial.clear();
-                let mut paragraphs = session.rendered_paragraphs();
-                let current = paragraphs
-                    .pop()
-                    .expect("the current line is always rendered");
-                if !current.is_empty() {
-                    paragraphs.push(current);
-                }
-                let raw_transcript = paragraphs.join("\n");
-                if raw_transcript.is_empty() && !session.any_speech {
+                // keeps a pin-only session alive.
+                if !session.freeze() {
                     // A speechless session (noise only, nothing recognized):
-                    // discard it rather than rectify an empty utterance.
+                    // discard it rather than rectify or paste an empty
+                    // utterance.
                     inner.finish_session(&mut st, sid, SessionState::Cancelled);
                     return;
                 }
-                session.frozen = Some(FrozenUtterance {
-                    raw_transcript: raw_transcript.clone(),
-                    paragraphs: paragraphs.clone(),
-                });
-                let cancel = CancellationToken::new();
-                session.rectify_cancel = Some(cancel.clone());
-                let terms = session.terms.clone();
-                let timings = session.timings;
-                let style_directive = Inner::session_style_directive(session, inner);
-                let global_directive = inner.current_global_directive();
-                (
-                    cancel,
-                    RectifyRequest {
+                if session.quick && !session.quick_rectify {
+                    // Quick mode with 启用修正 off (ADR-0020): the frozen
+                    // transcript is the whole round, and the state never
+                    // leaves `Recording` — there is no `Rectifying` to
+                    // enter. The text is also what the preview must hold
+                    // if the insert fails.
+                    let raw_transcript = session
+                        .frozen
+                        .as_ref()
+                        .expect("just frozen above")
+                        .raw_transcript
+                        .clone();
+                    Plan::Paste(Passthrough {
+                        session: sid,
+                        text: raw_transcript.clone(),
                         raw_transcript,
-                        paragraphs,
-                        style_directive,
-                        global_directive,
-                        terms,
-                        // The seam default: the production client applies
-                        // the [llm] prefill config over this before
-                        // composing (ADR-0014).
-                        prefill: true,
-                        // The session's quick flag lands here once the
-                        // engine tracks the hold; no attempt is quick
-                        // yet (ADR-0020).
-                        quick: false,
-                    },
-                    timings,
-                )
+                        from: SessionState::Recording,
+                        announce: true,
+                    })
+                } else {
+                    let frozen = session.frozen.as_ref().expect("just frozen above");
+                    let raw_transcript = frozen.raw_transcript.clone();
+                    let paragraphs = frozen.paragraphs.clone();
+                    let cancel = CancellationToken::new();
+                    session.rectify_cancel = Some(cancel.clone());
+                    let terms = session.terms.clone();
+                    let timings = session.timings;
+                    // The session's own flag: an upgraded session's stop
+                    // runs the quick assembly and inserts itself (ADR-0020).
+                    let quick = session.quick;
+                    let style_directive = Inner::session_style_directive(session, inner);
+                    let global_directive = inner.current_global_directive();
+                    Plan::Rectify {
+                        sid,
+                        cancel,
+                        request: RectifyRequest {
+                            raw_transcript,
+                            paragraphs,
+                            style_directive,
+                            global_directive,
+                            terms,
+                            // The seam default: the production client
+                            // applies the [llm] prefill config over this
+                            // before composing (ADR-0014).
+                            prefill: true,
+                            quick,
+                        },
+                        timings,
+                    }
+                }
             }
             SessionState::Preview => {
-                // Reroll: the transcript is already frozen.
+                // Reroll: the transcript is already frozen, and the
+                // session is never quick here — a quick attempt that
+                // failed into preview cleared its flag on the way
+                // (ADR-0020), so a reroll runs the ordinary path.
                 let frozen = session.frozen.as_ref().expect("frozen before preview");
                 let cancel = CancellationToken::new();
                 session.rectify_cancel = Some(cancel.clone());
@@ -815,9 +979,10 @@ fn begin_rectify(inner: &Arc<Inner>) {
                 let timings = session.timings;
                 let style_directive = Inner::session_style_directive(session, inner);
                 let global_directive = inner.current_global_directive();
-                (
+                Plan::Rectify {
+                    sid,
                     cancel,
-                    RectifyRequest {
+                    request: RectifyRequest {
                         raw_transcript: frozen.raw_transcript.clone(),
                         paragraphs: frozen.paragraphs.clone(),
                         style_directive,
@@ -827,41 +992,146 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         // the [llm] prefill config over this before
                         // composing (ADR-0014).
                         prefill: true,
-                        // The session's quick flag lands here once the
-                        // engine tracks the hold; no attempt is quick
-                        // yet (ADR-0020).
                         quick: false,
                     },
                     timings,
-                )
+                }
             }
             _ => return,
         };
-        inner.transition(&mut st, sid, SessionState::Rectifying);
-        (sid, cancel, request, timings)
+        // Only a rectify attempt moves the machine: a straight-through
+        // paste stays in `Recording` until its insert lands (ADR-0020).
+        if matches!(plan, Plan::Rectify { .. }) {
+            inner.transition(&mut st, sid, SessionState::Rectifying);
+        }
+        plan
     };
-    let llm = inner.llm.read().unwrap().clone();
-    tokio::spawn(rectify_task(
-        inner.clone(),
-        sid,
-        llm,
-        request,
-        cancel,
-        timings,
-    ));
+    match plan {
+        Plan::Rectify {
+            sid,
+            cancel,
+            request,
+            timings,
+        } => {
+            let llm = inner.llm.read().unwrap().clone();
+            tokio::spawn(rectify_task(
+                inner.clone(),
+                sid,
+                llm,
+                request,
+                cancel,
+                timings,
+            ));
+        }
+        // The paste takes the command gate itself, so a cancel or a second
+        // stop waits rather than racing the insert.
+        Plan::Paste(pass) => {
+            tokio::spawn(paste_task(inner.clone(), pass));
+        }
+    }
+}
+
+/// A straight-through insert as its own task: it takes the command gate
+/// first, so a cancel or a stop waits rather than racing the insert — a
+/// session must not change under it, the rule
+/// [`Engine::confirm_insert`] runs under too.
+async fn paste_task(inner: Arc<Inner>, pass: Passthrough) {
+    let _gate = inner.command_gate.lock().await;
+    paste_through(&inner, pass).await;
+}
+
+/// The straight-through insert (ADR-0020): the round's text goes to the
+/// inserter with no preview and no confirmation, the session closes as
+/// `Inserted`, and its pair reaches history.
+///
+/// A failure degrades instead of discarding: the session enters `Preview`
+/// holding that same text — the safety net that keeps the round's words —
+/// with its quick flag cleared, so the reroll there and the confirm after
+/// it run the ordinary path and nothing auto-pastes again.
+///
+/// Runs with the command gate held (the caller's or [`paste_task`]'s): the
+/// insert is the session's one irreversible step.
+async fn paste_through(inner: &Arc<Inner>, pass: Passthrough) {
+    let Passthrough {
+        session: sid,
+        text,
+        raw_transcript,
+        from,
+        announce,
+    } = pass;
+    {
+        // Re-checked under the gate: the session must still be exactly
+        // where the paste was planned.
+        let st = inner.state_lock();
+        if st.state != from || !session_matches(&st, sid) {
+            return;
+        }
+    }
+    match inner.inserter.insert(&text).await {
+        Ok(()) => {
+            let mut st = inner.state_lock();
+            inner.emit(
+                &mut st,
+                sid,
+                EngineEvent::TextInserted { text: text.clone() },
+            );
+            inner.finish_session(&mut st, sid, SessionState::Inserted);
+            drop(st);
+            // History hands over the session pair after the insert
+            // feedback, so recording can never delay or fail it.
+            if let Some(history) = &inner.history {
+                history.record(RecordedSession {
+                    raw_transcript,
+                    rectified_text: text,
+                });
+            }
+        }
+        Err(err) => {
+            let mut st = inner.state_lock();
+            inner.emit(
+                &mut st,
+                sid,
+                EngineEvent::Error {
+                    message: err.to_string(),
+                },
+            );
+            if st.state != from || !session_matches(&st, sid) {
+                return;
+            }
+            if announce {
+                // This round had no model stream of its own, so the shell
+                // has seen nothing of the text this preview is about to
+                // hold: it rides the channel the shell accumulates, so the
+                // box shows exactly what a confirm would insert.
+                let delta = text.clone();
+                inner.emit(&mut st, sid, EngineEvent::RectifiedTextChunk { delta });
+            }
+            let session = st.session.as_mut().expect("active session");
+            session.preview_text = text;
+            session.quick = false;
+            inner.transition(&mut st, sid, SessionState::Preview);
+        }
+    }
 }
 
 impl Session {
-    /// A fresh session: nothing said, nothing frozen. Both session
-    /// openings (recording, history re-rectify) start from this shape,
-    /// each snapshotting the dictionary, passage mode, and timings as it
-    /// opens.
-    fn new(id: SessionId, terms: Vec<String>, passage_mode: bool, timings: EngineTimings) -> Self {
+    /// A fresh session: nothing said, nothing frozen, not quick. Both
+    /// session openings (recording, history re-rectify) start from this
+    /// shape, each snapshotting the dictionary, passage mode, timings,
+    /// and quick-rectify setting as it opens.
+    fn new(
+        id: SessionId,
+        terms: Vec<String>,
+        passage_mode: bool,
+        timings: EngineTimings,
+        quick_rectify: bool,
+    ) -> Self {
         Self {
             id,
             terms,
             passage_mode,
             timings,
+            quick_rectify,
             paragraphs: Vec::new(),
             current_paragraph: String::new(),
             partial: String::new(),
@@ -874,6 +1144,8 @@ impl Session {
             any_speech: false,
             frozen: None,
             style: SessionStyle::Live,
+            quick: false,
+            hold_gate: false,
             preview_text: String::new(),
             asr_cancel: CancellationToken::new(),
             rectify_cancel: None,
@@ -1053,6 +1325,38 @@ impl Session {
         true
     }
 
+    /// Freeze the recording into the session's utterance (recording end):
+    /// the speech still in flight joins the transcript, pins splice
+    /// through the same join the live transcript uses — position is never
+    /// computed twice — and the ASR stream is cancelled. A pin-only
+    /// current line counts as content, which is what keeps a pin-only
+    /// session alive. Returns whether there is an utterance at all: a
+    /// speechless session (noise only, nothing recognized) has nothing to
+    /// rectify or paste, so the caller discards it.
+    fn freeze(&mut self) -> bool {
+        self.asr_cancel.cancel();
+        // Speech still in flight when recording ended: the user said it,
+        // so the fidelity rule keeps it in the transcript.
+        self.current_paragraph.push_str(&self.partial);
+        self.partial.clear();
+        let mut paragraphs = self.rendered_paragraphs();
+        let current = paragraphs
+            .pop()
+            .expect("the current line is always rendered");
+        if !current.is_empty() {
+            paragraphs.push(current);
+        }
+        let raw_transcript = paragraphs.join("\n");
+        if raw_transcript.is_empty() && !self.any_speech {
+            return false;
+        }
+        self.frozen = Some(FrozenUtterance {
+            raw_transcript,
+            paragraphs,
+        });
+        true
+    }
+
     /// Speech happened (transcript or VAD activity): re-arm the paragraph
     /// marker for the next silence run and remember the session had
     /// content. Speech also restarts the recognizer's silence run from
@@ -1160,7 +1464,16 @@ async fn consume_asr(
                                 }
                                 inner.emit_stream_event(&mut st, sid, EngineEvent::ParagraphMarked);
                             }
-                        } else if elapsed_ms >= session.timings.session_end_silence_ms {
+                        } else if elapsed_ms >= session.timings.session_end_silence_ms
+                            && !session.hold_gate
+                        {
+                            // The held chord suppresses the auto-end
+                            // (ADR-0020): a speaker holding the key
+                            // through a long pause has not finished, and
+                            // their release is what ends the session.
+                            // Paragraph marks above are untouched — a
+                            // held pause still closes a paragraph in
+                            // passage mode.
                             drop(st);
                             // Auto-end: same path as a manual stop.
                             begin_rectify(&inner);
@@ -1194,10 +1507,12 @@ async fn consume_asr(
 
 /// Stream one rectify attempt: token deltas out as
 /// [`EngineEvent::RectifiedTextChunk`], then `Preview`; errors abort the
-/// session. The attempt runs under the session's snapshotted wall-clock
-/// hard cap (fresh per attempt, rerolls included); expiry aborts with a
-/// visible error. Exits silently if the attempt is cancelled or
-/// superseded.
+/// session. A quick attempt (ADR-0020) skips the preview — the body is
+/// inserted as it stands — and any failure of it degrades into preview
+/// holding what streamed, instead of discarding the session. The attempt
+/// runs under the session's snapshotted wall-clock hard cap (fresh per
+/// attempt, rerolls included); expiry aborts with a visible error. Exits
+/// silently if the attempt is cancelled or superseded.
 async fn rectify_task(
     inner: Arc<Inner>,
     sid: SessionId,
@@ -1209,19 +1524,26 @@ async fn rectify_task(
     let cap = std::time::Duration::from_millis(timings.rectify_timeout_ms);
     let deadline = tokio::time::Instant::now() + cap;
     // Read before the request moves into the LLM call: the sentinel
-    // census decides whether this response gets split at all.
+    // census decides whether this response gets split at all, and the
+    // quick flag decides where a finished stream lands (ADR-0020).
     let pins_present = prefill::has_placeholders(&request.raw_transcript);
+    let quick = request.quick;
     let stream: RectifyTokenStream = tokio::select! {
         biased;
         _ = cancel.cancelled() => return,
         _ = tokio::time::sleep_until(deadline) => {
-            inner.abort_rectifying(sid, rectify_timeout_message(timings.rectify_timeout_ms));
+            // Nothing streamed yet, so the degraded preview is empty.
+            inner.abort_rectifying(
+                sid,
+                rectify_timeout_message(timings.rectify_timeout_ms),
+                String::new(),
+            );
             return;
         }
         stream = llm.rectify(request) => match stream {
             Ok(stream) => stream,
             Err(err) => {
-                inner.abort_rectifying(sid, format!("rectify failed: {}", err.0));
+                inner.abort_rectifying(sid, format!("rectify failed: {}", err.0), String::new());
                 return;
             }
         }
@@ -1239,7 +1561,11 @@ async fn rectify_task(
             biased;
             _ = cancel.cancelled() => return,
             _ = tokio::time::sleep_until(deadline) => {
-                inner.abort_rectifying(sid, rectify_timeout_message(timings.rectify_timeout_ms));
+                inner.abort_rectifying(
+                    sid,
+                    rectify_timeout_message(timings.rectify_timeout_ms),
+                    splitter.streamed_body().to_string(),
+                );
                 return;
             }
             item = stream.next() => {
@@ -1260,15 +1586,55 @@ async fn rectify_task(
                         inner.emit_stream_event(&mut st, sid, EngineEvent::RectifiedTextChunk { delta: out });
                     }
                     Some(Err(err)) => {
-                        inner.abort_rectifying(sid, format!("rectify stream failed: {}", err.0));
+                        inner.abort_rectifying(
+                            sid,
+                            format!("rectify stream failed: {}", err.0),
+                            splitter.streamed_body().to_string(),
+                        );
                         return;
                     }
                     None => {
+                        let (body, prefills) = splitter.finish();
+                        if quick {
+                            // Quick mode's straight-through (ADR-0020):
+                            // the body is inserted as it stands, with no
+                            // preview and no confirmation. The shell
+                            // already accumulated it as it streamed, so
+                            // nothing needs announcing. The lock is
+                            // scoped away before the insert: the gate
+                            // goes on first, because the session must not
+                            // change under it.
+                            let pass = {
+                                let mut st = inner.state_lock();
+                                if st.state != SessionState::Rectifying
+                                    || !session_matches(&st, sid)
+                                {
+                                    return;
+                                }
+                                let session = st.session.as_mut().expect("active session");
+                                session.preview_text = body;
+                                let raw_transcript = session
+                                    .frozen
+                                    .as_ref()
+                                    .expect("frozen before rectifying")
+                                    .raw_transcript
+                                    .clone();
+                                Passthrough {
+                                    session: sid,
+                                    text: session.preview_text.clone(),
+                                    raw_transcript,
+                                    from: SessionState::Rectifying,
+                                    announce: false,
+                                }
+                            };
+                            let _gate = inner.command_gate.lock().await;
+                            paste_through(&inner, pass).await;
+                            return;
+                        }
                         let mut st = inner.state_lock();
                         if st.state != SessionState::Rectifying || !session_matches(&st, sid) {
                             return;
                         }
-                        let (body, prefills) = splitter.finish();
                         st.session
                             .as_mut()
                             .expect("active session")

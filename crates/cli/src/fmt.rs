@@ -8,6 +8,7 @@ pub fn fmt_event(event: &EngineEvent) -> String {
         EngineEvent::SessionStateChanged { from, to } => format!("state {from} -> {to}"),
         EngineEvent::LiveTranscriptUpdated { text } => format!("live {text:?}"),
         EngineEvent::ParagraphMarked => "paragraph marked".to_string(),
+        EngineEvent::QuickMarked => "quick marked".to_string(),
         EngineEvent::SpeechActivityChanged { speaking } => {
             if *speaking {
                 "speech started".to_string()

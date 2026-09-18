@@ -61,6 +61,13 @@ pub enum EngineEvent {
     LiveTranscriptUpdated { text: String },
     /// A silence long enough to mark a paragraph boundary (passage mode).
     ParagraphMarked,
+    /// The recording session was upgraded to quick mode (ADR-0020): the
+    /// hotkey chord was held past the threshold with nothing pinned, so
+    /// this session's release ends it and its stop goes straight through.
+    /// Emitted once per session, the moment the flag is set; the shell
+    /// hangs the 聆听中 phase word and the pin-hotkey disarm off it. No
+    /// other event changes shape — the session is still `Recording`.
+    QuickMarked,
     /// The user started / stopped speaking per VAD. Only flows while
     /// recording; the shell mirrors it into the orb's speaking state.
     SpeechActivityChanged { speaking: bool },

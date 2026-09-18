@@ -1395,13 +1395,14 @@ extension BridgeEventPatterns on BridgeEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeEvent_SessionStateChanged value)?  sessionStateChanged,TResult Function( BridgeEvent_LiveTranscriptUpdated value)?  liveTranscriptUpdated,TResult Function( BridgeEvent_ParagraphMarked value)?  paragraphMarked,TResult Function( BridgeEvent_SpeechActivityChanged value)?  speechActivityChanged,TResult Function( BridgeEvent_RectifiedTextChunk value)?  rectifiedTextChunk,TResult Function( BridgeEvent_PreviewPrefills value)?  previewPrefills,TResult Function( BridgeEvent_PreviewTextUpdated value)?  previewTextUpdated,TResult Function( BridgeEvent_TextInserted value)?  textInserted,TResult Function( BridgeEvent_Error value)?  error,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeEvent_SessionStateChanged value)?  sessionStateChanged,TResult Function( BridgeEvent_LiveTranscriptUpdated value)?  liveTranscriptUpdated,TResult Function( BridgeEvent_ParagraphMarked value)?  paragraphMarked,TResult Function( BridgeEvent_QuickMarked value)?  quickMarked,TResult Function( BridgeEvent_SpeechActivityChanged value)?  speechActivityChanged,TResult Function( BridgeEvent_RectifiedTextChunk value)?  rectifiedTextChunk,TResult Function( BridgeEvent_PreviewPrefills value)?  previewPrefills,TResult Function( BridgeEvent_PreviewTextUpdated value)?  previewTextUpdated,TResult Function( BridgeEvent_TextInserted value)?  textInserted,TResult Function( BridgeEvent_Error value)?  error,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged() when sessionStateChanged != null:
 return sessionStateChanged(_that);case BridgeEvent_LiveTranscriptUpdated() when liveTranscriptUpdated != null:
 return liveTranscriptUpdated(_that);case BridgeEvent_ParagraphMarked() when paragraphMarked != null:
-return paragraphMarked(_that);case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
+return paragraphMarked(_that);case BridgeEvent_QuickMarked() when quickMarked != null:
+return quickMarked(_that);case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
 return speechActivityChanged(_that);case BridgeEvent_RectifiedTextChunk() when rectifiedTextChunk != null:
 return rectifiedTextChunk(_that);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
 return previewPrefills(_that);case BridgeEvent_PreviewTextUpdated() when previewTextUpdated != null:
@@ -1425,13 +1426,14 @@ return error(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeEvent_SessionStateChanged value)  sessionStateChanged,required TResult Function( BridgeEvent_LiveTranscriptUpdated value)  liveTranscriptUpdated,required TResult Function( BridgeEvent_ParagraphMarked value)  paragraphMarked,required TResult Function( BridgeEvent_SpeechActivityChanged value)  speechActivityChanged,required TResult Function( BridgeEvent_RectifiedTextChunk value)  rectifiedTextChunk,required TResult Function( BridgeEvent_PreviewPrefills value)  previewPrefills,required TResult Function( BridgeEvent_PreviewTextUpdated value)  previewTextUpdated,required TResult Function( BridgeEvent_TextInserted value)  textInserted,required TResult Function( BridgeEvent_Error value)  error,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeEvent_SessionStateChanged value)  sessionStateChanged,required TResult Function( BridgeEvent_LiveTranscriptUpdated value)  liveTranscriptUpdated,required TResult Function( BridgeEvent_ParagraphMarked value)  paragraphMarked,required TResult Function( BridgeEvent_QuickMarked value)  quickMarked,required TResult Function( BridgeEvent_SpeechActivityChanged value)  speechActivityChanged,required TResult Function( BridgeEvent_RectifiedTextChunk value)  rectifiedTextChunk,required TResult Function( BridgeEvent_PreviewPrefills value)  previewPrefills,required TResult Function( BridgeEvent_PreviewTextUpdated value)  previewTextUpdated,required TResult Function( BridgeEvent_TextInserted value)  textInserted,required TResult Function( BridgeEvent_Error value)  error,}){
 final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged():
 return sessionStateChanged(_that);case BridgeEvent_LiveTranscriptUpdated():
 return liveTranscriptUpdated(_that);case BridgeEvent_ParagraphMarked():
-return paragraphMarked(_that);case BridgeEvent_SpeechActivityChanged():
+return paragraphMarked(_that);case BridgeEvent_QuickMarked():
+return quickMarked(_that);case BridgeEvent_SpeechActivityChanged():
 return speechActivityChanged(_that);case BridgeEvent_RectifiedTextChunk():
 return rectifiedTextChunk(_that);case BridgeEvent_PreviewPrefills():
 return previewPrefills(_that);case BridgeEvent_PreviewTextUpdated():
@@ -1451,13 +1453,14 @@ return error(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeEvent_SessionStateChanged value)?  sessionStateChanged,TResult? Function( BridgeEvent_LiveTranscriptUpdated value)?  liveTranscriptUpdated,TResult? Function( BridgeEvent_ParagraphMarked value)?  paragraphMarked,TResult? Function( BridgeEvent_SpeechActivityChanged value)?  speechActivityChanged,TResult? Function( BridgeEvent_RectifiedTextChunk value)?  rectifiedTextChunk,TResult? Function( BridgeEvent_PreviewPrefills value)?  previewPrefills,TResult? Function( BridgeEvent_PreviewTextUpdated value)?  previewTextUpdated,TResult? Function( BridgeEvent_TextInserted value)?  textInserted,TResult? Function( BridgeEvent_Error value)?  error,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeEvent_SessionStateChanged value)?  sessionStateChanged,TResult? Function( BridgeEvent_LiveTranscriptUpdated value)?  liveTranscriptUpdated,TResult? Function( BridgeEvent_ParagraphMarked value)?  paragraphMarked,TResult? Function( BridgeEvent_QuickMarked value)?  quickMarked,TResult? Function( BridgeEvent_SpeechActivityChanged value)?  speechActivityChanged,TResult? Function( BridgeEvent_RectifiedTextChunk value)?  rectifiedTextChunk,TResult? Function( BridgeEvent_PreviewPrefills value)?  previewPrefills,TResult? Function( BridgeEvent_PreviewTextUpdated value)?  previewTextUpdated,TResult? Function( BridgeEvent_TextInserted value)?  textInserted,TResult? Function( BridgeEvent_Error value)?  error,}){
 final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged() when sessionStateChanged != null:
 return sessionStateChanged(_that);case BridgeEvent_LiveTranscriptUpdated() when liveTranscriptUpdated != null:
 return liveTranscriptUpdated(_that);case BridgeEvent_ParagraphMarked() when paragraphMarked != null:
-return paragraphMarked(_that);case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
+return paragraphMarked(_that);case BridgeEvent_QuickMarked() when quickMarked != null:
+return quickMarked(_that);case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
 return speechActivityChanged(_that);case BridgeEvent_RectifiedTextChunk() when rectifiedTextChunk != null:
 return rectifiedTextChunk(_that);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
 return previewPrefills(_that);case BridgeEvent_PreviewTextUpdated() when previewTextUpdated != null:
@@ -1480,12 +1483,13 @@ return error(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( BridgeSessionState from,  BridgeSessionState to)?  sessionStateChanged,TResult Function( String text)?  liveTranscriptUpdated,TResult Function()?  paragraphMarked,TResult Function( bool speaking)?  speechActivityChanged,TResult Function( String delta)?  rectifiedTextChunk,TResult Function( List<BridgePrefillRow> prefills)?  previewPrefills,TResult Function( String text)?  previewTextUpdated,TResult Function( String text)?  textInserted,TResult Function( String message)?  error,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( BridgeSessionState from,  BridgeSessionState to)?  sessionStateChanged,TResult Function( String text)?  liveTranscriptUpdated,TResult Function()?  paragraphMarked,TResult Function()?  quickMarked,TResult Function( bool speaking)?  speechActivityChanged,TResult Function( String delta)?  rectifiedTextChunk,TResult Function( List<BridgePrefillRow> prefills)?  previewPrefills,TResult Function( String text)?  previewTextUpdated,TResult Function( String text)?  textInserted,TResult Function( String message)?  error,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged() when sessionStateChanged != null:
 return sessionStateChanged(_that.from,_that.to);case BridgeEvent_LiveTranscriptUpdated() when liveTranscriptUpdated != null:
 return liveTranscriptUpdated(_that.text);case BridgeEvent_ParagraphMarked() when paragraphMarked != null:
-return paragraphMarked();case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
+return paragraphMarked();case BridgeEvent_QuickMarked() when quickMarked != null:
+return quickMarked();case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
 return speechActivityChanged(_that.speaking);case BridgeEvent_RectifiedTextChunk() when rectifiedTextChunk != null:
 return rectifiedTextChunk(_that.delta);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
 return previewPrefills(_that.prefills);case BridgeEvent_PreviewTextUpdated() when previewTextUpdated != null:
@@ -1509,12 +1513,13 @@ return error(_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( BridgeSessionState from,  BridgeSessionState to)  sessionStateChanged,required TResult Function( String text)  liveTranscriptUpdated,required TResult Function()  paragraphMarked,required TResult Function( bool speaking)  speechActivityChanged,required TResult Function( String delta)  rectifiedTextChunk,required TResult Function( List<BridgePrefillRow> prefills)  previewPrefills,required TResult Function( String text)  previewTextUpdated,required TResult Function( String text)  textInserted,required TResult Function( String message)  error,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( BridgeSessionState from,  BridgeSessionState to)  sessionStateChanged,required TResult Function( String text)  liveTranscriptUpdated,required TResult Function()  paragraphMarked,required TResult Function()  quickMarked,required TResult Function( bool speaking)  speechActivityChanged,required TResult Function( String delta)  rectifiedTextChunk,required TResult Function( List<BridgePrefillRow> prefills)  previewPrefills,required TResult Function( String text)  previewTextUpdated,required TResult Function( String text)  textInserted,required TResult Function( String message)  error,}) {final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged():
 return sessionStateChanged(_that.from,_that.to);case BridgeEvent_LiveTranscriptUpdated():
 return liveTranscriptUpdated(_that.text);case BridgeEvent_ParagraphMarked():
-return paragraphMarked();case BridgeEvent_SpeechActivityChanged():
+return paragraphMarked();case BridgeEvent_QuickMarked():
+return quickMarked();case BridgeEvent_SpeechActivityChanged():
 return speechActivityChanged(_that.speaking);case BridgeEvent_RectifiedTextChunk():
 return rectifiedTextChunk(_that.delta);case BridgeEvent_PreviewPrefills():
 return previewPrefills(_that.prefills);case BridgeEvent_PreviewTextUpdated():
@@ -1534,12 +1539,13 @@ return error(_that.message);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( BridgeSessionState from,  BridgeSessionState to)?  sessionStateChanged,TResult? Function( String text)?  liveTranscriptUpdated,TResult? Function()?  paragraphMarked,TResult? Function( bool speaking)?  speechActivityChanged,TResult? Function( String delta)?  rectifiedTextChunk,TResult? Function( List<BridgePrefillRow> prefills)?  previewPrefills,TResult? Function( String text)?  previewTextUpdated,TResult? Function( String text)?  textInserted,TResult? Function( String message)?  error,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( BridgeSessionState from,  BridgeSessionState to)?  sessionStateChanged,TResult? Function( String text)?  liveTranscriptUpdated,TResult? Function()?  paragraphMarked,TResult? Function()?  quickMarked,TResult? Function( bool speaking)?  speechActivityChanged,TResult? Function( String delta)?  rectifiedTextChunk,TResult? Function( List<BridgePrefillRow> prefills)?  previewPrefills,TResult? Function( String text)?  previewTextUpdated,TResult? Function( String text)?  textInserted,TResult? Function( String message)?  error,}) {final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged() when sessionStateChanged != null:
 return sessionStateChanged(_that.from,_that.to);case BridgeEvent_LiveTranscriptUpdated() when liveTranscriptUpdated != null:
 return liveTranscriptUpdated(_that.text);case BridgeEvent_ParagraphMarked() when paragraphMarked != null:
-return paragraphMarked();case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
+return paragraphMarked();case BridgeEvent_QuickMarked() when quickMarked != null:
+return quickMarked();case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
 return speechActivityChanged(_that.speaking);case BridgeEvent_RectifiedTextChunk() when rectifiedTextChunk != null:
 return rectifiedTextChunk(_that.delta);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
 return previewPrefills(_that.prefills);case BridgeEvent_PreviewTextUpdated() when previewTextUpdated != null:
@@ -1711,6 +1717,38 @@ int get hashCode => runtimeType.hashCode;
 @override
 String toString() {
   return 'BridgeEvent.paragraphMarked()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class BridgeEvent_QuickMarked extends BridgeEvent {
+  const BridgeEvent_QuickMarked(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeEvent_QuickMarked);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'BridgeEvent.quickMarked()';
 }
 
 

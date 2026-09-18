@@ -1026,6 +1026,13 @@ class SpeechController extends ChangeNotifier {
         liveText = text;
       case BridgeEvent_ParagraphMarked():
         paragraphMarks += 1;
+      case BridgeEvent_QuickMarked():
+        // The recording session was upgraded to quick mode (ADR-0020).
+        // The window's reaction — the 聆听中 phase word and the
+        // pin-hotkey disarm — belongs to the quick-mode card ticket and
+        // is not wired yet; the engine's own refusals already hold the
+        // line (no pins after an upgrade, no preview on the way out).
+        break;
       case BridgeEvent_SpeechActivityChanged(:final speaking):
         this.speaking = speaking;
       case BridgeEvent_RectifiedTextChunk(:final delta):
