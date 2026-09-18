@@ -71,9 +71,9 @@ void main() {
     test('unrecognized messages fall to the other bucket', () {
       expect(
         classifyEngineError('ASR provider "tencent" has no adapter'),
-        '服务出错,详情见日志',
+        '服务出错,请重试',
       );
-      expect(classifyEngineError(StateError('engine gone')), '服务出错,详情见日志');
+      expect(classifyEngineError(StateError('engine gone')), '服务出错,请重试');
     });
 
     test('matching is case-insensitive', () {
@@ -81,11 +81,11 @@ void main() {
     });
   });
 
-  test('classifyEvalCaseError wraps the bucket in 执行失败(...)', () {
-    expect(classifyEvalCaseError('引擎返回 429:rate limited'), '执行失败(服务出错,详情见日志)');
+  test('classifyEvalCaseError is a fixed short sentence', () {
+    expect(classifyEvalCaseError('引擎返回 429:rate limited'), '执行失败，详情请见日志');
     expect(
       classifyEvalCaseError('request to https://api.example failed: timeout'),
-      '执行失败(网络异常,请检查连接)',
+      '执行失败，详情请见日志',
     );
   });
 }

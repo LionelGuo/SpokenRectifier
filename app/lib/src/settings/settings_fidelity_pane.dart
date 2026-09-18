@@ -36,7 +36,7 @@ class SettingsFidelityPane extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                '金样例回归:机器断言口头更正、术语逐字保留、零捏造',
+                '用内置样例检查修正是否忠实于原意',
                 style: SrType.caption.copyWith(color: pal.textTertiary),
               ),
             ],
@@ -67,12 +67,12 @@ class _IdleCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '对内置金样例套件跑一轮完整修正,校验保真铁律。',
+            '对内置样例进行一轮完整修正，检查是否忠实于原意。',
             style: SrType.body.copyWith(color: pal.textSecondary),
           ),
           const SizedBox(height: 10),
           Text(
-            '走真实 LLM(约 1 分钟、约 2 万 token);全程不插入文本、不写入历史、不读本机词表,也不套用场景或全局指令。',
+            '约需 1 分钟，不会插入文本、不会写入历史，也不使用场景或全局指令。',
             style: SrType.caption.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 6),
@@ -120,7 +120,7 @@ class _RunningCard extends StatelessWidget {
               const SizedBox(width: 10),
               Text(
                 key: const Key('settings-eval-progress'),
-                total == 0 ? '评测准备中…' : '$done / $total',
+                total == 0 ? '评测准备中' : '$done / $total',
                 style: SrType.body.copyWith(
                   color: pal.textPrimary,
                   fontWeight: FontWeight.w600,
@@ -309,7 +309,7 @@ class _SummaryCard extends StatelessWidget {
         ] else ...[
           const SizedBox(height: 12),
           Text(
-            '全部用例通过,无失败明细。',
+            '全部样例通过。',
             style: SrType.caption.copyWith(color: pal.textTertiary),
           ),
         ],

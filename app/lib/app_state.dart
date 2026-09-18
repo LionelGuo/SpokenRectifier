@@ -409,7 +409,7 @@ class SpeechController extends ChangeNotifier {
       await hotkey.register(pinChord, pinAction);
     } catch (e) {
       logRawError('err_hotkey_pin', e);
-      _setLastError('钉入热键被占用,请更换组合');
+      _setLastError('占位图钉快捷键被占用,请更换组合');
       notifyListeners();
     }
   }
@@ -427,7 +427,7 @@ class SpeechController extends ChangeNotifier {
       await registrar.apply(primaryChord, hotkeyToggle);
     } catch (e) {
       logRawError('err_hotkey_main', e);
-      _setLastError('主流程热键被占用,请更换组合');
+      _setLastError('主快捷键被占用,请更换组合');
       notifyListeners();
     }
   }
@@ -686,7 +686,7 @@ class SpeechController extends ChangeNotifier {
       await gateway.setStyleDirective(_directiveOf(name));
     } catch (e) {
       logRawError('err_scenario_switch', e);
-      _setLastError('场景切换未生效');
+      _setLastError('切换失败');
       notifyListeners();
     }
   }
@@ -778,7 +778,7 @@ class SpeechController extends ChangeNotifier {
     } catch (e) {
       passageMode = was; // the engine never adopted it: paint the truth
       logRawError('err_passage_toggle', e);
-      _setLastError('篇章模式切换未生效');
+      _setLastError('切换失败');
       notifyListeners();
     }
   }
@@ -808,7 +808,7 @@ class SpeechController extends ChangeNotifier {
       await loadTerms();
     } catch (e) {
       logRawError('err_term_add', e);
-      _setLastError('术语添加失败');
+      _setLastError('添加失败');
       notifyListeners();
     }
   }
@@ -820,7 +820,7 @@ class SpeechController extends ChangeNotifier {
       await loadTerms();
     } catch (e) {
       logRawError('err_term_remove', e);
-      _setLastError('术语删除失败');
+      _setLastError('删除失败');
       notifyListeners();
     }
   }
@@ -877,7 +877,7 @@ class SpeechController extends ChangeNotifier {
     } catch (e) {
       oneTimeStyle = null;
       logRawError('err_reroll', e);
-      _setLastError('重新修正失败,请重试');
+      _setLastError('重新修正失败');
       notifyListeners();
     }
   }
@@ -894,7 +894,7 @@ class SpeechController extends ChangeNotifier {
       saveUiThemeMode(uiPrefsDirs, mode);
     } catch (e) {
       logRawError('err_theme_save', e);
-      _setLastError('主题设置未保存');
+      _setLastError('保存失败');
       notifyListeners();
     }
   }
@@ -940,7 +940,7 @@ class SpeechController extends ChangeNotifier {
       );
     } catch (e) {
       logRawError('err_ui_prefs_save', e);
-      _setLastError('界面偏好未保存');
+      _setLastError('窗口位置未能保存');
       notifyListeners();
     }
   }
@@ -954,7 +954,7 @@ class SpeechController extends ChangeNotifier {
       await gateway.openConfigFile();
     } catch (e) {
       logRawError('err_config_open', e);
-      _setLastError('配置文件未能打开');
+      _setLastError('打开失败');
       notifyListeners();
     }
   }
@@ -971,7 +971,7 @@ class SpeechController extends ChangeNotifier {
       saveUiOrbVisible(uiPrefsDirs, visible);
     } catch (e) {
       logRawError('err_orb_visibility_save', e);
-      _setLastError('球体显示设置未保存');
+      _setLastError('保存失败');
       notifyListeners();
     }
   }

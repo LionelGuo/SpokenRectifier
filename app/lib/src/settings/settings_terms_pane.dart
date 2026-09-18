@@ -64,7 +64,7 @@ class _SettingsTermsPaneState extends State<SettingsTermsPane> {
       if (!mounted) return;
       setState(() => _loaded = true);
       logRawError('err_terms_load', e);
-      SrToast.of(context).show('术语词表读取失败', tone: SrToastTone.error);
+      SrToast.of(context).show('术语读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -77,7 +77,7 @@ class _SettingsTermsPaneState extends State<SettingsTermsPane> {
     } catch (e) {
       if (!mounted) return;
       logRawError('err_terms_op', e);
-      SrToast.of(context).show('术语操作失败', tone: SrToastTone.error);
+      SrToast.of(context).show('操作失败', tone: SrToastTone.error);
       return;
     }
     await _reload();
@@ -107,16 +107,7 @@ class _SettingsTermsPaneState extends State<SettingsTermsPane> {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Row(
-          children: [
-            Text('术语', style: SrType.title.copyWith(color: pal.textPrimary)),
-            const SizedBox(width: 10),
-            Text(
-              '与快捷面板同源;下一会话生效',
-              style: SrType.caption.copyWith(color: pal.textTertiary),
-            ),
-          ],
-        ),
+        Text('术语', style: SrType.title.copyWith(color: pal.textPrimary)),
         const SizedBox(height: 16),
         _AddRow(controller: _input, onAdd: _add),
         const SizedBox(height: 12),
@@ -155,7 +146,7 @@ class _AddRow extends StatelessWidget {
           child: SrField(
             key: const Key('settings-terms-field'),
             controller: controller,
-            hint: '添加术语,回车确认',
+            hint: '添加术语',
             onSubmitted: (_) => onAdd(),
           ),
         ),
@@ -291,13 +282,8 @@ class _EmptyDictionary extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               key: const Key('settings-terms-empty'),
-              '词表为空',
+              '暂无术语',
               style: SrType.body.copyWith(color: pal.textSecondary),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '支持热词的识别服务直接注入;其余服务作为修正的术语参考。',
-              style: SrType.caption.copyWith(color: pal.textTertiary),
             ),
           ],
         ),
@@ -347,7 +333,7 @@ class _TermEditorDialogState extends State<_TermEditorDialog> {
     final duplicatesAnother =
         widget.existingTerms.contains(term) && term != widget.initialTerm;
     if (duplicatesAnother) {
-      setState(() => _error = '词表中已有该术语');
+      setState(() => _error = '已存在相同术语');
       return;
     }
     Navigator.of(context).pop(term);

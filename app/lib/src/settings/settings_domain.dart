@@ -24,12 +24,12 @@ enum SettingsDomain {
 extension SettingsDomainX on SettingsDomain {
   String get label => switch (this) {
     SettingsDomain.general => '通用',
-    SettingsDomain.scenarios => '场景库',
+    SettingsDomain.scenarios => '场景',
     SettingsDomain.rectify => '修正',
     SettingsDomain.history => '历史',
     SettingsDomain.terms => '术语',
     SettingsDomain.connection => '模型与连接',
-    SettingsDomain.fidelity => '保真评测',
+    SettingsDomain.fidelity => '评测',
     SettingsDomain.advanced => '高级',
     SettingsDomain.about => '关于',
   };

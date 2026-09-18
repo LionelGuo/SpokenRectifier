@@ -68,13 +68,13 @@ String classifyEngineError(Object error) {
   ])) {
     return '网络异常,请检查连接';
   }
-  return '服务出错,详情见日志';
+  return '服务出错,请重试';
 }
 
-/// Formats a per-case eval execution failure: the classified short
-/// sentence in parentheses, never the raw engine text.
-String classifyEvalCaseError(Object error) =>
-    '执行失败(${classifyEngineError(error)})';
+/// Formats a per-case eval execution failure. The classified bucket
+/// stays in the console via the caller's [logRawError]; the card
+/// never interpolates it (copy.md err_eval_case).
+String classifyEvalCaseError(Object _) => '执行失败，详情请见日志';
 
 bool _matches(String haystack, List<String> needles) {
   for (final needle in needles) {

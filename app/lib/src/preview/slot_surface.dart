@@ -2932,7 +2932,7 @@ class _ForegroundPainter extends CustomPainter {
       if (segments != null && segments.isNotEmpty) {
         final tp = TextPainter(
           text: TextSpan(
-            text: '编辑填充内容',
+            text: '编辑占位内容',
             style: SrType.micro.copyWith(color: pal.textSecondary),
           ),
           textDirection: TextDirection.ltr,

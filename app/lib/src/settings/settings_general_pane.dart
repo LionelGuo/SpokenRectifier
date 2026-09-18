@@ -81,11 +81,6 @@ class SettingsGeneralPane extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                '两个窗口与快捷面板同步生效',
-                style: SrType.micro.copyWith(color: pal.textTertiary),
-              ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -250,16 +245,11 @@ class _HotkeyCardState extends State<_HotkeyCard> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            '点行录制,合法和弦即改;清空后主流程只靠球、钉入在聆听中不可用',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
-          ),
           const SizedBox(height: 12),
           _HotkeyRow(
             slot: HotkeySlot.primary,
-            title: '主流程',
-            caption: '开始录入 / 结束录入 / 确认粘贴',
+            title: '主快捷键',
+            caption: '进行开始录入、结束录入、确认粘贴操作',
             binding: widget.primary,
             capturing: _capturing == HotkeySlot.primary,
             onTap: () => _begin(HotkeySlot.primary),
@@ -269,19 +259,13 @@ class _HotkeyCardState extends State<_HotkeyCard> {
           const SizedBox(height: 8),
           _HotkeyRow(
             slot: HotkeySlot.pin,
-            title: '钉入',
-            caption: '仅聆听中有效,空闲还给系统',
+            title: '占位图钉',
+            caption: '在转录时打入占位图钉，可在修正后手动填入该位置内容',
             binding: widget.pin,
             capturing: _capturing == HotkeySlot.pin,
             onTap: () => _begin(HotkeySlot.pin),
             onClear: () => _clear(HotkeySlot.pin),
             onRestore: () => _restore(HotkeySlot.pin),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            key: const Key('settings-hotkey-hint'),
-            '若按下无反应,该组合可能已被其他程序占用',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
         ],
       ),
@@ -344,7 +328,7 @@ class _HotkeyRow extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      capturing ? '按下组合键…' : binding.label,
+                      capturing ? '按下组合键录制' : binding.label,
                       style: (capturing ? SrType.caption : SrType.kbd).copyWith(
                         color: capturing ? pal.accentText : pal.textSecondary,
                       ),
@@ -357,7 +341,7 @@ class _HotkeyRow extends StatelessWidget {
               const SizedBox(width: 8),
               _RowAction(
                 key: Key('settings-hotkey-$keyName-clear'),
-                label: '清空',
+                label: '删除',
                 onTap: onClear,
               ),
               const SizedBox(width: 4),

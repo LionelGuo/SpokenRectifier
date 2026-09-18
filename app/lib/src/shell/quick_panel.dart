@@ -128,12 +128,10 @@ class _QuickPanelState extends State<QuickPanel> {
       child: Row(
         children: [
           // 左上 (downRight): the orb (✕) owns this row's start — the
-          // title cluster (标题 + Esc 提示) yields as one unit (让位按簇).
+          // title yields as one unit (让位按簇).
           if (!widget.dir.growUp && !widget.dir.growLeft)
             const SizedBox(width: SrGeometry.anchorHeaderReserve),
           Text('快捷设置', style: SrType.title.copyWith(color: pal.textPrimary)),
-          const SizedBox(width: SrSpace.sm),
-          Text('Esc 关闭', style: SrType.micro.copyWith(color: pal.textTertiary)),
           // 右上 (downLeft): the orb owns this row's end — the header
           // reserve (56), one contract with the session window's header
           // (the footer keeps 48; the header band is the ring-bearing
@@ -215,12 +213,12 @@ class _QuickPanelState extends State<QuickPanel> {
                         ],
                         _EntryRow(
                           key: const Key('quick-open-settings:scenarios'),
-                          label: '编辑场景…',
+                          label: '编辑场景',
                           domain: SettingsDomain.scenarios,
                           onOpen: _openSettings,
                         ),
                         const SizedBox(height: 20),
-                        _sectionLabel(pal, '术语速加'),
+                        _sectionLabel(pal, '术语'),
                         Row(
                           children: [
                             Expanded(
@@ -269,7 +267,7 @@ class _QuickPanelState extends State<QuickPanel> {
                         const SizedBox(height: 8),
                         _EntryRow(
                           key: const Key('quick-open-settings:history'),
-                          label: '全部历史与管理…',
+                          label: '全部历史与管理',
                           domain: SettingsDomain.history,
                           onOpen: _openSettings,
                         ),
@@ -730,7 +728,7 @@ class _TermFieldState extends State<_TermField> {
               focusedBorder: InputBorder.none,
               enabledBorder: InputBorder.none,
               filled: false,
-              hintText: '添加术语,回车确认',
+              hintText: '添加术语',
               hintStyle: SrType.caption.copyWith(color: pal.textTertiary),
             ),
             // Enter commits the term (an IME composition commits
@@ -1071,7 +1069,7 @@ class _ThemeRow extends StatelessWidget {
   static const _options = [
     (ThemeMode.light, '浅色', Icons.light_mode_outlined, 'quick-theme-light'),
     (ThemeMode.dark, '深色', Icons.dark_mode_outlined, 'quick-theme-dark'),
-    (ThemeMode.system, '系统', Icons.monitor_rounded, 'quick-theme-system'),
+    (ThemeMode.system, '跟随系统', Icons.monitor_rounded, 'quick-theme-system'),
   ];
 
   @override

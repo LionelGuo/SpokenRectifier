@@ -217,7 +217,7 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
     } catch (e) {
       if (!mounted) return;
       logRawError('err_hotkey_save', e);
-      SrToast.of(_toastContext).show('热键保存失败', tone: SrToastTone.error);
+      SrToast.of(_toastContext).show('保存失败', tone: SrToastTone.error);
       return;
     }
     if (!mounted) return;
@@ -280,7 +280,7 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
     } catch (e) {
       if (!mounted) return;
       logRawError('err_directive_save', e);
-      SrToast.of(_toastContext).show('全局指令保存失败', tone: SrToastTone.error);
+      SrToast.of(_toastContext).show('保存失败', tone: SrToastTone.error);
       return;
     }
     if (!mounted) return;
@@ -300,7 +300,7 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       await widget.store.save(next);
     } catch (e) {
       logRawError('err_scenario_save', e);
-      SrToast.of(_toastContext).show('场景库保存失败', tone: SrToastTone.error);
+      SrToast.of(_toastContext).show('保存失败', tone: SrToastTone.error);
       return false;
     }
     setState(() => _scenarios = next);
@@ -569,11 +569,6 @@ class _ScenarioPane extends StatelessWidget {
         Row(
           children: [
             Text('场景库', style: SrType.title.copyWith(color: pal.textPrimary)),
-            const SizedBox(width: 10),
-            Text(
-              '未选中时使用默认语体',
-              style: SrType.caption.copyWith(color: pal.textTertiary),
-            ),
             const Spacer(),
             SrButton(
               key: const Key('settings-scenario-new'),
@@ -697,7 +692,7 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '在所有修正中恒常生效;与场景指令冲突时以场景为准',
+                  '始终生效，与场景指令冲突时以场景为准',
                   style: SrType.caption.copyWith(color: pal.textTertiary),
                 ),
               ),
@@ -768,11 +763,6 @@ class _EmptyLibrary extends StatelessWidget {
               key: const Key('settings-scenario-empty'),
               '暂无场景',
               style: SrType.body.copyWith(color: pal.textSecondary),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '场景是一条命名的风格指令,选中后自下一次修正起生效。',
-              style: SrType.caption.copyWith(color: pal.textTertiary),
             ),
           ],
         ),
@@ -971,7 +961,7 @@ class _ScenarioEditorDialogState extends State<_ScenarioEditorDialog> {
     final duplicatesAnother =
         widget.existingNames.contains(name) && name != widget.initialName;
     if (duplicatesAnother) {
-      setState(() => _error = '已有同名场景');
+      setState(() => _error = '已存在同名场景');
       return;
     }
     Navigator.of(context).pop((name, directive));

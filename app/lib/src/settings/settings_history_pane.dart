@@ -91,7 +91,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
     } catch (e) {
       if (!mounted) return;
       logRawError('err_history_save', e);
-      SrToast.of(context).show('历史设置保存失败', tone: SrToastTone.error);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
     }
   }
 
@@ -104,8 +104,8 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => _ConfirmDialog(
-          title: '开启不留存?',
-          body: '将立即清空全部 ${_entries.length} 条既有历史,且不再记录新会话。',
+          title: '开启不留存模式?',
+          body: '${_entries.length} 条历史将被永久删除,新会话将不再保留历史。',
           confirmLabel: '开启并清空',
         ),
         barrierDismissible: false,
@@ -122,7 +122,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
       builder: (dialogContext) => _ConfirmDialog(
         key: const Key('settings-history-clear-confirm'),
         title: '清空全部历史?',
-        body: '将删除全部 ${_entries.length} 条记录,不可恢复。',
+        body: '${_entries.length} 条历史将被永久删除。',
         confirmLabel: '清空',
       ),
     );
@@ -134,7 +134,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
     } catch (e) {
       if (!mounted) return;
       logRawError('err_history_clear', e);
-      SrToast.of(context).show('历史清空失败', tone: SrToastTone.error);
+      SrToast.of(context).show('清空失败', tone: SrToastTone.error);
     }
   }
 
@@ -145,16 +145,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Row(
-          children: [
-            Text('历史', style: SrType.title.copyWith(color: pal.textPrimary)),
-            const SizedBox(width: 10),
-            Text(
-              '仅本机留存文本;音频永不落盘',
-              style: SrType.caption.copyWith(color: pal.textTertiary),
-            ),
-          ],
-        ),
+        Text('历史', style: SrType.title.copyWith(color: pal.textPrimary)),
         const SizedBox(height: 16),
         if (config == null)
           const Center(child: CircularProgressIndicator(strokeWidth: 2))
@@ -171,7 +162,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
             _EmptyNote(
               key: const Key('settings-history-keep-nothing-note'),
               icon: Icons.block_rounded,
-              text: '不留存模式:不记录任何会话。关闭开关后恢复记录。',
+              text: '不留存模式已开启',
             )
           else if (_entries.isEmpty)
             _EmptyNote(
@@ -226,21 +217,12 @@ class _ConfigCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '不留存',
-                      style: SrType.body.copyWith(
-                        color: pal.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      '完全不记录;开启即清空既有历史',
-                      style: SrType.micro.copyWith(color: pal.textTertiary),
-                    ),
-                  ],
+                child: Text(
+                  '不留存输入历史',
+                  style: SrType.body.copyWith(
+                    color: pal.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               Switch(
@@ -252,7 +234,7 @@ class _ConfigCard extends StatelessWidget {
           ),
           Divider(height: 28, color: pal.hairline),
           Text(
-            '保留期',
+            '历史保留时长',
             style: SrType.body.copyWith(
               color: pal.textPrimary,
               fontWeight: FontWeight.w600,
@@ -260,7 +242,7 @@ class _ConfigCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '超过保留期的记录在读取时自动清理',
+            '超过保留时长的记录将被自动清理',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
@@ -283,16 +265,9 @@ class _ConfigCard extends StatelessWidget {
             children: [
               SrButton(
                 key: const Key('settings-history-clear'),
-                label: '一键清空',
+                label: '清空历史',
                 onTap: onClear,
               ),
-              if (!config.enabled) ...[
-                const SizedBox(width: 10),
-                Text(
-                  '不留存模式下无历史',
-                  style: SrType.micro.copyWith(color: pal.textTertiary),
-                ),
-              ],
             ],
           ),
         ],

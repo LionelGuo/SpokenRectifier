@@ -986,7 +986,9 @@ void main() {
     await pumpSettings(tester, channel: channel);
 
     for (final domain in SettingsDomain.values) {
-      // 场景库 paints twice by design: sidebar entry + pane title.
+      // 场景 paints twice by design: sidebar entry + pane title (页标题
+      // 仍写「场景库」; 侧栏是「场景」). 评测 likewise: 侧栏「评测」、页标题
+      // 「保真评测」. Every other domain's label is the same in both.
       expect(find.text(domain.label), findsWidgets);
     }
 
@@ -1001,16 +1003,16 @@ void main() {
     await tester.tap(find.text('修正'));
     await tester.pump();
     await tester.pump(); // the behavior load lands
-    expect(find.text('全量修正 [rectify.full]'), findsOneWidget);
-    expect(find.text('轻修 [rectify.light_touch]'), findsOneWidget);
-    await tester.tap(find.text('保真评测'));
+    expect(find.text('全量模式'), findsOneWidget);
+    expect(find.text('轻修模式'), findsOneWidget);
+    await tester.tap(find.text('评测'));
     await tester.pump();
     expect(find.text('开始评测'), findsOneWidget);
 
     await tester.tap(find.text('历史'));
     await tester.pump();
     await tester.pump(); // the config load lands (two chained awaits)
-    expect(find.text('不留存'), findsOneWidget);
+    expect(find.text('不留存输入历史'), findsOneWidget);
 
     await tester.tap(find.text('术语'));
     await tester.pump();
@@ -1138,7 +1140,7 @@ void main() {
     );
     expect(find.text('未绑定'), findsOneWidget);
     expect(find.text('Ctrl+Q'), findsOneWidget);
-    expect(find.byKey(const Key('settings-hotkey-hint')), findsOneWidget);
+    expect(find.byKey(const Key('settings-hotkey-primary')), findsOneWidget);
   });
 
   testWidgets('capturing a legal chord writes the file and notifies main', (
@@ -1157,7 +1159,7 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-hotkey-primary')));
     await tester.pump();
     expect(channel.hotkeysPaused, [true]);
-    expect(find.text('按下组合键…'), findsOneWidget);
+    expect(find.text('按下组合键录制'), findsOneWidget);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.keyQ);
@@ -1192,7 +1194,7 @@ void main() {
     // A bare key is not a completing press.
     await tester.sendKeyDownEvent(LogicalKeyboardKey.keyQ);
     await tester.pump();
-    expect(find.text('按下组合键…'), findsOneWidget);
+    expect(find.text('按下组合键录制'), findsOneWidget);
     expect(channel.hotkeysChanged, 0);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.keyQ);
 
@@ -1200,7 +1202,7 @@ void main() {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.keyB);
     await tester.pump();
-    expect(find.text('按下组合键…'), findsOneWidget);
+    expect(find.text('按下组合键录制'), findsOneWidget);
     expect(channel.hotkeysChanged, 0);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.keyB);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
@@ -1273,7 +1275,7 @@ void main() {
     await pumpSettings(tester, domain: SettingsDomain.fidelity);
     // The isolation is by construction (the runner's own engine instance
     // never receives a directive); the copy states the contract.
-    expect(find.textContaining('不套用场景或全局指令'), findsOneWidget);
+    expect(find.textContaining('也不使用场景或全局指令'), findsOneWidget);
   });
 
   testWidgets('the eval entry notes it inherits the connection shape', (
@@ -1403,7 +1405,7 @@ void main() {
     }
 
     // The execution failure keeps carrying the engine's own message.
-    expect(find.text('执行失败(服务出错,详情见日志)'), findsOneWidget);
+    expect(find.text('执行失败，详情请见日志'), findsOneWidget);
   });
 
   testWidgets('an all-pass summary keeps the empty state, no detail cards', (
@@ -1437,7 +1439,7 @@ void main() {
 
     expect(find.text('100.0%'), findsOneWidget);
     expect(find.byKey(const Key('settings-eval-category:捏造')), findsOneWidget);
-    expect(find.text('全部用例通过,无失败明细。'), findsOneWidget);
+    expect(find.text('全部样例通过。'), findsOneWidget);
     expect(find.text('失败明细'), findsNothing);
   });
 
@@ -1456,7 +1458,7 @@ void main() {
     runner.emit(const BridgeEvalEvent.failed(message: '评测需要真实 LLM 连接'));
     await tester.pump();
     expect(find.text('评测未能完成'), findsOneWidget);
-    expect(find.text('服务出错,详情见日志'), findsOneWidget);
+    expect(find.text('服务出错,请重试'), findsOneWidget);
 
     // The retry starts a fresh run.
     await tester.tap(find.text('重试'));
@@ -1480,9 +1482,9 @@ void main() {
     await tester.pump();
 
     // The run outlives the pane: switch away and back, still running.
-    await tester.tap(find.text('场景库'));
+    await tester.tap(find.text('场景'));
     await tester.pump();
-    await tester.tap(find.text('保真评测'));
+    await tester.tap(find.text('评测'));
     await tester.pump();
     expect(find.byKey(const Key('settings-eval-spinner')), findsOneWidget);
 
@@ -1735,8 +1737,8 @@ void main() {
     // The switch's enable is destructive: confirm first.
     await tester.tap(find.byKey(const Key('settings-history-keep-nothing')));
     await tester.pump();
-    expect(find.text('开启不留存?'), findsOneWidget);
-    expect(find.text('将立即清空全部 2 条既有历史,且不再记录新会话。'), findsOneWidget);
+    expect(find.text('开启不留存模式?'), findsOneWidget);
+    expect(find.text('2 条历史将被永久删除,新会话将不再保留历史。'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('settings-history-confirm-cancel')));
     await tester.pump();
@@ -1816,7 +1818,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('settings-history-retention:7')));
     await tester.pump();
-    expect(textOf(tester, const Key('sr-toast')), '历史设置保存失败');
+    expect(textOf(tester, const Key('sr-toast')), '保存失败');
     // The rows survived.
     expect(find.text('第二句的原话'), findsOneWidget);
   });
@@ -1937,7 +1939,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('settings-terms-rename-save')));
     await tester.pump();
-    expect(textOf(tester, const Key('sr-toast')), '术语操作失败');
+    expect(textOf(tester, const Key('sr-toast')), '操作失败');
   });
 
   // -----------------------------------------------------------------------
@@ -1954,23 +1956,6 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  /// Jump the rectify pane's list back to the top so the header rows
-  /// (the error and saved-note lines) mount again after a scroll.
-  Future<void> jumpRectifyToTop(WidgetTester tester) async {
-    tester
-        .state<ScrollableState>(
-          find
-              .descendant(
-                of: find.byType(SettingsRectifyPane),
-                matching: find.byType(Scrollable),
-              )
-              .first,
-        )
-        .position
-        .jumpTo(0);
-    await tester.pump();
-  }
-
   testWidgets('the two cards paint; a pick commits the whole model at once', (
     tester,
   ) async {
@@ -1985,8 +1970,8 @@ void main() {
 
     // The section-named card headers (full on top — the default
     // path), the inputs seeded from the committed truth.
-    expect(find.text('全量修正 [rectify.full]'), findsOneWidget);
-    expect(find.text('轻修 [rectify.light_touch]'), findsOneWidget);
+    expect(find.text('全量模式'), findsOneWidget);
+    expect(find.text('轻修模式'), findsOneWidget);
     expect(
       fieldText(tester, const Key('settings-rectify-light-threshold')),
       '40',
@@ -2002,7 +1987,7 @@ void main() {
     expect(pick.fullPrefill, isTrue); // untouched picks ride
     expect(pick.lightTouchMaxChars, 40); // the committed input rides
     expect(store.applyCalls, 1);
-    expect(textOf(tester, const Key('sr-toast')), '已保存,下一次修正尝试生效');
+    expect(textOf(tester, const Key('sr-toast')), '已保存');
 
     // The dirty-state warning lights with the pick itself (off ×
     // prefill-on), and dies when the switch flips it off.
@@ -2301,15 +2286,6 @@ void main() {
         isNull,
       );
 
-      // The hand-edit honesty line (ADR-0010's ride-along rule) rides
-      // the pane's tail.
-      await scrollRectifyTo(tester, const Key('settings-rectify-hand-edit'));
-      await tester.pump();
-      expect(
-        textOf(tester, const Key('settings-rectify-hand-edit')),
-        '直接改配置文件需重启生效;期间在任意设置域保存一次也会一并采用',
-      );
-
       // Blanking the directive is the off switch: the next commit
       // writes the unset form (the key is removed from the file).
       await tester.enterText(
@@ -2351,7 +2327,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
     await tester.pump();
-    expect(textOf(tester, const Key('sr-toast')), contains('轻修字数阈需为不小于 1 的整数'));
+    expect(textOf(tester, const Key('sr-toast')), '阈值需为大于 0 的整数');
     expect(store.saves, isEmpty); // refused before any write
     expect(store.applyCalls, 0);
 
@@ -2387,7 +2363,7 @@ void main() {
         find.byKey(const Key('settings-rectify-full-policy:off')),
       );
       await tester.pump();
-      expect(textOf(tester, const Key('sr-toast')), '修正设置保存失败');
+      expect(textOf(tester, const Key('sr-toast')), '保存失败');
       expect(store.saves, isEmpty);
       expect(store.applyCalls, 0);
 
@@ -2404,7 +2380,7 @@ void main() {
       await tester.tap(find.byKey(const Key('settings-rectify-full-prefill')));
       await tester.pump();
       expect(store.saves.last.fullPrefill, isFalse);
-      expect(textOf(tester, const Key('sr-toast')), '已保存,引擎沿用上一配置');
+      expect(textOf(tester, const Key('sr-toast')), '已保存');
       expect(store.applyCalls, 1); // the refusal was not an adoption
     },
   );
@@ -3929,7 +3905,7 @@ void main() {
     expect(save.paragraph, 1500);
     expect(save.sessionEnd, 2500);
     expect(save.timeout, 25000); // untouched field rides
-    expect(textOf(tester, const Key('sr-toast')), '会话参数已保存,下一会话生效');
+    expect(textOf(tester, const Key('sr-toast')), '已保存');
     expect(store.insertionSaves, isEmpty); // one card, one save
   });
 
@@ -3958,7 +3934,7 @@ void main() {
     expect(save.mode, 'typing');
     expect(save.typing, 15);
     expect(save.focus, 50); // untouched fields ride
-    expect(textOf(tester, const Key('sr-toast')), '插入参数已保存,即时生效');
+    expect(textOf(tester, const Key('sr-toast')), '已保存');
     expect(store.engineSaves, isEmpty);
   });
 
@@ -3978,7 +3954,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('settings-advanced-engine-save')));
     await tester.pump();
-    expect(textOf(tester, const Key('sr-toast')), '会话参数格式不正确');
+    expect(textOf(tester, const Key('sr-toast')), '格式不正确');
     expect(store.engineSaves, isEmpty);
   });
 
@@ -4066,7 +4042,7 @@ void main() {
       find.byKey(const Key('settings-scenario-form-error')),
       findsOneWidget,
     );
-    expect(find.text('已有同名场景'), findsOneWidget);
+    expect(find.text('已存在同名场景'), findsOneWidget);
 
     // Blank directive is refused too, and nothing was written.
     await tester.enterText(
@@ -4133,7 +4109,7 @@ void main() {
 
     // The card survives (the file refused the write), the error shows.
     expect(find.byKey(const Key('settings-scenario-card:聊天')), findsOneWidget);
-    expect(textOf(tester, const Key('sr-toast')), '场景库保存失败');
+    expect(textOf(tester, const Key('sr-toast')), '保存失败');
     expect(channel.libraryChanged, isEmpty);
   });
 
@@ -4214,7 +4190,7 @@ void main() {
 
     // The file refused the write: the error shows, no event went out, and
     // the card keeps the unsaved text for a retry.
-    expect(textOf(tester, const Key('sr-toast')), '全局指令保存失败');
+    expect(textOf(tester, const Key('sr-toast')), '保存失败');
     expect(channel.globalChanged, 0);
     expect(store.directive, '旧的全局指令');
     expect(globalFieldText(tester), '新的全局指令');

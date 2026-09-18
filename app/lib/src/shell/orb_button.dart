@@ -420,7 +420,7 @@ final class _OrbLook {
               fill: (pal) => pal.surfaceRaised,
               border: (pal) => pal.hairline,
               clickable: false,
-              tooltip: '修正中…',
+              tooltip: '修正中',
             );
           case BridgeSessionState.preview:
             return _OrbLook(
@@ -429,7 +429,7 @@ final class _OrbLook {
               fill: (pal) => pal.accent,
               border: (pal) => pal.accent,
               clickable: true,
-              tooltip: '确认粘贴 · Enter',
+              tooltip: '确认输入',
             );
           default:
             return closeLook();
@@ -464,7 +464,7 @@ final class _OrbLook {
               fill: (pal) => pal.surfaceRaised,
               border: (pal) => pal.hairline,
               clickable: true,
-              tooltip: '点击开始口述 · 右键快捷设置',
+              tooltip: '点击录入',
             );
         }
     }
@@ -475,7 +475,7 @@ final class _OrbLook {
     fill: (pal) => pal.surfaceRaised,
     border: (pal) => pal.hairline,
     clickable: true,
-    tooltip: '关闭 · Esc',
+    tooltip: '关闭',
   );
 }
 

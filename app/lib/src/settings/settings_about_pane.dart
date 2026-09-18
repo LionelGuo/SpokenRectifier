@@ -48,7 +48,7 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
     } catch (e) {
       if (!mounted) return;
       logRawError('err_about_config_open', e);
-      SrToast.of(context).show('配置文件未能打开', tone: SrToastTone.error);
+      SrToast.of(context).show('打开失败', tone: SrToastTone.error);
     }
   }
 
@@ -123,7 +123,7 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '分层配置:defaults → shared → local,local 恒胜;密钥只住在 local。',
+                  '密钥仅保存在本机。',
                   style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
                 const SizedBox(height: 12),

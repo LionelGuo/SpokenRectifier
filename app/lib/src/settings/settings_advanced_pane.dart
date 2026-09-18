@@ -135,14 +135,14 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
       );
       if (!mounted) return;
       setState(() => _adoptEngine(saved));
-      SrToast.of(context).show('会话参数已保存,下一会话生效', tone: SrToastTone.success);
+      SrToast.of(context).show('已保存', tone: SrToastTone.success);
     } on FormatException catch (e) {
       logRawError('err_advanced_session_format', e);
-      SrToast.of(context).show('会话参数格式不正确', tone: SrToastTone.error);
+      SrToast.of(context).show('格式不正确', tone: SrToastTone.error);
     } catch (e) {
       if (!mounted) return;
       logRawError('err_advanced_session_save', e);
-      SrToast.of(context).show('会话参数保存失败', tone: SrToastTone.error);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
     }
   }
 
@@ -160,14 +160,14 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
       );
       if (!mounted) return;
       setState(() => _adoptInsertion(saved));
-      SrToast.of(context).show('插入参数已保存,即时生效', tone: SrToastTone.success);
+      SrToast.of(context).show('已保存', tone: SrToastTone.success);
     } on FormatException catch (e) {
       logRawError('err_advanced_insert_format', e);
-      SrToast.of(context).show('插入参数格式不正确', tone: SrToastTone.error);
+      SrToast.of(context).show('格式不正确', tone: SrToastTone.error);
     } catch (e) {
       if (!mounted) return;
       logRawError('err_advanced_insert_save', e);
-      SrToast.of(context).show('插入参数保存失败', tone: SrToastTone.error);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
     }
   }
 
@@ -177,7 +177,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
     } catch (e) {
       if (!mounted) return;
       logRawError('err_advanced_config_open', e);
-      SrToast.of(context).show('配置文件未能打开', tone: SrToastTone.error);
+      SrToast.of(context).show('打开失败', tone: SrToastTone.error);
     }
   }
 
@@ -188,16 +188,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Row(
-          children: [
-            Text('高级', style: SrType.title.copyWith(color: pal.textPrimary)),
-            const SizedBox(width: 10),
-            Text(
-              '低频参数:保存写入配置文件;会话参数下一会话生效,插入参数即时生效',
-              style: SrType.caption.copyWith(color: pal.textTertiary),
-            ),
-          ],
-        ),
+        Text('高级', style: SrType.title.copyWith(color: pal.textPrimary)),
         const SizedBox(height: 16),
         if (!_loaded || engine == null)
           const Center(child: CircularProgressIndicator(strokeWidth: 2))
@@ -207,16 +198,11 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '会话语义 [engine]',
+                  '会话参数',
                   style: SrType.body.copyWith(
                     color: pal.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '运行时命令即时下发;每个会话按开启时的快照运行,下一会话生效',
-                  style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -238,7 +224,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '停顿仅分段,不结束会话;此处保存为持久设置,快捷面板开关仅当次运行',
+                  '讲话停顿时不结束会话，仅进行分段',
                   style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
                 const SizedBox(height: 12),
@@ -249,7 +235,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-paragraph-silence'),
                         controller: _paragraphSilence,
-                        label: '分段静音 ms',
+                        label: '分段静音(ms)',
                         monospace: true,
                       ),
                     ),
@@ -258,7 +244,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-session-end-silence'),
                         controller: _sessionEndSilence,
-                        label: '自动结束静音 ms',
+                        label: '自动结束静音(ms)',
                         monospace: true,
                       ),
                     ),
@@ -267,7 +253,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-rectify-timeout'),
                         controller: _rectifyTimeout,
-                        label: '修正超时 ms',
+                        label: '修正超时(ms)',
                         monospace: true,
                       ),
                     ),
@@ -289,7 +275,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '文本插入 [insertion]',
+                  '文本插入',
                   style: SrType.body.copyWith(
                     color: pal.textPrimary,
                     fontWeight: FontWeight.w600,
@@ -297,7 +283,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '确认文本到达目标窗口的方式与节奏;保存即生效(下一次插入即用新值)',
+                  '确认文本到达目标窗口的方式与节奏',
                   style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
                 const SizedBox(height: 10),
@@ -318,7 +304,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-focus-settle'),
                         controller: _focusSettle,
-                        label: '焦点等待 ms',
+                        label: '焦点等待(ms)',
                         monospace: true,
                       ),
                     ),
@@ -327,7 +313,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-paste-settle'),
                         controller: _pasteSettle,
-                        label: '粘贴等待 ms',
+                        label: '粘贴等待(ms)',
                         monospace: true,
                       ),
                     ),
@@ -336,7 +322,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-typing-delay'),
                         controller: _typingDelay,
-                        label: '键入间隔 ms',
+                        label: '键入间隔(ms)',
                         monospace: true,
                       ),
                     ),
@@ -353,19 +339,10 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
             ),
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              SrButton(
-                key: const Key('settings-advanced-open-config'),
-                label: '打开配置文件',
-                onTap: _openConfig,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '文件仍是真相:直接改文件后,重启或在此保存一次即可生效',
-                style: SrType.micro.copyWith(color: pal.textTertiary),
-              ),
-            ],
+          SrButton(
+            key: const Key('settings-advanced-open-config'),
+            label: '打开配置文件',
+            onTap: _openConfig,
           ),
         ],
       ],

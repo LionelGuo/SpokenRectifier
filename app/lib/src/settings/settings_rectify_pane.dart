@@ -52,11 +52,15 @@ import 'rectify_store.dart';
 
 /// The thinking-policy chips' display labels, by wire name
 /// (always / placeholders / off, ADR-0015).
-const _policyLabels = {'always': '始终', 'placeholders': '仅占位符', 'off': '关闭'};
+const _policyLabels = {
+  'always': '始终开启',
+  'placeholders': '仅包含占位图钉时开启',
+  'off': '始终关闭',
+};
 
 /// The warning a 思考关 ∩ 预填开 tier paints (the layout map's exact
 /// wording): a statement of consequence, never a refusal.
-const _comboWarning = '思考已关、预填仍开:占位符吸收依赖思考,关思考后预填初值多为空、需手动填写;此组合仍可使用。';
+const _comboWarning = '关闭模型思考可能降低预填质量';
 
 /// What the two cards say while the connection domain's thinking fields
 /// are inert — the same line on both, naming where the recovery lives.
@@ -201,8 +205,7 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     final text = _threshold.text.trim();
     final value = int.tryParse(text);
     if (value == null || value < 1) {
-      SrToast.of(context)
-          .show('轻修字数阈需为不小于 1 的整数(当前:$text)', tone: SrToastTone.error);
+      SrToast.of(context).show('阈值需为大于 0 的整数', tone: SrToastTone.error);
       return;
     }
     final extra = _extra.text.trim();
@@ -261,13 +264,13 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
           _quickExtra.addListener(_onInput);
         }
       });
-      SrToast.of(context).show('已保存,下一次修正尝试生效', tone: SrToastTone.success);
+      SrToast.of(context).show('已保存', tone: SrToastTone.success);
     } catch (e) {
       if (!mounted) return;
       // The file refused the write: the picks keep painting what the
       // user chose (a re-tap is the retry), the inputs keep their text.
       logRawError('err_rectify_save', e);
-      SrToast.of(context).show('修正设置保存失败', tone: SrToastTone.error);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
       return;
     }
     try {
@@ -277,7 +280,7 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
       // Saved but not adopted: the engine keeps the previous config
       // (the connection domain's banner contract, ADR-0010).
       logRawError('note_rectify_engine_kept', e);
-      SrToast.of(context).show('已保存,引擎沿用上一配置', tone: SrToastTone.error);
+      SrToast.of(context).show('已保存', tone: SrToastTone.error);
     }
   }
 
@@ -288,17 +291,7 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Row(
-          children: [
-            Text('修正', style: SrType.title.copyWith(color: pal.textPrimary)),
-            const SizedBox(width: 10),
-            Text(
-              '按强度分档配置修正行为;保存写入 [rectify.*] 配置层',
-              key: const Key('settings-rectify-note'),
-              style: SrType.caption.copyWith(color: pal.textTertiary),
-            ),
-          ],
-        ),
+        Text('修正', style: SrType.title.copyWith(color: pal.textPrimary)),
         const SizedBox(height: 16),
         if (!_loaded || model == null)
           const Center(child: CircularProgressIndicator(strokeWidth: 2))
@@ -338,12 +331,6 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
             onRectify: (on) => _pick(_liveModel.copyWith(quickRectify: on)),
             onSaveInputs: _saveQuickInputs,
           ),
-          const SizedBox(height: 20),
-          Text(
-            '直接改配置文件需重启生效;期间在任意设置域保存一次也会一并采用',
-            key: const Key('settings-rectify-hand-edit'),
-            style: SrType.micro.copyWith(color: pal.textTertiary),
-          ),
         ],
       ],
     );
@@ -381,7 +368,7 @@ class _FullCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '全量修正 [rectify.full]',
+            '全量模式',
             style: SrType.body.copyWith(
               color: pal.textPrimary,
               fontWeight: FontWeight.w600,
@@ -389,7 +376,7 @@ class _FullCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '篇章级重组与压缩提密;轻修关闭或口语段超阈时使用',
+            '对输入文本进行标准的语义过滤及篇章重组',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
@@ -469,7 +456,7 @@ class _LightCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '轻修 [rectify.light_touch]',
+            '轻修模式',
             style: SrType.body.copyWith(
               color: pal.textPrimary,
               fontWeight: FontWeight.w600,
@@ -477,7 +464,7 @@ class _LightCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '去口头语、应用口头更正,不改篇章结构与措辞',
+            '仅去除口头语，保留句式结构与措辞',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
@@ -485,7 +472,7 @@ class _LightCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '启用轻修',
+                  '启用轻修模式',
                   style: SrType.caption.copyWith(color: pal.textSecondary),
                 ),
               ),
@@ -498,7 +485,7 @@ class _LightCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '关闭时一律全量修正;开启时短于字数阈的口语段走轻修',
+            '在字数低于阈值时允许启用轻修模式',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 12),
@@ -516,7 +503,7 @@ class _LightCard extends StatelessWidget {
                   SrField(
                     key: const Key('settings-rectify-light-threshold'),
                     controller: threshold,
-                    label: '轻修字数阈(字)',
+                    label: '轻修字数阈值',
                     monospace: true,
                   ),
                   const SizedBox(height: 12),
@@ -560,7 +547,7 @@ class _LightCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '仅在走轻修时注入,只塑形式与语气;留空则不注入',
+                    '额外指令仅针对轻修模式生效',
                     style: SrType.micro.copyWith(color: pal.textTertiary),
                   ),
                   const SizedBox(height: 6),
@@ -809,7 +796,7 @@ class _PrefillRow extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '开启后,紧邻占位符的完整名词短语整块吸收为填写槽初值',
+          '启用后占位图钉可自动预填初始值',
           style: SrType.micro.copyWith(color: pal.textTertiary),
         ),
       ],

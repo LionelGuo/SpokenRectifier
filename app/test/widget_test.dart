@@ -226,7 +226,7 @@ void main() {
       expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
       // The raw provider string never reaches the screen — only the
       // classified short sentence (this one falls to the other bucket).
-      expect(controller.lastError, '服务出错,详情见日志');
+      expect(controller.lastError, '服务出错,请重试');
 
       // A start click against the dead engine stays idle and keeps the
       // root cause — the generic "engine not created" must not mask it.
@@ -234,7 +234,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.mic_none_rounded));
       await tester.pump();
       expect(controller.stage, StageKind.orb);
-      expect(controller.lastError, '服务出错,详情见日志');
+      expect(controller.lastError, '服务出错,请重试');
       expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
 
       // Without any error the orb rests bare (no idle badge).
@@ -266,7 +266,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
 
     expect(find.byKey(const Key('quick-error')), findsNothing);
-    expect(textOf(tester, const Key('sr-toast')), '服务出错,详情见日志');
+    expect(textOf(tester, const Key('sr-toast')), '服务出错,请重试');
   });
 
   testWidgets('live transcript streams into the session text area', (
@@ -826,8 +826,8 @@ void main() {
     // said out loud as a toast, not swallowed.
     expect(controller.selectedScenario, '正式文档');
     expect(find.byKey(const Key('session-error')), findsNothing);
-    expect(controller.lastError, '场景切换未生效');
-    expect(textOf(tester, const Key('sr-toast')), '场景切换未生效');
+    expect(controller.lastError, '切换失败');
+    expect(textOf(tester, const Key('sr-toast')), '切换失败');
     await windDown(tester, controller);
   });
 
@@ -919,7 +919,7 @@ void main() {
       // row hides with an empty library, but the section keeps its
       // editor entry (the creation path into the settings window);
       // history shows its empty hint.
-      expect(find.text('术语速加'), findsOneWidget);
+      expect(find.text('术语'), findsOneWidget);
       expect(find.text('历史'), findsOneWidget);
       expect(find.byKey(const Key('quick-history-empty')), findsOneWidget);
       expect(find.text('输入'), findsOneWidget);
@@ -1383,8 +1383,8 @@ void main() {
       await tester.tap(find.byKey(const Key('quick-history-scenario-item:论文')));
       await tester.pump(const Duration(milliseconds: 350));
 
-      expect(controller.lastError, '重新修正失败,请重试');
-      expect(textOf(tester, const Key('sr-toast')), '重新修正失败,请重试');
+      expect(controller.lastError, '重新修正失败');
+      expect(textOf(tester, const Key('sr-toast')), '重新修正失败');
       expect(controller.stage, StageKind.quick); // the panel is still up
     },
   );
@@ -1425,8 +1425,8 @@ void main() {
       // rejected switch must not paint a mode the engine never adopted.
       expect(controller.passageMode, isTrue);
       expect(gateway.passage, isTrue);
-      expect(controller.lastError, '篇章模式切换未生效');
-      expect(textOf(tester, const Key('sr-toast')), '篇章模式切换未生效');
+      expect(controller.lastError, '切换失败');
+      expect(textOf(tester, const Key('sr-toast')), '切换失败');
       // The switch still paints the truth.
       expect(
         (tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value,
@@ -2240,7 +2240,6 @@ void main() {
         // The idle orb (✕) paints no ring: the bare core is the guard.
         final orb = orbCoreInView(tester);
         expectClearOfOrb(tester, find.text('快捷设置'), orb, 'the title');
-        expectClearOfOrb(tester, find.text('Esc 关闭'), orb, 'the Esc hint');
         // The list's head content: while the orb anchors the top edge,
         // the 48 padding parks the first section below the fade.
         if (!dir.growUp) {
