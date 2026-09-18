@@ -341,10 +341,12 @@ pub struct CustomSlot {
 }
 
 impl LlmConfig {
-    /// The v1 default: DeepSeek V4-Flash over today's rectify behavior
-    /// (thinking always, prefill on, light-touch gate open at 40
-    /// characters, no extra directive). Every vendor's key slot starts
-    /// empty (the conventional environment names apply at resolution).
+    /// The v1 default: DeepSeek's flash model (`deepseek-flash`; the
+    /// provider renamed it from `deepseek-v4-flash`, which still
+    /// resolves) over today's rectify behavior (thinking always, prefill
+    /// on, light-touch gate open at 40 characters, no extra directive).
+    /// Every vendor's key slot starts empty (the conventional environment
+    /// names apply at resolution).
     pub fn defaults() -> Self {
         // The default endpoint's thinking shares are the legacy deepseek
         // dictionary pair, byte for byte — the pre-0019 default body,
@@ -368,7 +370,7 @@ impl LlmConfig {
                 .collect(),
             model: ModelConfig {
                 base_url: "https://api.deepseek.com".into(),
-                model: "deepseek-v4-flash".into(),
+                model: "deepseek-flash".into(),
                 api_key: None,
                 api_key_env: Some(
                     Vendor::DeepSeek
@@ -1646,7 +1648,7 @@ mod tests {
         assert!(!config.rectify.quick.enabled);
         assert!(config.rectify.quick.rectify);
         assert_eq!(config.rectify.quick.extra_directive, None);
-        assert_eq!(config.model.model, "deepseek-v4-flash");
+        assert_eq!(config.model.model, "deepseek-flash");
         assert_eq!(config.model.vendor, Vendor::DeepSeek);
         assert_eq!(
             config.model.api_key_env.as_deref(),
@@ -3326,13 +3328,13 @@ mod tests {
                 file: "[llm]\nvendor = \"deepseek\"\n\
                        [llm.extra_body]\ntop_p = 0.9\nthinking = { type = \"enabled\" }\n",
                 on: json_skeleton(
-                    "deepseek-v4-flash",
+                    "deepseek-flash",
                     json!({
                         "reasoning_effort": "medium", "thinking": {"type": "enabled"}, "top_p": 0.9
                     }),
                 ),
                 off: json_skeleton(
-                    "deepseek-v4-flash",
+                    "deepseek-flash",
                     json!({
                         "thinking": {"type": "enabled"}, "top_p": 0.9
                     }),

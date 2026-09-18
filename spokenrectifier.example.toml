@@ -181,7 +181,7 @@ rectify = true                          # off: paste the raw transcript as-is
 [llm]
 vendor = "deepseek"                     # deepseek | volcengine | qwen | openai | custom
 base_url = "https://api.deepseek.com"   # everything before /chat/completions
-model = "deepseek-v4-flash"
+model = "deepseek-flash"
 
 # Each vendor keeps its OWN api_key pair under its sub-section (ADR-0011):
 # a key authenticates exactly one vendor, so switching vendors never

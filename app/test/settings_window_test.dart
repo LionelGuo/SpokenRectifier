@@ -285,7 +285,7 @@ const _noKeys = <String, KeyInfo>{
 LlmConnection fakeLlm({
   String vendor = 'deepseek',
   String baseUrl = 'https://api.deepseek.com',
-  String model = 'deepseek-v4-flash',
+  String model = 'deepseek-flash',
   String format = 'openai_chat',
   KeyInfo? key,
   Map<String, KeyInfo> keys = const {},
@@ -2496,10 +2496,11 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    // The painted model is the v1 default (deepseek-v4-flash), which is
-    // NOT any preset's name — so the chip switches the endpoint and
-    // leaves the running model alone (ADR-0019 item 5: a hand-edited or
-    // already-running name survives).
+    // The painted model is the v1 default, `deepseek-flash` — which is
+    // also the deepseek preset's own model name, so the chip carries it
+    // to the new vendor's model like any other preset name (ADR-0019
+    // item 5 spares only names no preset claims; the hand-typed leg
+    // below is the survival case).
     await tester.tap(
       find.byKey(const Key('settings-conn-llm-vendors:volcengine')),
     );
@@ -2510,7 +2511,7 @@ void main() {
     );
     expect(
       fieldText(tester, const Key('settings-conn-llm-model')),
-      'deepseek-v4-flash',
+      'doubao-seed-2.0-lite',
     );
 
     // A model that IS some preset's name is freely replaced.
@@ -3609,7 +3610,7 @@ void main() {
     // The form keeps what the user typed; nothing was adopted.
     expect(
       fieldText(tester, const Key('settings-conn-llm-model')),
-      'deepseek-v4-flash',
+      'deepseek-flash',
     );
   });
 

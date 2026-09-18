@@ -137,7 +137,7 @@ mod tests {
     fn openai_chat_skeleton_matches_the_pre_0019_shape() {
         let model = LlmConfig::defaults().model;
         let body = request_body(&model, &prompt(), false);
-        assert_eq!(body["model"], "deepseek-v4-flash");
+        assert_eq!(body["model"], "deepseek-flash");
         assert_eq!(body["stream"], true);
         assert_eq!(body["temperature"], 0.2);
         assert_eq!(body["messages"][0]["role"], "system");
@@ -266,7 +266,7 @@ mod tests {
             r#"{"model":"hacked","messages":[],"stream":false,"temperature":0.9}"#,
         ));
         let body = request_body(&model, &prompt(), false);
-        assert_eq!(body["model"], "deepseek-v4-flash");
+        assert_eq!(body["model"], "deepseek-flash");
         assert_eq!(body["stream"], true);
         assert_eq!(body["messages"][0]["content"], "sys");
         assert_eq!(body["temperature"], 0.9, "unprotected keys do overlay");
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(body["system"], "sys");
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["stream"], true);
-        assert_eq!(body["model"], "deepseek-v4-flash");
+        assert_eq!(body["model"], "deepseek-flash");
 
         model.format = Format::Gemini;
         model.thinking.overlays.body = Some(object(

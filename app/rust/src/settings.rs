@@ -22,7 +22,7 @@ const STUB: &str = "\
 # passage_mode = true   # long pauses mark paragraphs; stop is manual
 
 [llm]
-# model = \"deepseek-v4-flash\"
+# model = \"deepseek-flash\"
 ";
 
 /// The shared config file the settings entry opens: the first one the
