@@ -28,19 +28,7 @@ class SettingsFidelityPane extends StatelessWidget {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Row(
-            children: [
-              Text(
-                '保真评测',
-                style: SrType.title.copyWith(color: pal.textPrimary),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '用内置样例检查修正是否忠实于原意',
-                style: SrType.caption.copyWith(color: pal.textTertiary),
-              ),
-            ],
-          ),
+          Text('保真评测', style: SrType.title.copyWith(color: pal.textPrimary)),
           const SizedBox(height: 16),
           switch (controller.phase) {
             FidelityEvalPhase.idle => _IdleCard(controller: controller),
@@ -73,13 +61,6 @@ class _IdleCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             '约需 1 分钟，不会插入文本、不会写入历史，也不使用场景或全局指令。',
-            style: SrType.caption.copyWith(color: pal.textTertiary),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '连接配置(格式与三份请求体 overlay)原样进评测,不可在此覆写;'
-            '思考字段关/未配置时,评测请求同样不带思考键,对端用自家默认。',
-            key: const Key('settings-eval-connection-inherited'),
             style: SrType.caption.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 20),

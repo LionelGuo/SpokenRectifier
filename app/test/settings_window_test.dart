@@ -1276,21 +1276,11 @@ void main() {
     // The isolation is by construction (the runner's own engine instance
     // never receives a directive); the copy states the contract.
     expect(find.textContaining('也不使用场景或全局指令'), findsOneWidget);
-  });
-
-  testWidgets('the eval entry notes it inherits the connection shape', (
-    tester,
-  ) async {
-    await pumpSettings(tester, domain: SettingsDomain.fidelity);
-    // ADR-0019: the eval adopts the connection config whole and cannot
-    // override it here, thinking switch included.
-    final note = textOf(
-      tester,
-      const Key('settings-eval-connection-inherited'),
+    expect(find.textContaining('用内置样例检查修正是否忠实于原意'), findsNothing);
+    expect(
+      find.byKey(const Key('settings-eval-connection-inherited')),
+      findsNothing,
     );
-    expect(note, contains('连接配置'));
-    expect(note, contains('不可在此覆写'));
-    expect(note, contains('不带思考键'));
   });
 
   testWidgets('a run walks idle → running → finished with the summary', (
