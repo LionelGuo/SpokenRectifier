@@ -3299,7 +3299,10 @@ mod tests {
     /// every legacy shape — a bare vendor, a hold overriding a thinking
     /// key, a custom endpoint with dialect + overlay + hold — the
     /// upgraded build composes request bodies byte-identical to the
-    /// pre-0019 ones, under both thinking policies.
+    /// pre-0019 ones, under both thinking policies. One deliberate
+    /// departure since absorb-clock 05: deepseek's on-share effort is
+    /// "low", not the pre-0019 "medium" (the probe's clock/token
+    /// ruling); the shapes and every other byte stay pinned.
     #[test]
     fn legacy_files_send_byte_identical_requests() {
         struct Case {
@@ -3315,7 +3318,7 @@ mod tests {
                 on: json_skeleton(
                     "deepseek-v4-flash",
                     json!({
-                        "reasoning_effort": "medium", "thinking": {"type": "enabled"}
+                        "reasoning_effort": "low", "thinking": {"type": "enabled"}
                     }),
                 ),
                 off: json_skeleton(
@@ -3330,7 +3333,7 @@ mod tests {
                 on: json_skeleton(
                     "deepseek-flash",
                     json!({
-                        "reasoning_effort": "medium", "thinking": {"type": "enabled"}, "top_p": 0.9
+                        "reasoning_effort": "low", "thinking": {"type": "enabled"}, "top_p": 0.9
                     }),
                 ),
                 off: json_skeleton(

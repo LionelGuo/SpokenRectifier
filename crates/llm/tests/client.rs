@@ -61,7 +61,7 @@ async fn thinking_on_sends_the_enabled_pair() {
         when.method(Method::POST)
             .path("/chat/completions")
             .body_contains("\"thinking\":{\"type\":\"enabled\"}")
-            .body_contains("\"reasoning_effort\":\"medium\"");
+            .body_contains("\"reasoning_effort\":\"low\"");
         then.status(200)
             .header("content-type", "text/event-stream")
             .body(sse_body());

@@ -235,7 +235,7 @@ mod tests {
             json!({"type": "enabled"}),
             "the on-share keeps the last word over the resident share"
         );
-        assert_eq!(on["reasoning_effort"], "medium");
+        assert_eq!(on["reasoning_effort"], "low");
     }
 
     #[test]

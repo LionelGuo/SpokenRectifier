@@ -116,7 +116,11 @@ impl Vendor {
         match (self, thinking) {
             (Vendor::DeepSeek, true) => vec![
                 ("thinking", json!({"type": "enabled"})),
-                ("reasoning_effort", json!("medium")),
+                // absorb-clock 05: "medium" only mapped up to the
+                // endpoint's high; "low" measurably trims the pinned
+                // absorption thinking (tokens and clock down, accuracy
+                // held), and the user ruled any gain lands.
+                ("reasoning_effort", json!("low")),
             ],
             (Vendor::DeepSeek, false) => vec![("thinking", json!({"type": "disabled"}))],
             (Vendor::Volcengine, true) => vec![("thinking", json!({"type": "enabled"}))],
@@ -218,7 +222,7 @@ mod tests {
             fields,
             vec![
                 ("thinking", json!({"type": "enabled"})),
-                ("reasoning_effort", json!("medium")),
+                ("reasoning_effort", json!("low")),
             ]
         );
     }

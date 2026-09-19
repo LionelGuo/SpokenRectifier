@@ -40,7 +40,10 @@ pub fn all() -> Vec<Preset> {
             Format::OpenaiChat,
             "https://api.deepseek.com",
             "deepseek-flash",
-            r#"{"thinking":{"type":"enabled"}}"#,
+            // absorb-clock 05: the effort companion rides the chip too,
+            // so a preset save cannot revert the default to the
+            // endpoint's high.
+            r#"{"thinking":{"type":"enabled"},"reasoning_effort":"low"}"#,
             r#"{"thinking":{"type":"disabled"}}"#,
         ),
         preset(
@@ -129,14 +132,14 @@ fn object(text: &str) -> Map<String, Value> {
 
 // -- the legacy migration dictionary (ADR-0019 item 4) ------------------------
 
-/// One pre-0019 thinking dialect's two shares, exactly as the old
-/// request body carried them — built FROM `Vendor::thinking_fields`, so
-/// byte-faithfulness holds by construction and the legacy pair list
-/// stays the one source. The differences from the new presets are
-/// deliberate: deepseek's on share keeps the legacy
-/// `reasoning_effort: "medium"` companion, and plain openai's off share
-/// is empty (it sent nothing), where the new openai preset writes an
-/// explicit `"none"`.
+/// One pre-0019 thinking dialect's two shares — built FROM
+/// `Vendor::thinking_fields`, so the two faces hold by construction and
+/// the legacy pair list stays the one source. Since absorb-clock 05 the
+/// deepseek on share carries `reasoning_effort: "low"` on BOTH faces
+/// (the probe's clock/token ruling — "medium" was a no-op that mapped
+/// up to high). The one deliberate difference left from the new presets
+/// is plain openai's off share, empty here (it sent nothing), where the
+/// new openai preset writes an explicit `"none"`.
 pub fn legacy_shares(dialect: Vendor) -> (Map<String, Value>, Map<String, Value>) {
     let mut on = Map::new();
     for (field, value) in dialect.thinking_fields(true) {
@@ -223,6 +226,9 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} missing"))
         };
         assert_eq!(row("deepseek").model, "deepseek-flash");
+        // absorb-clock 05: the chip's on share carries the effort too, so
+        // a preset save cannot revert the default to the endpoint's high.
+        assert_eq!(row("deepseek").thinking_on["reasoning_effort"], json!("low"));
         let volcengine = row("volcengine");
         assert_eq!(
             volcengine.base_url,
@@ -257,16 +263,16 @@ mod tests {
         }
     }
 
-    /// The migration dictionary preserves the pre-0019 bytes: the four
-    /// adapted dialects' shares are the old pair lists verbatim —
-    /// deepseek's on share keeps the effort companion, openai's off
-    /// share stays empty.
+    /// The migration dictionary preserves the pre-0019 pair shapes:
+    /// deepseek's on share keeps the effort companion (at "low" since
+    /// absorb-clock 05, not the pre-0019 "medium"), openai's off share
+    /// stays empty.
     #[test]
     fn the_legacy_dictionary_preserves_the_old_pairs() {
         let (on, off) = legacy_shares(Vendor::DeepSeek);
         assert_eq!(
             Value::Object(on),
-            json!({"thinking": {"type": "enabled"}, "reasoning_effort": "medium"})
+            json!({"thinking": {"type": "enabled"}, "reasoning_effort": "low"})
         );
         assert_eq!(
             Value::Object(off),
