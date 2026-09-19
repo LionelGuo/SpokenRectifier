@@ -134,6 +134,14 @@ Future<SpeechController> pumpController(
     themeMode: themeMode,
   );
   addTearDown(controller.dispose);
+  if (stageWindow != null) {
+    // The panel-period window is the whole work area (02 号票) — pin the
+    // view to it so view coordinates match window coordinates.
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
   await tester.pumpWidget(
     SpokenRectifierApp(
       controller: controller,
@@ -197,11 +205,12 @@ void main() {
     expect(controller.phase, BridgeSessionState.recording);
     expect(controller.stage, StageKind.session);
 
-    // The window jumped to the panel growth CEILING in one atomic call,
-    // pinning the bottom-right corner (upLeft growth, 96 -> 1096x596 —
-    // the anchor's span caps tighter than 70%; the card renders in the
-    // slot at 420x560, ADR 0017).
-    expect(window.bounds, [const Rect.fromLTRB(0, 0, 1096, 596)]);
+    // The window jumped to the WHOLE WORK AREA in one atomic call (02
+    // 号票): the panel-period HWND is the work area; the card renders in
+    // the slot at its anchor-derived rect (420x540 — the height caps at
+    // half the 1080 work area), hit region narrowed to it (ADR 0017).
+    expect(window.bounds, [const Rect.fromLTRB(0, 0, 1920, 1080)]);
+    expect(window.regions.last, const Rect.fromLTRB(676, 56, 1096, 596));
 
     // The session window shows the live phase; the anchor is a stop orb.
     expect(find.text('聆听中'), findsOneWidget);
@@ -934,9 +943,9 @@ void main() {
       expect(find.byKey(const Key('quick-bottom-fade')), findsOneWidget);
       // Opening refreshed the panel's lists.
       expect(gateway.commands, containsAll(['termsList', 'historyList']));
-      // Same ceiling as the session window (ADR 0017), corner still
-      // pinned; the card renders in the slot at the shared footprint.
-      expect(window.bounds.last.size, const Size(1096, 596));
+      // Same work-area window as the session window (02 号票/ADR 0017);
+      // the card renders in the slot at the shared footprint.
+      expect(window.bounds.last.size, const Size(1920, 1080));
       // The quick panel's Esc-to-close affordance needs the keyboard too.
       expect(window.focuses, greaterThanOrEqualTo(1));
       // The orb is now the close button.
@@ -1516,11 +1525,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
 
     // One expand for the whole session: rectifying and preview share the
-    // session window (修正≡预览同形). The window stays at its ceiling
-    // (ADR 0017); the CARD keeps its footprint — the pushed hit rect.
+    // session window (修正≡预览同形). The window stays at the work area
+    // (02 号票); the CARD keeps its footprint — the pushed hit rect
+    // (420x540 — half the 1080 work area caps the height).
     expect(window.bounds, hasLength(1));
-    expect(window.bounds.last, const Rect.fromLTRB(0, 0, 1096, 596));
-    expect(window.regions.last, const Rect.fromLTRB(676, 36, 1096, 596));
+    expect(window.bounds.last, const Rect.fromLTRB(0, 0, 1920, 1080));
+    expect(window.regions.last, const Rect.fromLTRB(676, 56, 1096, 596));
     await windDown(tester, controller);
   });
 
@@ -1673,7 +1683,9 @@ void main() {
     /// Pumps the shell with a recording window and a scratch prefs dir
     /// (the gestures persist synchronously — same sync-IO note as the
     /// theme test above). One extra pump primes the stage host's
-    /// geometry cache before any gesture runs.
+    /// geometry cache before any gesture runs. The view is pinned to
+    /// the work-area window (02 号票) so view coordinates match window
+    /// coordinates.
     Future<SpeechController> pumpGeometry(
       WidgetTester tester, {
       required RecordingStageWindow window,
@@ -1685,6 +1697,10 @@ void main() {
         uiPrefsDirs: [dir.path],
       );
       addTearDown(controller.dispose);
+      tester.view.physicalSize = const Size(1920, 1080);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         SpokenRectifierApp(controller: controller, stageWindow: window),
       );
@@ -1825,13 +1841,115 @@ void main() {
 
       expect(controller.phase, BridgeSessionState.recording);
       // The first (and so far only) bounds call is the panel expand to
-      // its growth ceiling (ADR 0017) — no drag ever moved the orb
+      // the work-area window (02 号票) — no drag ever moved the orb
       // window, and no resize ran.
-      expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1096, 596));
+      expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       await windDown(tester, controller);
     });
 
-    testWidgets('dragging the header moves the whole window, orb riding', (
+    testWidgets('panel-stage anchor drag moves layout, never the window', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      var screen = const Offset(1048, 548);
+      window.screenPointer = () => screen;
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await pumpQuickOpen(tester, controller);
+
+      // Work-area window at (0,0,1920,1080) (02 号票); the card sits at
+      // (676,56,1096,596) — 420x540, the height capped at half the work
+      // area — the orb socketed at its bottom-right (1048,548).
+      final card0 = tester.getRect(find.byType(QuickPanel));
+      expect(card0, const Rect.fromLTRB(676, 56, 1096, 596));
+
+      // Drag the anchor button past the 8px slop: the card follows the
+      // ball INSIDE the window — zero setBounds, zero HWND motion.
+      final g = await tester.startGesture(
+        tester.getCenter(find.byType(OrbButton)),
+      );
+      screen = const Offset(1098, 598);
+      await g.moveBy(const Offset(50, 50));
+      await tester.pump();
+      expect(window.bounds, hasLength(1)); // the expand jump only
+      // The press unclipped the region; frozen for the gesture (ADR 0017).
+      expect(window.regions.last, isNull);
+      // Card and orb moved by exactly the drag delta, socket concentric.
+      expect(
+        tester.getRect(find.byType(QuickPanel)),
+        card0.shift(const Offset(50, 50)),
+      );
+      expect(
+        tester.getRect(find.byType(OrbButton)),
+        Rect.fromCircle(center: const Offset(1098, 598), radius: 48),
+      );
+      await g.up();
+      await tester.pump();
+
+      // Release: the hit region catches up to the new card rect.
+      expect(window.regions.last, card0.shift(const Offset(50, 50)));
+      // The new anchor persisted (松手即写, no quadrant snap).
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        contains('orb_position = [1098, 598]'),
+      );
+      // Closing collapses onto the moved anchor.
+      controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(window.position, const Offset(1050, 550));
+      expect(window.size, SrGeometry.orbFootprint);
+    });
+
+    testWidgets('the quadrant switch crosses center+48; hysteresis inside', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      var screen = const Offset(1048, 548);
+      window.screenPointer = () => screen;
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await pumpQuickOpen(tester, controller);
+      expect(window.regions.last, const Rect.fromLTRB(676, 56, 1096, 596));
+
+      final g = await tester.startGesture(
+        tester.getCenter(find.byType(OrbButton)),
+      );
+
+      // Left past the CENTER (960) but inside the hysteresis band
+      // (>912): the direction holds (未过中心只平移 — the card only
+      // translates, socket concentric, chrome unchanged).
+      screen = const Offset(918, 548);
+      await g.moveBy(const Offset(-130, 0));
+      await tester.pump();
+      expect(tester.getRect(find.byType(OrbButton)).center, const Offset(918, 548));
+      // Still upLeft: the card's bottom-right hugs the anchor.
+      expect(tester.getRect(find.byType(QuickPanel)).right, 918 + 48);
+
+      // Past the threshold (960 − 48): the direction flips, the card
+      // re-pins around the ball at the new corner — the ball never
+      // moves (跨阈重推).
+      screen = const Offset(900, 548);
+      await g.moveBy(const Offset(-18, 0));
+      await tester.pump();
+      expect(
+        tester.getRect(find.byType(OrbButton)).center,
+        const Offset(900, 548),
+      );
+      // upRight now: the card's bottom-LEFT hugs the anchor.
+      expect(tester.getRect(find.byType(QuickPanel)).left, 900 - 48);
+      await g.up();
+      await tester.pump();
+      // Release region re-pins to the new-configuration card rect.
+      expect(window.regions.last, const Rect.fromLTRB(852, 56, 1272, 596));
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        contains('orb_position = [900, 548]'),
+      );
+      await controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+    });
+
+    testWidgets('a sub-threshold release on the anchor stays a click', (
       tester,
     ) async {
       final window = RecordingStageWindow();
@@ -1839,26 +1957,112 @@ void main() {
       final controller = await pumpGeometry(tester, window: window, dir: dir);
       await pumpQuickOpen(tester, controller);
 
-      // Ceiling window at the default anchor (1048, 548): LTRB
-      // (0, 0, 1096, 596) (ADR 0017). Drag the header row by (30, -20).
-      final header = tester.getCenter(find.text('快捷设置'));
-      final g = await tester.startGesture(header);
-      await g.moveBy(const Offset(30, -20));
+      // 5px inside the 8px slop: the release is the orb button's
+      // primary action — the quick panel CLOSES; nothing moved (阈内
+      // 松手=主操作). The header grip that used to own this zone is
+      // gone (02 号票) — the anchor button is the one affordance.
+      final g = await tester.startGesture(
+        tester.getCenter(find.byType(OrbButton)),
+      );
+      await g.moveBy(const Offset(4, 3));
+      await g.up();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(controller.stage, StageKind.orb);
+      // Nothing moved the window: the only bounds calls are the expand
+      // and the collapse shrink back onto the same anchor.
+      expect(window.bounds, hasLength(2));
+      expect(window.bounds.last, Rect.fromLTWH(1000, 500, 96, 96));
+      // The press unclipped the region; the release restored it before
+      // the collapse cleared it.
+      expect(window.regions[1], isNull);
+      expect(window.regions[2], const Rect.fromLTRB(676, 56, 1096, 596));
+      expect(window.regions.last, isNull);
+    });
+
+    testWidgets('dragging across monitors re-bases the window once', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      window.screens = const [
+        Rect.fromLTWH(0, 0, 1920, 1080),
+        Rect.fromLTWH(1920, 0, 1920, 1080),
+      ];
+      var screen = const Offset(1048, 548);
+      window.screenPointer = () => screen;
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await pumpQuickOpen(tester, controller);
+
+      final g = await tester.startGesture(
+        tester.getCenter(find.byType(OrbButton)),
+      );
+      // Straight into the second monitor's work area.
+      screen = const Offset(2500, 548);
+      await g.moveBy(const Offset(1452, 0));
+      await tester.pump();
+
+      // ONE atomic jump onto the second work area (纯位移 setBounds) —
+      // the crossing also re-derives the direction against the NEW
+      // area's center (2500 < 2880: the card flips to grow right).
+      expect(window.bounds, const [
+        Rect.fromLTRB(0, 0, 1920, 1080),
+        Rect.fromLTRB(1920, 0, 3840, 1080),
+      ]);
+      expect(
+        tester.getRect(find.byType(OrbButton)).center,
+        const Offset(580, 548), // window-local == view coordinates
+      );
+      await g.up();
+      await tester.pump();
+      // Card re-pinned: anchor-side left edge, region in new-window
+      // coords (screen 2452..2872 minus the 1920 origin).
+      expect(window.regions.last, const Rect.fromLTRB(532, 56, 952, 596));
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        contains('orb_position = [2500, 548]'),
+      );
+      await controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+    });
+
+    testWidgets('the anchor drags in every session phase (rectifying too)', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      var screen = const Offset(1048, 548);
+      window.screenPointer = () => screen;
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      await pumpToRecording(tester, controller);
+
+      // Recording: a drag past the slop moves the card; the session
+      // keeps running (the release never fires the stop click).
+      var g = await tester.startGesture(
+        tester.getCenter(find.byType(OrbButton)),
+      );
+      screen = const Offset(1098, 548);
+      await g.moveBy(const Offset(50, 0));
+      await tester.pump();
+      expect(controller.phase, BridgeSessionState.recording);
+      expect(tester.getRect(find.byType(SessionPanel)).left, 676 + 50);
       await g.up();
       await tester.pump();
 
-      expect(window.bounds.last, Rect.fromLTRB(30, 0, 1126, 596));
-      // The new anchor persisted (球的新位置成为新锚点).
-      expect(
-        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
-        contains('orb_position = [1078, 548]'),
-      );
-      // The orb anchor button moved with the window and stayed socketed:
-      // closing collapses onto the same anchor.
-      controller.closeQuick();
+      // Rectifying: the click table is cold (修正中可拖不可点) — the
+      // drag still moves the card, and the phase survives the release.
+      await controller.stopSession();
       await tester.pump(const Duration(milliseconds: 350));
-      expect(window.position, const Offset(1030, 500));
-      expect(window.size, SrGeometry.orbFootprint);
+      expect(controller.phase, BridgeSessionState.rectifying);
+      g = await tester.startGesture(tester.getCenter(find.byType(OrbButton)));
+      screen = const Offset(1148, 548);
+      await g.moveBy(const Offset(50, 0));
+      await tester.pump();
+      expect(controller.phase, BridgeSessionState.rectifying);
+      expect(tester.getRect(find.byType(SessionPanel)).left, 726 + 50);
+      await g.up();
+      await tester.pump();
+      await windDown(tester, controller);
     });
 
     testWidgets('the corner handle grows the panel away from the orb', (
@@ -1871,8 +2075,9 @@ void main() {
 
       // Default upLeft: the free corner is the panel's top-left. Drag
       // it out by (60, 80) — the anchor corner (1096, 596) must not
-      // move. Height fit-caps at anchor.dy + 48 = 596 (70% of 1080 is
-      // looser), so 560 + 80 → 596; width 420 + 60 = 480 fits.
+      // move. Height half-caps at 540 (02 号票: half of the 1080 work
+      // area; the anchor's own span 596 is looser), so the card grows
+      // only in width: 420 + 60 = 480.
       final corner = tester.getCenter(
         find.byKey(const Key('panel-resize-corner')),
       );
@@ -1884,11 +2089,11 @@ void main() {
       // The window never moved (ADR 0017): the card's new size lives in
       // the controller and the pushed hit-through region.
       expect(window.bounds, hasLength(1));
-      expect(controller.panelFootprint, const Size(480, 596));
-      expect(window.regions.last, const Rect.fromLTRB(616, 0, 1096, 596));
+      expect(controller.panelFootprint, const Size(480, 540));
+      expect(window.regions.last, const Rect.fromLTRB(616, 56, 1096, 596));
       expect(
         File('${dir.path}/$uiPrefsFile').readAsStringSync(),
-        contains('panel_size = [480, 596]'),
+        contains('panel_size = [480, 540]'),
       );
       // The shared footprint: the next open (after a close) keeps it.
       controller.closeQuick();
@@ -1896,7 +2101,7 @@ void main() {
       controller.orbSecondary();
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pump(const Duration(milliseconds: 350));
-      expect(window.regions.last, const Rect.fromLTRB(616, 0, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(616, 56, 1096, 596));
       await controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 350));
     });
@@ -1910,7 +2115,8 @@ void main() {
       await pumpQuickOpen(tester, controller);
 
       // Drag the corner handle toward the orb by (100, 100): intent
-      // 320x460, the floor holds the width at 360 (height 460 passes).
+      // 320x440, the floor holds the width at 360 (height lands on the
+      // 440 floor exactly).
       final corner = tester.getCenter(
         find.byKey(const Key('panel-resize-corner')),
       );
@@ -1920,29 +2126,28 @@ void main() {
       await tester.pump();
 
       expect(window.bounds, hasLength(1)); // zero HWND churn (ADR 0017)
-      expect(controller.panelFootprint, const Size(360, 460));
-      expect(window.regions.last, const Rect.fromLTRB(736, 136, 1096, 596));
+      expect(controller.panelFootprint, const Size(360, 440));
+      expect(window.regions.last, const Rect.fromLTRB(736, 156, 1096, 596));
       await controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 350));
     });
 
     testWidgets(
-      'a resize gesture never touches the HWND (the window sits at its ceiling)',
+      'a resize gesture never touches the HWND (the window sits at the work area)',
       (tester) async {
-        // ADR 0017: the expand already jumped the window to the growth
-        // ceiling, so a resize is pure Flutter layout — zero setBounds
-        // across the whole gesture. A mid-gesture HWND size change
-        // flashes even as a single jump: the stale child surface
-        // composites top-left-aligned for one DWM frame when the engine
-        // loses the present race (probe evidence, report section 0.1).
+        // ADR 0017 + 02 号票: the expand already jumped the window to
+        // the whole work area, so a resize is pure Flutter layout —
+        // zero setBounds across the whole gesture. A mid-gesture HWND
+        // size change flashes even as a single jump: the stale child
+        // surface composites top-left-aligned for one DWM frame when
+        // the engine loses the present race (probe evidence, report
+        // section 0.1).
         final window = RecordingStageWindow();
         final dir = scratch();
         final controller = await pumpGeometry(tester, window: window, dir: dir);
         await pumpQuickOpen(tester, controller);
         expect(window.bounds, hasLength(1)); // the expand jump only
-        // The ceiling at this anchor (1048, 548): the anchor's own span
-        // (1096x596) caps tighter than the 70% of 1920x1080.
-        expect(window.bounds.last, Rect.fromLTRB(0, 0, 1096, 596));
+        expect(window.bounds.last, Rect.fromLTRB(0, 0, 1920, 1080));
 
         final corner = tester.getCenter(
           find.byKey(const Key('panel-resize-corner')),
@@ -1958,11 +2163,12 @@ void main() {
 
         // Zero bounds calls for the whole gesture...
         expect(window.bounds, hasLength(1));
-        expect(controller.panelFootprint, const Size(510, 596));
-        // ...the card itself took the growth inside the ceiling window.
-        expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 596));
+        expect(controller.panelFootprint, const Size(510, 540));
+        // ...the card itself took the width growth inside the work-area
+        // window (the height already sat at its 540 half-cap).
+        expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 540));
         // The hit-through region caught up to the final slot.
-        expect(window.regions.last, Rect.fromLTRB(586, 0, 1096, 596));
+        expect(window.regions.last, Rect.fromLTRB(586, 56, 1096, 596));
         await controller.closeQuick();
         await tester.pump(const Duration(milliseconds: 350));
         // Back to the orb: whole-window hit testing again.
@@ -1998,7 +2204,7 @@ void main() {
         reason:
             'resize must not rebuild the panel; only the slot Positioned moves',
       );
-      expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 596));
+      expect(tester.getSize(find.byType(QuickPanel)), const Size(510, 540));
       await g.up();
       await tester.pump();
       expect(identical(tester.widget(find.byType(QuickPanel)), before), isTrue);
@@ -2037,36 +2243,58 @@ void main() {
     testWidgets('the expand direction follows the anchor\'s quadrant', (
       tester,
     ) async {
-      // Each quadrant opens once: the window grows away from the ball
-      // (ticket checklist, widget-level) and the orb mirrors to the
-      // growth corner. Anchors sit flush inside the (0,0,1920,1080)
-      // area, as a clamped drag would leave them. ADR 0017: the jump
-      // lands at the growth CEILING, so each rect below is the ceiling
-      // (70% of the work area caps below the anchor's span on the roomy
-      // axes: 1344x756).
-      for (final (pos, expectRect, expectOrbAtOrigin) in [
-        // Bottom-right anchor (default): grows up-left, orb bottom-right.
-        (Offset(1824, 936), Rect.fromLTRB(576, 276, 1920, 1032), false),
+      // Each quadrant opens once: the work-area window is the SAME
+      // (0,0,1920,1080) every time (02 号票) — what follows the anchor's
+      // quadrant is the CARD: it grows away from the ball, and the orb
+      // lands mid-window wherever the anchor sits. Anchors sit flush
+      // inside the area, as a clamped drag would leave them.
+      for (final (anchor, expectCard, orbAtTop) in [
+        // Bottom-right anchor (default): grows up-left, orb at the
+        // card's bottom-right corner.
+        (
+          Offset(1824, 984),
+          Rect.fromLTRB(1452, 492, 1872, 1032),
+          false,
+        ),
         // Bottom-left: grows up-right.
-        (Offset(30, 936), Rect.fromLTRB(30, 276, 1374, 1032), false),
-        // Top-left: grows down-right, orb mirrors to the top-left corner.
-        (Offset(30, 40), Rect.fromLTRB(30, 40, 1374, 796), true),
-        // Top-right: grows down-left, orb mirrors up.
-        (Offset(1824, 40), Rect.fromLTRB(576, 40, 1920, 796), true),
+        (
+          Offset(48, 984),
+          Rect.fromLTRB(0, 492, 420, 1032),
+          false,
+        ),
+        // Top-left: grows down-right, orb at the card's top-left.
+        (
+          Offset(48, 48),
+          Rect.fromLTRB(0, 0, 420, 540),
+          true,
+        ),
+        // Top-right: grows down-left.
+        (
+          Offset(1824, 48),
+          Rect.fromLTRB(1452, 0, 1872, 540),
+          true,
+        ),
       ]) {
-        final window = RecordingStageWindow(pos);
+        final window = RecordingStageWindow(anchor - const Offset(48, 48));
         final dir = scratch();
         final controller = await pumpGeometry(tester, window: window, dir: dir);
         await pumpQuickOpen(tester, controller);
 
-        expect(window.bounds.last, expectRect, reason: 'anchor at $pos');
-        // The orb sockets into the corner the panel grew from: at the
-        // stack's origin only for the two top-corner anchors.
+        expect(window.bounds.last, const Rect.fromLTRB(0, 0, 1920, 1080),
+            reason: 'anchor at $anchor');
+        // The card grew away from the ball: its anchor corner hugs the
+        // orb, its size is the shared footprint (420x540 at this cap).
+        expect(tester.getRect(find.byType(QuickPanel)), expectCard,
+            reason: 'anchor at $anchor');
+        // The orb lands exactly on the anchor, mid-window — top row
+        // only for the two top anchors.
         final orbTopLeft = tester.getTopLeft(find.byType(OrbButton));
+        expect(orbTopLeft, anchor - const Offset(48, 48),
+            reason: 'anchor at $anchor');
         expect(
           orbTopLeft.dy,
-          expectOrbAtOrigin ? 0 : greaterThan(0),
-          reason: 'anchor at $pos',
+          orbAtTop ? lessThan(96) : greaterThan(900),
+          reason: 'anchor at $anchor',
         );
         await controller.closeQuick();
         await tester.pump(const Duration(milliseconds: 350));

@@ -36,7 +36,6 @@ import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
 import '../settings/settings_domain.dart';
 import 'history_retrieval.dart'
     show HistoryRerectify, showScenarioRerectifyMenu;
-import 'panel_gestures.dart';
 import 'window_stage.dart';
 
 class QuickPanel extends StatefulWidget {
@@ -46,7 +45,6 @@ class QuickPanel extends StatefulWidget {
     required this.exiting,
     this.onOpenSettings,
     required this.dir,
-    this.grip,
   });
 
   final SpeechController controller;
@@ -62,9 +60,6 @@ class QuickPanel extends StatefulWidget {
   /// reserve (56), and the scroll fade + clearance sit on the anchor's
   /// edge (bottom 96 while growing up, top 48 while growing down).
   final GrowthDirection dir;
-
-  /// The header-row move grip (面板上沿拖动=整体移动); null in tests.
-  final PanelGrip? grip;
 
   @override
   State<QuickPanel> createState() => _QuickPanelState();
@@ -113,8 +108,6 @@ class _QuickPanelState extends State<QuickPanel> {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    // The header row doubles as the move grip (面板上沿拖动): wrapped
-    // when a grip is wired (production), bare in tests.
     final Widget header = Padding(
       // Corner-band row: aligns to the concentric content capsule
       // (SrSpace.cornerInset). Vertical 20 puts the 16px title's
@@ -141,14 +134,15 @@ class _QuickPanelState extends State<QuickPanel> {
         ],
       ),
     );
-    final grip = widget.grip;
+    // The header row is display-only (02 号票 abolished the header move
+    // grip — the anchor button is the panel's one move affordance).
     return PanelBody(
       exiting: widget.exiting,
       dir: widget.dir,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          grip == null ? header : PanelGripBar(grip: grip, child: header),
+          header,
           Divider(height: 1, thickness: 1, color: pal.hairline),
           Expanded(
             // Bottom corners clip to the card arc: scrolling content can

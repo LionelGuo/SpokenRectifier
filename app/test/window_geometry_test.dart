@@ -48,6 +48,96 @@ void main() {
     });
   });
 
+  group('rederiveDirection (跨阈重推)', () {
+    test('holds the current direction inside the center+48 band', () {
+      // upLeft (grows left, anchor right of center): past the center
+      // already, but not past it by 48 — the axis holds (未过中心只
+      // 平移).
+      expect(
+        rederiveDirection(
+          GrowthDirection.upLeft,
+          Offset(waCenter.dx - 40, 900),
+          wa,
+        ),
+        GrowthDirection.upLeft,
+      );
+      // Same on the vertical axis.
+      expect(
+        rederiveDirection(
+          GrowthDirection.upLeft,
+          Offset(1500, waCenter.dy - 40),
+          wa,
+        ),
+        GrowthDirection.upLeft,
+      );
+    });
+
+    test('flips the axis only past center+48 (the hysteresis band)', () {
+      expect(
+        rederiveDirection(
+          GrowthDirection.upLeft,
+          Offset(waCenter.dx - 49, 900),
+          wa,
+        ),
+        GrowthDirection.upRight,
+      );
+      expect(
+        rederiveDirection(
+          GrowthDirection.upLeft,
+          Offset(1500, waCenter.dy - 49),
+          wa,
+        ),
+        GrowthDirection.downLeft,
+      );
+      // Both axes at once: the diagonal flip in one step.
+      expect(
+        rederiveDirection(
+          GrowthDirection.upLeft,
+          Offset(waCenter.dx - 49, waCenter.dy - 49),
+          wa,
+        ),
+        GrowthDirection.downRight,
+      );
+    });
+
+    test('flipping back needs the full band too — no chatter at the line', () {
+      // Now growing right: the anchor sits just LEFT of the center;
+      // flipping back to growing left needs center+48 to the right.
+      expect(
+        rederiveDirection(
+          GrowthDirection.upRight,
+          Offset(waCenter.dx + 40, 900),
+          wa,
+        ),
+        GrowthDirection.upRight,
+      );
+      expect(
+        rederiveDirection(
+          GrowthDirection.upRight,
+          Offset(waCenter.dx + 49, 900),
+          wa,
+        ),
+        GrowthDirection.upLeft,
+      );
+    });
+
+    test('agrees with chooseGrowthDirection far from the center', () {
+      for (final anchor in const [
+        Offset(1500, 900),
+        Offset(400, 900),
+        Offset(1500, 100),
+        Offset(400, 100),
+      ]) {
+        final chosen = chooseGrowthDirection(anchor, wa);
+        expect(
+          rederiveDirection(chosen, anchor, wa),
+          chosen,
+          reason: 'anchor at $anchor',
+        );
+      }
+    });
+  });
+
   group('clampAnchor', () {
     test('an inside anchor is untouched', () {
       const anchor = Offset(1000, 500);
@@ -125,37 +215,78 @@ void main() {
 
   group('clampPanelSize', () {
     test('the design default passes through at a roomy anchor', () {
+      // The 1032-tall fixture work area caps the 560 intent at its half
+      // (02 号票: 1080p+任务栏 → 420x516) — a taller area lets the
+      // default through.
       final size = clampPanelSize(
         SrGeometry.panelSize,
         const Offset(1872, 984),
         GrowthDirection.upLeft,
         wa,
       );
-      expect(size, SrGeometry.panelSize);
+      expect(size, const Size(420, 516));
+      final tall = Rect.fromLTWH(0, 0, 1920, 1200);
+      expect(
+        clampPanelSize(
+          SrGeometry.panelSize,
+          const Offset(1872, 1112),
+          GrowthDirection.upLeft,
+          tall,
+        ),
+        SrGeometry.panelSize,
+      );
     });
 
-    test('the 70% work-area ceiling caps both axes', () {
+    test('the half-work-area ceiling caps both axes', () {
       final size = clampPanelSize(
         const Size(2000, 2000),
         const Offset(1872, 984),
         GrowthDirection.upLeft,
         wa,
       );
-      expect(size.width, closeTo(1920 * 0.70, 1e-9));
-      expect(size.height, closeTo(1032 * 0.70, 1e-9));
+      expect(size.width, closeTo(1920 * 0.50, 1e-9));
+      expect(size.height, closeTo(1032 * 0.50, 1e-9));
     });
 
-    test('the anchor\'s own span caps tighter than 70% when it must', () {
-      // Just past the horizontal center growing left: the panel can only
-      // be as wide as the room left of the pinned corner.
+    test('the anchor\'s own span caps tighter than half when it must', () {
+      // Near the left edge growing left: the panel can only be as wide
+      // as the room left of the pinned corner.
       final size = clampPanelSize(
-        const Size(1344, 560),
-        const Offset(1060, 900),
+        const Size(1344, 516),
+        const Offset(500, 900),
         GrowthDirection.upLeft,
         wa,
       );
-      expect(size.width, 1060 + SrGeometry.anchorInset);
-      expect(size.height, 560);
+      expect(size.width, 500 + SrGeometry.anchorInset);
+      expect(size.height, 516);
+    });
+
+    test('half-span cards are switchable at the flip point (02 号票)', () {
+      // The property the 0.50 cap exists for: a card clamped under the
+      // OLD direction still fits under the NEW one at the very
+      // threshold the axis flips at — flush, never clipped. Horizontal
+      // flip at center−48 (upLeft → upRight), threshold 912:
+      final flipX = const Offset(912, 900);
+      final sizeX = clampPanelSize(
+        const Size(9999, 516),
+        flipX,
+        GrowthDirection.upLeft,
+        wa,
+      );
+      final rectX = panelRectFor(flipX, sizeX, GrowthDirection.upRight);
+      expect(rectX.left, greaterThanOrEqualTo(wa.left));
+      expect(rectX.right, lessThanOrEqualTo(wa.right));
+      // Vertical flip at center−48 (upLeft → downLeft), threshold 492:
+      final flipY = const Offset(1400, 492);
+      final sizeY = clampPanelSize(
+        const Size(960, 9999),
+        flipY,
+        GrowthDirection.upLeft,
+        wa,
+      );
+      final rectY = panelRectFor(flipY, sizeY, GrowthDirection.downLeft);
+      expect(rectY.top, greaterThanOrEqualTo(wa.top));
+      expect(rectY.bottom, lessThanOrEqualTo(wa.bottom));
     });
 
     test('the floor holds under the ceiling', () {
@@ -271,7 +402,9 @@ void main() {
         wa,
       );
       expect(plan.dir, GrowthDirection.upLeft);
-      expect(plan.size, SrGeometry.panelSize);
+      // The 560 intent half-caps at 516 on the 1032-tall fixture (02
+      // 号票).
+      expect(plan.size, const Size(420, 516));
       expect(anchorOf(plan.window, plan.dir), const Offset(1872, 984));
       expect(plan.window.right, lessThanOrEqualTo(wa.right));
       expect(plan.window.bottom, lessThanOrEqualTo(wa.bottom));
@@ -280,13 +413,23 @@ void main() {
     });
 
     test('an oversized intent fit-caps to the anchor\'s span', () {
-      final plan = expandPlan(
-        const Offset(1060, 900),
-        const Size(1344, 560),
+      // Under the 0.50 cap a DERIVED direction always has span ≥ half,
+      // so the span cap only binds for a direction the anchor has
+      // outgrown — the size stays put across a mid-panel threshold flip
+      // or a monitor topology change.
+      final size = clampPanelSize(
+        const Size(1344, 516),
+        const Offset(700, 900),
+        GrowthDirection.upLeft,
         wa,
       );
-      expect(plan.size.width, 1060 + SrGeometry.anchorInset);
-      expect(plan.window.left, wa.left); // flush, not off screen
+      expect(size.width, 700 + SrGeometry.anchorInset); // 748 < the 960 half
+      // The card lands flush, never off screen.
+      expect(
+        panelRectFor(const Offset(700, 900), size, GrowthDirection.upLeft)
+            .left,
+        wa.left,
+      );
     });
 
     test('the anchor stays put in every quadrant (ball pixel-stationary)', () {

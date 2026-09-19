@@ -289,8 +289,12 @@ abstract final class SrGeometry {
   static const panelMinSize = Size(360.0, 440.0);
 
   /// Ceiling for the shared footprint as a per-axis fraction of the
-  /// current work area.
-  static const panelMaxWorkAreaFraction = 0.70;
+  /// current work area. Half (02 号票改判, was 0.70): with the panel-
+  /// period window at the whole work area, a card capped at half spans
+  /// exactly flush with the work-area edge at the moment its anchor
+  /// crosses the center — the quadrant switch is possible from ANY
+  /// anchor position, never clipped by the ceiling.
+  static const panelMaxWorkAreaFraction = 0.50;
 
   /// Margin between the window edge and the panel card — the third
   /// concentric ring value: the panel corner radius is

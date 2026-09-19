@@ -1,12 +1,17 @@
 /// Window-stage choreography: the expand/collapse of the OS window and
 /// the lagging surface swap that hides the jump.
 ///
-/// Main scheme (跳变藏动画主案):
-/// - Expand: the window bounds jump to the panel footprint in ONE atomic
-///   setBounds call (position + size together), pinning the bottom-right
-///   corner. Everything painted is anchored bottom-right, so the orb is
-///   pixel-stationary on screen while the window grows up-left; the panel
-///   body then fades/rises in around the orb over ~240ms.
+/// Main scheme (跳变藏动画主案), work-area window model (02 号票):
+/// - Expand: the window bounds jump to the WHOLE WORK AREA holding the
+///   anchor in ONE atomic setBounds call. The card is a rect INSIDE that
+///   window (anchor position + growth direction + clamped size derive
+///   it); the panel body then fades/rises in around the orb over
+///   ~240ms. The jump still pins the anchor — the orb is pixel-station.
+/// - Panel period: dragging the anchor button moves ONLY window-internal
+///   layout (card + chrome follow the ball; the HWND never moves except
+///   a monitor crossing, one atomic jump). Crossing the work-area
+///   center +48 re-derives the growth direction (跨阈重推); the growth
+///   ceiling is the CARD's size cap (half the work area), not the HWND.
 /// - Collapse: the panel body sinks/fades out (~150ms), THEN the window
 ///   shrinks back to the orb footprint — the jump lands on an empty
 ///   window and is invisible.
@@ -55,12 +60,12 @@ abstract class StageWindow {
   Future<Size> getSize();
   Future<void> setBounds(Rect bounds);
 
-  /// While a panel stage holds the window at the panel growth ceiling
-  /// (ADR 0017), the card slot's rect in WINDOW coordinates — the OS
-  /// window region narrows to it, so the transparent margin neither
-  /// paints nor hit-tests (clicks fall through to the desktop). Null
-  /// restores the whole window (the orb stage, and a resize gesture
-  /// whose growing card must paint beyond the stale slot).
+  /// While a panel stage holds the work-area window (ADR 0017, 02 号
+  /// 票), the card slot's rect in WINDOW coordinates — the OS window
+  /// region narrows to it, so the transparent margin neither paints nor
+  /// hit-tests (clicks fall through to the desktop). Null restores the
+  /// whole window (the orb stage, and any gesture whose moving card
+  /// must paint beyond the stale slot — resize growth, anchor drag).
   Future<void> setCardRegion(Rect? windowRect);
 
   /// Every display's work area, logical coordinates — the drag/resize
@@ -183,11 +188,26 @@ class _StageHostState extends State<StageHost> {
   StageKind _displayed = StageKind.orb;
 
   /// The direction the open panel (or the next one) grows in. Chosen at
-  /// every expand from the anchor's quadrant, frozen while any panel is
-  /// open (never flips mid-panel — the window would jump sides of the
-  /// ball). The orb stage's layout mirrors it too, so the ball sits in
-  /// the corner the next panel will grow from.
+  /// every expand from the anchor's quadrant, then RE-DERIVED on every
+  /// center+48 threshold cross while a panel is open (跨阈重推, 02 号票 —
+  /// the card re-pins around the ball at the new corner; the chrome
+  /// re-derives discretely with it). The orb stage's layout mirrors it
+  /// too, so the ball sits in the corner the next panel will grow from.
   GrowthDirection _dir = GrowthDirection.upLeft;
+
+  /// The anchor (ball center) in SCREEN coordinates — the one point the
+  /// whole choreography keys on, maintained live through every gesture.
+  /// The window rect alone stopped implying it when the panel-period
+  /// window became the whole work area (02 号票): the anchor sits
+  /// wherever the ball is, not at a window corner.
+  Offset _anchor = Offset.zero;
+
+  /// The anchor in WINDOW-local coordinates, as a notifier so the card
+  /// slot and the orb button follow a drag without [setState] on this
+  /// host (the H3 rebuild tax — panels and their measuring surfaces
+  /// must not rebuild per pointer move). Re-synced by [_applyBounds]
+  /// (window jumps re-base the local frame) and every anchor move.
+  final ValueNotifier<Offset> _anchorLocalN = ValueNotifier(Offset.zero);
 
   /// The stage a transition is already animating toward. Guards the
   /// double notify (command path + state-change event) from issuing the
@@ -236,7 +256,9 @@ class _StageHostState extends State<StageHost> {
     _dir = GrowthDirection.upLeft;
     _seq++;
     _panelSize.value = null;
+    _anchorLocalN.value = Offset.zero;
     _rectKnown = false;
+    _prevRect = Rect.zero;
     _grabArmed = false;
     _grabLive = false;
     _pendingBounds = null;
@@ -250,6 +272,7 @@ class _StageHostState extends State<StageHost> {
     c.removeListener(_onChanged);
     _keyboardNode.dispose();
     _panelSize.dispose();
+    _anchorLocalN.dispose();
     super.dispose();
   }
 
@@ -315,26 +338,28 @@ class _StageHostState extends State<StageHost> {
     });
   }
 
-  /// The ticket-20 expand: direction derived from the anchor's quadrant
-  /// in the work area holding it, panel size clamped to what that anchor
-  /// can host — in one atomic setBounds that keeps the ball
-  /// pixel-stationary. ADR 0017: the window jumps to the panel growth
-  /// CEILING, not the footprint — resize gestures then never touch the
-  /// HWND (the reshape ghosting lived in per-frame WM_SIZE storms, and
-  /// the residual one-frame flash in a mid-gesture size jump: the stale
-  /// child surface composites top-left-aligned for a frame when the
-  /// engine loses the present race). The card renders in the slot; the
-  /// transparent margin neither paints nor hit-tests ([setCardRegion]).
+  /// The expand (ticket 20 + 02 号票): direction derived from the
+  /// anchor's quadrant in the work area holding it, card size clamped
+  /// to what that anchor can host — and the WINDOW jumps to that whole
+  /// work area in one atomic setBounds that keeps the ball
+  /// pixel-stationary. ADR 0017's invariant holds unchanged: one atomic
+  /// jump, never a per-frame resize (the growth ceiling retires to the
+  /// CARD's size cap). The card renders in the slot at its
+  /// anchor-derived rect; the transparent margin neither paints nor
+  /// hit-tests ([setCardRegion]). Win+Tab sees a work-area transparent
+  /// window — the known, accepted cost (02).
   Future<void> _expandBounds(StageWindow window) async {
     _areas = await window.workAreas(); // refresh for the gestures to come
-    final anchor = anchorOf(_rect, _dir);
+    final anchor = _anchor;
     final area = _areaHolding(anchor, _areas ?? const []);
     final plan = expandPlan(anchor, c.panelFootprint, area);
     _dir = plan.dir;
     _panelSize.value = plan.size;
-    await _applyBounds(
-      panelRectFor(anchor, maxPanelSize(anchor, plan.dir, area), plan.dir),
-    );
+    if (_rect != area) {
+      await _applyBounds(area);
+    } else {
+      _syncAnchorLocal();
+    }
     unawaited(_pushPanelRegion());
   }
 
@@ -365,12 +390,10 @@ class _StageHostState extends State<StageHost> {
     await Future<void>.delayed(SrMotion.exit + _collapseSlack);
     if (!mounted || seq != _seq) return;
     // 2. Shrink the (now visually empty) window back to the orb
-    // footprint, pinning the SAME corner the panel grew from (the ball
-    // stays put in every direction).
+    // footprint — centered on wherever the ball ended up (the anchor
+    // stayed live through the panel period; the ball never moved).
     if (widget.stageWindow != null) {
-      await _applyBounds(
-        panelRectFor(anchorOf(_rect, _dir), SrGeometry.orbFootprint, _dir),
-      );
+      await _applyBounds(orbFootprintAt(_anchor));
       // The orb window is whole again (ADR 0017). Region first; the
       // slot notifier stays until the panel unmounts below — notifying
       // null while the card is still in the tree would flash it
@@ -396,11 +419,16 @@ class _StageHostState extends State<StageHost> {
   /// changes between gestures, never under a held pointer).
   List<Rect>? _areas;
   Rect _rect = Rect.zero;
+
+  /// The rect commanded before [_rect]: while the view lags a jump
+  /// (metrics land a frame or two after setBounds), the stale view is
+  /// still the previous window — [_anchorInView] pins the anchor into
+  /// it so the ball never leaves the surface mid-jump.
+  Rect _prevRect = Rect.zero;
   bool _rectKnown = false;
 
   /// Live geometry per gesture kind (only one kind runs at a time).
-  Offset _dragAnchor = Offset.zero; // orb drag: the moving anchor
-  Rect _moveRect = Rect.zero; // header drag: the moving window rect
+  Offset _dragAnchor = Offset.zero; // orb/anchor drag: the moving anchor
   Offset _resizeAnchor = Offset.zero; // resize: the anchor stays put…
   Size _resizeSize = Size.zero; // …the footprint does the moving
   Size _resizeSize0 = Size.zero; // resize: size at grab, growth is absolute
@@ -445,12 +473,6 @@ class _StageHostState extends State<StageHost> {
   /// Gestures need the real window; pure-UI tests run without one.
   bool get _gesturesLive => widget.stageWindow != null;
 
-  /// The header grip both panels share (null in tests): dragging the
-  /// corner-band header row moves the whole window, orb riding along.
-  PanelGrip? get _grip => _gesturesLive
-      ? (start: _panelMoveStart, update: _panelMoveUpdate, end: _panelMoveEnd)
-      : null;
-
   Future<void> _primeGeometry() async {
     final window = widget.stageWindow;
     if (window == null) return;
@@ -461,6 +483,12 @@ class _StageHostState extends State<StageHost> {
       _rect = Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
       _rectKnown = true;
     }
+    // The orb stage's window IS the footprint centered on the ball: its
+    // center is the anchor. A panel stage keeps the live anchor a
+    // gesture left (the work-area window's center is meaningless).
+    if (c.stage == StageKind.orb) {
+      _setAnchor(_rect.center);
+    }
   }
 
   /// Every bounds this host commands goes through here: the cache and
@@ -470,8 +498,10 @@ class _StageHostState extends State<StageHost> {
   /// until this rect (or a later one) has been sent, including a leftover
   /// pump spawned after the previous future already completed.
   Future<void> _applyBounds(Rect bounds) async {
+    _prevRect = _rect;
     _rect = bounds;
     _rectKnown = true;
+    _syncAnchorLocal(); // a jump re-bases the local frame
     _pendingBounds = bounds;
     if (!_pumping) {
       _boundsIdle = _pumpBounds();
@@ -506,6 +536,45 @@ class _StageHostState extends State<StageHost> {
 
   Rect _gestureArea(Offset point) => _areaHolding(point, _areas ?? const []);
 
+  // -- the live anchor (screen ↔ window-local ↔ view) -----------------------
+
+  /// Move the anchor (screen coordinates) and re-base the local frame.
+  void _setAnchor(Offset screen) {
+    _anchor = screen;
+    _syncAnchorLocal();
+  }
+
+  /// Re-derive the local anchor from [_anchor] and [_rect] — after a
+  /// window jump re-based the frame. A same value does not notify (the
+  /// orb stage's per-frame moves keep the local anchor constant).
+  void _syncAnchorLocal() {
+    _anchorLocalN.value = _anchor - _rect.topLeft;
+  }
+
+  /// The anchor in VIEW coordinates for a view of [view] size. When the
+  /// view has caught up with [_rect] this is the plain local anchor;
+  /// while it lags a commanded jump (the view takes a setBounds a frame
+  /// or two after Dart sends it), the stale view is still the PREVIOUS
+  /// window — the anchor's position in THAT is what should paint, so
+  /// the ball never leaves the surface mid-jump.
+  Offset _anchorInView(Size view) {
+    final stale =
+        (view.width - _rect.width).abs() > 0.5 ||
+        (view.height - _rect.height).abs() > 0.5;
+    return _anchor - (stale ? _prevRect.topLeft : _rect.topLeft);
+  }
+
+  /// The work area a panel drag targets: the one the CANDIDATE anchor
+  /// lands in (a monitor crossing re-bases the window on it), or the
+  /// current rect when the candidate sits between work areas (the
+  /// pointer is on its way somewhere; the clamp holds the ball inside).
+  Rect _dragTargetArea(Offset candidate) {
+    for (final area in _areas ?? const <Rect>[]) {
+      if (area.contains(candidate)) return area;
+    }
+    return _rect;
+  }
+
   /// Screen-stable cursor when the platform has one; otherwise the
   /// view-relative event position (the test view does not move).
   Offset? _livePointer(Offset fallback) {
@@ -519,19 +588,53 @@ class _StageHostState extends State<StageHost> {
     _grabPointer = screen ?? fallback;
   }
 
-  // -- orb drag (idle only; the orb button gates arming) -------------------
+  // -- orb button drag: one tracker, two geometries -------------------------
+  //
+  // Orb stage: the window IS the ball — dragging moves the 96×96
+  // footprint itself (per-frame setBounds, pure translation; the only
+  // recurring HWND motion, unchanged). Panel stage (02 号票): the window
+  // is the whole work area — dragging moves ONLY window-internal
+  // layout (card + chrome follow the ball), the HWND stands still
+  // unless the ball crosses into another monitor's work area (then one
+  // atomic jump, pure translation when the areas match in size). The
+  // orb button gates the 8px threshold; within it a release is the
+  // primary action, past it a drag that cannot click.
 
   void _orbDragStart(Offset pointer) {
-    if (!_rectKnown || c.stage != StageKind.orb) return;
-    _dragAnchor = anchorOf(_rect, _dir);
+    if (c.stage == StageKind.orb) {
+      _orbStageDragStart(pointer);
+    } else {
+      _panelDragStart(pointer);
+    }
+  }
+
+  void _orbDragUpdate(Offset pointer) {
+    if (c.stage == StageKind.orb) {
+      _orbStageDragUpdate(pointer);
+    } else {
+      _panelDragUpdate(pointer);
+    }
+  }
+
+  void _orbDragEnd() {
+    if (c.stage == StageKind.orb) {
+      _orbStageDragEnd();
+    } else {
+      _panelDragEnd();
+    }
+  }
+
+  void _orbStageDragStart(Offset pointer) {
+    if (!_rectKnown) return;
+    _dragAnchor = _anchor;
     _latchPointerSource(pointer);
     _grabOffset = _grabPointer - _dragAnchor;
     _grabArmed = true;
     // Live only once the 8px slop arms — a click must not persist.
   }
 
-  void _orbDragUpdate(Offset pointer) {
-    if (!_grabArmed || c.stage != StageKind.orb) return;
+  void _orbStageDragUpdate(Offset pointer) {
+    if (!_grabArmed) return;
     final p = _livePointer(pointer);
     if (p == null) return;
     _grabLive = true;
@@ -539,12 +642,13 @@ class _StageHostState extends State<StageHost> {
     // edge does not build debt for the return trip, and a window
     // moving under the cursor does not shrink the next event.
     _dragAnchor = clampAnchor(p - _grabOffset, _gestureArea(_dragAnchor));
+    _setAnchor(_dragAnchor);
     unawaited(_applyBounds(orbFootprintAt(_dragAnchor)));
     c.noteGeometryLive(anchor: _dragAnchor);
   }
 
-  void _orbDragEnd() {
-    if (!_grabArmed || c.stage != StageKind.orb) return;
+  void _orbStageDragEnd() {
+    if (!_grabArmed) return;
     _grabArmed = false;
     if (!_grabLive) return;
     _grabLive = false;
@@ -552,43 +656,62 @@ class _StageHostState extends State<StageHost> {
     unawaited(_primeGeometry()); // fresh areas for the next gesture
   }
 
-  // -- header drag: the whole unit (panel + orb) moves ---------------------
+  // -- panel-stage anchor drag: window-internal layout follows the ball ----
 
-  void _panelMoveStart(Offset pointer) {
-    if (!_rectKnown) return;
-    _moveRect = _rect;
+  void _panelDragStart(Offset pointer) {
+    if (!_rectKnown || c.stage == StageKind.orb) return;
+    _dragAnchor = _anchor;
     _latchPointerSource(pointer);
-    _grabOffset = _grabPointer - _moveRect.topLeft;
+    _grabOffset = _grabPointer - _dragAnchor;
     _grabArmed = true;
-    // Live only once the 8px slop arms — a header click persists nothing.
+    // Live only once the 8px slop arms — within it a release is the
+    // orb button's primary action (阈内松手=主操作), never a move.
+    // The moving card must paint beyond the stale region: unclip for
+    // the gesture (the press holds pointer capture, so the transiently
+    // hit-testable margin costs nothing — same as a resize press).
+    unawaited(_pushCardRegion(null));
   }
 
-  void _panelMoveUpdate(Offset pointer) {
-    if (!_grabArmed) return;
+  void _panelDragUpdate(Offset pointer) {
+    if (!_grabArmed || c.stage == StageKind.orb) return;
     final p = _livePointer(pointer);
     if (p == null) return;
     _grabLive = true;
-    final area = _gestureArea(anchorOf(_moveRect, _dir));
-    _moveRect = clampRectIntoWorkArea(
-      Rect.fromLTWH(
-        p.dx - _grabOffset.dx,
-        p.dy - _grabOffset.dy,
-        _moveRect.width,
-        _moveRect.height,
-      ),
-      area,
-    );
-    unawaited(_applyBounds(_moveRect));
-    c.noteGeometryLive(anchor: anchorOf(_moveRect, _dir));
+    // Absolute (pointer − grab), not accumulated deltas — the clamp at
+    // a work-area edge builds no debt for the return trip.
+    final candidate = p - _grabOffset;
+    final area = _dragTargetArea(candidate);
+    final anchor = clampAnchor(candidate, area);
+    // The monitor crossing: one atomic jump onto the new work area
+    // (02 号票: 纯位移 setBounds — the only HWND motion of the gesture,
+    // and only when the areas differ).
+    if (area != _rect) unawaited(_applyBounds(area));
+    _setAnchor(anchor);
+    // The threshold switch (跨阈重推): past the work-area center +48 the
+    // direction flips and the card re-pins around the ball at the new
+    // corner (the chrome re-derives discretely with it — the motion
+    // layer that smooths this is ticket 12). Inside the band the
+    // direction holds: the card only translates, socket concentric
+    // (未过中心只平移).
+    final dir = rederiveDirection(_dir, anchor, area);
+    if (dir != _dir) setState(() => _dir = dir);
+    c.noteGeometryLive(anchor: _anchor);
   }
 
-  void _panelMoveEnd() {
-    if (!_grabArmed) return;
+  void _panelDragEnd() {
+    if (!_grabArmed || c.stage == StageKind.orb) return;
     _grabArmed = false;
+    // Release: the hit region catches up to wherever the card ended —
+    // including a press that never armed (restores what the press
+    // unclipped). Frozen during the gesture: the press holds capture
+    // (ADR 0017).
+    unawaited(_pushPanelRegion());
     if (!_grabLive) return;
     _grabLive = false;
-    c.noteGeometryDone(anchor: anchorOf(_moveRect, _dir));
-    unawaited(_primeGeometry());
+    // No quadrant snap (松手不吸附): the ball parks wherever it is, and
+    // that is the anchor. The direction stays derived, never stored.
+    c.noteGeometryDone(anchor: _anchor);
+    unawaited(_primeGeometry()); // fresh areas for the next gesture
   }
 
   // -- resize: the anchor corner never moves, the panel grows away ---------
@@ -604,9 +727,9 @@ class _StageHostState extends State<StageHost> {
 
   void _resizeStart(Offset pointer, Offset growSign) {
     if (!_rectKnown) return;
-    _resizeAnchor = anchorOf(_rect, _dir);
+    _resizeAnchor = _anchor;
     // The gesture's size base is the CARD (the slot), not the window —
-    // the window sits at the growth ceiling while a panel is open.
+    // the window sits at the whole work area while a panel is open.
     _resizeSize = _panelSize.value ?? _rect.size;
     _resizeSize0 = _resizeSize;
     _resizeSign = growSign;
@@ -653,12 +776,13 @@ class _StageHostState extends State<StageHost> {
   }
 
   /// The card slot's rect in WINDOW coordinates — the OS window region
-  /// (ADR 0017). Pushed when the slot moves within a still-open window
-  /// (expand, resize settle) and cleared when the window must be whole
-  /// (press — the growing card paints beyond the stale slot — and the
-  /// orb stage). Window MOVES don't change window coordinates; mid-
-  /// growth pushes are pointless while the gesture holds the pointer
-  /// capture.
+  /// (ADR 0017). Pushed when the slot settles within the still-open
+  /// work-area window (expand, resize release, anchor-drag release) and
+  /// cleared when the window must be whole (a press whose moving card
+  /// would paint beyond the stale slot — resize growth, anchor drag —
+  /// and the orb stage). Mid-gesture pushes are pointless while the
+  /// gesture holds the pointer capture; window MOVES don't change
+  /// window coordinates.
   Future<void> _pushCardRegion(Rect? region) async {
     final window = widget.stageWindow;
     if (window == null) return;
@@ -670,8 +794,7 @@ class _StageHostState extends State<StageHost> {
   Rect? _panelRegion() {
     final size = _panelSize.value;
     if (size == null) return null;
-    final anchor = anchorOf(_rect, _dir);
-    return panelRectFor(anchor, size, _dir).shift(-_rect.topLeft);
+    return panelRectFor(_anchor, size, _dir).shift(-_rect.topLeft);
   }
 
   /// The free-edge strips and the free-corner square, mirrored to the
@@ -730,19 +853,18 @@ class _StageHostState extends State<StageHost> {
     ];
   }
 
-  /// The panel's slot in the window: full-bleed whenever the window is
-  /// the panel footprint itself; the anchor-pinned sub-rect while the
-  /// window is bigger than the card (a resize gesture freezing the HWND
-  /// at its growth ceiling). Keyed on the LAYOUT constraints, not the
-  /// commanded bounds — the view takes a setBounds a frame or two after
-  /// Dart sends it, and a slot computed against bounds the view hasn't
-  /// reached yet paints those frames at the wrong offset; the
-  /// constraints are always exactly what this frame renders at, so the
-  /// card stays anchor-pinned through the freeze and release jumps.
+  /// The panel's slot: the card is a rect INSIDE the (work-area)
+  /// window — anchor position + growth direction + clamped size derive
+  /// it (02 号票: the card is no longer the window). Keyed on the LAYOUT
+  /// constraints where they disagree with the commanded bounds: the
+  /// view takes a setBounds a frame or two after Dart sends it, and a
+  /// slot computed against bounds the view hasn't reached yet paints
+  /// those frames at the wrong offset — [_anchorInView] degrades the
+  /// anchor into the stale view instead.
   ///
-  /// The card itself is the [ValueListenableBuilder]'s `child`, so a
-  /// resize notifies only this builder (the Positioned) — StageHost
-  /// does not setState, and the panel Element is reused.
+  /// The card itself is the inner builder's `child`, so a resize or a
+  /// drag notifies only the builders (the Positioned) — StageHost does
+  /// not setState per pointer move, and the panel Element is reused.
   Widget _panelSlot({required Widget child}) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -750,17 +872,26 @@ class _StageHostState extends State<StageHost> {
           valueListenable: _panelSize,
           child: child,
           builder: (context, panelSize, slot) {
-            final view = constraints.biggest;
-            final size = panelSize ?? view;
-            final anchor = anchorOf(Offset.zero & view, _dir);
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Positioned.fromRect(
-                  rect: panelRectFor(anchor, size, _dir),
-                  child: slot!,
-                ),
-              ],
+            return ValueListenableBuilder<Offset>(
+              valueListenable: _anchorLocalN,
+              builder: (context, _, _) {
+                final view = constraints.biggest;
+                final size = panelSize ?? view;
+                // Without a stage window (pure-UI tests) the view IS the
+                // card, full-bleed at the derived corner.
+                final anchor = _rectKnown
+                    ? _anchorInView(view)
+                    : anchorOf(Offset.zero & view, _dir);
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned.fromRect(
+                      rect: panelRectFor(anchor, size, _dir),
+                      child: slot!,
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
@@ -827,14 +958,12 @@ class _StageHostState extends State<StageHost> {
                               controller: c,
                               exiting: _exiting,
                               dir: _dir,
-                              grip: _grip,
                             )
                           : QuickPanel(
                               controller: c,
                               exiting: _exiting,
                               onOpenSettings: widget.onOpenSettings,
                               dir: _dir,
-                              grip: _grip,
                             ),
                     ),
                   ),
@@ -846,25 +975,41 @@ class _StageHostState extends State<StageHost> {
               ),
             ),
           // The one continuous element: orb in orb stage, anchor button
-          // in panel stages — same widget, same screen position, pinned
-          // to the corner the panel grows from. Flush to the corner:
-          // OrbButton lays itself out at the full orb footprint (96x96)
-          // with the ball centered, so the ball center lands exactly
-          // anchorInset from the window corner and stays concentric with
-          // the panel corner arc. (An inset here would push the ball off
-          // the arc center and off-center in the orb window — third
-          // preview round.)
-          Positioned(
-            left: _dir.growLeft ? null : 0,
-            right: _dir.growLeft ? 0 : null,
-            top: _dir.growUp ? null : 0,
-            bottom: _dir.growUp ? 0 : null,
-            child: OrbButton(
-              controller: c,
-              onDragStart: _gesturesLive ? _orbDragStart : null,
-              onDragUpdate: _gesturesLive ? _orbDragUpdate : null,
-              onDragEnd: _gesturesLive ? _orbDragEnd : null,
-            ),
+          // in panel stages — same widget, same screen position, at the
+          // anchor wherever it sits in the window (02 号票: the panel
+          // window is the whole work area; the ball is mid-window, no
+          // longer at a corner). OrbButton lays itself out at the full
+          // orb footprint (96x96) with the ball centered, so the ball
+          // center lands exactly on the anchor and stays concentric with
+          // the card's corner arc (an inset would push the ball off the
+          // arc center — third preview round).
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return ValueListenableBuilder<Offset>(
+                valueListenable: _anchorLocalN,
+                child: OrbButton(
+                  controller: c,
+                  onDragStart: _gesturesLive ? _orbDragStart : null,
+                  onDragUpdate: _gesturesLive ? _orbDragUpdate : null,
+                  onDragEnd: _gesturesLive ? _orbDragEnd : null,
+                ),
+                builder: (context, _, orb) {
+                  final view = constraints.biggest;
+                  final anchor = _rectKnown
+                      ? _anchorInView(view)
+                      : anchorOf(Offset.zero & view, _dir);
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Positioned.fromRect(
+                        rect: orbFootprintAt(anchor),
+                        child: orb!,
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
           ),
         ],
       ),

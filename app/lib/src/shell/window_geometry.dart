@@ -81,6 +81,33 @@ GrowthDirection chooseGrowthDirection(Offset anchor, Rect workArea) {
   return up ? GrowthDirection.upRight : GrowthDirection.downRight;
 }
 
+/// The direction after the anchor moved within an OPEN panel (02 号票
+/// 跨阈重推): the current direction HOLDS until the anchor crosses the
+/// work-area center by `anchorInset` — the hysteresis band that keeps a
+/// ball parked near the center from chattering between quadrants — then
+/// the axis flips toward the side it crossed to. Ties resolve like
+/// [chooseGrowthDirection] (up/left). The direction is still derived,
+/// never stored: it is re-derived on every threshold cross, not frozen
+/// at expand.
+GrowthDirection rederiveDirection(
+  GrowthDirection current,
+  Offset anchor,
+  Rect workArea,
+) {
+  final center = workArea.center;
+  final hyst = SrGeometry.anchorInset;
+  final left = current.growLeft
+      ? anchor.dx > center.dx - hyst
+      : anchor.dx >= center.dx + hyst;
+  final up = current.growUp
+      ? anchor.dy > center.dy - hyst
+      : anchor.dy >= center.dy + hyst;
+  if (left) {
+    return up ? GrowthDirection.upLeft : GrowthDirection.downLeft;
+  }
+  return up ? GrowthDirection.upRight : GrowthDirection.downRight;
+}
+
 /// The open-panel window rect: the pinned corner sits `anchorInset`
 /// outward from the anchor, the body extending [size] in the growth
 /// direction.
@@ -138,13 +165,16 @@ Rect clampRectIntoWorkArea(Rect rect, Rect workArea) {
   return rect.shift(Offset(dx, dy));
 }
 
-/// The ceiling every panel size clamps to, per axis: at most 70% of the
-/// work area AND at most the space between the pinned corner and the
-/// opposite work-area edge. The resize gesture freezes the window at
-/// this size while the card grows inside it by layout alone (ticket 20:
-/// a per-frame HWND resize forces the engine to rebuild its EGL surface
-/// and stretch stale pixels across the client area — the reshape
-/// ghosting).
+/// The ceiling every panel size clamps to, per axis: at most half of
+/// the work area AND at most the space between the pinned corner and
+/// the opposite work-area edge. The panel-period window is the whole
+/// work area (02 号票), so this is the CARD's size cap — at half the
+/// work area the card lands exactly flush with the edge at the quadrant
+/// threshold, making the switch possible from any anchor. The resize
+/// gesture never touches the HWND while the card grows inside it by
+/// layout alone (ticket 20: a per-frame HWND resize forces the engine
+/// to rebuild its EGL surface and stretch stale pixels across the
+/// client area — the reshape ghosting).
 Size maxPanelSize(Offset anchor, GrowthDirection dir, Rect workArea) {
   final inset = SrGeometry.anchorInset;
   final fitWidth = dir.growLeft

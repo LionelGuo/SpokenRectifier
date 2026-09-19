@@ -22,7 +22,6 @@ import '../preview/slot_surface.dart';
 import '../rust/api.dart' show BridgeSessionState;
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
-import '../shell/panel_gestures.dart';
 import '../shell/window_stage.dart';
 
 class SessionPanel extends StatefulWidget {
@@ -31,7 +30,6 @@ class SessionPanel extends StatefulWidget {
     required this.controller,
     required this.exiting,
     required this.dir,
-    this.grip,
   });
 
   final SpeechController controller;
@@ -40,9 +38,6 @@ class SessionPanel extends StatefulWidget {
   /// Which corner the orb anchors (the anchor button overlaps that
   /// corner's edge row — header or footer depending on growth axis).
   final GrowthDirection dir;
-
-  /// The header-row move grip (面板上沿拖动=整体移动); null in tests.
-  final PanelGrip? grip;
 
   @override
   State<SessionPanel> createState() => _SessionPanelState();
@@ -184,17 +179,16 @@ class _SessionPanelState extends State<SessionPanel> {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    // The header row doubles as the move grip (面板上沿拖动): wrapped
-    // when a grip is wired (production), bare in tests.
+    // The header row is display-only (02 号票 abolished the header move
+    // grip — the anchor button is the panel's one move affordance).
     final header = _header(context, pal);
-    final grip = widget.grip;
     return PanelBody(
       exiting: widget.exiting,
       dir: widget.dir,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          grip == null ? header : PanelGripBar(grip: grip, child: header),
+          header,
           Divider(height: 1, thickness: 1, color: pal.hairline),
           Expanded(child: _textArea(context, pal)),
           _transcriptSection(context, pal),

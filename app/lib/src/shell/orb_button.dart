@@ -40,12 +40,14 @@ class OrbButton extends StatefulWidget {
 
   final SpeechController controller;
 
-  /// Orb-drag intents (ticket 20), resolved by the raw-pointer tracker
-  /// below: the press crossed [SrGeometry.dragThreshold] while the orb
-  /// was free to move (idle, no panel). Positions, not deltas — the
-  /// stage host maps them onto the window against a screen-stable
-  /// cursor (view-relative deltas lag and bounce as the window chases
-  /// the pointer). Null (pure-UI tests) disables dragging; clicks are
+  /// Orb-drag intents (ticket 20 + 02 号票), resolved by the raw-pointer
+  /// tracker below: the press crossed [SrGeometry.dragThreshold]. Armed
+  /// in EVERY stage — the stage host routes orb-stage window moves and
+  /// panel-stage layout moves by the current stage (面板期锚点钮可拖,
+  /// 全相位 + 快捷设置面板). Positions, not deltas — the stage host
+  /// maps them onto the window against a screen-stable cursor
+  /// (view-relative deltas lag and bounce as the window chases the
+  /// pointer). Null (pure-UI tests) disables dragging; clicks are
   /// unaffected.
   final void Function(Offset pointer)? onDragStart;
   final void Function(Offset pointer)? onDragUpdate;
@@ -66,8 +68,10 @@ class _OrbButtonState extends State<OrbButton> {
 
   SpeechController get c => widget.controller;
 
-  bool get _draggable =>
-      widget.onDragUpdate != null && c.stage == StageKind.orb;
+  /// Draggable whenever the host wired handlers — it routes by stage
+  /// (orb window move / panel layout move); rectifying drags too, its
+  /// click table just stays cold (修正中可拖不可点).
+  bool get _draggable => widget.onDragUpdate != null;
 
   void _onPointerDown(PointerDownEvent e) {
     if (e.buttons != kPrimaryButton) return;
