@@ -12,8 +12,9 @@ class FakeGateway implements SpeechEngineGateway {
   final commands = <String>[];
   final said = <String>[];
 
-  /// When true, [watchHold] reports a live watch (quick-mode on).
-  /// Default false: widget tests keep today's tap path.
+  /// When true, [watchHold] reports a live watch (a host that can
+  /// poll — Windows). Default false: widget tests keep today's tap
+  /// path, the non-Windows shape.
   bool watchHoldSucceeds = false;
 
   /// Mirrors the poller's "currently holding" flag after a successful
@@ -327,8 +328,9 @@ class FakeGateway implements SpeechEngineGateway {
     commands.add(
       'watchHold:${stopOnEarlyRelease ? 'stop' : 'open'}:${vks.join(',')}',
     );
-    // Mirror the Rust gate: a watch only starts while recording, and
-    // only when the master switch is on (`watchHoldSucceeds`).
+    // Mirror the Rust gate: a watch only starts while recording.
+    // `watchHoldSucceeds` is the host's ability to poll (Windows), not
+    // the master switch — the real gate arms either way.
     if (!watchHoldSucceeds || _state != BridgeSessionState.recording) {
       holding = false;
       return false;

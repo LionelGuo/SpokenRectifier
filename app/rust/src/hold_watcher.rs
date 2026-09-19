@@ -12,6 +12,11 @@
 //! The one pure decision ([`HoldState::step`]) is cfg-free so its table
 //! runs on the dev host. The poller is Windows-only; off Windows the
 //! watcher never starts and Dart keeps today's tap path.
+//!
+//! The watcher arms for every primary-hotkey session — the master switch
+//! gates the upgrade, not the watch: auto-repeat must be swallowed either
+//! way, and with the switch off the engine refuses `MarkQuick`, so the
+//! hold just ends as an ordinary one.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -48,7 +53,8 @@ pub(crate) fn stop() {
 /// Arm a watch for `vks`. Returns whether a watch is live afterwards:
 /// true if one was already running (a repeat of the same hold — do not
 /// restart the timer) or if this call started one. The caller has already
-/// checked the master switch, the session state, and the vk set.
+/// checked the session state and the vk set; whether the 400 ms mark
+/// upgrades is the engine's call ([`Engine::is_quick`]).
 ///
 /// Off Windows this is a no-op: there is no `GetAsyncKeyState` to poll,
 /// and the product's first platform is Windows.

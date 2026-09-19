@@ -327,9 +327,10 @@ class SpeechController extends ChangeNotifier {
   /// The hotkey press — same step as the orb's left click, minus the
   /// panel-close role (a session start force-closes the quick panel).
   ///
-  /// When the quick-mode switch is on, a recording press no longer
-  /// stops on keyDown: the hold watcher owns the release (ADR-0020).
-  /// Repeats of the same physical hold are swallowed. The orb still
+  /// The hold watcher owns the primary chord's release (ADR-0020), on or
+  /// off the quick-mode switch: a recording press stops on its release,
+  /// and repeats of the same physical hold are swallowed — a switch-off
+  /// hold must not toggle start/stop through auto-repeat. The orb still
   /// goes through [dispatchInput] and stops on click.
   Future<void> hotkeyToggle() async {
     if (_hotkeyHoldActive) {
@@ -366,8 +367,8 @@ class SpeechController extends ChangeNotifier {
   }
 
   /// Hand the current primary chord to the hold watcher. False means
-  /// Dart keeps today's tap path (switch off, empty bind, not
-  /// recording, or a host that cannot poll).
+  /// Dart keeps today's tap path (empty bind, not recording, or a
+  /// host that cannot poll).
   Future<bool> _armHoldWatcher({required bool stopOnEarlyRelease}) async {
     if (primaryChord.isNone) return false;
     try {

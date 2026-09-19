@@ -1,6 +1,7 @@
 /// Ticket 03: the primary-hotkey hold watcher as the shell sees it —
-/// swallow repeats, keep the tap path when the switch is off, and never
-/// start a watch from the orb (球左键不跟).
+/// swallow repeats of one physical hold on or off the quick-mode switch,
+/// keep the tap path when the host cannot poll, and never start a watch
+/// from the orb (球左键不跟).
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -21,22 +22,37 @@ SpeechController makeController(FakeGateway gateway) {
 }
 
 void main() {
-  test(
-    'with the switch off a second press still stops — today\'s tap path',
-    () async {
-      final gateway = FakeGateway();
-      final controller = makeController(gateway);
+  test('a recording press stops on its release, switch on or off', () async {
+    final gateway = FakeGateway()..watchHoldSucceeds = true;
+    final controller = makeController(gateway);
 
-      await controller.hotkeyToggle();
-      expect(gateway.commands, contains('startSession'));
-      expect(controller.phase, BridgeSessionState.recording);
-      // The shell still asks; the Rust gate returns false.
-      expect(gateway.commands, contains('watchHold:open:17,18,86'));
+    await controller.hotkeyToggle();
+    expect(gateway.commands, contains('startSession'));
+    expect(controller.phase, BridgeSessionState.recording);
+    expect(gateway.commands, contains('watchHold:open:17,18,86'));
 
-      await controller.hotkeyToggle();
-      expect(gateway.commands, contains('stopSession'));
-    },
-  );
+    // The hold released without upgrading (the switch-off mark is
+    // refused); the recording continues. The next press is new.
+    gateway.holding = false;
+    await controller.hotkeyToggle();
+    // No stop on keyDown: the watch owns this press's release. A
+    // switch-off hold would otherwise toggle through auto-repeat —
+    // the start/stop flicker the 2026-09-19 matrix caught.
+    expect(gateway.commands, contains('watchHold:stop:17,18,86'));
+    expect(gateway.commands, isNot(contains('stopSession')));
+  });
+
+  test('a host that cannot poll keeps today\'s keyDown stop', () async {
+    final gateway = FakeGateway(); // watchHoldSucceeds defaults false
+    final controller = makeController(gateway);
+
+    await controller.hotkeyToggle();
+    expect(gateway.commands, contains('startSession'));
+    expect(controller.phase, BridgeSessionState.recording);
+
+    await controller.hotkeyToggle();
+    expect(gateway.commands, contains('stopSession'));
+  });
 
   test('a live watch swallows WM_HOTKEY repeats of the same hold', () async {
     final gateway = FakeGateway()..watchHoldSucceeds = true;
@@ -49,15 +65,9 @@ void main() {
 
     await controller.hotkeyToggle();
     await controller.hotkeyToggle();
-    expect(
-      gateway.commands.where((c) => c == 'startSession').length,
-      1,
-    );
+    expect(gateway.commands.where((c) => c == 'startSession').length, 1);
     expect(gateway.commands, isNot(contains('stopSession')));
-    expect(
-      gateway.commands.where((c) => c.startsWith('watchHold')).length,
-      1,
-    );
+    expect(gateway.commands.where((c) => c.startsWith('watchHold')).length, 1);
   });
 
   test(
@@ -106,10 +116,7 @@ void main() {
 
     await controller.hotkeyToggle();
     expect(gateway.commands, contains('startSession'));
-    expect(
-      gateway.commands.where((c) => c.startsWith('watchHold')),
-      isEmpty,
-    );
+    expect(gateway.commands.where((c) => c.startsWith('watchHold')), isEmpty);
 
     await controller.hotkeyToggle();
     expect(gateway.commands, contains('stopSession'));

@@ -533,19 +533,22 @@ pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
 /// virtual-key codes of the current main-flow chord. Returns whether a
 /// watch is now live — Dart swallows `WM_HOTKEY` repeats off that.
 ///
-/// A quiet `false` (never an error) when the master switch is off, the
-/// engine is not recording, or `vks` is empty: Dart then keeps today's
-/// tap path. `stop_on_early_release` is the later press while already
-/// recording (today's tap-to-stop); the opening hold that started the
-/// session passes false so a short release keeps recording.
+/// Arms for every primary-hotkey session, master switch on or off: the
+/// watch owns the chord's release either way, so the auto-repeats of one
+/// physical hold can never toggle the session (a switch-off hold used to
+/// flicker start/stop through today's tap path). Whether the 400 ms mark
+/// upgrades is the engine's call — with the switch off it refuses
+/// `MarkQuick`, `is_quick()` stays false, and the hold ends as an
+/// ordinary one (a short release keeps recording). A quiet `false`
+/// (never an error) when the engine is not recording or `vks` is empty.
+/// `stop_on_early_release` is the later press while already recording
+/// (today's tap-to-stop); the opening hold that started the session
+/// passes false so a short release keeps recording.
 ///
 /// Independent of [`execute`] / `StartSession`: the orb click shares
 /// that command and must not start a watch (球左键不跟).
 pub fn watch_hold(vks: Vec<u32>, stop_on_early_release: bool) -> anyhow::Result<bool> {
     let g = global()?;
-    if !g.engine.quick_mode() {
-        return Ok(false);
-    }
     if g.engine.state() != SessionState::Recording {
         return Ok(false);
     }
