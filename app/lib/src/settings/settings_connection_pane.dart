@@ -32,11 +32,10 @@
 /// eye toggles plain text), and a save diffs the field against the
 /// loaded value — unchanged keeps, a change replaces, and emptying a
 /// saved key asks one confirm then clears (no standalone clear button).
-/// An environment key never echoes a value: the field starts empty, the
-/// status line names the variable, and typing would store a new local
-/// key. The engine adopts the config at its creation, so changes apply
-/// from the next launch (the fidelity-eval run is the one place that
-/// adopts them at once, building its own engine per run).
+/// An environment key never echoes a value: the field starts empty,
+/// and typing would store a new local key. Each save hands the files
+/// to the live engine (ADR-0010); a refused adoption keeps them saved
+/// and the engine on its previous providers until the next launch.
 
 library;
 
@@ -46,6 +45,7 @@ import '../design/controls.dart' show SrButton, SrCard, SrField;
 import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
+import '../errors.dart';
 import 'connection_store.dart';
 
 /// The blank seventh chip (ADR-0018's custom slot, kept by ADR-0019
@@ -93,7 +93,6 @@ class SettingsConnectionPane extends StatefulWidget {
 }
 
 class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
-  String? _error;
   bool _loaded = false;
 
   // LLM fields. The key block is one controller per vendor, made on
@@ -116,10 +115,9 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   String _llmFormat = 'openai_chat';
   bool _llmThinkingFields = false;
 
-  /// The loaded group's reading: drives the switch's caption and the
-  /// refusal a broken group forces on every save.
+  /// The loaded group's reading: drives the refusal a broken group
+  /// forces on every save.
   String _llmThinkingState = 'unconfigured';
-  String? _llmThinkingDetail;
 
   /// The chip row: every preset, then the blank custom seventh.
   List<String> get _llmVendors => [
@@ -246,14 +244,12 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         _presets = presets;
         _adopt(config.llm, config.asr);
         _loaded = true;
-        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loaded = true;
-        _error = '连接配置读取失败:$e';
-      });
+      setState(() => _loaded = true);
+      logRawError('err_conn_load', e);
+      SrToast.of(context).show('连接配置读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -267,7 +263,6 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     _llmModel.text = llm.model;
     _llmFormat = llm.format;
     _llmThinkingState = llm.thinkingState;
-    _llmThinkingDetail = llm.thinkingDetail;
     _llmThinkingFields = llm.thinkingFields;
     _llmBody.text = llm.bodyJson ?? '';
     _llmThinkingOn.text = llm.thinkingOnJson ?? '';
@@ -409,16 +404,12 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         ),
       );
       if (!mounted) return;
-      setState(() {
-        _adoptLlm(saved);
-        _error = null;
-      });
-      // The save confirmation is the window toast's first caller (the
-      // inline note row is retired with it).
-      SrToast.of(context).show('修正模型已保存', tone: SrToastTone.success);
+      setState(() => _adoptLlm(saved));
+      SrToast.of(context).show('已保存', tone: SrToastTone.success);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '修正模型保存失败:$e');
+      logRawError('err_conn_llm_save', e);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
       return;
     }
     await _applyConnections();
@@ -433,7 +424,8 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
       await widget.store.applyConnections();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '已保存,但引擎沿用上一配置:$e');
+      logRawError('note_conn_engine_kept', e);
+      SrToast.of(context).show('已保存', tone: SrToastTone.error);
     }
   }
 
@@ -513,12 +505,12 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
         _asrTencentKeyInfo = saved.tencent.secretKey;
         _asrAzureRegion.text = saved.azure.region ?? '';
         _asrAzureEndpointId.text = saved.azure.endpointId ?? '';
-        _error = null;
       });
-      SrToast.of(context).show('语音识别已保存', tone: SrToastTone.success);
+      SrToast.of(context).show('已保存', tone: SrToastTone.success);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '语音识别保存失败:$e');
+      logRawError('err_conn_asr_save', e);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
       return;
     }
     await _applyConnections();
@@ -530,25 +522,7 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Row(
-          children: [
-            Text('模型与连接', style: SrType.title.copyWith(color: pal.textPrimary)),
-            const SizedBox(width: 10),
-            Text(
-              '保存后写入配置文件,下一场会话生效',
-              key: const Key('settings-conn-effective-note'),
-              style: SrType.caption.copyWith(color: pal.textTertiary),
-            ),
-          ],
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _error!,
-            key: const Key('settings-conn-error'),
-            style: SrType.caption.copyWith(color: pal.live),
-          ),
-        ],
+        Text('模型与连接', style: SrType.title.copyWith(color: pal.textPrimary)),
         const SizedBox(height: 16),
         if (!_loaded)
           const Center(child: CircularProgressIndicator(strokeWidth: 2))
@@ -564,12 +538,10 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
             body: _llmBody,
             thinkingFields: _llmThinkingFields,
             thinkingState: _llmThinkingState,
-            thinkingDetail: _llmThinkingDetail,
             onThinkingFields: (on) => setState(() => _llmThinkingFields = on),
             thinkingOn: _llmThinkingOn,
             thinkingOff: _llmThinkingOff,
             keyField: _llmKey(_llmVendor),
-            keyInfo: _llmKeyInfo,
             onSave: _llmThinkingState == 'broken' ? null : _saveLlm,
           ),
           const SizedBox(height: 16),
@@ -580,18 +552,14 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
             language: _asrLanguage,
             baseUrl: _asrBaseUrl,
             keyField: _asrKey,
-            keyInfo: _asrKeyInfo,
             workspace: _asrWorkspace,
             region: _asrRegion,
             volcAppId: _asrVolcAppId,
             volcResourceId: _asrVolcResourceId,
             volcAccessKey: _asrVolcAccessKey,
-            volcKeyInfo: _asrVolcKeyInfo,
             tencentAppId: _asrTencentAppId,
             tencentSecretId: _asrTencentSecretId,
-            tencentIdInfo: _asrTencentIdInfo,
             tencentSecretKey: _asrTencentSecretKey,
-            tencentKeyInfo: _asrTencentKeyInfo,
             azureRegion: _asrAzureRegion,
             azureEndpointId: _asrAzureEndpointId,
             endpoint: _asrEndpoint,
@@ -607,22 +575,22 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
 // Field recipes
 // ---------------------------------------------------------------------------
 
-/// The key block (ADR-0008, 2026-08-28 revision): the placement caption,
+/// The key block (ADR-0008, 2026-08-28 revision): the secret's title and
 /// the diff-echo field (a local-file key paints masked; the eye toggles
-/// plain text), and the hint that emptying a saved key clears it on
-/// save. [id] names the field for the block's test keys; [title] labels
-/// the secret (the sub-section keys are not all "api keys").
+/// plain text). The placement status line and both hints are retired
+/// (copy.md conn-20/21/23/24) — clearing a saved key rides the save's
+/// confirm alone. [id] names the field for the block's test keys;
+/// [title] labels the secret (the sub-section keys are not all "api
+/// keys").
 class _KeyBlock extends StatefulWidget {
   const _KeyBlock({
     required this.id,
     required this.field,
-    required this.keyInfo,
     this.title = 'API 密钥',
   });
 
   final String id;
   final TextEditingController field;
-  final KeyInfo keyInfo;
   final String title;
 
   @override
@@ -635,25 +603,12 @@ class _KeyBlockState extends State<_KeyBlock> {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    final fromEnv = widget.keyInfo.status == KeyPlacement.fromEnv;
-    // An env key has no stored local value, so the 「只存于本机」 tail
-    // would mislead; its status line says what typing does instead
-    // (ADR-0008's exact wording).
-    final status = fromEnv
-        ? '${widget.keyInfo.label},输入即另存本机'
-        : '${widget.keyInfo.label};密钥只存于本机 local 文件';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           widget.title,
           style: SrType.micro.copyWith(color: pal.textTertiary),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          status,
-          key: Key('settings-conn-key-status:${widget.id}'),
-          style: SrType.micro.copyWith(color: pal.textSecondary),
         ),
         const SizedBox(height: 6),
         Row(
@@ -664,7 +619,6 @@ class _KeyBlockState extends State<_KeyBlock> {
                 controller: widget.field,
                 // No label: an empty one still reserves its line and
                 // sinks the field below the eye icon's row center.
-                hint: fromEnv ? '留空沿用环境变量' : '清空并保存即删除本机密钥',
                 obscure: _obscured,
                 monospace: true,
               ),
@@ -784,12 +738,10 @@ class _LlmCard extends StatelessWidget {
     required this.body,
     required this.thinkingFields,
     required this.thinkingState,
-    required this.thinkingDetail,
     required this.onThinkingFields,
     required this.thinkingOn,
     required this.thinkingOff,
     required this.keyField,
-    required this.keyInfo,
     required this.onSave,
   });
 
@@ -812,14 +764,11 @@ class _LlmCard extends StatelessWidget {
   final TextEditingController thinkingOn;
   final TextEditingController thinkingOff;
 
-  /// The loaded group's reading, for the state line — and `broken`
-  /// holds the save button (every save is refused until the file is
-  /// hand-fixed).
+  /// The loaded group's reading: `broken` holds the save button (every
+  /// save is refused until the file is hand-fixed).
   final String thinkingState;
-  final String? thinkingDetail;
 
   final TextEditingController keyField;
-  final KeyInfo keyInfo;
 
   /// Null while the group is broken: a disabled button, never a click
   /// that is certain to fail.
@@ -842,12 +791,12 @@ class _LlmCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '端点 + 格式档自由接入;格式决定路径、鉴权与思考通道;轻修与全量修正共用同一模型',
+            '配置用于修正的模型API接口',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
           Text(
-            '服务商预设(点击盖格式/端点/模型/思考份;自定义为空白预设)',
+            '服务商',
             key: const Key('settings-conn-llm-vendor-caption'),
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
@@ -875,7 +824,7 @@ class _LlmCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            '格式(唯一行为轴:路径补全、鉴权头、提示词槽、SSE 分帧)',
+            '接口格式',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 6),
@@ -889,8 +838,7 @@ class _LlmCard extends StatelessWidget {
           SrField(
             key: const Key('settings-conn-llm-body'),
             controller: body,
-            label: '常驻请求体 JSON(每次请求都合并)',
-            hint: '空 = 不合并;提示词槽与 stream 由软件注入,盖不掉',
+            label: '请求体JSON覆写',
             monospace: true,
             maxLines: 4,
           ),
@@ -911,24 +859,18 @@ class _LlmCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          // The line follows the SWITCH as painted, not the loaded
-          // reading: flipping it must say what the flip means. The
-          // unconfigured branch is the one thing only the file knows —
-          // it is what the save would write a stance over.
+          // One static caption either way (copy.md conn-12..15): the
+          // broken branch only swaps the tone — the detail lives in the
+          // file the user is about to hand-fix, not on the card.
           if (broken)
             Text(
-              '思考字段配置有误(${thinkingDetail ?? '配置文件'}),'
-              '须手修配置文件后才能保存;修复前本卡不可保存',
+              '思考字段配置有误',
               key: const Key('settings-conn-llm-thinking-broken'),
               style: SrType.micro.copyWith(color: pal.live),
             )
           else
             Text(
-              thinkingFields
-                  ? '开启:按修正档的思考策略注入「开思考」份'
-                  : thinkingState == 'unconfigured'
-                  ? '未配置:与关闭同效,保存后按关闭写入'
-                  : '关闭:两份照存不启用,请求不带思考键,对端用自家默认',
+              '编辑模型供应商的模型思考配置字段',
               key: const Key('settings-conn-llm-thinking-note'),
               style: SrType.micro.copyWith(color: pal.textTertiary),
             ),
@@ -968,7 +910,7 @@ class _LlmCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _KeyBlock(id: 'llm', field: keyField, keyInfo: keyInfo),
+          _KeyBlock(id: 'llm', field: keyField),
           const SizedBox(height: 14),
           SrButton(
             key: const Key('settings-conn-llm-save'),
@@ -992,18 +934,14 @@ class _AsrCard extends StatelessWidget {
     required this.language,
     required this.baseUrl,
     required this.keyField,
-    required this.keyInfo,
     required this.workspace,
     required this.region,
     required this.volcAppId,
     required this.volcResourceId,
     required this.volcAccessKey,
-    required this.volcKeyInfo,
     required this.tencentAppId,
     required this.tencentSecretId,
-    required this.tencentIdInfo,
     required this.tencentSecretKey,
-    required this.tencentKeyInfo,
     required this.azureRegion,
     required this.azureEndpointId,
     required this.endpoint,
@@ -1018,7 +956,6 @@ class _AsrCard extends StatelessWidget {
   final TextEditingController language;
   final TextEditingController baseUrl;
   final TextEditingController keyField;
-  final KeyInfo keyInfo;
 
   // [asr.aliyun]
   final TextEditingController workspace;
@@ -1028,14 +965,11 @@ class _AsrCard extends StatelessWidget {
   final TextEditingController volcAppId;
   final TextEditingController volcResourceId;
   final TextEditingController volcAccessKey;
-  final KeyInfo volcKeyInfo;
 
   // [asr.tencent]
   final TextEditingController tencentAppId;
   final TextEditingController tencentSecretId;
-  final KeyInfo tencentIdInfo;
   final TextEditingController tencentSecretKey;
-  final KeyInfo tencentKeyInfo;
 
   // [asr.azure]
   final TextEditingController azureRegion;
@@ -1063,12 +997,12 @@ class _AsrCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '无凭据时仅保留麦克风语义(说话状态与静音),不做云端转写',
+            '未配置凭据时不做云端转写,仅显示说话状态',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
           Text(
-            '服务商(点击预填模型)',
+            '服务商',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 6),
@@ -1081,7 +1015,7 @@ class _AsrCard extends StatelessWidget {
           if (!adapted) ...[
             const SizedBox(height: 6),
             Text(
-              '该供应商适配器未排期;凭据就绪并重启将无法启用云端识别',
+              '该供应商暂未接入,暂不支持云端识别',
               key: const Key('settings-conn-asr-unadapted'),
               style: SrType.micro.copyWith(color: pal.textSecondary),
             ),
@@ -1109,7 +1043,7 @@ class _AsrCard extends StatelessWidget {
                 child: SrField(
                   key: const Key('settings-conn-asr-baseurl'),
                   controller: baseUrl,
-                  label: 'base_url 全量覆盖(可选)',
+                  label: 'base_url 覆写',
                   monospace: true,
                 ),
               ),
@@ -1125,7 +1059,7 @@ class _AsrCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (_asrBearerFamily.contains(provider))
-            _KeyBlock(id: 'asr', field: keyField, keyInfo: keyInfo),
+            _KeyBlock(id: 'asr', field: keyField),
           const SizedBox(height: 14),
           SrButton(
             key: const Key('settings-conn-asr-save'),
@@ -1151,7 +1085,7 @@ class _AsrCard extends StatelessWidget {
                 child: SrField(
                   key: const Key('settings-conn-asr-workspace'),
                   controller: workspace,
-                  label: 'workspace_id(可选)',
+                  label: 'workspace_id',
                   monospace: true,
                 ),
               ),
@@ -1185,7 +1119,7 @@ class _AsrCard extends StatelessWidget {
                 child: SrField(
                   key: const Key('settings-conn-asr-volc-resource'),
                   controller: volcResourceId,
-                  label: '资源 ID(即模型档位)',
+                  label: '资源 ID',
                   monospace: true,
                 ),
               ),
@@ -1195,7 +1129,6 @@ class _AsrCard extends StatelessWidget {
           _KeyBlock(
             id: 'asr-volc',
             field: volcAccessKey,
-            keyInfo: volcKeyInfo,
             title: 'Access Token',
           ),
           const SizedBox(height: 4),
@@ -1212,23 +1145,13 @@ class _AsrCard extends StatelessWidget {
           _KeyBlock(
             id: 'asr-tencent-id',
             field: tencentSecretId,
-            keyInfo: tencentIdInfo,
             title: 'SecretId',
           ),
           const SizedBox(height: 12),
           _KeyBlock(
             id: 'asr-tencent-key',
             field: tencentSecretKey,
-            keyInfo: tencentKeyInfo,
-            title: 'SecretKey(签名密钥)',
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '国内站需直连:走境外代理会报 6001,请为 asr.cloud.tencent.com 配置直连例外',
-            key: const Key('settings-conn-asr-tencent-direct'),
-            style: SrType.micro.copyWith(
-              color: srPalette(context).textSecondary,
-            ),
+            title: 'SecretKey',
           ),
           const SizedBox(height: 4),
         ];
@@ -1249,7 +1172,7 @@ class _AsrCard extends StatelessWidget {
                 child: SrField(
                   key: const Key('settings-conn-asr-azure-endpoint'),
                   controller: azureEndpointId,
-                  label: 'endpoint_id(自定义语音,可选)',
+                  label: 'endpoint_id',
                   monospace: true,
                 ),
               ),
@@ -1291,8 +1214,7 @@ class _ConfirmClearDialog extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                '将删除 $section 已保存的 API 密钥(仅本机 local 文件);'
-                '未配置环境变量时该服务将停用。',
+                '该操作将删除 $section 已保存的 API 密钥，未配置环境变量时该服务将停用。',
                 style: SrType.caption.copyWith(color: pal.textSecondary),
               ),
               const SizedBox(height: 20),

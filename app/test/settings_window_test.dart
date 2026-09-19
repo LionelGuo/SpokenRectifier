@@ -28,8 +28,6 @@ import 'package:spokenrectifier_app/hotkey_binding.dart';
 import 'package:spokenrectifier_app/src/design/controls.dart' show SrButton;
 import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette;
-import 'package:spokenrectifier_app/src/settings/settings_connection_pane.dart'
-    show SettingsConnectionPane;
 import 'package:spokenrectifier_app/src/settings/settings_fidelity_pane.dart'
     show SettingsFidelityPane;
 import 'package:spokenrectifier_app/src/rust/api.dart'
@@ -922,24 +920,10 @@ String globalFieldText(WidgetTester tester) => tester
 String textOf(WidgetTester tester, Key key) =>
     tester.widget<Text>(find.byKey(key)).data!;
 
-/// Scroll the connection pane's ListView until [key] has an element:
-/// rows outside the viewport don't exist in a lazy ListView, so a
-/// `find.byKey` on an off-screen row needs the scroll, not
-/// `ensureVisible` (which requires an element already).
-Future<void> scrollPaneTo(WidgetTester tester, Key key) =>
-    tester.dragUntilVisible(
-      find.byKey(key),
-      find
-          .descendant(
-            of: find.byType(SettingsConnectionPane),
-            matching: find.byType(ListView),
-          )
-          .first,
-      const Offset(0, 200),
-    );
-
-/// The rectify pane's twin of [scrollPaneTo] (the same lazy-ListView
-/// rule; the light card's tail sits below the fold).
+/// The rectify pane's lazy-ListView scroller: rows outside the viewport
+/// don't exist in a lazy ListView, so a `find.byKey` on an off-screen
+/// row needs the scroll, not `ensureVisible` (which requires an element
+/// already; the light card's tail sits below the fold).
 Future<void> scrollRectifyTo(WidgetTester tester, Key key) =>
     tester.dragUntilVisible(
       find.byKey(key),
@@ -2387,7 +2371,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('快速模式 [rectify.quick]'), findsOneWidget);
+      expect(find.text('快速模式'), findsOneWidget);
       expect(
         tester
             .widget<Switch>(
@@ -2669,14 +2653,15 @@ void main() {
     // No standalone clear button anywhere: clearing rides the save.
     expect(find.byKey(const Key('settings-conn-key-clear:llm')), findsNothing);
     expect(find.byKey(const Key('settings-conn-asr-endpoint')), findsOneWidget);
-    // The effectiveness copy: runtime adoption, not a restart (ADR-0010).
+    // The header caption is retired (copy.md conn-02); the adoption
+    // semantics live in the spec, not on the page.
     expect(
-      textOf(tester, const Key('settings-conn-effective-note')),
-      '保存后写入配置文件,下一场会话生效',
+      find.byKey(const Key('settings-conn-effective-note')),
+      findsNothing,
     );
   });
 
-  testWidgets('an env key never echoes; the status line names it', (
+  testWidgets('an env key never echoes; no status line paints', (
     tester,
   ) async {
     final store = FakeConnectionStore(
@@ -2696,9 +2681,12 @@ void main() {
     );
 
     expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
-    expect(find.textContaining('取自环境变量 DEEPSEEK_API_KEY'), findsOneWidget);
-    // The status line itself carries the ADR's 「输入即另存本机」 wording.
-    expect(find.textContaining('输入即另存本机'), findsOneWidget);
+    // The key block's status line is retired (copy.md conn-20/21).
+    expect(
+      find.byKey(const Key('settings-conn-key-status:llm')),
+      findsNothing,
+    );
+    expect(find.textContaining('输入即另存本机'), findsNothing);
   });
 
   testWidgets('a chip click prefills the vendor endpoint and model', (
@@ -2898,7 +2886,7 @@ void main() {
     expect(save.baseUrl, 'https://api.deepseek.com'); // untouched field rides
     expect(save.apiKey, isA<ApiKeyKeep>()); // the echoed key, unchanged
     // The save note is the window toast now (top-center overlay).
-    expect(textOf(tester, const Key('sr-toast')), '修正模型已保存');
+    expect(textOf(tester, const Key('sr-toast')), '已保存');
   });
 
   // -- the open shape: format, boxes, the blank custom chip (ADR-0019) --
@@ -3126,7 +3114,8 @@ void main() {
       domain: SettingsDomain.connection,
     );
 
-    // An off switch paints off and says what off means.
+    // An off switch paints off; the note is one static caption now
+    // (copy.md conn-13..15), the same line for every state.
     expect(
       tester
           .widget<Switch>(
@@ -3137,7 +3126,7 @@ void main() {
     );
     expect(
       textOf(tester, const Key('settings-conn-llm-thinking-note')),
-      contains('请求不带思考键'),
+      '编辑模型供应商的模型思考配置字段',
     );
 
     // Flipping it on turns the fields live; both boxes keep their text.
@@ -3147,7 +3136,7 @@ void main() {
     await tester.pump();
     expect(
       textOf(tester, const Key('settings-conn-llm-thinking-note')),
-      contains('开启'),
+      '编辑模型供应商的模型思考配置字段',
     );
 
     Scrollable.ensureVisible(
@@ -3165,7 +3154,9 @@ void main() {
     expect(save.thinkingOffJson, contains('disabled'));
   });
 
-  testWidgets('an unconfigured group paints off and says so', (tester) async {
+  testWidgets('an unconfigured group paints off with the shared caption', (
+    tester,
+  ) async {
     final store = FakeConnectionStore(
       llm: fakeLlm(thinkingState: 'unconfigured'),
     );
@@ -3177,7 +3168,7 @@ void main() {
 
     expect(
       textOf(tester, const Key('settings-conn-llm-thinking-note')),
-      contains('未配置'),
+      '编辑模型供应商的模型思考配置字段',
     );
   });
 
@@ -3199,12 +3190,11 @@ void main() {
 
     expect(
       textOf(tester, const Key('settings-conn-llm-thinking-broken')),
-      contains('thinking_fields must be a boolean'),
+      '思考字段配置有误',
     );
-    expect(
-      textOf(tester, const Key('settings-conn-llm-thinking-broken')),
-      contains('手修配置文件'),
-    );
+    // The break's detail lives in the file the user is about to
+    // hand-fix, never on the card (copy.md conn-12).
+    expect(find.textContaining('must be a boolean'), findsNothing);
     // The save button is disabled, never a click certain to fail.
     expect(
       tester
@@ -3242,27 +3232,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pumpAndSettle();
-    // The card scrolled the pane down; the error row rides the lazy
-    // list's top, outside the built extent — jump back to the top so
-    // it mounts.
-    tester
-        .state<ScrollableState>(
-          find
-              .descendant(
-                of: find.byType(SettingsConnectionPane),
-                matching: find.byType(Scrollable),
-              )
-              .first,
-        )
-        .position
-        .jumpTo(0);
-    await tester.pumpAndSettle();
-
-    expect(
-      textOf(tester, const Key('settings-conn-error')),
-      contains('thinking_on is not valid JSON'),
-    );
-    expect(find.byKey(const Key('sr-toast')), findsNothing);
+    // A refused save is the window toast's short sentence; the raw JSON
+    // complaint never reaches the screen (it goes to the log).
+    expect(textOf(tester, const Key('sr-toast')), '保存失败');
+    expect(find.textContaining('thinking_on is not valid JSON'), findsNothing);
     expect(store.applyCalls, 0); // no adoption after a refused save
   });
 
@@ -3286,7 +3259,12 @@ void main() {
     final set = store.llmSaves.single;
     expect(set.apiKey, isA<ApiKeySet>());
     expect((set.apiKey as ApiKeySet).key, 'sk-new');
-    expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
+    // The status line is retired (copy.md conn-20/21); the echo in the
+    // field below is the only paint of the stored key.
+    expect(
+      find.byKey(const Key('settings-conn-key-status:llm')),
+      findsNothing,
+    );
     expect(fieldText(tester, const Key('settings-conn-llm-key')), 'sk-new');
 
     // Emptying the echoed key and saving asks one confirm; cancelling
@@ -3307,7 +3285,6 @@ void main() {
     final clear = store.llmSaves.last;
     expect(clear.apiKey, isA<ApiKeyClear>());
     expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
-    expect(find.textContaining('已保存在本机 local 文件'), findsNothing);
   });
 
   testWidgets('an asr save turns blank optional fields into resets', (
@@ -3457,9 +3434,10 @@ void main() {
         find.byKey(const Key('settings-conn-asr-tencent-key-key')),
         findsOneWidget,
       );
+      // The 6001 direct-connect hint is retired (copy.md conn-43).
       expect(
         find.byKey(const Key('settings-conn-asr-tencent-direct')),
-        findsOneWidget,
+        findsNothing,
       );
     },
   );
@@ -3515,11 +3493,14 @@ void main() {
         fieldText(tester, const Key('settings-conn-asr-volc-key')),
         'volc-token',
       );
-      expect(find.textContaining('已保存在本机 local 文件'), findsOneWidget);
+      expect(
+        find.byKey(const Key('settings-conn-key-status:asr-volc')),
+        findsNothing,
+      );
     },
   );
 
-  testWidgets('a tencent save carries its triple; the direct hint paints', (
+  testWidgets('a tencent save carries its triple; no direct hint', (
     tester,
   ) async {
     final store = FakeConnectionStore();
@@ -3543,10 +3524,10 @@ void main() {
       fieldText(tester, const Key('settings-conn-asr-model')),
       '16k_zh_en',
     );
-    // The sub-section carries the proxy hint (the 6001 trap).
+    // The 6001 direct-connect hint is retired (copy.md conn-43).
     expect(
       find.byKey(const Key('settings-conn-asr-tencent-direct')),
-      findsOneWidget,
+      findsNothing,
     );
 
     // Fill the triple; both account credentials are Sets.
@@ -3708,7 +3689,7 @@ void main() {
     expect(store.applyCalls, 1);
     // The save note is the window toast now — a top-center overlay, no
     // scrolling back to reach it.
-    expect(textOf(tester, const Key('sr-toast')), '修正模型已保存');
+    expect(textOf(tester, const Key('sr-toast')), '已保存');
     expect(find.byKey(const Key('settings-conn-error')), findsNothing);
 
     // Same for the ASR card, one adoption per save.
@@ -3717,7 +3698,7 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-conn-asr-save')));
     await tester.pump();
     expect(store.applyCalls, 2);
-    expect(textOf(tester, const Key('sr-toast')), '语音识别已保存');
+    expect(textOf(tester, const Key('sr-toast')), '已保存');
   });
 
   testWidgets(
@@ -3741,19 +3722,11 @@ void main() {
       // without masquerading as a save failure — the previous providers
       // keep running (ADR-0010's failure-keeps-old).
       expect(store.asrSaves, hasLength(1));
-      // The error row still needs its scroll (lazy list); the saved
-      // note is the top-center toast and rides no scroll.
-      await scrollPaneTo(tester, const Key('settings-conn-error'));
-      await tester.pump();
-      expect(textOf(tester, const Key('sr-toast')), '语音识别已保存');
-      expect(
-        textOf(tester, const Key('settings-conn-error')),
-        contains('已保存,但引擎沿用上一配置'),
-      );
-      expect(
-        textOf(tester, const Key('settings-conn-error')),
-        contains('no adapter yet'),
-      );
+      // Saved-but-not-adopted is the same 「已保存」 in the error tone;
+      // the refusal's raw text goes to the log, never the screen.
+      expect(textOf(tester, const Key('sr-toast')), '已保存');
+      expect(find.textContaining('沿用上一配置'), findsNothing);
+      expect(find.textContaining('no adapter yet'), findsNothing);
     },
   );
 
@@ -3821,7 +3794,8 @@ void main() {
 
     await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pump();
-    expect(find.byKey(const Key('settings-conn-error')), findsOneWidget);
+    expect(textOf(tester, const Key('sr-toast')), '保存失败');
+    expect(find.textContaining('locked'), findsNothing);
     // The form keeps what the user typed; nothing was adopted.
     expect(
       fieldText(tester, const Key('settings-conn-llm-model')),

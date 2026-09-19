@@ -630,7 +630,7 @@ class _QuickCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '快速模式 [rectify.quick]',
+            '快速模式',
             style: SrType.body.copyWith(
               color: pal.textPrimary,
               fontWeight: FontWeight.w600,
@@ -638,7 +638,7 @@ class _QuickCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '总开关关闭时手势与今日同;开启后按住超阈值松手即发送',
+            '开启后,按住主快捷键超过阈值松手即发送',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
@@ -686,7 +686,7 @@ class _QuickCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '关闭时升级后直贴原始转写;开启时走轻修段与快速额外指令',
+                    '关闭后将直接发送原始语音转写',
                     style: SrType.micro.copyWith(color: pal.textTertiary),
                   ),
                   const SizedBox(height: 12),
@@ -707,7 +707,7 @@ class _QuickCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '仅在快速模式走修正时注入,只塑形式与语气;留空则不注入',
+                            '额外指令仅在启用修正时生效',
                             style: SrType.micro.copyWith(
                               color: pal.textTertiary,
                             ),

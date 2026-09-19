@@ -47,7 +47,7 @@ class KeyInfo {
   /// The one-line status caption the pane paints.
   String get label => switch (status) {
     KeyPlacement.unset => '未配置',
-    KeyPlacement.inLocalFile => '已保存在本机 local 文件',
+    KeyPlacement.inLocalFile => '已保存于本机',
     KeyPlacement.fromEnv => '取自环境变量 $envName',
   };
 
