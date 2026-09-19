@@ -29,15 +29,17 @@ class SessionPanel extends StatefulWidget {
     super.key,
     required this.controller,
     required this.exiting,
-    required this.dir,
+    required this.form,
   });
 
   final SpeechController controller;
   final bool exiting;
 
-  /// Which corner the orb anchors (the anchor button overlaps that
-  /// corner's edge row — header or footer depending on growth axis).
-  final GrowthDirection dir;
+  /// The quadrant form (12 号票): the per-axis values every chrome
+  /// obligation derives from — reserves, fades, and the footer group's
+  /// alignment re-derive continuously as the panel switches corners,
+  /// in step with the card (同步、只移不消失).
+  final PanelForm form;
 
   @override
   State<SessionPanel> createState() => _SessionPanelState();
@@ -184,7 +186,7 @@ class _SessionPanelState extends State<SessionPanel> {
     final header = _header(context, pal);
     return PanelBody(
       exiting: widget.exiting,
-      dir: widget.dir,
+      form: widget.form,
       // The pinned top band (钉边裁切): the header row plus its divider
       // ride the card's current visual top as it grows out of the disc.
       header: Column(
@@ -234,55 +236,62 @@ class _SessionPanelState extends State<SessionPanel> {
       DefaultRegisterPick() => '默认',
       null => c.selectedScenario ?? '默认',
     };
-    return Padding(
-      // Corner-band row: aligns to the concentric content capsule
-      // (SrSpace.cornerInset). Vertical 20 puts the 16px title's visual
-      // top (~24) on the capsule's D=16 arc.
-      padding: const EdgeInsets.fromLTRB(
-        SrSpace.cornerInset,
-        20,
-        SrSpace.cornerInset,
-        SrSpace.md,
-      ),
-      child: Row(
-        children: [
-          // 左上 (downRight): the orb owns this row's start — the phase
-          // cluster yields as one unit (让位按簇: the reserve is a row-edge
-          // placeholder, never inserted inside the cluster).
-          if (!widget.dir.growUp && !widget.dir.growLeft)
-            const SizedBox(width: SrGeometry.anchorHeaderReserve),
-          _PhaseDot(color: dotColor, live: live),
-          const SizedBox(width: SrSpace.sm),
-          Text(label, style: SrType.body.copyWith(color: pal.textPrimary)),
-          if (c.phase == BridgeSessionState.recording) ...[
+    return AnimatedBuilder(
+      // The header hands its orb-side reserve over continuously (12
+      // 号票): both reserves always mounted, their widths scaling with
+      // the form — the phase cluster between them TRANSLATES as the
+      // weights trade (整簇平移让位), it never disappears.
+      animation: widget.form,
+      builder: (context, _) => Padding(
+        // Corner-band row: aligns to the concentric content capsule
+        // (SrSpace.cornerInset). Vertical 20 puts the 16px title's visual
+        // top (~24) on the capsule's D=16 arc.
+        padding: const EdgeInsets.fromLTRB(
+          SrSpace.cornerInset,
+          20,
+          SrSpace.cornerInset,
+          SrSpace.md,
+        ),
+        child: Row(
+          children: [
+            // 左上 (downRight) full weight: the orb owns this row's
+            // start — the phase cluster yields as one unit (让位按簇:
+            // the reserve is a row-edge placeholder, never inserted
+            // inside the cluster).
+            SizedBox(width: widget.form.headerReserve(leading: true)),
+            _PhaseDot(color: dotColor, live: live),
             const SizedBox(width: SrSpace.sm),
-            Text(
-              elapsed,
-              style: SrType.micro.copyWith(color: pal.textTertiary),
+            Text(label, style: SrType.body.copyWith(color: pal.textPrimary)),
+            if (c.phase == BridgeSessionState.recording) ...[
+              const SizedBox(width: SrSpace.sm),
+              Text(
+                elapsed,
+                style: SrType.micro.copyWith(color: pal.textTertiary),
+              ),
+            ],
+            // A picker over an empty library has nothing to pick between:
+            // the chip hides until the settings editor fills one in. A
+            // one-time pick session (ticket 23's scenario, ticket 28's
+            // 默认) paints the same shape with that pick's name — same
+            // format, no special badge. 右上 squeezes this row from the
+            // end (行尾 56): the chip single-line-ellipsizes (场景 · …)
+            // instead of overflowing — the Align keeps it at the row end
+            // and lets it shrink only when the space runs out.
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: c.scenarios.isNotEmpty
+                    ? _ScenarioChip(label: '场景 · $scenario')
+                    : const SizedBox.shrink(),
+              ),
             ),
+            // 右上 (downLeft) full weight: the orb owns this row's end —
+            // the header reserve (56, not the footer's 48: the recording
+            // ring extends 6px past the ball and must clear the chip;
+            // spec §3 义务层).
+            SizedBox(width: widget.form.headerReserve(leading: false)),
           ],
-          // A picker over an empty library has nothing to pick between:
-          // the chip hides until the settings editor fills one in. A
-          // one-time pick session (ticket 23's scenario, ticket 28's
-          // 默认) paints the same shape with that pick's name — same
-          // format, no special badge. 右上 squeezes this row from the
-          // end (行尾 56): the chip single-line-ellipsizes (场景 · …)
-          // instead of overflowing — the Align keeps it at the row end
-          // and lets it shrink only when the space runs out.
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: c.scenarios.isNotEmpty
-                  ? _ScenarioChip(label: '场景 · $scenario')
-                  : const SizedBox.shrink(),
-            ),
-          ),
-          // 右上 (downLeft): the orb owns this row's end — the header
-          // reserve (56, not the footer's 48: the recording ring extends
-          // 6px past the ball and must clear the chip; spec §3 义务层).
-          if (!widget.dir.growUp && widget.dir.growLeft)
-            const SizedBox(width: SrGeometry.anchorHeaderReserve),
-        ],
+        ),
       ),
     );
   }
@@ -291,98 +300,112 @@ class _SessionPanelState extends State<SessionPanel> {
     final recording = c.phase == BridgeSessionState.recording;
     final editor = _editor;
     final previewing = _isPreview && editor != null;
-    // Top-anchored orb (右上/左上): the ball's lower half rides over this
-    // region — the body keeps a 48 top padding (scrolled to top, the
-    // first line rests exactly at the fade's lower edge) under a
-    // surface-colored fade that dissolves arriving content into the card
-    // below the header (锚边渐隐, spec §3). Bottom-anchored orb: no body
-    // fade — the footer row plus its 48 reserve carry the bottom edge.
-    final orbAtTop = !widget.dir.growUp;
-    return Stack(
+    // The measuring surface subtree stays STABLE while the form
+    // animates — only the padding and the fade wrap re-build per tick
+    // (the H3 re-measure tax).
+    final content = Stack(
       children: [
-        Positioned.fill(
-          child: Padding(
-            // Straight-edge body content: contentInset (below the corner
-            // band).
-            padding: EdgeInsets.fromLTRB(
-              SrSpace.contentInset,
-              orbAtTop ? SrGeometry.anchorInset : SrSpace.md,
-              SrSpace.contentInset,
-              SrSpace.sm,
+        if (recording && c.liveText.isEmpty)
+          Text(
+            '开始说话…',
+            style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
+          ),
+        if (previewing)
+          // The editable preview (ticket 22): the self-drawn fill
+          // capsule surface over the slot document. Each round
+          // bumps the reset token; edits adopt their substituted
+          // text at once.
+          SingleChildScrollView(
+            controller: _scroll,
+            child: SlotSurface(
+              key: const Key('session-text'),
+              mode: SlotSurfaceMode.preview,
+              editor: editor,
+              focusNode: _focus,
+              scrollController: _scroll,
+              resetToken: _round,
+              onChanged: _onSlotChanged,
             ),
-            child: Stack(
-              children: [
-                if (recording && c.liveText.isEmpty)
-                  Text(
-                    '开始说话…',
-                    style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
-                  ),
-                if (previewing)
-                  // The editable preview (ticket 22): the self-drawn fill
-                  // capsule surface over the slot document. Each round
-                  // bumps the reset token; edits adopt their substituted
-                  // text at once.
-                  SingleChildScrollView(
-                    controller: _scroll,
-                    child: SlotSurface(
-                      key: const Key('session-text'),
-                      mode: SlotSurfaceMode.preview,
-                      editor: editor,
-                      focusNode: _focus,
-                      scrollController: _scroll,
-                      resetToken: _round,
-                      onChanged: _onSlotChanged,
-                    ),
-                  )
-                else
-                  // The read-only stream surface (listening / rectifying):
-                  // sentinels render as capsules — the bare `‡N‡` never
-                  // shows on the main surface (ticket 21). Rectifying
-                  // reads the same projection, so sentinels appearing
-                  // mid-stream collapse into capsules the moment their
-                  // shape completes.
-                  SlotSurface(
-                    key: const Key('session-stream'),
-                    mode: SlotSurfaceMode.stream,
-                    text: recording ? c.liveText : c.previewText,
-                    streamStyle: SrType.bodyLarge.copyWith(
-                      color: recording ? pal.textSecondary : pal.textPrimary,
-                    ),
-                    scrollController: _scroll,
-                  ),
-              ],
+          )
+        else
+          // The read-only stream surface (listening / rectifying):
+          // sentinels render as capsules — the bare `‡N‡` never
+          // shows on the main surface (ticket 21). Rectifying
+          // reads the same projection, so sentinels appearing
+          // mid-stream collapse into capsules the moment their
+          // shape completes.
+          SlotSurface(
+            key: const Key('session-stream'),
+            mode: SlotSurfaceMode.stream,
+            text: recording ? c.liveText : c.previewText,
+            streamStyle: SrType.bodyLarge.copyWith(
+              color: recording ? pal.textSecondary : pal.textPrimary,
+            ),
+            scrollController: _scroll,
+          ),
+      ],
+    );
+    // Top-anchored orb (右上/左上): the ball's lower half rides over
+    // this region — the body keeps a 48 top padding (scrolled to top,
+    // the first line rests exactly at the fade's lower edge) under a
+    // surface-colored fade that dissolves arriving content into the
+    // card below the header (锚边渐隐, spec §3). Bottom-anchored orb: no
+    // body fade — the footer row plus its 48 reserve carry the bottom
+    // edge. Both interpolate continuously with the form (12 号票); the
+    // fade hands over by OPACITY — surface over surface, the one
+    // "disappearance" that is not a control.
+    return AnimatedBuilder(
+      animation: widget.form,
+      child: content,
+      builder: (context, inner) => Stack(
+        children: [
+          Positioned.fill(
+            child: Padding(
+              // Straight-edge body content: contentInset (below the
+              // corner band); the top rides the form (12 ↔ 48).
+              padding: EdgeInsets.fromLTRB(
+                SrSpace.contentInset,
+                widget.form.bodyTopPad,
+                SrSpace.contentInset,
+                SrSpace.sm,
+              ),
+              child: inner!,
             ),
           ),
-        ),
-        if (orbAtTop)
-          // Full-width, flush under the header row: opaque surface at
-          // the top dissolving to transparent 48 in (the bottom fade's
-          // mirror). The orb (stage layer) paints above it and stays
-          // crisp; content under the fade is inert to the pointer.
-          Positioned(
-            key: const Key('session-top-fade'),
-            left: 0,
-            right: 0,
-            top: 0,
-            height: SrGeometry.anchorInset,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      pal.surface,
-                      pal.surface,
-                      pal.surface.withValues(alpha: 0),
-                    ],
-                    stops: const [0.0, 0.25, 1.0],
+          if (widget.form.gu < 0.999)
+            // Full-width, flush under the header row: opaque surface at
+            // the top dissolving to transparent 48 in (the bottom
+            // fade's mirror). The orb (stage layer) paints above it and
+            // stays crisp; content under the fade is inert to the
+            // pointer.
+            Positioned(
+              key: const Key('session-top-fade'),
+              left: 0,
+              right: 0,
+              top: 0,
+              height: SrGeometry.anchorInset,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: (1 - widget.form.gu).clamp(0.0, 1.0),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          pal.surface,
+                          pal.surface,
+                          pal.surface.withValues(alpha: 0),
+                        ],
+                        stops: const [0.0, 0.25, 1.0],
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -439,82 +462,86 @@ class _SessionPanelState extends State<SessionPanel> {
   }
 
   Widget _footer(BuildContext context, SrPalette pal) {
-    return Padding(
-      // Corner-band row (bottom-left arc): cornerInset horizontal; the
-      // vertical 20 keeps the buttons' visual bottom inside the capsule.
-      padding: const EdgeInsets.fromLTRB(
-        SrSpace.cornerInset,
-        SrSpace.xs,
-        SrSpace.cornerInset,
-        20,
-      ),
-      child: Row(
-        children: [
-          // 左下 (upRight): the orb owns this row's start — one
-          // anchorInset, not two: the ball's right edge sits anchorInset +
-          // orbBall/2 = 76 from the window's left edge, while this row's
-          // content starts cardMargin + hairline + cornerInset = 33 from
-          // it — the true overlap is 43, and 48 keeps a 5px gap. The
-          // header's twin keeps 56 instead (the recording ring's reach;
-          // the footer band never carries one).
-          if (widget.dir.growUp && !widget.dir.growLeft)
-            const SizedBox(width: SrGeometry.anchorInset),
-          // Capsules keep their intrinsic width (icon-only shrinking is a
-          // later change). At the reshape floor they no longer fit beside
-          // the reserve — clip the overflow so the debug stripe stays gone
-          // (ticket 01's 420-wide pin still holds; 360 is 60px tighter).
-          // 左下 alone right-aligns the group (仅左下底栏钮组右对齐:
-          // the orb holds the row's start, the three buttons yield to the
-          // far side — their ORDER stays frozen, 对照 → 重新生成 → 取消).
-          Expanded(
-            child: UnconstrainedBox(
-              alignment: widget.dir.growUp && !widget.dir.growLeft
-                  ? Alignment.centerRight
-                  : Alignment.centerLeft,
-              constrainedAxis: Axis.vertical,
-              clipBehavior: Clip.hardEdge,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_isPreview) ...[
+    return AnimatedBuilder(
+      // The footer hands its reserve and the group's alignment over
+      // continuously (12 号票): the whole button group SLIDES across the
+      // row as the form changes sides (整组横滑换对齐), passing under the
+      // ball where the paths cross — never unmounted, ORDER frozen.
+      animation: widget.form,
+      builder: (context, _) => Padding(
+        // Corner-band row (bottom-left arc): cornerInset horizontal; the
+        // vertical 20 keeps the buttons' visual bottom inside the capsule.
+        padding: const EdgeInsets.fromLTRB(
+          SrSpace.cornerInset,
+          SrSpace.xs,
+          SrSpace.cornerInset,
+          20,
+        ),
+        child: Row(
+          children: [
+            // 左下 (upRight) full weight: the orb owns this row's start —
+            // one anchorInset, not two: the ball's right edge sits
+            // anchorInset + orbBall/2 = 76 from the window's left edge,
+            // while this row's content starts cardMargin + hairline +
+            // cornerInset = 33 from it — the true overlap is 43, and 48
+            // keeps a 5px gap. The header's twin keeps 56 instead (the
+            // recording ring's reach; the footer band never carries one).
+            SizedBox(width: widget.form.footerReserve(leading: true)),
+            // Capsules keep their intrinsic width (icon-only shrinking is a
+            // later change). At the reshape floor they no longer fit beside
+            // the reserve — clip the overflow so the debug stripe stays gone
+            // (ticket 01's 420-wide pin still holds; 360 is 60px tighter).
+            // 左下 alone right-aligns the group (仅左下底栏钮组右对齐:
+            // the orb holds the row's start, the three buttons yield to the
+            // far side — their ORDER stays frozen, 对照 → 重新生成 → 取消).
+            Expanded(
+              child: UnconstrainedBox(
+                alignment: Alignment(widget.form.footerAlignX, 0),
+                constrainedAxis: Axis.vertical,
+                clipBehavior: Clip.hardEdge,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isPreview) ...[
+                      _GhostButton(
+                        key: const Key('session-raw-toggle'),
+                        pal: pal,
+                        icon: Icons.compare_arrows_rounded,
+                        label: '对照原文',
+                        onTap: _toggleTranscript,
+                      ),
+                      const SizedBox(width: SrSpace.sm),
+                      _GhostButton(
+                        key: const Key('session-reroll'),
+                        pal: pal,
+                        icon: Icons.refresh_rounded,
+                        label: '重新生成',
+                        onTap: c.reroll,
+                      ),
+                      const SizedBox(width: SrSpace.sm),
+                    ],
+                    // Cancel spans the whole session, recording included
+                    // (Esc's twin — 窗底取消文字钮).
                     _GhostButton(
-                      key: const Key('session-raw-toggle'),
+                      key: const Key('session-cancel'),
                       pal: pal,
-                      icon: Icons.compare_arrows_rounded,
-                      label: '对照原文',
-                      onTap: _toggleTranscript,
+                      icon: Icons.close_rounded,
+                      label: '取消',
+                      kbd: 'Esc',
+                      onTap: c.escapeAction,
                     ),
-                    const SizedBox(width: SrSpace.sm),
-                    _GhostButton(
-                      key: const Key('session-reroll'),
-                      pal: pal,
-                      icon: Icons.refresh_rounded,
-                      label: '重新生成',
-                      onTap: c.reroll,
-                    ),
-                    const SizedBox(width: SrSpace.sm),
                   ],
-                  // Cancel spans the whole session, recording included
-                  // (Esc's twin — 窗底取消文字钮).
-                  _GhostButton(
-                    key: const Key('session-cancel'),
-                    pal: pal,
-                    icon: Icons.close_rounded,
-                    label: '取消',
-                    kbd: 'Esc',
-                    onTap: c.escapeAction,
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-          // 右下 (upLeft) alone: the orb button lives here, above this
-          // row's end. Top-anchored orbs (右上/左上) put no reserve in the
-          // footer at all — the ball shares the HEADER's row there, and
-          // obligations follow the anchor's edge only (义务随锚点角走).
-          if (widget.dir.growUp && widget.dir.growLeft)
-            const SizedBox(width: SrGeometry.anchorInset),
-        ],
+            // 右下 (upLeft) full weight: the orb button lives here, above
+            // this row's end. Top-anchored orbs (右上/左上) carry no
+            // reserve in the footer at all — the ball shares the HEADER's
+            // row there, and obligations follow the anchor's edge only
+            // (义务随锚点角走).
+            SizedBox(width: widget.form.footerReserve(leading: false)),
+          ],
+        ),
       ),
     );
   }

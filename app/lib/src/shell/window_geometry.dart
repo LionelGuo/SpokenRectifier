@@ -108,17 +108,37 @@ GrowthDirection rederiveDirection(
   return up ? GrowthDirection.upRight : GrowthDirection.downRight;
 }
 
+/// The open-panel card rect for continuous per-axis form values (12
+/// 号票): [gl]/[gu] = 1 pins the card's anchor edge `anchorInset`
+/// outward on that side (grows left / up), 0 pins it on the opposite
+/// side; a mid-value translates the card through the ball — the
+/// quadrant switch's transit (球压卡内, the ball occludes topmost) —
+/// with the socket disc concentric at every value. The endpoints
+/// reproduce [panelRectFor] exactly.
+Rect panelRectAt(
+  Offset anchor,
+  Size size, {
+  required double gl,
+  required double gu,
+}) {
+  final inset = SrGeometry.anchorInset;
+  return Rect.fromLTWH(
+    anchor.dx - inset - (size.width - inset * 2) * gl,
+    anchor.dy - inset - (size.height - inset * 2) * gu,
+    size.width,
+    size.height,
+  );
+}
+
 /// The open-panel window rect: the pinned corner sits `anchorInset`
 /// outward from the anchor, the body extending [size] in the growth
 /// direction.
-Rect panelRectFor(Offset anchor, Size size, GrowthDirection dir) {
-  final inset = SrGeometry.anchorInset;
-  final left = dir.growLeft
-      ? anchor.dx + inset - size.width
-      : anchor.dx - inset;
-  final top = dir.growUp ? anchor.dy + inset - size.height : anchor.dy - inset;
-  return Rect.fromLTWH(left, top, size.width, size.height);
-}
+Rect panelRectFor(Offset anchor, Size size, GrowthDirection dir) => panelRectAt(
+  anchor,
+  size,
+  gl: dir.growLeft ? 1.0 : 0.0,
+  gu: dir.growUp ? 1.0 : 0.0,
+);
 
 /// The anchor a window rect implies — [panelRectFor]'s inverse, and the
 /// orb window's ball center whatever the direction.

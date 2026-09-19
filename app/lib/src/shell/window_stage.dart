@@ -14,6 +14,11 @@
 ///   a monitor crossing, one atomic jump). Crossing the work-area
 ///   center +48 re-derives the growth direction (跨阈重推); the growth
 ///   ceiling is the CARD's size cap (half the work area), not the HWND.
+///   The re-pin is the QUADRANT MOTION LAYER (12 号票): the card's size
+///   never changes — its position springs around the ball to the new
+///   corner ([PanelForm], critically damped, retargetable mid-flight),
+///   and every chrome obligation derives from the same two continuous
+///   form values, moving in step, never disappearing.
 /// - Collapse: the card shrinks back into the socket disc
 ///   ([SrMotion.grow], the same-direction profile — never a reversed
 ///   playback), THEN the window shrinks back to the orb footprint — the
@@ -35,6 +40,8 @@ import 'dart:async';
 // obscure sliver-layout token) and this library's is the orb-geometry
 // one from window_geometry.dart below.
 import 'package:flutter/material.dart' hide GrowthDirection;
+import 'package:flutter/physics.dart' show SpringDescription, SpringSimulation;
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 import 'package:screen_retriever/screen_retriever.dart' as sr;
 import 'package:window_manager/window_manager.dart';
@@ -187,7 +194,8 @@ class StageHost extends StatefulWidget {
   State<StageHost> createState() => _StageHostState();
 }
 
-class _StageHostState extends State<StageHost> {
+class _StageHostState extends State<StageHost>
+    with SingleTickerProviderStateMixin {
   StageKind _displayed = StageKind.orb;
 
   /// The direction the open panel (or the next one) grows in. Chosen at
@@ -233,12 +241,25 @@ class _StageHostState extends State<StageHost> {
   /// mic-tick notifies, which fire ~20x/s during recording).
   BridgeSessionState? _keyboardPhase;
 
+  /// The quadrant motion layer (12 号票): the per-axis form values the
+  /// card rect and every chrome obligation derive from. Snapped at
+  /// every expand, retargeted on every threshold flip — the drag's per-
+  /// pointer updates never touch it (the card translates with the ball
+  /// by anchor alone; only a flip animates).
+  late final PanelForm _form;
+
+  /// A release deferred the hit-region push because the form was still
+  /// springing — the region must never hug a rect the card has left
+  /// (it lands when the form settles).
+  bool _regionAfterMotion = false;
+
   SpeechController get c => widget.controller;
 
   @override
   void initState() {
     super.initState();
     c.addListener(_onChanged);
+    _form = PanelForm(this)..addListener(_onFormSettled);
     // Prime the geometry cache for the gestures (work areas + current
     // window rect); they run synchronously against it from here on.
     unawaited(_primeGeometry());
@@ -257,6 +278,8 @@ class _StageHostState extends State<StageHost> {
     _displayed = StageKind.orb;
     _exiting = false;
     _dir = GrowthDirection.upLeft;
+    _form.snap(true, true);
+    _regionAfterMotion = false;
     _seq++;
     _panelSize.value = null;
     _anchorLocalN.value = Offset.zero;
@@ -276,6 +299,8 @@ class _StageHostState extends State<StageHost> {
     _keyboardNode.dispose();
     _panelSize.dispose();
     _anchorLocalN.dispose();
+    _form.removeListener(_onFormSettled);
+    _form.dispose();
     super.dispose();
   }
 
@@ -357,6 +382,7 @@ class _StageHostState extends State<StageHost> {
     final area = _areaHolding(anchor, _areas ?? const []);
     final plan = expandPlan(anchor, c.panelFootprint, area);
     _dir = plan.dir;
+    _form.snap(plan.dir.growLeft, plan.dir.growUp);
     _panelSize.value = plan.size;
     if (_rect != area) {
       await _applyBounds(area);
@@ -388,6 +414,7 @@ class _StageHostState extends State<StageHost> {
     _settling = StageKind.orb;
     _grabArmed = false;
     _grabLive = false;
+    _regionAfterMotion = false;
     // 1. Grow-back animation on the still-open panel (the card shrinks
     //    into the socket disc, 11 号票).
     setState(() => _exiting = true);
@@ -692,30 +719,52 @@ class _StageHostState extends State<StageHost> {
     if (area != _rect) unawaited(_applyBounds(area));
     _setAnchor(anchor);
     // The threshold switch (跨阈重推): past the work-area center +48 the
-    // direction flips and the card re-pins around the ball at the new
-    // corner (the chrome re-derives discretely with it — the motion
-    // layer that smooths this is ticket 12). Inside the band the
-    // direction holds: the card only translates, socket concentric
-    // (未过中心只平移).
+    // direction flips and the quadrant motion layer carries the re-pin
+    // (12 号票) — the card SPRINGS around the ball to the new corner
+    // (size unchanged), the chrome re-deriving continuously from the
+    // same form values. The setState here only refreshes the discrete
+    // [_dir] consumers (resize handles, clamps); the card itself moves
+    // on the form's notifies. Inside the band the direction holds: the
+    // card only translates, socket concentric (未过中心只平移).
     final dir = rederiveDirection(_dir, anchor, area);
-    if (dir != _dir) setState(() => _dir = dir);
+    if (dir != _dir) {
+      setState(() => _dir = dir);
+      _form.retarget(growLeft: dir.growLeft, growUp: dir.growUp);
+    }
     c.noteGeometryLive(anchor: _anchor);
   }
 
   void _panelDragEnd() {
     if (!_grabArmed || c.stage == StageKind.orb) return;
     _grabArmed = false;
-    // Release: the hit region catches up to wherever the card ended —
+    // Release: the hit region catches up to wherever the card ends —
     // including a press that never armed (restores what the press
     // unclipped). Frozen during the gesture: the press holds capture
-    // (ADR 0017).
-    unawaited(_pushPanelRegion());
+    // (ADR 0017). A switch still springing DEFERS the push to landing:
+    // the region must never hug a rect the card is on its way out of.
+    if (_form.atRest) {
+      unawaited(_pushPanelRegion());
+    } else {
+      _regionAfterMotion = true;
+    }
     if (!_grabLive) return;
     _grabLive = false;
     // No quadrant snap (松手不吸附): the ball parks wherever it is, and
     // that is the anchor. The direction stays derived, never stored.
     c.noteGeometryDone(anchor: _anchor);
     unawaited(_primeGeometry()); // fresh areas for the next gesture
+  }
+
+  /// The form's settle watcher: a release that deferred its hit-region
+  /// push lands it now — the card has arrived at the rect the region
+  /// hugs. Panel already closed or a new gesture armed: the flag waits
+  /// for the next settle (the gesture's own release re-evaluates).
+  void _onFormSettled() {
+    if (!_form.atRest || !_regionAfterMotion) return;
+    _regionAfterMotion = false;
+    if (_displayed != StageKind.orb && !_grabArmed) {
+      unawaited(_pushPanelRegion());
+    }
   }
 
   // -- resize: the anchor corner never moves, the panel grows away ---------
@@ -879,21 +928,36 @@ class _StageHostState extends State<StageHost> {
             return ValueListenableBuilder<Offset>(
               valueListenable: _anchorLocalN,
               builder: (context, _, _) {
-                final view = constraints.biggest;
-                final size = panelSize ?? view;
-                // Without a stage window (pure-UI tests) the view IS the
-                // card, full-bleed at the derived corner.
-                final anchor = _rectKnown
-                    ? _anchorInView(view)
-                    : anchorOf(Offset.zero & view, _dir);
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Positioned.fromRect(
-                      rect: panelRectFor(anchor, size, _dir),
-                      child: slot!,
-                    ),
-                  ],
+                // The form's notifies drive the re-pin alone: the card
+                // translates around the ball while the panel Element
+                // itself stays put (the H3 rebuild tax — only the
+                // Positioned re-builds per tick).
+                return AnimatedBuilder(
+                  animation: _form,
+                  child: slot,
+                  builder: (context, slotChild) {
+                    final view = constraints.biggest;
+                    final size = panelSize ?? view;
+                    // Without a stage window (pure-UI tests) the view IS
+                    // the card, full-bleed at the derived corner.
+                    final anchor = _rectKnown
+                        ? _anchorInView(view)
+                        : anchorOf(Offset.zero & view, _dir);
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Positioned.fromRect(
+                          rect: panelRectAt(
+                            anchor,
+                            size,
+                            gl: _form.gl,
+                            gu: _form.gu,
+                          ),
+                          child: slotChild!,
+                        ),
+                      ],
+                    );
+                  },
                 );
               },
             );
@@ -961,13 +1025,13 @@ class _StageHostState extends State<StageHost> {
                           ? SessionPanel(
                               controller: c,
                               exiting: _exiting,
-                              dir: _dir,
+                              form: _form,
                             )
                           : QuickPanel(
                               controller: c,
                               exiting: _exiting,
                               onOpenSettings: widget.onOpenSettings,
-                              dir: _dir,
+                              form: _form,
                             ),
                     ),
                   ),
@@ -1021,6 +1085,165 @@ class _StageHostState extends State<StageHost> {
   }
 }
 
+/// The quadrant motion layer (12 号票, language by 02 / 08): the open
+/// panel's per-axis CONTINUOUS FORM VALUES, [gl]/[gu] ∈ [0,1].
+///
+/// 1 = the card's anchor edge sits `anchorInset` outward on that side
+/// (grows left / up from the ball); 0 = the opposite side; a mid-value
+/// is the switch's transit — the card keeps its SIZE and translates
+/// around the ball (the ball presses into the card interior, occluded
+/// topmost, the socket back to concentric at rest). The card rect and
+/// EVERY chrome obligation derive from these two doubles — one source,
+/// everything moves in step.
+///
+/// Each axis is one critically damped spring ([SrMotion.quadSpring*]):
+/// a threshold flip swaps only that axis's TARGET, carrying the current
+/// position and velocity into the new simulation — the clock never
+/// restarts (重定向只换目标、速度连续; a mid-flight re-cross retargets
+/// again, it never bounces). The ticker runs only while an axis is in
+/// flight and stops at rest.
+class PanelForm extends ChangeNotifier {
+  PanelForm(TickerProvider vsync) {
+    // Constructor body, not an initializer: the callback is an instance
+    // method tear-off.
+    _ticker = vsync.createTicker(_onTick);
+  }
+
+  late final Ticker _ticker;
+  static final SpringDescription _spring = SpringDescription.withDampingRatio(
+    mass: SrMotion.quadSpringMass,
+    stiffness: SrMotion.quadSpringStiffness,
+  );
+
+  double _gl = 1.0;
+  double _gu = 1.0;
+  _AxisSpring? _x;
+  _AxisSpring? _y;
+  Duration _lastTick = Duration.zero;
+
+  /// The current form values — card rect and chrome derivation read
+  /// these live (build 直读).
+  double get gl => _gl;
+  double get gu => _gu;
+
+  /// True while no axis is in flight — the settled state callers wait
+  /// on (e.g. the deferred hit-region push).
+  bool get atRest => _x == null && _y == null;
+
+  /// Set the form without animating: mount, expand, and resets land on
+  /// their corner directly — the grow choreography owns the entrance.
+  void snap(bool growLeft, bool growUp) {
+    _x = null;
+    _y = null;
+    _ticker.stop();
+    _lastTick = Duration.zero;
+    final gl = growLeft ? 1.0 : 0.0;
+    final gu = growUp ? 1.0 : 0.0;
+    if (_gl == gl && _gu == gu) return;
+    _gl = gl;
+    _gu = gu;
+    notifyListeners();
+  }
+
+  /// Spring toward the new corner: per axis, only a CHANGED target gets
+  /// a new simulation — seeded from the axis's current value and the
+  /// running spring's velocity (continuity; an idle axis starts at
+  /// rest). A target equal to the value at rest spawns nothing.
+  void retarget({required bool growLeft, required bool growUp}) {
+    _x = _retargetAxis(_x, _gl, growLeft);
+    _y = _retargetAxis(_y, _gu, growUp);
+    if (!atRest && !_ticker.isActive) {
+      _lastTick = Duration.zero;
+      _ticker.start();
+    }
+  }
+
+  _AxisSpring? _retargetAxis(_AxisSpring? axis, double value, bool one) {
+    final target = one ? 1.0 : 0.0;
+    if (axis != null && axis.target == target) return axis;
+    if (axis == null && value == target) return null;
+    final velocity = axis?.velocity ?? 0.0;
+    return _AxisSpring(
+      SpringSimulation(_spring, value, target, velocity),
+      target,
+    );
+  }
+
+  void _onTick(Duration elapsed) {
+    final dt = elapsed - _lastTick;
+    _lastTick = elapsed;
+    _gl = _advance(_x, _gl, dt);
+    _gu = _advance(_y, _gu, dt);
+    if (atRest) {
+      _ticker.stop();
+      _lastTick = Duration.zero;
+    }
+    notifyListeners();
+  }
+
+  double _advance(_AxisSpring? axis, double value, Duration dt) {
+    if (axis == null) return value;
+    axis.t += dt;
+    final t = axis.t.inMicroseconds / 1e6;
+    final x = axis.sim.x(t);
+    // Distance is the landing test (a sub-per-mil residue is invisible;
+    // Simulation.isDone also demands a 1e-3 VELOCITY, which a critical
+    // spring only reaches ~200ms past its visible settle — the snap
+    // would stall every caller waiting on [atRest]).
+    if ((x - axis.target).abs() > 0.001) return x;
+    // Landed: snap to the exact endpoint (chrome mounts key off exact
+    // 0/1) and retire the axis.
+    if (identical(axis, _x)) _x = null;
+    if (identical(axis, _y)) _y = null;
+    return axis.target;
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  // ---- chrome derivation (统一派生: both surfaces read these) ----------
+
+  /// The header row's orb-side reserve (56, the ring-bearing row): each
+  /// side carries the full width scaled by how much the orb sits on the
+  /// header row at all (1 − gu) and on that side (leading = 1 − gl).
+  /// The cluster between them TRANSLATES as the weights trade (整簇平移
+  /// 让位) — nothing disappears.
+  double headerReserve({required bool leading}) =>
+      SrGeometry.anchorHeaderReserve * (1 - gu) * (leading ? 1 - gl : gl);
+
+  /// The session footer's orb-side reserve (48, the bare ball core).
+  double footerReserve({required bool leading}) =>
+      SrGeometry.anchorInset * gu * (leading ? 1 - gl : gl);
+
+  /// The footer button group's horizontal alignment (−1 row start … +1
+  /// row end): right-aligned ONLY in the bottom-left form (upRight) —
+  /// everywhere else the group hugs the row start. A switch slides the
+  /// whole group across the row (整组横滑换对齐, 序不翻), passing under
+  /// the ball where the paths cross (the ball occludes).
+  double get footerAlignX => -1 + 2 * (1 - gl) * gu;
+
+  /// Body content's top padding: 12 under a bottom-anchored orb,
+  /// growing to 48 as the orb takes the header's edge (连续插值).
+  double get bodyTopPad =>
+      SrSpace.md + (SrGeometry.anchorInset - SrSpace.md) * (1 - gu);
+}
+
+/// One axis's flight: the running simulation, its target, and the time
+/// since it started (velocity is sampled from the simulation itself).
+class _AxisSpring {
+  _AxisSpring(this.sim, this.target);
+
+  final SpringSimulation sim;
+  final double target;
+  Duration t = Duration.zero;
+
+  double get value => sim.x(t.inMicroseconds / 1e6);
+  double get velocity => sim.dx(t.inMicroseconds / 1e6);
+}
+
 /// Grow-choreography constants (component values, not tokens — they only
 /// ever participate in this dance): the socket disc's side (窝圆 = 2×R,
 /// the growth's degenerate start), the ring-solid threshold (环先实 —
@@ -1033,23 +1256,26 @@ const _collapseSlack = Duration(milliseconds: 30);
 
 /// A panel body: the floating card that GROWS out of the socket disc
 /// around the orb and collapses back into it (11 号票, language by the
-/// 01 grilling + 07 prototype).
+/// 01 grilling + 07 prototype), pinned to the quadrant form (12 号票).
 ///
 /// Width and height lerp from the disc (2R, concentric with the ball —
 /// the anchor corner's arc stays pinned, radius constant) to the shared
-/// footprint; the chrome pins to the card's CURRENT edges — header to
-/// the visual top, the session footer to the visual bottom (头底不换,
-/// 四向同律), the body clipped to the remaining height. Opacity rides
-/// the SAME timeline, reaching 1 at 80% of the size progress (环先实 —
-/// never a fade-then-grow). The collapse plays the same-direction
-/// profile v = 1 − C(u) (大时快、近球时慢) as a FORWARD tween — never a
-/// `controller.reverse()`, which would replay the entrance backwards
-/// (hang large, slam the ball).
+/// footprint; the corner the growth pins is the form's CONTINUOUS
+/// blend — [PanelForm]'s per-axis values place the card so the disc
+/// stays concentric at every gl/gu (a quadrant flip mid-growth simply
+/// re-pins the blend). The chrome pins to the card's CURRENT edges —
+/// header to the visual top, the session footer to the visual bottom
+/// (头底不换, 四向同律), the body clipped to the remaining height. Opacity
+/// rides the SAME timeline, reaching 1 at 80% of the size progress
+/// (环先实 — never a fade-then-grow). The collapse plays the
+/// same-direction profile v = 1 − C(u) (大时快、近球时慢) as a FORWARD
+/// tween — never a `controller.reverse()`, which would replay the
+/// entrance backwards (hang large, slam the ball).
 class PanelBody extends StatefulWidget {
   const PanelBody({
     super.key,
     required this.exiting,
-    required this.dir,
+    required this.form,
     required this.header,
     required this.body,
     this.footer,
@@ -1059,9 +1285,10 @@ class PanelBody extends StatefulWidget {
   /// shrinking the window.
   final bool exiting;
 
-  /// Which corner the orb anchors: the disc pins that corner's arc
-  /// (concentric with the ball) and the card grows away from it.
-  final GrowthDirection dir;
+  /// The quadrant form: the card's anchor corner blends along the
+  /// per-axis values (1 = left/up), keeping the socket disc concentric
+  /// with the ball at every value of the growth AND the switch.
+  final PanelForm form;
 
   /// The pinned top band (the header row plus its divider): laid out at
   /// natural height at the card's current visual top.
@@ -1181,23 +1408,27 @@ class _PanelBodyState extends State<PanelBody>
     return LayoutBuilder(
       builder: (context, constraints) {
         return AnimatedBuilder(
-          animation: _ctrl,
+          // The grow timeline AND the quadrant form both repaint the
+          // card: a switch mid-growth re-pins the blend in step.
+          animation: Listenable.merge([_ctrl, widget.form]),
           builder: (context, _) {
             // The size progress: 0 = socket disc, 1 = shared footprint.
             final v = _vTween.transform(_ctrl.value);
             // The full painted card = the slot rect minus the card
             // margin on every side. The growth lerps from the disc
             // toward it PINNING THE ANCHOR CORNER: the socket arc
-            // stays concentric with the ball the whole way.
+            // stays concentric with the ball the whole way. The pinned
+            // corner blends along the form values (1 = left/up) — at
+            // the disc width the placement reduces to the anchor's
+            // in-slot position, so the disc is concentric at EVERY gl/
+            // gu, not just the four corners.
             final full = constraints.biggest;
             final maxW = full.width - SrGeometry.cardMargin * 2;
             final maxH = full.height - SrGeometry.cardMargin * 2;
             final w = _discSide + (maxW - _discSide) * v;
             final h = _discSide + (maxH - _discSide) * v;
-            final left =
-                SrGeometry.cardMargin + (widget.dir.growLeft ? maxW - w : 0);
-            final top =
-                SrGeometry.cardMargin + (widget.dir.growUp ? maxH - h : 0);
+            final left = SrGeometry.cardMargin + (maxW - w) * widget.form.gl;
+            final top = SrGeometry.cardMargin + (maxH - h) * widget.form.gu;
             return Stack(
               fit: StackFit.expand,
               children: [

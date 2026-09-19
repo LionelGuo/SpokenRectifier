@@ -1700,9 +1700,10 @@ void main() {
       WidgetTester tester, {
       required RecordingStageWindow window,
       required Directory dir,
+      FakeGateway? gateway,
     }) async {
       final controller = SpeechController(
-        gateway: FakeGateway(),
+        gateway: gateway ?? FakeGateway(),
         scriptedPhrases: const [],
         uiPrefsDirs: [dir.path],
       );
@@ -1938,9 +1939,10 @@ void main() {
       // Still upLeft: the card's bottom-right hugs the anchor.
       expect(tester.getRect(find.byType(QuickPanel)).right, 918 + 48);
 
-      // Past the threshold (960 − 48): the direction flips, the card
-      // re-pins around the ball at the new corner — the ball never
-      // moves (跨阈重推).
+      // Past the threshold (960 − 48): the direction flips and the
+      // quadrant motion layer carries the re-pin (12 号票) — the ball
+      // never moves (跨阈重推), the card SPRINGS around it to the new
+      // corner.
       screen = const Offset(900, 548);
       await g.moveBy(const Offset(-18, 0));
       await tester.pump();
@@ -1948,6 +1950,8 @@ void main() {
         tester.getRect(find.byType(OrbButton)).center,
         const Offset(900, 548),
       );
+      // The spring lands (critically damped, ≈340ms settle feel).
+      await tester.pump(const Duration(milliseconds: 600));
       // upRight now: the card's bottom-LEFT hugs the anchor.
       expect(tester.getRect(find.byType(QuickPanel)).left, 900 - 48);
       await g.up();
@@ -2028,6 +2032,10 @@ void main() {
       );
       await g.up();
       await tester.pump();
+      // The crossing re-derived the direction mid-gesture — the re-pin
+      // spring (12 号票) was still flying at the release, so the hit
+      // region lands with it, on the new corner.
+      await tester.pump(const Duration(milliseconds: 600));
       // Card re-pinned: anchor-side left edge, region in new-window
       // coords (screen 2452..2872 minus the 1920 origin).
       expect(window.regions.last, const Rect.fromLTRB(532, 56, 952, 596));
@@ -2305,6 +2313,199 @@ void main() {
         await controller.closeQuick();
         await tester.pump(const Duration(milliseconds: 700));
       }
+    });
+
+    // -- 12 号票: the quadrant motion layer ---------------------------------
+
+    group('quadrant motion layer', () {
+      /// Pumps the shell, opens the quick panel, and grabs the anchor
+      /// button (past-arming comes with the moves). Returns the
+      /// controller, the recording window, the gesture, and a screen-
+      /// cursor setter (the production drag path).
+      Future<
+        (
+          SpeechController,
+          RecordingStageWindow,
+          TestGesture,
+          void Function(Offset),
+        )
+      >
+      armedDrag(WidgetTester tester) async {
+        final window = RecordingStageWindow();
+        var screen = const Offset(1048, 548);
+        window.screenPointer = () => screen;
+        final dir = scratch();
+        final controller = await pumpGeometry(tester, window: window, dir: dir);
+        await pumpQuickOpen(tester, controller);
+        final g = await tester.startGesture(
+          tester.getCenter(find.byType(OrbButton)),
+        );
+        return (controller, window, g, (s) => screen = s);
+      }
+
+      testWidgets('a threshold flip springs the card around the ball', (
+        tester,
+      ) async {
+        final (controller, window, g, moveTo) = await armedDrag(tester);
+        final card0 = tester.getRect(find.byType(QuickPanel));
+        expect(card0, const Rect.fromLTRB(676, 56, 1096, 596));
+
+        // Past the center − 48: the flip fires. The ball parks on the
+        // pointer; the card is still at the OLD pin at this frame (the
+        // spring's clock starts here) and its SIZE never changes.
+        moveTo(const Offset(900, 548));
+        await g.moveBy(const Offset(-148, 0));
+        await tester.pump();
+        expect(
+          tester.getRect(find.byType(OrbButton)).center,
+          const Offset(900, 548),
+        );
+        final atFlip = tester.getRect(find.byType(QuickPanel));
+        expect(atFlip.size, card0.size);
+        expect(atFlip.left, closeTo(528, 1)); // the old pin, anchor-moved
+
+        // Mid-flight: strictly between the pins, still the same size.
+        await tester.pump(const Duration(milliseconds: 200));
+        final mid = tester.getRect(find.byType(QuickPanel));
+        expect(mid.size, card0.size);
+        expect(mid.left, inExclusiveRange(530, 850));
+
+        // Settled: the exact new pin, and the release region (the form
+        // was at rest) hugs it at once.
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(
+          tester.getRect(find.byType(QuickPanel)),
+          const Rect.fromLTRB(852, 56, 1272, 596),
+        );
+        await g.up();
+        await tester.pump();
+        expect(window.regions.last, const Rect.fromLTRB(852, 56, 1272, 596));
+        await controller.closeQuick();
+        await tester.pump(const Duration(milliseconds: 700));
+      });
+
+      testWidgets('a mid-flight re-cross retargets without a jump', (
+        tester,
+      ) async {
+        final (controller, window, g, moveTo) = await armedDrag(tester);
+
+        // Flip toward upRight, let the spring fly half-way, then cross
+        // BACK past the +48 band: the target flips again MID-FLIGHT.
+        moveTo(const Offset(900, 548));
+        await g.moveBy(const Offset(-148, 0));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 150));
+        final before = tester.getRect(find.byType(QuickPanel));
+        moveTo(const Offset(1048, 548));
+        await g.moveBy(const Offset(148, 0));
+        await tester.pump();
+        final after = tester.getRect(find.byType(QuickPanel));
+
+        // No jump in FORM space: the card's offset from the ball is
+        // continuous across the retarget (the 144px absolute move is
+        // the ball's own translation, carried by the card as always).
+        expect(after.left - 1048, closeTo(before.left - 900, 1));
+        expect(after.top - 548, closeTo(before.top - 548, 1));
+
+        // The re-engaged spring carries the card back toward the
+        // ORIGINAL pin and lands on it exactly.
+        await tester.pump(const Duration(milliseconds: 60));
+        expect(
+          tester.getRect(find.byType(QuickPanel)).left,
+          lessThan(after.left),
+        );
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(
+          tester.getRect(find.byType(QuickPanel)),
+          const Rect.fromLTRB(676, 56, 1096, 596),
+        );
+        await g.up();
+        await tester.pump();
+        expect(window.regions.last, const Rect.fromLTRB(676, 56, 1096, 596));
+        await controller.closeQuick();
+        await tester.pump(const Duration(milliseconds: 700));
+      });
+
+      testWidgets('a diagonal crossing moves both axes as one', (tester) async {
+        final (controller, _, g, moveTo) = await armedDrag(tester);
+
+        // One move crossing BOTH thresholds (x < 912, y < 492): both
+        // axes retarget in the same update and ride the SAME spring —
+        // 对角并合一记, never X-then-Y.
+        moveTo(const Offset(880, 480));
+        await g.moveBy(const Offset(-168, -68));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 180));
+
+        // Mid-flight: both axes strictly between their pins, at the
+        // SAME progress (a straight diagonal transit around the ball).
+        final mid = tester.getRect(find.byType(QuickPanel));
+        final px = (832 - mid.left) / 324; // target gl=0 lands left 832
+        final py = (432 - mid.top) / 444; // target gu=0 lands top 432
+        expect(px, inExclusiveRange(0.02, 0.98));
+        expect(py, inExclusiveRange(0.02, 0.98));
+        expect(px, closeTo(py, 0.02));
+
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(
+          tester.getRect(find.byType(QuickPanel)),
+          const Rect.fromLTRB(832, 432, 1252, 972),
+        );
+        await g.up();
+        await controller.closeQuick();
+        await tester.pump(const Duration(milliseconds: 700));
+      });
+
+      testWidgets('the chrome hands over without disappearing mid-switch', (
+        tester,
+      ) async {
+        final window = RecordingStageWindow();
+        var screen = const Offset(1048, 548);
+        window.screenPointer = () => screen;
+        final dir = scratch();
+        final gateway = FakeGateway();
+        final controller = await pumpGeometry(
+          tester,
+          window: window,
+          dir: dir,
+          gateway: gateway,
+        );
+        await pumpToPreview(tester, controller, gateway);
+
+        // Bottom-anchored at rest: no top fade yet.
+        expect(find.byKey(const Key('session-top-fade')), findsNothing);
+
+        // A pure VERTICAL flip (the x threshold is never crossed).
+        final g = await tester.startGesture(
+          tester.getCenter(find.byType(OrbButton)),
+        );
+        screen = const Offset(1048, 470);
+        await g.moveBy(const Offset(0, -78));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 180));
+
+        // Mid-switch everything stays MOUNTED: the header cluster, all
+        // three footer capsules, the footer band — and the fading-IN
+        // top fade rides the same window (opacity is the one legal
+        // handoff; controls never unmount).
+        expect(find.text('预览'), findsOneWidget);
+        for (final key in [
+          const Key('session-raw-toggle'),
+          const Key('session-reroll'),
+          const Key('session-cancel'),
+        ]) {
+          expect(find.byKey(key), findsOneWidget);
+        }
+        expect(find.byKey(const Key('panel-chrome-footer')), findsOneWidget);
+        expect(find.byKey(const Key('session-top-fade')), findsOneWidget);
+
+        // Settled top-anchored: the fade is the resident one now.
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(find.byKey(const Key('session-top-fade')), findsOneWidget);
+        await g.up();
+        await tester.pump();
+        await windDown(tester, controller);
+      });
     });
   });
 

@@ -227,6 +227,16 @@ abstract final class SrMotion {
   /// read as rushed against the non-linear growth.
   static const grow = Duration(milliseconds: 640);
 
+  /// The quadrant switch's spring (12 号票 / 08 prototype), one per
+  /// axis: critically damped (damping = 2√(mass·stiffness) ≈ 33.5),
+  /// a ≈340ms settle feel. The card's per-axis form value rides it; a
+  /// threshold flip swaps the TARGET mid-flight carrying position and
+  /// velocity — the clock never restarts (重定向只换目标、速度连续).
+  /// Kept apart from [grow]: the switch is a hand-following,
+  /// retargetable motion; the grow a fixed ceremonial timeline.
+  static const quadSpringMass = 1.0;
+  static const quadSpringStiffness = 280.0;
+
   /// Inserted / cancelled flash on the ball before it rests back to idle.
   static const feedback = Duration(milliseconds: 900);
 
