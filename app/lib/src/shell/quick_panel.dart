@@ -139,224 +139,225 @@ class _QuickPanelState extends State<QuickPanel> {
     return PanelBody(
       exiting: widget.exiting,
       dir: widget.dir,
-      child: Column(
+      // The pinned top band (钉边裁切): the header row plus its divider
+      // ride the card's current visual top as it grows out of the disc.
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           header,
           Divider(height: 1, thickness: 1, color: pal.hairline),
-          Expanded(
-            // Bottom corners clip to the card arc: scrolling content can
-            // never bleed past the rounded card (the window-bleed-zero
-            // principle, applied to the card's own edges).
-            child: ClipRRect(
-              borderRadius: BorderRadius.vertical(
-                bottom: Radius.circular(SrRadius.panel),
-              ),
-              child: Stack(
+        ],
+      ),
+      // No footer band: the list stretches to the card's current visual
+      // bottom and clips to the remaining height.
+      body: ClipRRect(
+        // Bottom corners clip to the card arc: scrolling content can
+        // never bleed past the rounded card (the window-bleed-zero
+        // principle, applied to the card's own edges).
+        borderRadius: BorderRadius.vertical(
+          bottom: Radius.circular(SrRadius.panel),
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: ListView(
+                // Straight-edge body content: contentInset. The
+                // leading/trailing anchor paddings pair with the
+                // fades below — at rest (or end-of-scroll) the first
+                // (last) row rests exactly at its fade's far edge,
+                // never inside the fade.
+                padding: EdgeInsets.fromLTRB(
+                  SrSpace.contentInset,
+                  widget.dir.growUp ? 12 : SrGeometry.anchorInset,
+                  SrSpace.contentInset,
+                  0,
+                ),
                 children: [
-                  Positioned.fill(
-                    child: ListView(
-                      // Straight-edge body content: contentInset. The
-                      // leading/trailing anchor paddings pair with the
-                      // fades below — at rest (or end-of-scroll) the first
-                      // (last) row rests exactly at its fade's far edge,
-                      // never inside the fade.
-                      padding: EdgeInsets.fromLTRB(
-                        SrSpace.contentInset,
-                        widget.dir.growUp ? 12 : SrGeometry.anchorInset,
-                        SrSpace.contentInset,
-                        0,
-                      ),
+                  // The scenario section stays with an empty library:
+                  // the picker row hides (a lone 默认 chip has nothing
+                  // to pick between) but the editor entry remains the
+                  // creation path into the settings window.
+                  _sectionLabel(pal, '场景'),
+                  // The global directive's preview row (ticket 22):
+                  // shown only while one is set — with an empty
+                  // library too, it is not a picker among scenarios.
+                  if (c.globalDirective != null) ...[
+                    _GlobalPreviewRow(
+                      directive: c.globalDirective!,
+                      onOpen: _openSettings,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (c.scenarios.isNotEmpty) ...[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        // The scenario section stays with an empty library:
-                        // the picker row hides (a lone 默认 chip has nothing
-                        // to pick between) but the editor entry remains the
-                        // creation path into the settings window.
-                        _sectionLabel(pal, '场景'),
-                        // The global directive's preview row (ticket 22):
-                        // shown only while one is set — with an empty
-                        // library too, it is not a picker among scenarios.
-                        if (c.globalDirective != null) ...[
-                          _GlobalPreviewRow(
-                            directive: c.globalDirective!,
-                            onOpen: _openSettings,
+                        _SelectableChip(
+                          key: const Key('quick-scenario-default'),
+                          label: '默认',
+                          selected: c.selectedScenario == null,
+                          onTap: () => c.selectScenario(null),
+                        ),
+                        for (final scenario in c.scenarios)
+                          _SelectableChip(
+                            key: Key('quick-scenario:${scenario.name}'),
+                            label: scenario.name,
+                            selected: c.selectedScenario == scenario.name,
+                            onTap: () => c.selectScenario(scenario.name),
                           ),
-                          const SizedBox(height: 8),
-                        ],
-                        if (c.scenarios.isNotEmpty) ...[
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _SelectableChip(
-                                key: const Key('quick-scenario-default'),
-                                label: '默认',
-                                selected: c.selectedScenario == null,
-                                onTap: () => c.selectScenario(null),
-                              ),
-                              for (final scenario in c.scenarios)
-                                _SelectableChip(
-                                  key: Key('quick-scenario:${scenario.name}'),
-                                  label: scenario.name,
-                                  selected: c.selectedScenario == scenario.name,
-                                  onTap: () => c.selectScenario(scenario.name),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        _EntryRow(
-                          key: const Key('quick-open-settings:scenarios'),
-                          label: '编辑场景',
-                          domain: SettingsDomain.scenarios,
-                          onOpen: _openSettings,
-                        ),
-                        const SizedBox(height: 20),
-                        _sectionLabel(pal, '术语'),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _TermField(
-                                controller: _termInput,
-                                onAdd: _addTerm,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _AddButton(onTap: () => _addTerm(_termInput.text)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        if (c.terms.isNotEmpty)
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              for (final term in c.terms)
-                                _TermChip(
-                                  label: term,
-                                  onRemoved: () => c.removeQuickTerm(term),
-                                ),
-                            ],
-                          ),
-                        const SizedBox(height: 20),
-                        _sectionLabel(pal, '历史'),
-                        if (c.recentHistory.isEmpty)
-                          Padding(
-                            key: const Key('quick-history-empty'),
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              '暂无历史记录',
-                              style: SrType.micro.copyWith(
-                                color: pal.textTertiary,
-                              ),
-                            ),
-                          )
-                        else
-                          for (final entry in c.recentHistory)
-                            _HistoryRow(
-                              entry: entry,
-                              scenarios: c.scenarios,
-                              onRerectify: c.rerectifyHistory,
-                            ),
-                        const SizedBox(height: 8),
-                        _EntryRow(
-                          key: const Key('quick-open-settings:history'),
-                          label: '全部历史与管理',
-                          domain: SettingsDomain.history,
-                          onOpen: _openSettings,
-                        ),
-                        const SizedBox(height: 20),
-                        _sectionLabel(pal, '输入'),
-                        _SwitchRow(
-                          icon: Icons.notes_rounded,
-                          label: '篇章模式',
-                          caption: '停顿仅分段，不结束会话',
-                          value: c.passageMode,
-                          onChanged: c.setPassageMode,
-                        ),
-                        const SizedBox(height: 20),
-                        _sectionLabel(pal, '外观'),
-                        _ThemeRow(controller: c),
-                        const SizedBox(height: 20),
-                        _sectionLabel(pal, '设置入口'),
-                        _EntryRow(
-                          key: const Key('quick-open-settings:general'),
-                          label: '打开设置',
-                          domain: SettingsDomain.general,
-                          onOpen: _openSettings,
-                        ),
-                        // Anchor zone clearance — only while the anchor
-                        // sits at the bottom edge (up-growth): the orb's
-                        // whole footprint rides this band. A top-anchored
-                        // orb's obligations live at the list's head (fade
-                        // + padding above), so the tail carries none.
-                        if (widget.dir.growUp)
-                          const SizedBox(height: SrGeometry.anchorInset * 2),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                  ],
+                  _EntryRow(
+                    key: const Key('quick-open-settings:scenarios'),
+                    label: '编辑场景',
+                    domain: SettingsDomain.scenarios,
+                    onOpen: _openSettings,
                   ),
-                  // The anchor-zone fades: surface-colored, fully opaque
-                  // at the card's anchor edge and transparent by the
-                  // matching clearance's far edge (bottom 96, top 48).
-                  // Content scrolling toward the ✕ dissolves into the
-                  // card instead of crowding the button; over the empty
-                  // surface beside short content it paints
-                  // surface-on-surface and is invisible. The orb sits
-                  // above (stage stack), so the ✕ stays crisp. Each edge
-                  // carries its fade only while the anchor sits on it.
+                  const SizedBox(height: 20),
+                  _sectionLabel(pal, '术语'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _TermField(
+                          controller: _termInput,
+                          onAdd: _addTerm,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _AddButton(onTap: () => _addTerm(_termInput.text)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (c.terms.isNotEmpty)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final term in c.terms)
+                          _TermChip(
+                            label: term,
+                            onRemoved: () => c.removeQuickTerm(term),
+                          ),
+                      ],
+                    ),
+                  const SizedBox(height: 20),
+                  _sectionLabel(pal, '历史'),
+                  if (c.recentHistory.isEmpty)
+                    Padding(
+                      key: const Key('quick-history-empty'),
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '暂无历史记录',
+                        style: SrType.micro.copyWith(color: pal.textTertiary),
+                      ),
+                    )
+                  else
+                    for (final entry in c.recentHistory)
+                      _HistoryRow(
+                        entry: entry,
+                        scenarios: c.scenarios,
+                        onRerectify: c.rerectifyHistory,
+                      ),
+                  const SizedBox(height: 8),
+                  _EntryRow(
+                    key: const Key('quick-open-settings:history'),
+                    label: '全部历史与管理',
+                    domain: SettingsDomain.history,
+                    onOpen: _openSettings,
+                  ),
+                  const SizedBox(height: 20),
+                  _sectionLabel(pal, '输入'),
+                  _SwitchRow(
+                    icon: Icons.notes_rounded,
+                    label: '篇章模式',
+                    caption: '停顿仅分段，不结束会话',
+                    value: c.passageMode,
+                    onChanged: c.setPassageMode,
+                  ),
+                  const SizedBox(height: 20),
+                  _sectionLabel(pal, '外观'),
+                  _ThemeRow(controller: c),
+                  const SizedBox(height: 20),
+                  _sectionLabel(pal, '设置入口'),
+                  _EntryRow(
+                    key: const Key('quick-open-settings:general'),
+                    label: '打开设置',
+                    domain: SettingsDomain.general,
+                    onOpen: _openSettings,
+                  ),
+                  // Anchor zone clearance — only while the anchor
+                  // sits at the bottom edge (up-growth): the orb's
+                  // whole footprint rides this band. A top-anchored
+                  // orb's obligations live at the list's head (fade
+                  // + padding above), so the tail carries none.
                   if (widget.dir.growUp)
-                    Positioned(
-                      key: const Key('quick-bottom-fade'),
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      height: SrGeometry.anchorInset * 2,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [
-                                pal.surface,
-                                pal.surface,
-                                pal.surface.withValues(alpha: 0),
-                              ],
-                              stops: const [0.0, 0.25, 1.0],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (!widget.dir.growUp)
-                    Positioned(
-                      key: const Key('quick-top-fade'),
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      height: SrGeometry.anchorInset,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                pal.surface,
-                                pal.surface,
-                                pal.surface.withValues(alpha: 0),
-                              ],
-                              stops: const [0.0, 0.25, 1.0],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                    const SizedBox(height: SrGeometry.anchorInset * 2),
                 ],
               ),
             ),
-          ),
-        ],
+            // The anchor-zone fades: surface-colored, fully opaque
+            // at the card's anchor edge and transparent by the
+            // matching clearance's far edge (bottom 96, top 48).
+            // Content scrolling toward the ✕ dissolves into the
+            // card instead of crowding the button; over the empty
+            // surface beside short content it paints
+            // surface-on-surface and is invisible. The orb sits
+            // above (stage stack), so the ✕ stays crisp. Each edge
+            // carries its fade only while the anchor sits on it.
+            if (widget.dir.growUp)
+              Positioned(
+                key: const Key('quick-bottom-fade'),
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: SrGeometry.anchorInset * 2,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          pal.surface,
+                          pal.surface,
+                          pal.surface.withValues(alpha: 0),
+                        ],
+                        stops: const [0.0, 0.25, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (!widget.dir.growUp)
+              Positioned(
+                key: const Key('quick-top-fade'),
+                left: 0,
+                right: 0,
+                top: 0,
+                height: SrGeometry.anchorInset,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          pal.surface,
+                          pal.surface,
+                          pal.surface.withValues(alpha: 0),
+                        ],
+                        stops: const [0.0, 0.25, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

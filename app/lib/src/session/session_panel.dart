@@ -185,16 +185,29 @@ class _SessionPanelState extends State<SessionPanel> {
     return PanelBody(
       exiting: widget.exiting,
       dir: widget.dir,
-      child: Column(
+      // The pinned top band (钉边裁切): the header row plus its divider
+      // ride the card's current visual top as it grows out of the disc.
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           header,
           Divider(height: 1, thickness: 1, color: pal.hairline),
-          Expanded(child: _textArea(context, pal)),
-          _transcriptSection(context, pal),
-          _footer(context, pal),
         ],
       ),
+      // The middle: whatever height is left between the bands, clipped
+      // to it while the card is still growing. The transcript block is
+      // loose-flexible (and flexible inside) so the exit cramp clips it
+      // instead of reporting an overflow.
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: _textArea(context, pal)),
+          Flexible(fit: FlexFit.loose, child: _transcriptSection(context, pal)),
+        ],
+      ),
+      // The pinned bottom band: rides the card's current visual bottom.
+      footer: _footer(context, pal),
     );
   }
 
@@ -398,11 +411,15 @@ class _SessionPanelState extends State<SessionPanel> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    '原始转写',
-                    style: SrType.micro.copyWith(color: pal.textTertiary),
+                  // All-flexible so the exit cramp (the card shrinking
+                  // under the open block) clips instead of overflowing.
+                  Flexible(
+                    child: Text(
+                      '原始转写',
+                      style: SrType.micro.copyWith(color: pal.textTertiary),
+                    ),
                   ),
-                  const SizedBox(height: SrSpace.xs),
+                  const Flexible(child: SizedBox(height: SrSpace.xs)),
                   Flexible(
                     child: SingleChildScrollView(
                       child: Text(

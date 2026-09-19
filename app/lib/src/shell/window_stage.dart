@@ -5,16 +5,19 @@
 /// - Expand: the window bounds jump to the WHOLE WORK AREA holding the
 ///   anchor in ONE atomic setBounds call. The card is a rect INSIDE that
 ///   window (anchor position + growth direction + clamped size derive
-///   it); the panel body then fades/rises in around the orb over
-///   ~240ms. The jump still pins the anchor — the orb is pixel-station.
+///   it); the card then GROWS out of the socket disc around the orb
+///   (11 号票: width and height along a constant radius, chrome pinned
+///   to the moving edges) over [SrMotion.grow]. The jump still pins the
+///   anchor — the orb is pixel-station.
 /// - Panel period: dragging the anchor button moves ONLY window-internal
 ///   layout (card + chrome follow the ball; the HWND never moves except
 ///   a monitor crossing, one atomic jump). Crossing the work-area
 ///   center +48 re-derives the growth direction (跨阈重推); the growth
 ///   ceiling is the CARD's size cap (half the work area), not the HWND.
-/// - Collapse: the panel body sinks/fades out (~150ms), THEN the window
-///   shrinks back to the orb footprint — the jump lands on an empty
-///   window and is invisible.
+/// - Collapse: the card shrinks back into the socket disc
+///   ([SrMotion.grow], the same-direction profile — never a reversed
+///   playback), THEN the window shrinks back to the orb footprint — the
+///   jump lands on an empty window and is invisible.
 ///
 /// The orb button never leaves the widget tree while any stage is open:
 /// it is the one continuous element (编舞铁律), morphing glyphs/roles in
@@ -385,9 +388,10 @@ class _StageHostState extends State<StageHost> {
     _settling = StageKind.orb;
     _grabArmed = false;
     _grabLive = false;
-    // 1. Body exit animation on the still-open panel.
+    // 1. Grow-back animation on the still-open panel (the card shrinks
+    //    into the socket disc, 11 号票).
     setState(() => _exiting = true);
-    await Future<void>.delayed(SrMotion.exit + _collapseSlack);
+    await Future<void>.delayed(SrMotion.grow + _collapseSlack);
     if (!mounted || seq != _seq) return;
     // 2. Shrink the (now visually empty) window back to the orb
     // footprint — centered on wherever the ball ended up (the anchor
@@ -1017,60 +1021,152 @@ class _StageHostState extends State<StageHost> {
   }
 }
 
-/// Panel-body entrance numbers (component constants, not tokens): the
-/// rise distance and starting scale of the entrance transform, plus the
-/// scheduling slack that lets the exit animation finish landing before
-/// the window shrinks under it.
-const _entranceRise = 18.0;
-const _entranceScaleFrom = 0.94;
+/// Grow-choreography constants (component values, not tokens — they only
+/// ever participate in this dance): the socket disc's side (窝圆 = 2×R,
+/// the growth's degenerate start), the ring-solid threshold (环先实 —
+/// opacity reaches 1 at 80% of the size progress), and the scheduling
+/// slack that lets the grow-back finish landing before the window
+/// shrinks under it.
+const _discSide = SrRadius.panel * 2;
+const _ringSolidAt = 0.8;
 const _collapseSlack = Duration(milliseconds: 30);
 
-/// A panel body: the floating card that fades/rises in from the anchor on
-/// entrance and sinks/fades on exit. The card reserves the anchor corner
-/// (per [dir]) so the orb button overlaps it cleanly.
+/// A panel body: the floating card that GROWS out of the socket disc
+/// around the orb and collapses back into it (11 号票, language by the
+/// 01 grilling + 07 prototype).
+///
+/// Width and height lerp from the disc (2R, concentric with the ball —
+/// the anchor corner's arc stays pinned, radius constant) to the shared
+/// footprint; the chrome pins to the card's CURRENT edges — header to
+/// the visual top, the session footer to the visual bottom (头底不换,
+/// 四向同律), the body clipped to the remaining height. Opacity rides
+/// the SAME timeline, reaching 1 at 80% of the size progress (环先实 —
+/// never a fade-then-grow). The collapse plays the same-direction
+/// profile v = 1 − C(u) (大时快、近球时慢) as a FORWARD tween — never a
+/// `controller.reverse()`, which would replay the entrance backwards
+/// (hang large, slam the ball).
 class PanelBody extends StatefulWidget {
   const PanelBody({
     super.key,
     required this.exiting,
     required this.dir,
-    required this.child,
+    required this.header,
+    required this.body,
+    this.footer,
   });
 
-  /// True while the stage host plays the exit animation before shrinking
-  /// the window.
+  /// True while the stage host plays the grow-back animation before
+  /// shrinking the window.
   final bool exiting;
 
-  /// Which corner the orb anchors: the entrance rises out of it and the
-  /// starting scale is centered on it, whatever direction the panel
-  /// grew in.
+  /// Which corner the orb anchors: the disc pins that corner's arc
+  /// (concentric with the ball) and the card grows away from it.
   final GrowthDirection dir;
 
-  final Widget child;
+  /// The pinned top band (the header row plus its divider): laid out at
+  /// natural height at the card's current visual top.
+  final Widget header;
+
+  /// The middle: forced into the height left between the bands and
+  /// clipped to it; stretches to the card's bottom when there is no
+  /// footer (the quick panel).
+  final Widget body;
+
+  /// The session window's footer band: pinned to the card's current
+  /// visual bottom. Null for the quick panel.
+  final Widget? footer;
 
   @override
   State<PanelBody> createState() => _PanelBodyState();
+}
+
+/// The pinned-chrome layout (钉边裁切): header at the card's current
+/// top, footer at its current bottom, the body tight between them —
+/// everything beyond the card paints clipped by the card's rounded
+/// clip. Bands and body lay out at the chrome width floor while the
+/// card is narrower (mid-growth), so no row ever reports an overflow;
+/// the surplus just paints clipped, exactly the way the prototype's
+/// `overflow: hidden` behaved.
+class _PinnedChromeLayout extends MultiChildLayoutDelegate {
+  _PinnedChromeLayout();
+
+  static const _header = 'header';
+  static const _body = 'body';
+  static const _footer = 'footer';
+
+  @override
+  void performLayout(Size size) {
+    final width = size.width < SrGeometry.panelMinSize.width
+        ? SrGeometry.panelMinSize.width
+        : size.width;
+    final headerH = layoutChild(
+      _header,
+      BoxConstraints.tightFor(width: width),
+    ).height;
+    positionChild(_header, Offset.zero);
+    final hasFooter = hasChild(_footer);
+    final footerH = hasFooter
+        ? layoutChild(_footer, BoxConstraints.tightFor(width: width)).height
+        : 0.0;
+    if (hasFooter) {
+      positionChild(_footer, Offset(0, size.height - footerH));
+    }
+    final bottom = hasFooter ? size.height - footerH : size.height;
+    layoutChild(
+      _body,
+      BoxConstraints.tight(Size(width, (bottom - headerH).clamp(0.0, 9e9))),
+    );
+    positionChild(_body, Offset(0, headerH));
+  }
+
+  @override
+  bool shouldRelayout(_PinnedChromeLayout oldDelegate) => false;
 }
 
 class _PanelBodyState extends State<PanelBody>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
 
+  /// The size-progress tween for the CURRENT phase (grow or collapse),
+  /// rebuilt on every phase flip with the running v as its begin — an
+  /// interrupted phase continues from where it is instead of jumping.
+  Animatable<double> _vTween = Tween<double>(
+    begin: 0,
+    end: 1,
+  ).chain(CurveTween(curve: SrMotion.curveEmphasized));
+
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: SrMotion.enter,
-      reverseDuration: SrMotion.exit,
-    )..forward();
+    _ctrl = AnimationController(vsync: this, duration: SrMotion.grow)
+      ..forward();
   }
 
   @override
   void didUpdateWidget(PanelBody old) {
     super.didUpdateWidget(old);
-    if (widget.exiting && !old.exiting) {
-      _ctrl.reverse();
-    }
+    if (widget.exiting == old.exiting) return;
+    _retarget(growing: !widget.exiting);
+    _ctrl.forward(from: 0);
+  }
+
+  /// Swap the phase, keeping v continuous: the new tween starts from
+  /// the v the old one is currently showing.
+  void _retarget({required bool growing}) {
+    final v0 = _vTween.transform(_ctrl.value);
+    // Both phases ride the SAME emphasized curve; the collapse only
+    // swaps the tween's ends — v = v0·(1 − C(u)), the same-direction
+    // profile. (Chaining an inverted curve onto a v0→0 tween would
+    // evaluate v0·C(u): the card would never shrink.)
+    _vTween = growing
+        ? Tween<double>(
+            begin: v0,
+            end: 1,
+          ).chain(CurveTween(curve: SrMotion.curveEmphasized))
+        : Tween<double>(
+            begin: v0,
+            end: 0,
+          ).chain(CurveTween(curve: SrMotion.curveEmphasized));
   }
 
   @override
@@ -1082,50 +1178,86 @@ class _PanelBodyState extends State<PanelBody>
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    final curved = CurvedAnimation(
-      parent: _ctrl,
-      curve: SrMotion.curveEnter,
-      reverseCurve: SrMotion.curveExit,
-    );
-    return AnimatedBuilder(
-      animation: curved,
-      builder: (context, _) => Opacity(
-        opacity: curved.value,
-        child: Transform.translate(
-          // Rises out of the anchor corner; sinks back on exit. The rise
-          // points at the anchor: up-growth rises from below it, down-
-          // growth drops in from above it.
-          offset: Offset(
-            0,
-            (1 - curved.value) * _entranceRise * (widget.dir.growUp ? 1 : -1),
-          ),
-          child: Transform.scale(
-            // Grows from the anchor corner (where the orb sits).
-            alignment: switch (widget.dir) {
-              GrowthDirection.upLeft => Alignment.bottomRight,
-              GrowthDirection.upRight => Alignment.bottomLeft,
-              GrowthDirection.downLeft => Alignment.topRight,
-              GrowthDirection.downRight => Alignment.topLeft,
-            },
-            scale: _entranceScaleFrom + (1 - _entranceScaleFrom) * curved.value,
-            child: Container(
-              margin: const EdgeInsets.all(SrGeometry.cardMargin),
-              decoration: BoxDecoration(
-                // Solid surfaces by design (materials spike: no acrylic
-                // bet — spec §6).
-                color: pal.surface,
-                borderRadius: BorderRadius.circular(SrRadius.panel),
-                border: Border.all(color: pal.hairline),
-                // No drop shadow: the card sits 8px inside the window, so
-                // any blur is sliced by the window rectangle and reads as
-                // a dark box fringe. The window itself is the floating
-                // surface; the hairline border carries the edge.
-              ),
-              child: widget.child,
-            ),
-          ),
-        ),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return AnimatedBuilder(
+          animation: _ctrl,
+          builder: (context, _) {
+            // The size progress: 0 = socket disc, 1 = shared footprint.
+            final v = _vTween.transform(_ctrl.value);
+            // The full painted card = the slot rect minus the card
+            // margin on every side. The growth lerps from the disc
+            // toward it PINNING THE ANCHOR CORNER: the socket arc
+            // stays concentric with the ball the whole way.
+            final full = constraints.biggest;
+            final maxW = full.width - SrGeometry.cardMargin * 2;
+            final maxH = full.height - SrGeometry.cardMargin * 2;
+            final w = _discSide + (maxW - _discSide) * v;
+            final h = _discSide + (maxH - _discSide) * v;
+            final left =
+                SrGeometry.cardMargin + (widget.dir.growLeft ? maxW - w : 0);
+            final top =
+                SrGeometry.cardMargin + (widget.dir.growUp ? maxH - h : 0);
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned.fromRect(
+                  rect: Rect.fromLTWH(left, top, w, h),
+                  child: Opacity(
+                    key: const Key('panel-card-ink'),
+                    // The fade rides the growth's own timeline: the
+                    // ring around the ball is solid by 80% of the size
+                    // progress — never a fade-then-grow (环先实).
+                    opacity: (v / _ringSolidAt).clamp(0.0, 1.0),
+                    child: DecoratedBox(
+                      key: const Key('panel-card'),
+                      decoration: BoxDecoration(
+                        // Solid surfaces by design (materials spike: no
+                        // acrylic bet — spec §6).
+                        color: pal.surface,
+                        borderRadius: BorderRadius.circular(SrRadius.panel),
+                        border: Border.all(color: pal.hairline),
+                        // No drop shadow: the card sits inside the
+                        // window, so any blur is sliced by the window
+                        // rectangle and reads as a dark box fringe. The
+                        // window itself is the floating surface; the
+                        // hairline border carries the edge.
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(SrRadius.panel),
+                        child: CustomMultiChildLayout(
+                          delegate: _PinnedChromeLayout(),
+                          children: [
+                            LayoutId(
+                              id: _PinnedChromeLayout._header,
+                              child: KeyedSubtree(
+                                key: const Key('panel-chrome-header'),
+                                child: widget.header,
+                              ),
+                            ),
+                            LayoutId(
+                              id: _PinnedChromeLayout._body,
+                              child: widget.body,
+                            ),
+                            if (widget.footer != null)
+                              LayoutId(
+                                id: _PinnedChromeLayout._footer,
+                                child: KeyedSubtree(
+                                  key: const Key('panel-chrome-footer'),
+                                  child: widget.footer!,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -157,18 +157,23 @@ Future<void> pumpToRecording(
   SpeechController controller,
 ) async {
   await controller.startSession();
-  await tester.pump(const Duration(milliseconds: 350));
+  // Past the grow choreography (SrMotion.grow): the panel mounts on
+  // the FIRST frame (its controller's clock starts at zero there), so
+  // the clock must advance on a SECOND frame before interactions can
+  // tap the card at rest.
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 700));
 }
 
 /// Ends whatever session is running and pumps past every trailing span
-/// (mic breath, collapse choreography, the 900 ms receipt flash) so the
-/// test closes with zero pending timers — the test framework checks
-/// invariants before teardown disposals.
+/// (mic breath, the 670 ms collapse choreography, the 900 ms receipt
+/// flash) so the test closes with zero pending timers — the test
+/// framework checks invariants before teardown disposals.
 Future<void> windDown(WidgetTester tester, SpeechController controller) async {
   if (controller.phase != BridgeSessionState.idle) {
     await controller.cancelSession();
   }
-  await tester.pump(const Duration(milliseconds: 1200));
+  await tester.pump(const Duration(milliseconds: 1700));
 }
 
 Future<void> pumpToPreview(
@@ -392,12 +397,12 @@ void main() {
 
     // The hotkey (the table's primary) confirms what is on screen.
     await controller.hotkeyToggle();
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 700));
 
     expect(gateway.commands, contains('confirmInsert'));
     expect(controller.phase, BridgeSessionState.idle);
 
-    // Collapse: after the exit animation the window shrank back to the
+    // Collapse: after the grow-back the window shrank back to the
     // orb footprint at the same pinned corner.
     expect(window.bounds.last, const Rect.fromLTRB(1000, 500, 1096, 596));
     expect(window.bounds.last.size, SrGeometry.orbFootprint);
@@ -920,7 +925,8 @@ void main() {
         find.byIcon(Icons.mic_none_rounded),
         buttons: kSecondaryButton,
       );
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
 
       expect(controller.stage, StageKind.quick);
       expect(find.text('快捷设置'), findsOneWidget);
@@ -954,7 +960,7 @@ void main() {
       // The orb-as-close collapses back to the orb footprint — and hands
       // the keyboard back to the remembered target (挂账 from ticket 15).
       await tester.tap(find.byIcon(Icons.close));
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
       expect(controller.stage, StageKind.orb);
       expect(window.bounds.last.size, SrGeometry.orbFootprint);
       expect(gateway.commands, contains('restoreFocus'));
@@ -970,7 +976,7 @@ void main() {
     controller.orbSecondary();
     await tester.pump(const Duration(milliseconds: 350));
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 700));
 
     expect(controller.stage, StageKind.orb);
     expect(gateway.commands, isNot(contains('cancelSession')));
@@ -996,7 +1002,8 @@ void main() {
       find.byIcon(Icons.mic_none_rounded),
       buttons: kSecondaryButton,
     );
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
     await tester.tap(find.byKey(const Key('quick-open-settings:scenarios')));
     await tester.tap(find.byKey(const Key('quick-open-settings:history')));
     await tester.tap(find.byKey(const Key('quick-open-settings:general')));
@@ -1031,11 +1038,14 @@ void main() {
 
   // -- the quick panel's sections (ticket 16) -------------------------------
 
-  /// Opens the quick panel and lets the refreshed lists land.
+  /// Opens the quick panel and lets the refreshed lists land — past the
+  /// grow choreography (SrMotion.grow) so hovers and taps hit the card
+  /// at rest (the panel mounts on the first frame; the clock advances
+  /// on the second, so 700ms there completes the 640ms growth).
   Future<void> pumpQuickOpen(WidgetTester tester, SpeechController c) async {
     c.orbSecondary();
     await tester.pump(const Duration(milliseconds: 350));
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 700));
   }
 
   /// Hovers the mouse over `finder` and lets the hover fades land (the
@@ -1483,7 +1493,7 @@ void main() {
       expect(
         find.byWidgetPredicate(
           (w) =>
-              w is Container &&
+              w is DecoratedBox &&
               w.decoration is BoxDecoration &&
               (w.decoration as BoxDecoration).color == SrPalette.dark.surface,
         ),
@@ -1547,7 +1557,7 @@ void main() {
       expect(
         find.byWidgetPredicate(
           (w) =>
-              w is Container &&
+              w is DecoratedBox &&
               w.decoration is BoxDecoration &&
               (w.decoration as BoxDecoration).color == SrPalette.dark.surface,
         ),
@@ -1568,7 +1578,7 @@ void main() {
       expect(
         find.byWidgetPredicate(
           (w) =>
-              w is Container &&
+              w is DecoratedBox &&
               w.decoration is BoxDecoration &&
               (w.decoration as BoxDecoration).color == SrPalette.light.surface,
         ),
@@ -1895,7 +1905,7 @@ void main() {
       );
       // Closing collapses onto the moved anchor.
       controller.closeQuick();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
       expect(window.position, const Offset(1050, 550));
       expect(window.size, SrGeometry.orbFootprint);
     });
@@ -1921,7 +1931,10 @@ void main() {
       screen = const Offset(918, 548);
       await g.moveBy(const Offset(-130, 0));
       await tester.pump();
-      expect(tester.getRect(find.byType(OrbButton)).center, const Offset(918, 548));
+      expect(
+        tester.getRect(find.byType(OrbButton)).center,
+        const Offset(918, 548),
+      );
       // Still upLeft: the card's bottom-right hugs the anchor.
       expect(tester.getRect(find.byType(QuickPanel)).right, 918 + 48);
 
@@ -1946,7 +1959,7 @@ void main() {
         contains('orb_position = [900, 548]'),
       );
       await controller.closeQuick();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
     });
 
     testWidgets('a sub-threshold release on the anchor stays a click', (
@@ -1966,7 +1979,7 @@ void main() {
       );
       await g.moveBy(const Offset(4, 3));
       await g.up();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
 
       expect(controller.stage, StageKind.orb);
       // Nothing moved the window: the only bounds calls are the expand
@@ -2023,7 +2036,7 @@ void main() {
         contains('orb_position = [2500, 548]'),
       );
       await controller.closeQuick();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
     });
 
     testWidgets('the anchor drags in every session phase (rectifying too)', (
@@ -2097,13 +2110,13 @@ void main() {
       );
       // The shared footprint: the next open (after a close) keeps it.
       controller.closeQuick();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
       controller.orbSecondary();
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pump(const Duration(milliseconds: 350));
       expect(window.regions.last, const Rect.fromLTRB(616, 56, 1096, 596));
       await controller.closeQuick();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
     });
 
     testWidgets('the resize floor holds: shrinking stops at 360x440', (
@@ -2129,7 +2142,7 @@ void main() {
       expect(controller.panelFootprint, const Size(360, 440));
       expect(window.regions.last, const Rect.fromLTRB(736, 156, 1096, 596));
       await controller.closeQuick();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
     });
 
     testWidgets(
@@ -2170,7 +2183,7 @@ void main() {
         // The hit-through region caught up to the final slot.
         expect(window.regions.last, Rect.fromLTRB(586, 56, 1096, 596));
         await controller.closeQuick();
-        await tester.pump(const Duration(milliseconds: 350));
+        await tester.pump(const Duration(milliseconds: 700));
         // Back to the orb: whole-window hit testing again.
         expect(window.regions.last, isNull);
       },
@@ -2209,7 +2222,7 @@ void main() {
       await tester.pump();
       expect(identical(tester.widget(find.byType(QuickPanel)), before), isTrue);
       await controller.closeQuick();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
     });
 
     testWidgets('a resize during a session does not rebuild SessionPanel', (
@@ -2251,54 +2264,235 @@ void main() {
       for (final (anchor, expectCard, orbAtTop) in [
         // Bottom-right anchor (default): grows up-left, orb at the
         // card's bottom-right corner.
-        (
-          Offset(1824, 984),
-          Rect.fromLTRB(1452, 492, 1872, 1032),
-          false,
-        ),
+        (Offset(1824, 984), Rect.fromLTRB(1452, 492, 1872, 1032), false),
         // Bottom-left: grows up-right.
-        (
-          Offset(48, 984),
-          Rect.fromLTRB(0, 492, 420, 1032),
-          false,
-        ),
+        (Offset(48, 984), Rect.fromLTRB(0, 492, 420, 1032), false),
         // Top-left: grows down-right, orb at the card's top-left.
-        (
-          Offset(48, 48),
-          Rect.fromLTRB(0, 0, 420, 540),
-          true,
-        ),
+        (Offset(48, 48), Rect.fromLTRB(0, 0, 420, 540), true),
         // Top-right: grows down-left.
-        (
-          Offset(1824, 48),
-          Rect.fromLTRB(1452, 0, 1872, 540),
-          true,
-        ),
+        (Offset(1824, 48), Rect.fromLTRB(1452, 0, 1872, 540), true),
       ]) {
         final window = RecordingStageWindow(anchor - const Offset(48, 48));
         final dir = scratch();
         final controller = await pumpGeometry(tester, window: window, dir: dir);
         await pumpQuickOpen(tester, controller);
 
-        expect(window.bounds.last, const Rect.fromLTRB(0, 0, 1920, 1080),
-            reason: 'anchor at $anchor');
+        expect(
+          window.bounds.last,
+          const Rect.fromLTRB(0, 0, 1920, 1080),
+          reason: 'anchor at $anchor',
+        );
         // The card grew away from the ball: its anchor corner hugs the
         // orb, its size is the shared footprint (420x540 at this cap).
-        expect(tester.getRect(find.byType(QuickPanel)), expectCard,
-            reason: 'anchor at $anchor');
+        expect(
+          tester.getRect(find.byType(QuickPanel)),
+          expectCard,
+          reason: 'anchor at $anchor',
+        );
         // The orb lands exactly on the anchor, mid-window — top row
         // only for the two top anchors.
         final orbTopLeft = tester.getTopLeft(find.byType(OrbButton));
-        expect(orbTopLeft, anchor - const Offset(48, 48),
-            reason: 'anchor at $anchor');
+        expect(
+          orbTopLeft,
+          anchor - const Offset(48, 48),
+          reason: 'anchor at $anchor',
+        );
         expect(
           orbTopLeft.dy,
           orbAtTop ? lessThan(96) : greaterThan(900),
           reason: 'anchor at $anchor',
         );
         await controller.closeQuick();
-        await tester.pump(const Duration(milliseconds: 350));
+        await tester.pump(const Duration(milliseconds: 700));
       }
+    });
+  });
+
+  // -- 11 号票: the grow choreography (窝圆 → footprint) ----------------------
+
+  group('grow choreography', () {
+    /// Opens the session window and lands the timeline at [elapsed] of
+    /// the grow: the panel mounts on the first (zero-length) frame, the
+    /// controller's clock advances on the second. [elapsed] of null
+    /// leaves the card at the disc.
+    Future<SpeechController> pumpGrowing(
+      WidgetTester tester,
+      RecordingStageWindow window, {
+      Duration? elapsed,
+    }) async {
+      final controller = await pumpController(
+        tester,
+        FakeGateway(),
+        stageWindow: window,
+      );
+      await controller.startSession();
+      await tester.pump(); // mount at v = 0 (the socket disc)
+      if (elapsed != null) await tester.pump(elapsed);
+      return controller;
+    }
+
+    /// The emphasized curve the choreography rides (07 号票: v = C(u)).
+    double curveAt(double u) => Curves.easeInOutCubicEmphasized.transform(u);
+
+    /// The card size at size-progress [v] for the 420x540 slot (the
+    /// 1080p half-cap): painted spans 404x524 at rest.
+    Size cardAt(double v) => Size(80 + 324 * v, 80 + 444 * v);
+
+    /// Size equality with a tolerance — the widget's chained-tween
+    /// arithmetic can land ULPs off the test's closed-form numbers.
+    void expectCardSize(Size actual, Size expected) {
+      expect(actual.width, closeTo(expected.width, 0.01));
+      expect(actual.height, closeTo(expected.height, 0.01));
+    }
+
+    testWidgets('the card grows out of the socket disc along the curve', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final controller = await pumpGrowing(tester, window);
+      final card = find.byKey(const Key('panel-card'));
+      double ink() => tester
+          .widget<Opacity>(find.byKey(const Key('panel-card-ink')))
+          .opacity;
+
+      // The socket disc: side 2R (80), concentric with the ball — the
+      // degenerate start of the growth. Opacity rides the SAME
+      // timeline (环先实: solid by 80% of the size progress).
+      expect(tester.getSize(card), const Size(80, 80));
+      expect(ink(), 0);
+
+      // Early on (u = 0.2) the fade is still riding v / 0.8.
+      await tester.pump(const Duration(milliseconds: 128));
+      expectCardSize(tester.getSize(card), cardAt(curveAt(0.2)));
+      expect(ink(), closeTo(curveAt(0.2) / 0.8, 0.001));
+
+      // Halfway through the clock the size sits at the curve's v; the
+      // ring is already solid (v > 0.8).
+      await tester.pump(const Duration(milliseconds: 192)); // u = 0.5
+      expectCardSize(tester.getSize(card), cardAt(curveAt(0.5)));
+      expect(ink(), 1);
+
+      await tester.pump(SrMotion.grow); // past the whole entrance
+      expect(tester.getSize(card), const Size(404, 524));
+      await windDown(tester, controller);
+    });
+
+    testWidgets('the collapse plays the same-direction profile, no reverse', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final controller = await pumpGrowing(tester, window);
+      await tester.pump(SrMotion.grow); // at rest
+      final card = find.byKey(const Key('panel-card'));
+
+      await controller.cancelSession();
+      await tester.pump(); // the grow-back starts, v stays continuous
+      expect(tester.getSize(card), const Size(404, 524));
+
+      // v = 1 - C(u): fast while big, easing toward the ball (大时快、
+      // 近球时慢) — NOT the entrance's replay.
+      await tester.pump(const Duration(milliseconds: 320)); // u = 0.5
+      expectCardSize(tester.getSize(card), cardAt(1 - curveAt(0.5)));
+
+      // Past grow + slack the (empty) window shrank onto the orb
+      // footprint at the same anchor (1048,548 — the orb window's
+      // center); the card is gone.
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(window.bounds.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(card, findsNothing);
+    });
+
+    testWidgets('the chrome pins to the card edges while it grows', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final controller = await pumpGrowing(
+        tester,
+        window,
+        elapsed: const Duration(milliseconds: 320), // u = 0.5
+      );
+      final cardRect = tester.getRect(find.byKey(const Key('panel-card')));
+
+      // 钉边裁切: the header band rides the card's CURRENT visual top,
+      // the session footer its current visual bottom (头底不换), the
+      // body clips to the height between them.
+      expect(
+        tester.getTopLeft(find.byKey(const Key('panel-chrome-header'))),
+        cardRect.topLeft,
+      );
+      expect(
+        tester.getBottomRight(find.byKey(const Key('panel-chrome-footer'))),
+        cardRect.bottomRight,
+      );
+      await windDown(tester, controller);
+    });
+
+    testWidgets('the anchored corner never moves through the growth', (
+      tester,
+    ) async {
+      // Four anchors, one per quadrant; the socket arc stays pinned on
+      // the ball whatever direction the card grows in (四向镜像). The
+      // pinned corner sits R=40 diagonally outward from the anchor.
+      for (final (anchor, corner) in [
+        (const Offset(1824, 984), Alignment.bottomRight), // upLeft
+        (const Offset(48, 984), Alignment.bottomLeft), // upRight
+        (const Offset(48, 48), Alignment.topLeft), // downRight
+        (const Offset(1824, 48), Alignment.topRight), // downLeft
+      ]) {
+        final window = RecordingStageWindow(anchor - const Offset(48, 48));
+        final controller = await pumpGrowing(tester, window);
+        final card = find.byKey(const Key('panel-card'));
+
+        final atDisc = corner.withinRect(tester.getRect(card));
+        expect(
+          atDisc,
+          offsetMoreOrLessEquals(
+            Offset(anchor.dx + corner.x * 40, anchor.dy + corner.y * 40),
+            epsilon: 0.5,
+          ),
+          reason: 'anchor at $anchor: the disc hugs the ball',
+        );
+        await tester.pump(const Duration(milliseconds: 320));
+        expect(
+          corner.withinRect(tester.getRect(card)),
+          offsetMoreOrLessEquals(atDisc, epsilon: 0.5),
+          reason: 'anchor at $anchor, mid-growth',
+        );
+        await tester.pump(SrMotion.grow);
+        expect(
+          corner.withinRect(tester.getRect(card)),
+          offsetMoreOrLessEquals(atDisc, epsilon: 0.5),
+          reason: 'anchor at $anchor, at rest',
+        );
+        await windDown(tester, controller);
+      }
+    });
+
+    testWidgets('a reopen mid-collapse continues from the running v', (
+      tester,
+    ) async {
+      final window = RecordingStageWindow();
+      final controller = await pumpGrowing(tester, window);
+      await tester.pump(SrMotion.grow); // at rest
+      final card = find.byKey(const Key('panel-card'));
+
+      await controller.cancelSession();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 320)); // collapse mid-air
+      final midSize = tester.getSize(card);
+
+      // The reopen retargets the tween from the CURRENT v — no jump
+      // back to the disc, no restart flash.
+      await controller.startSession();
+      await tester.pump();
+      expect(
+        tester.getSize(card).width,
+        greaterThan(midSize.width - 0.5),
+        reason: 'the interrupted entrance continues from its v',
+      );
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(tester.getSize(card), const Size(404, 524));
+      await windDown(tester, controller);
     });
   });
 
@@ -2489,7 +2683,7 @@ void main() {
           dir.growUp ? findsNothing : findsOneWidget,
         );
         await controller.closeQuick();
-        await tester.pump(const Duration(milliseconds: 350));
+        await tester.pump(const Duration(milliseconds: 700));
       });
     }
   });

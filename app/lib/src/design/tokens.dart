@@ -220,6 +220,13 @@ abstract final class SrMotion {
   /// Anchor morphs (ball glyph / role changes) and emphasized moves.
   static const emphasize = Duration(milliseconds: 320);
 
+  /// The panel card's grow choreography (11 号票 / 07 prototype): the
+  /// card grows from the socket disc (窝圆, side 2×R) to the shared
+  /// footprint — width and height along a constant radius — in BOTH
+  /// directions on [curveEmphasized]. Long on purpose: 240/320 both
+  /// read as rushed against the non-linear growth.
+  static const grow = Duration(milliseconds: 640);
+
   /// Inserted / cancelled flash on the ball before it rests back to idle.
   static const feedback = Duration(milliseconds: 900);
 
