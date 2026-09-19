@@ -226,7 +226,7 @@ void main() {
       expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
       // The raw provider string never reaches the screen — only the
       // classified short sentence (this one falls to the other bucket).
-      expect(controller.lastError, '服务出错,请重试');
+      expect(controller.lastError, '服务出错，请重试');
 
       // A start click against the dead engine stays idle and keeps the
       // root cause — the generic "engine not created" must not mask it.
@@ -234,7 +234,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.mic_none_rounded));
       await tester.pump();
       expect(controller.stage, StageKind.orb);
-      expect(controller.lastError, '服务出错,请重试');
+      expect(controller.lastError, '服务出错，请重试');
       expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
 
       // Without any error the orb rests bare (no idle badge).
@@ -266,7 +266,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
 
     expect(find.byKey(const Key('quick-error')), findsNothing);
-    expect(textOf(tester, const Key('sr-toast')), '服务出错,请重试');
+    expect(textOf(tester, const Key('sr-toast')), '服务出错，请重试');
   });
 
   testWidgets('live transcript streams into the session text area', (
@@ -314,12 +314,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
 
     expect(controller.phase, BridgeSessionState.idle);
-    expect(controller.lastError, '音频设备异常,请检查麦克风');
+    expect(controller.lastError, '音频设备异常，请检查麦克风');
     // No panel is open; the resting orb carries the classified short
     // sentence on its tooltip until the next interaction.
     expect(
       find.byWidgetPredicate(
-        (w) => w is Tooltip && (w.message ?? '') == '音频设备异常,请检查麦克风',
+        (w) => w is Tooltip && (w.message ?? '') == '音频设备异常，请检查麦克风',
       ),
       findsOneWidget,
     );
@@ -352,7 +352,7 @@ void main() {
     gateway.emit(const BridgeEvent.error(message: '修正失败:没有 API key'));
     await tester.pump();
     expect(find.byKey(const Key('session-error')), findsNothing);
-    expect(textOf(tester, const Key('sr-toast')), '凭据无效,请检查密钥');
+    expect(textOf(tester, const Key('sr-toast')), '凭据无效，请检查密钥');
     await windDown(tester, controller);
   });
 

@@ -15,23 +15,23 @@ void main() {
         classifyEngineError(
           'rectify timed out after the 25000 ms hard cap; retry or cancel',
         ),
-        '修正超时,请重试',
+        '修正超时，请重试',
       );
     });
 
     test('audio device messages from cpal / mic.rs', () {
-      expect(classifyEngineError('no default input device'), '音频设备异常,请检查麦克风');
+      expect(classifyEngineError('no default input device'), '音频设备异常，请检查麦克风');
       expect(
         classifyEngineError('no usable input config: UnsupportedSampleRate'),
-        '音频设备异常,请检查麦克风',
+        '音频设备异常，请检查麦克风',
       );
       expect(
         classifyEngineError('input stream failed to start: DeviceNotAvailable'),
-        '音频设备异常,请检查麦克风',
+        '音频设备异常，请检查麦克风',
       );
       expect(
         classifyEngineError('failed to start capture thread: io'),
-        '音频设备异常,请检查麦克风',
+        '音频设备异常，请检查麦克风',
       );
     });
 
@@ -40,17 +40,17 @@ void main() {
         classifyEngineError(
           'https://api.example/chat/completions returned 401: invalid_api_key',
         ),
-        '凭据无效,请检查密钥',
+        '凭据无效，请检查密钥',
       );
       expect(
         classifyEngineError('ASR handshake rejected: HTTP 403 Forbidden'),
-        '凭据无效,请检查密钥',
+        '凭据无效，请检查密钥',
       );
       expect(
         classifyEngineError(
           'add api_key under [llm] in spokenrectifier.local.toml',
         ),
-        '凭据无效,请检查密钥',
+        '凭据无效，请检查密钥',
       );
     });
 
@@ -59,25 +59,25 @@ void main() {
         classifyEngineError(
           'request to https://api.example failed: connection refused',
         ),
-        '网络异常,请检查连接',
+        '网络异常，请检查连接',
       );
       expect(
         classifyEngineError('stream read failed: unexpected eof'),
-        '网络异常,请检查连接',
+        '网络异常，请检查连接',
       );
-      expect(classifyEngineError('connection failed: dns error'), '网络异常,请检查连接');
+      expect(classifyEngineError('connection failed: dns error'), '网络异常，请检查连接');
     });
 
     test('unrecognized messages fall to the other bucket', () {
       expect(
         classifyEngineError('ASR provider "tencent" has no adapter'),
-        '服务出错,请重试',
+        '服务出错，请重试',
       );
-      expect(classifyEngineError(StateError('engine gone')), '服务出错,请重试');
+      expect(classifyEngineError(StateError('engine gone')), '服务出错，请重试');
     });
 
     test('matching is case-insensitive', () {
-      expect(classifyEngineError('NO DEFAULT INPUT DEVICE'), '音频设备异常,请检查麦克风');
+      expect(classifyEngineError('NO DEFAULT INPUT DEVICE'), '音频设备异常，请检查麦克风');
     });
   });
 

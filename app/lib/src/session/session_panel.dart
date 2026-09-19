@@ -412,7 +412,7 @@ class _SessionPanelState extends State<SessionPanel> {
                   Flexible(
                     child: SingleChildScrollView(
                       child: Text(
-                        c.liveText.isEmpty ? '(无)' : c.liveText,
+                        c.liveText.isEmpty ? '（无）' : c.liveText,
                         key: const Key('session-raw-text'),
                         style: SrType.caption.copyWith(
                           color: pal.textSecondary,

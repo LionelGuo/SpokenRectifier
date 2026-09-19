@@ -104,8 +104,8 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => _ConfirmDialog(
-          title: '开启不留存模式?',
-          body: '${_entries.length} 条历史将被永久删除,新会话将不再保留历史。',
+          title: '开启不留存模式？',
+          body: '${_entries.length} 条历史将被永久删除，新会话将不再保留历史。',
           confirmLabel: '开启并清空',
         ),
         barrierDismissible: false,
@@ -121,7 +121,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
       context: context,
       builder: (dialogContext) => _ConfirmDialog(
         key: const Key('settings-history-clear-confirm'),
-        title: '清空全部历史?',
+        title: '清空全部历史？',
         body: '${_entries.length} 条历史将被永久删除。',
         confirmLabel: '清空',
       ),

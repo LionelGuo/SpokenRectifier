@@ -1432,7 +1432,7 @@ void main() {
     runner.emit(const BridgeEvalEvent.failed(message: '评测需要真实 LLM 连接'));
     await tester.pump();
     expect(find.text('评测未能完成'), findsOneWidget);
-    expect(find.text('服务出错,请重试'), findsOneWidget);
+    expect(find.text('服务出错，请重试'), findsOneWidget);
 
     // The retry starts a fresh run.
     await tester.tap(find.text('重试'));
@@ -1711,8 +1711,8 @@ void main() {
     // The switch's enable is destructive: confirm first.
     await tester.tap(find.byKey(const Key('settings-history-keep-nothing')));
     await tester.pump();
-    expect(find.text('开启不留存模式?'), findsOneWidget);
-    expect(find.text('2 条历史将被永久删除,新会话将不再保留历史。'), findsOneWidget);
+    expect(find.text('开启不留存模式？'), findsOneWidget);
+    expect(find.text('2 条历史将被永久删除，新会话将不再保留历史。'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('settings-history-confirm-cancel')));
     await tester.pump();
@@ -1753,7 +1753,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('settings-history-clear')));
     await tester.pump();
-    expect(find.text('清空全部历史?'), findsOneWidget);
+    expect(find.text('清空全部历史？'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('settings-history-confirm-ok')));
     await tester.pump();
@@ -1776,7 +1776,7 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-history-clear')));
     await tester.pump();
     expect(store.clears, 0); // nothing to clear, nothing confirmed
-    expect(find.text('清空全部历史?'), findsNothing);
+    expect(find.text('清空全部历史？'), findsNothing);
   });
 
   testWidgets('a failed save surfaces the error and keeps the pane honest', (
@@ -3272,7 +3272,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('settings-conn-llm-key')), '');
     await tester.tap(find.byKey(const Key('settings-conn-llm-save')));
     await tester.pump();
-    expect(find.text('清除密钥?'), findsOneWidget);
+    expect(find.text('清除密钥？'), findsOneWidget);
     await tester.tap(find.byKey(const Key('settings-conn-clear-cancel')));
     await tester.pump();
     expect(store.llmSaves.length, 1);
@@ -3595,7 +3595,7 @@ void main() {
 
     // No app id yet: the path sits open after the v2 prefix.
     expect(
-      find.textContaining('当前端点:wss://asr.cloud.tencent.com/asr/v2/'),
+      find.textContaining('当前端点：wss://asr.cloud.tencent.com/asr/v2/'),
       findsOneWidget,
     );
 
@@ -3606,7 +3606,7 @@ void main() {
     );
     await tester.pump();
     expect(
-      find.textContaining('当前端点:wss://asr.cloud.tencent.com/asr/v2/1250012548'),
+      find.textContaining('当前端点：wss://asr.cloud.tencent.com/asr/v2/1250012548'),
       findsOneWidget,
     );
     expect(store.asrSaves, isEmpty);
@@ -3743,7 +3743,7 @@ void main() {
     // The load paints the default aliyun URL.
     expect(
       find.textContaining(
-        '当前端点:wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
+        '当前端点：wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
       ),
       findsOneWidget,
     );
@@ -3756,7 +3756,7 @@ void main() {
     await tester.pump();
     expect(
       find.textContaining(
-        '当前端点:wss://proxy.example.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
+        '当前端点：wss://proxy.example.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime',
       ),
       findsOneWidget,
     );
@@ -3776,7 +3776,7 @@ void main() {
     );
     await tester.pump();
     expect(
-      find.textContaining('当前端点:wss://proxy.example.com/api/v3/sauc/bigmodel'),
+      find.textContaining('当前端点：wss://proxy.example.com/api/v3/sauc/bigmodel'),
       findsOneWidget,
     );
     expect(store.asrSaves, isEmpty); // nothing was saved along the way

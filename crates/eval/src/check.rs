@@ -109,7 +109,7 @@ pub fn check_parts(
         if !body.contains(text.as_str()) {
             failures.push(Failure {
                 category: FailureCategory::PreservationFailed,
-                detail: format!("未逐字保留:{text}"),
+                detail: format!("未逐字保留：{text}"),
             });
         }
     }
@@ -118,7 +118,7 @@ pub fn check_parts(
         if !group.iter().any(|alt| body.contains(alt.as_str())) {
             failures.push(Failure {
                 category: FailureCategory::Lost,
-                detail: format!("关键意思缺失:{}", group.join(" / ")),
+                detail: format!("关键意思缺失：{}", group.join(" / ")),
             });
         }
     }
@@ -127,7 +127,7 @@ pub fn check_parts(
         if body.contains(text.as_str()) {
             failures.push(Failure {
                 category: FailureCategory::Fabricated,
-                detail: format!("出现了未提及的内容:{text}"),
+                detail: format!("出现了未提及的内容：{text}"),
             });
         }
     }
@@ -136,7 +136,7 @@ pub fn check_parts(
         if body.contains(text.as_str()) {
             failures.push(Failure {
                 category: FailureCategory::Residual,
-                detail: format!("应清除的口头残留:{text}"),
+                detail: format!("应清除的口头残留：{text}"),
             });
         }
     }
@@ -146,7 +146,7 @@ pub fn check_parts(
             failures.push(Failure {
                 category: FailureCategory::Residual,
                 detail: format!(
-                    "重复未收敛:{} ×{}",
+                    "重复未收敛：{} ×{}",
                     text,
                     body.matches(text.as_str()).count()
                 ),
@@ -157,7 +157,7 @@ pub fn check_parts(
     if let Some(token) = first_out_of_order(&case.order, body) {
         failures.push(Failure {
             category: FailureCategory::OverRectified,
-            detail: format!("措辞或语序被改写:{token} 未按原序出现"),
+            detail: format!("措辞或语序被改写：{token} 未按原序出现"),
         });
     }
 
@@ -184,7 +184,7 @@ fn check_pass_through(raw_body: &str, failures: &mut Vec<Failure>) {
         if !form.value.is_empty() {
             failures.push(Failure {
                 category: FailureCategory::AbsorbFailed,
-                detail: format!("关态混入值形:‡{}:{}‡", form.number, form.value),
+                detail: format!("关态混入值形：‡{}:{}‡", form.number, form.value),
             });
         }
     }
@@ -208,17 +208,17 @@ fn check_sentinels(pinned: &[(String, usize)], body: &str, failures: &mut Vec<Fa
         if got < *want {
             failures.push(Failure {
                 category: FailureCategory::PreservationFailed,
-                detail: format!("哨兵少号:‡{digits}‡ 转写 {want} 处,正文 {got} 处"),
+                detail: format!("哨兵少号：‡{digits}‡ 转写 {want} 处，正文 {got} 处"),
             });
         } else if got > *want {
             failures.push(Failure {
                 category: FailureCategory::Fabricated,
-                detail: format!("哨兵多号:‡{digits}‡ 正文 {got} 处,转写 {want} 处"),
+                detail: format!("哨兵多号：‡{digits}‡ 正文 {got} 处，转写 {want} 处"),
             });
         } else if is_wrapped(body, digits) {
             failures.push(Failure {
                 category: FailureCategory::PreservationFailed,
-                detail: format!("哨兵被包裹:‡{digits}‡ 紧邻装饰字符"),
+                detail: format!("哨兵被包裹：‡{digits}‡ 紧邻装饰字符"),
             });
         }
     }
@@ -227,7 +227,7 @@ fn check_sentinels(pinned: &[(String, usize)], body: &str, failures: &mut Vec<Fa
         if !pinned.iter().any(|(d, _)| d == digits) {
             failures.push(Failure {
                 category: FailureCategory::Fabricated,
-                detail: format!("捏造哨兵:‡{digits}‡ 转写没有这个号"),
+                detail: format!("捏造哨兵：‡{digits}‡ 转写没有这个号"),
             });
         }
     }
@@ -249,7 +249,7 @@ fn check_absorption(
         if body.contains(text.as_str()) {
             failures.push(Failure {
                 category: FailureCategory::AbsorbFailed,
-                detail: format!("被吸收的指称留在正文:{text}"),
+                detail: format!("被吸收的指称留在正文：{text}"),
             });
         }
     }
@@ -270,7 +270,7 @@ fn check_absorption(
             failures.push(Failure {
                 category: FailureCategory::AbsorbFailed,
                 detail: format!(
-                    "预填未命中:‡{}‡ 期望 {} 实得「{value}」",
+                    "预填未命中：‡{}‡ 期望 {} 实得「{value}」",
                     expectation.pin,
                     expectation.any.join(" / ")
                 ),

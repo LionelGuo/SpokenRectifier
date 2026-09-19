@@ -235,7 +235,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-paragraph-silence'),
                         controller: _paragraphSilence,
-                        label: '分段静音(ms)',
+                        label: '分段静音（ms）',
                         monospace: true,
                       ),
                     ),
@@ -244,7 +244,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-session-end-silence'),
                         controller: _sessionEndSilence,
-                        label: '自动结束静音(ms)',
+                        label: '自动结束静音（ms）',
                         monospace: true,
                       ),
                     ),
@@ -253,7 +253,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-rectify-timeout'),
                         controller: _rectifyTimeout,
-                        label: '修正超时(ms)',
+                        label: '修正超时（ms）',
                         monospace: true,
                       ),
                     ),
@@ -304,7 +304,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-focus-settle'),
                         controller: _focusSettle,
-                        label: '焦点等待(ms)',
+                        label: '焦点等待（ms）',
                         monospace: true,
                       ),
                     ),
@@ -313,7 +313,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-paste-settle'),
                         controller: _pasteSettle,
-                        label: '粘贴等待(ms)',
+                        label: '粘贴等待（ms）',
                         monospace: true,
                       ),
                     ),
@@ -322,7 +322,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       child: SrField(
                         key: const Key('settings-advanced-typing-delay'),
                         controller: _typingDelay,
-                        label: '键入间隔(ms)',
+                        label: '键入间隔（ms）',
                         monospace: true,
                       ),
                     ),

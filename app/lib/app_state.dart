@@ -410,7 +410,7 @@ class SpeechController extends ChangeNotifier {
       await hotkey.register(pinChord, pinAction);
     } catch (e) {
       logRawError('err_hotkey_pin', e);
-      _setLastError('占位图钉快捷键被占用,请更换组合');
+      _setLastError('占位图钉快捷键被占用，请更换组合');
       notifyListeners();
     }
   }
@@ -428,7 +428,7 @@ class SpeechController extends ChangeNotifier {
       await registrar.apply(primaryChord, hotkeyToggle);
     } catch (e) {
       logRawError('err_hotkey_main', e);
-      _setLastError('主快捷键被占用,请更换组合');
+      _setLastError('主快捷键被占用，请更换组合');
       notifyListeners();
     }
   }

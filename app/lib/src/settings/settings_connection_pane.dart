@@ -997,7 +997,7 @@ class _AsrCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '未配置凭据时不做云端转写,仅显示说话状态',
+            '未配置凭据时不做云端转写，仅显示说话状态',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
@@ -1015,7 +1015,7 @@ class _AsrCard extends StatelessWidget {
           if (!adapted) ...[
             const SizedBox(height: 6),
             Text(
-              '该供应商暂未接入,暂不支持云端识别',
+              '该供应商暂未接入，暂不支持云端识别',
               key: const Key('settings-conn-asr-unadapted'),
               style: SrType.micro.copyWith(color: pal.textSecondary),
             ),
@@ -1053,7 +1053,7 @@ class _AsrCard extends StatelessWidget {
           ..._subFields(context),
           const SizedBox(height: 10),
           Text(
-            '当前端点:${endpoint ?? '—'}',
+            '当前端点：${endpoint ?? '—'}',
             key: const Key('settings-conn-asr-endpoint'),
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
@@ -1209,7 +1209,7 @@ class _ConfirmClearDialog extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '清除密钥?',
+                '清除密钥？',
                 style: SrType.title.copyWith(color: pal.textPrimary),
               ),
               const SizedBox(height: 12),

@@ -65,7 +65,7 @@ const _comboWarning = '关闭模型思考可能降低预填质量';
 /// What the two cards say while the connection domain's thinking fields
 /// are inert — the same line on both, naming where the recovery lives.
 const _thinkingDisabledNote =
-    '连接域的思考字段未启用(关 / 未配置 / 坏配置),思考策略暂不可选;'
+    '连接域的思考字段未启用（关 / 未配置 / 坏配置），思考策略暂不可选；'
     '在「模型与连接」开启或修复后自动恢复。';
 
 class SettingsRectifyPane extends StatefulWidget {
@@ -570,7 +570,7 @@ class _LightCard extends StatelessWidget {
                           horizontal: 10,
                           vertical: 9,
                         ),
-                        hintText: '例:保留技术术语原文',
+                        hintText: '例：保留技术术语原文',
                         hintStyle: SrType.body.copyWith(
                           color: pal.textTertiary,
                         ),
@@ -638,7 +638,7 @@ class _QuickCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '开启后,按住主快捷键超过阈值松手即发送',
+            '开启后，按住主快捷键超过阈值松手即发送',
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
@@ -734,7 +734,7 @@ class _QuickCard extends StatelessWidget {
                                   horizontal: 10,
                                   vertical: 9,
                                 ),
-                                hintText: '例:保留技术术语原文',
+                                hintText: '例：保留技术术语原文',
                                 hintStyle: SrType.body.copyWith(
                                   color: pal.textTertiary,
                                 ),

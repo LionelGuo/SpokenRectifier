@@ -721,7 +721,7 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
                 horizontal: 10,
                 vertical: 9,
               ),
-              hintText: '例:全部输出以简体中文书写,语气克制',
+              hintText: '例：全部输出以简体中文书写，语气克制',
               hintStyle: SrType.body.copyWith(color: pal.textTertiary),
             ),
           ),

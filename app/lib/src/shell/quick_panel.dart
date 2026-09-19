@@ -276,7 +276,7 @@ class _QuickPanelState extends State<QuickPanel> {
                         _SwitchRow(
                           icon: Icons.notes_rounded,
                           label: '篇章模式',
-                          caption: '停顿仅分段,不结束会话',
+                          caption: '停顿仅分段，不结束会话',
                           value: c.passageMode,
                           onChanged: c.setPassageMode,
                         ),

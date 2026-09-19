@@ -29,7 +29,7 @@ void logRawError(String site, Object error) {
 String classifyEngineError(Object error) {
   final haystack = error.toString().toLowerCase();
   if (haystack.contains('rectify timed out')) {
-    return '修正超时,请重试';
+    return '修正超时，请重试';
   }
   if (_matches(haystack, const [
     'input device',
@@ -38,7 +38,7 @@ String classifyEngineError(Object error) {
     'capture thread',
     'device',
   ])) {
-    return '音频设备异常,请检查麦克风';
+    return '音频设备异常，请检查麦克风';
   }
   if (_matches(haystack, const [
     '401',
@@ -51,7 +51,7 @@ String classifyEngineError(Object error) {
     'api_key',
     'credential',
   ])) {
-    return '凭据无效,请检查密钥';
+    return '凭据无效，请检查密钥';
   }
   if (_matches(haystack, const [
     'timed out',
@@ -66,9 +66,9 @@ String classifyEngineError(Object error) {
     'request to',
     'stream read failed',
   ])) {
-    return '网络异常,请检查连接';
+    return '网络异常，请检查连接';
   }
-  return '服务出错,请重试';
+  return '服务出错，请重试';
 }
 
 /// Formats a per-case eval execution failure. The classified bucket
