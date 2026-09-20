@@ -251,18 +251,28 @@ class ThinkingMarquee {
       scrollPx += tStart - tNow;
     }
 
-    // Bounded discard: backlog beyond capacity drops the OLDEST line
-    // that has not entered the visible window yet — the first queue
-    // entry whose slot is at or past ceil(bottom edge). Each line owns
-    // its slot; a drop only removes that slot, so lines above the
-    // bottom edge never shift (09 trap ②).
+    // Bounded discard: whole unseen LINES beyond capacity sacrifice
+    // the OLDEST not-yet-shown line — the first queue entry at or
+    // past ceil(bottom edge). The splice COMPRESSES the waiting tape
+    // below the victim (every later line's slot steps down one): the
+    // lines already on screen keep their slots (09 trap ②), and the
+    // window never faces a dropped slot as blank tape — under a
+    // stream faster than vMax the plain splice opens a desert the
+    // window cannot cross (device: first page shows, then nothing
+    // for the whole attempt). The compression lives wholly below the
+    // bottom edge; the reader sees line N then N+2, never a gap.
     top = windowTop();
     final bottomLines = (top + hPx) / lineH;
-    if (_backlog(top, hPx) > capacity) {
-      final firstWaiting = bottomLines.ceil();
+    final firstWaiting = bottomLines.ceil();
+    final unseen = queue.where((line) => line.slot >= firstWaiting).length;
+    if (unseen > capacity) {
       final j = queue.indexWhere((line) => line.slot >= firstWaiting);
       if (j >= 0) {
         queue.removeAt(j);
+        for (var k = j; k < queue.length; k++) {
+          queue[k] = _MarqueeLine(queue[k].text, queue[k].slot - 1);
+        }
+        _nextSlot--;
         dropped++;
       }
     }

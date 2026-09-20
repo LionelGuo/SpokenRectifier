@@ -1,6 +1,7 @@
 /// The thinking-marquee machine (14 号票): the 09 prototype's smoke
 /// assertion set, ported. Geometry at the default 420×560 card:
 /// textW 372, startH 168 (startVis 6), maxH 336, fold at 24 CJK chars.
+library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/src/session/thinking_marquee.dart';
@@ -154,6 +155,39 @@ void main() {
     expect(discardSeen, isTrue, reason: 'sanity: the overload discarded');
   });
 
+  test('a stream faster than vMax never empties the window (no desert)', () {
+    // The device failure (14 号票真机): a sustained feed above the
+    // scroll clamp out-runs the window — a plain slot splice discards
+    // the line the window is about to enter, and the window spends
+    // the whole attempt scrolling through dropped slots as blank
+    // tape. The discard COMPRESSES the waiting tape instead: the
+    // window always faces dense content, and the overflow is
+    // sacrificed invisibly below the bottom edge.
+    final m = machine();
+    feedLines(m, 10, 50); // reveal
+    for (var i = 0; i < 60; i++) {
+      m.pushText('思' * 25); // one line per 300 ms ≈ 3.3 lines/s > vMax
+      m.tick(100);
+      m.tick(100);
+      m.tick(100);
+      // The window never faces blank tape: content is always visible…
+      expect(visibleOf(m), isNotEmpty, reason: 'desert at feed #$i');
+      // …and the tape below the window stays dense — the first
+      // waiting line sits exactly at the window's edge line, with no
+      // dropped slot wedged open ahead of it.
+      final edge = ((m.view().tapeTop + m.hPx) / ThinkingMarquee.lineH)
+          .ceil();
+      final waiting = [
+        for (final (_, slot) in m.lineSnapshot)
+          if (slot >= edge) slot,
+      ];
+      if (waiting.isNotEmpty) {
+        expect(waiting.first, edge, reason: 'void below the window at #$i');
+      }
+    }
+    expect(m.dropped, greaterThan(0), reason: 'the overload did sacrifice');
+  });
+
   test('steady state: feeding 1.5 lines/s settles near v = k × 2', () {
     final m = machine();
     // Reveal first (10 lines), then steady 1.5 lines/s ≈ 667 ms/line.
@@ -178,13 +212,21 @@ void main() {
   test('the band grows monotonically toward max after reveal, gated on '
       'spare content', () {
     final m = machine();
-    feedLines(m, 40, 200);
+    // The gate wants ONGOING spare content (断流冻结): feed 5 lines/s
+    // while the band climbs — it reaches 60% of the card and never
+    // shrinks. (The window honestly consumes what it shows now, so a
+    // finite feed would starve the gate before the top.)
+    feedLines(m, 10, 50);
     var last = m.hPx;
-    for (var i = 0; i < 300; i++) {
-      m.tick(100);
+    var i = 0;
+    while (m.hPx < m.maxBandH && i++ < 400) {
+      m.pushText('思' * 25); // one line per 200 ms
+      m.tick(50);
+      m.tick(50);
+      m.tick(50);
+      m.tick(50);
       expect(m.hPx, greaterThanOrEqualTo(last - 1e-6), reason: 'never shrinks');
       last = m.hPx;
-      if (m.hPx == m.maxBandH) break;
     }
     expect(
       m.hPx,
