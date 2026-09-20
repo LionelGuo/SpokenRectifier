@@ -2554,16 +2554,19 @@ void main() {
     testWidgets('the morph rides one continuous flight — no whips', (
       tester,
     ) async {
-      // 19 号票 (two rounds of device feedback): round one's emphasized
+      // 19 号票 (five rounds of device feedback): round one's emphasized
       // landing blew stages through in 1–2 frames (跳变) then sat dead
       // (间断); round two's even stage split cured the whips but read as
-      // TWO stitched animations — the width move ended at full speed,
-      // the fade ran alone on a static button. The flight now gathers
-      // and blooms with concurrent channels (fade + tuck + pads) and
-      // every phase handoff decelerates to zero velocity. Sample every
-      // 16ms frame and pin all three failure modes: no frame carries a
-      // whole stage, no stretch sits still, and the width's pop attack
-      // stays a decaying curve (never a 65px one-frame blowthrough).
+      // TWO stitched animations; round five pinned the split on the
+      // GROUP geometry — the gaps tightening ahead of the width stage
+      // read as a stage of their own even with the text camouflaged.
+      // The flight now gathers and blooms with the content channels
+      // (fade + tuck) while ALL geometry (width + gaps) shares the one
+      // width window, proportional; every phase handoff decelerates to
+      // zero velocity. Sample every 16ms frame and pin the failure
+      // modes: no frame carries a whole stage, no stretch sits still,
+      // the width's pop attack stays a decaying curve, and the geometry
+      // never splits into two windows.
       final window = RecordingStageWindow();
       final dir = scratch();
       final gateway = FakeGateway();
@@ -2597,6 +2600,8 @@ void main() {
       var worstDeadRun = 0;
       double? height0;
       double? top0;
+      double? width0;
+      double? gap0;
       // Frame 0 latches the post-frame-started ticker (its own delta is
       // the parked capsule); frames 1..20 walk the flight, 16ms a frame.
       for (var i = 0; i <= 20; i++) {
@@ -2612,6 +2617,7 @@ void main() {
         if (i == 0) {
           height0 = box.height;
           top0 = box.top;
+          width0 = box.width;
         } else {
           expect(
             box.height,
@@ -2643,6 +2649,30 @@ void main() {
         final opacity = hasLabel
             ? tester.widget<Opacity>(labelOpacity).opacity
             : null;
+        // 五轮 ruling: the inter-button gap and the width collapse
+        // share ONE window, proportional. While the label is still
+        // visible the gap holds its capsule value (the gather is the
+        // content channel alone); once the label folds the gap's
+        // progress equals the width's progress — the group's envelope
+        // is a single continuous squeeze, never a gap stage ahead of a
+        // width stage (the device read that as two stitched animations
+        // even with the text camouflaged).
+        final gapNow =
+            box.left -
+            tester.getTopRight(find.byKey(const Key('session-raw-toggle'))).dx;
+        if (i == 0) {
+          gap0 = gapNow;
+        } else if (hasLabel) {
+          expect(
+            gapNow,
+            closeTo(gap0!, 0.3),
+            reason: 'gap moved while content still visible at frame $i',
+          );
+        } else {
+          final pW = (width0! - width) / (width0! - height0!);
+          final pG = (gap0! - gapNow) / (gap0! - 4.0);
+          expect(pG, closeTo(pW, 0.05), reason: 'gap/width desync at frame $i');
+        }
         if (lastWidth != null) {
           final dw = (width - lastWidth).abs();
           final dOp = (opacity != null && lastOpacity != null)

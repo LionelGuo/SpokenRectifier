@@ -616,16 +616,19 @@ class _PhaseDotState extends State<_PhaseDot>
 /// is geometrically dead, so the flight never goes there:
 ///
 /// 1 → 0.45        the bloom / gather: the label and the Esc chip fade
-///                 (band 0.9 → 0.45) WHILE tucking 6px toward the icon,
-///                 and the inter-button gaps 8→4 tighten over the whole
-///                 band — the button's own width never moves here (19
-///                 号票 二轮: concurrent channels, not a fade-only
-///                 stretch)
+///                 (band 0.9 → 0.45) WHILE tucking 6px toward the icon —
+///                 the CONTENT channel alone; every group geometry
+///                 (button widths, gaps) is frozen here (19 号票 五轮:
+///                 a gap stage ahead of the width stage read as two
+///                 stitched animations even with the text invisible)
 /// 0.45 → 0.30     the width collapses to the circle (diameter = the
 ///                 button's own height, ≈29), eating the RIGHT side
 ///                 only — the icon's inset from the left border is
 ///                 CONSTANT at the capsule pad through the entire morph
-///                 (三轮真机裁定)
+///                 (三轮真机裁定). The inter-button gaps 8→4 ride this
+///                 SAME window, proportional to the width — the group's
+///                 envelope is one continuous squeeze, not a gap stage
+///                 followed by a width stage (五轮真机裁定)
 ///
 /// Layout only shrinks AFTER the text's opacity has reached zero — text
 /// is faded out, never clipped. The tuck rides a Transform (layout
@@ -657,9 +660,10 @@ double _lerp(double a, double b, double u) => a + (b - a) * u;
 
 /// The expand flight's map u → t (19 号票 二轮): the width pops open on
 /// [curveEnter] over the first 40%, then the content blooms on
-/// [curveFade] for the remaining 60% — fade + tuck + the group's gaps
-/// loosening together. Both curves arrive at the handoff at ZERO
-/// velocity, so the phase change is a soft hinge, not a splice.
+/// [curveFade] for the remaining 60% — fade + tuck. Both curves arrive
+/// at the handoff at ZERO velocity, so the phase change is a soft
+/// hinge, not a splice. (五轮: the group's gaps ride the width phase —
+/// geometry in ONE window, content in the other.)
 double _tExpand(double u) {
   if (u < 0.40) {
     return _lerp(
@@ -676,9 +680,9 @@ double _tExpand(double u) {
 }
 
 /// The collapse flight's map: the mirror — gather on [curveFade] over
-/// the first 60% (fade + tuck + the group's gaps tightening together),
-/// then the width falls into the circle on [curveFade], landing at
-/// rest.
+/// the first 60% (fade + tuck, the content channel), then the width
+/// falls into the circle on [curveFade] (the group's gaps tightening
+/// with it, proportional), landing at rest.
 double _tCollapse(double u) {
   if (u < 0.60) {
     return _lerp(1.0, _tTextGone, SrMotion.curveFade.transform(u / 0.60));
@@ -912,7 +916,17 @@ class _FooterGroupState extends State<_FooterGroup>
           animation: _morph,
           builder: (context, _) {
             final t = _t;
-            final gap = _lerp(_gapRound, _gapCapsule, _seg(t, _tTextGone, 1));
+            // 五轮真机: the gaps ride the SAME window as the width
+            // collapse, proportional to it — the group's envelope moves
+            // in ONE continuous squeeze. Tightening them across the
+            // gather instead split the geometry into two stages (a tiny
+            // gap stage, then the width stage) that read as two
+            // stitched animations even with the text camouflaged.
+            final gap = _lerp(
+              _gapRound,
+              _gapCapsule,
+              _seg(t, _tRoundDone, _tTextGone),
+            );
             return UnconstrainedBox(
               alignment: Alignment(widget.form.footerAlignX, 0),
               constrainedAxis: Axis.vertical,
