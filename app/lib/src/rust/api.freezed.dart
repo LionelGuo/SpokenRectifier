@@ -150,13 +150,13 @@ return rectifyText(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive,  String? scenario)?  setStyleDirective,TResult Function( String? directive)?  setGlobalDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function()?  pinPlaceholder,TResult Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)?  rectifyText,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function( List<BridgePlaceholderFill> placeholders)?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive,  String? scenario)?  setStyleDirective,TResult Function( String? directive)?  setGlobalDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function()?  pinPlaceholder,TResult Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)?  rectifyText,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
 return stopSession();case BridgeCommand_Cancel() when cancel != null:
 return cancel();case BridgeCommand_ConfirmInsert() when confirmInsert != null:
-return confirmInsert();case BridgeCommand_Reroll() when reroll != null:
+return confirmInsert(_that.placeholders);case BridgeCommand_Reroll() when reroll != null:
 return reroll();case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when setStyleDirective != null:
 return setStyleDirective(_that.directive,_that.scenario);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
@@ -182,13 +182,13 @@ return rectifyText(_that.rawTranscript,_that.style,_that.sourceSessionId);case _
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive,  String? scenario)  setStyleDirective,required TResult Function( String? directive)  setGlobalDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function()  pinPlaceholder,required TResult Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function( List<BridgePlaceholderFill> placeholders)  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive,  String? scenario)  setStyleDirective,required TResult Function( String? directive)  setGlobalDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function()  pinPlaceholder,required TResult Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
 return startSession();case BridgeCommand_StopSession():
 return stopSession();case BridgeCommand_Cancel():
 return cancel();case BridgeCommand_ConfirmInsert():
-return confirmInsert();case BridgeCommand_Reroll():
+return confirmInsert(_that.placeholders);case BridgeCommand_Reroll():
 return reroll();case BridgeCommand_UpdatePreviewText():
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective():
 return setStyleDirective(_that.directive,_that.scenario);case BridgeCommand_SetGlobalDirective():
@@ -210,13 +210,13 @@ return rectifyText(_that.rawTranscript,_that.style,_that.sourceSessionId);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive,  String? scenario)?  setStyleDirective,TResult? Function( String? directive)?  setGlobalDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function()?  pinPlaceholder,TResult? Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)?  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function( List<BridgePlaceholderFill> placeholders)?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive,  String? scenario)?  setStyleDirective,TResult? Function( String? directive)?  setGlobalDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function()?  pinPlaceholder,TResult? Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)?  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
 return stopSession();case BridgeCommand_Cancel() when cancel != null:
 return cancel();case BridgeCommand_ConfirmInsert() when confirmInsert != null:
-return confirmInsert();case BridgeCommand_Reroll() when reroll != null:
+return confirmInsert(_that.placeholders);case BridgeCommand_Reroll() when reroll != null:
 return reroll();case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when setStyleDirective != null:
 return setStyleDirective(_that.directive,_that.scenario);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
@@ -332,33 +332,73 @@ String toString() {
 
 
 class BridgeCommand_ConfirmInsert extends BridgeCommand {
-  const BridgeCommand_ConfirmInsert(): super._();
+  const BridgeCommand_ConfirmInsert({required  List<BridgePlaceholderFill> placeholders}): _placeholders = placeholders,super._();
   
 
+ final  List<BridgePlaceholderFill> _placeholders;
+ List<BridgePlaceholderFill> get placeholders {
+  if (_placeholders is EqualUnmodifiableListView) return _placeholders;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_placeholders);
+}
 
 
+/// Create a copy of BridgeCommand
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BridgeCommand_ConfirmInsertCopyWith<BridgeCommand_ConfirmInsert> get copyWith => _$BridgeCommand_ConfirmInsertCopyWithImpl<BridgeCommand_ConfirmInsert>(this, _$identity);
 
 
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_ConfirmInsert);
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_ConfirmInsert&&const DeepCollectionEquality().equals(other._placeholders, _placeholders));
 }
 
 
 @override
-int get hashCode => runtimeType.hashCode;
+int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_placeholders));
 
 @override
 String toString() {
-  return 'BridgeCommand.confirmInsert()';
+  return 'BridgeCommand.confirmInsert(placeholders: $placeholders)';
 }
 
 
 }
 
+/// @nodoc
+abstract mixin class $BridgeCommand_ConfirmInsertCopyWith<$Res> implements $BridgeCommandCopyWith<$Res> {
+  factory $BridgeCommand_ConfirmInsertCopyWith(BridgeCommand_ConfirmInsert value, $Res Function(BridgeCommand_ConfirmInsert) _then) = _$BridgeCommand_ConfirmInsertCopyWithImpl;
+@useResult
+$Res call({
+ List<BridgePlaceholderFill> placeholders
+});
 
 
+
+
+}
+/// @nodoc
+class _$BridgeCommand_ConfirmInsertCopyWithImpl<$Res>
+    implements $BridgeCommand_ConfirmInsertCopyWith<$Res> {
+  _$BridgeCommand_ConfirmInsertCopyWithImpl(this._self, this._then);
+
+  final BridgeCommand_ConfirmInsert _self;
+  final $Res Function(BridgeCommand_ConfirmInsert) _then;
+
+/// Create a copy of BridgeCommand
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? placeholders = null,}) {
+  return _then(BridgeCommand_ConfirmInsert(
+placeholders: null == placeholders ? _self._placeholders : placeholders // ignore: cast_nullable_to_non_nullable
+as List<BridgePlaceholderFill>,
+  ));
+}
+
+
+}
 
 /// @nodoc
 

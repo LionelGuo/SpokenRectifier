@@ -259,7 +259,9 @@ async fn run() -> Result<(), String> {
 
         println!(">> ConfirmInsert");
         engine
-            .execute(Command::ConfirmInsert)
+            .execute(Command::ConfirmInsert {
+                placeholders: Vec::new(),
+            })
             .await
             .map_err(|err| format!("command failed: {err}"))?;
         wait_for_state(&mut rx, SessionState::Idle).await?;

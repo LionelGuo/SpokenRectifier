@@ -45,7 +45,13 @@ async fn both_injection_paths_receive_the_dictionary_of_the_session() {
     await_live(&mut rx, "嗯那个 SpokenRectifier").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Idle).await;
 
     // Hotword path: the dictionary as of session start reached the
@@ -80,7 +86,13 @@ async fn dictionary_edits_take_effect_on_the_next_session_not_the_current_one() 
     *cell.lock().unwrap() = vec!["新术语".to_string()];
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Idle).await;
     assert_eq!(h.llm.requests()[0].terms, vec!["旧术语".to_string()]);
 
@@ -89,7 +101,13 @@ async fn dictionary_edits_take_effect_on_the_next_session_not_the_current_one() 
     await_live(&mut rx, "第二段").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Idle).await;
     assert_eq!(
         h.asr.opened_terms(),
@@ -176,7 +194,13 @@ async fn without_a_source_both_paths_see_no_terms() {
     await_live(&mut rx, "原话").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, spokenrectifier_engine::SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
 
     assert_eq!(h.asr.opened_terms(), vec![Vec::<String>::new()]);
     assert_eq!(h.llm.requests()[0].terms, Vec::<String>::new());

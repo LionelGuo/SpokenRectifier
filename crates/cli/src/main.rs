@@ -248,7 +248,11 @@ async fn run() -> Result<(), String> {
             }
             Step::Confirm => {
                 println!(">> ConfirmInsert");
-                engine.execute(Command::ConfirmInsert).await
+                engine
+                    .execute(Command::ConfirmInsert {
+                        placeholders: Vec::new(),
+                    })
+                    .await
             }
             Step::Reroll => {
                 println!(">> Reroll");

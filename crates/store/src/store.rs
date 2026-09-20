@@ -10,6 +10,7 @@
 //! All sweep points read the injected wall clock, so retention is
 //! deterministic under tests and correct across process restarts.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -232,11 +233,14 @@ impl Store {
     /// scenario NAME becomes a scenario id (a name that no longer
     /// resolves records as 未选场景), and a source row that vanished
     /// mid-session records as none — the same SET NULL philosophy the
-    /// schema applies on delete.
+    /// schema applies on delete. The confirm-time slot table lands as
+    /// one placeholders row per entry beside the session row, in the
+    /// same transaction.
     fn insert_session(&self, session: &RecordedSession) -> Result<(), StoreError> {
         let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
         let scenario_id: Option<i64> = match &session.scenario {
-            Some(name) => conn
+            Some(name) => tx
                 .query_row(
                     "SELECT id FROM scenarios WHERE name = ?",
                     (name.as_str(),),
@@ -246,13 +250,13 @@ impl Store {
             None => None,
         };
         let source_session_id = match session.source_session_id {
-            Some(id) => conn
+            Some(id) => tx
                 .query_row("SELECT 1 FROM sessions WHERE id = ?", (id,), |_| Ok(()))
                 .optional()?
                 .map(|_| id),
             None => None,
         };
-        conn.execute(
+        tx.execute(
             "INSERT INTO sessions
                  (created_at_ms, raw_transcript, rectified_text, scenario_id, source_session_id)
              VALUES (?, ?, ?, ?, ?)",
@@ -264,6 +268,30 @@ impl Store {
                 source_session_id,
             ),
         )?;
+        // A slot is subordinate to the session pair: rows the schema
+        // would refuse are skipped, never fatal — the same posture the
+        // migration takes with guard-violating legacy rows. Number 0 is
+        // a same-shape artifact (pins number from 1), and a repeated
+        // number keeps its first row — the belt under the shell's fold.
+        // An empty prefill writes NULL (裸钉: no value delivered).
+        let session_row_id = tx.last_insert_rowid();
+        let mut seen: HashSet<u32> = HashSet::new();
+        for fill in &session.placeholders {
+            if fill.number == 0 || !seen.insert(fill.number) {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO placeholders (session_id, slot, prefill, filled_value)
+                 VALUES (?, ?, ?, ?)",
+                (
+                    session_row_id,
+                    fill.number as i64,
+                    (!fill.prefill.is_empty()).then(|| fill.prefill.as_str()),
+                    fill.value.as_str(),
+                ),
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 }

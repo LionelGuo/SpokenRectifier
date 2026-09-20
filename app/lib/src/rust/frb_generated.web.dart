@@ -155,6 +155,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeLlmVendorKey dco_decode_bridge_llm_vendor_key(dynamic raw);
 
   @protected
+  BridgePlaceholderFill dco_decode_bridge_placeholder_fill(dynamic raw);
+
+  @protected
   BridgePrefillRow dco_decode_bridge_prefill_row(dynamic raw);
 
   @protected
@@ -197,6 +200,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BridgeLlmVendorKey> dco_decode_list_bridge_llm_vendor_key(dynamic raw);
+
+  @protected
+  List<BridgePlaceholderFill> dco_decode_list_bridge_placeholder_fill(
+    dynamic raw,
+  );
 
   @protected
   List<BridgePrefillRow> dco_decode_list_bridge_prefill_row(dynamic raw);
@@ -407,6 +415,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BridgePlaceholderFill sse_decode_bridge_placeholder_fill(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BridgePrefillRow sse_decode_bridge_prefill_row(SseDeserializer deserializer);
 
   @protected
@@ -461,6 +474,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BridgeLlmVendorKey> sse_decode_list_bridge_llm_vendor_key(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<BridgePlaceholderFill> sse_decode_list_bridge_placeholder_fill(
     SseDeserializer deserializer,
   );
 
@@ -730,6 +748,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_bridge_placeholder_fill(
+    BridgePlaceholderFill self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bridge_prefill_row(
     BridgePrefillRow self,
     SseSerializer serializer,
@@ -798,6 +822,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_bridge_llm_vendor_key(
     List<BridgeLlmVendorKey> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_bridge_placeholder_fill(
+    List<BridgePlaceholderFill> self,
     SseSerializer serializer,
   );
 

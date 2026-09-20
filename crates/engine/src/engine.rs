@@ -373,7 +373,7 @@ impl Engine {
             Command::MarkQuick => self.mark_quick(),
             Command::HoldGate { held } => self.hold_gate(held),
             Command::Cancel => self.cancel_session(),
-            Command::ConfirmInsert => self.confirm_insert().await,
+            Command::ConfirmInsert { placeholders } => self.confirm_insert(placeholders).await,
             Command::Reroll => {
                 let state = self.inner.state_lock().state;
                 if state != SessionState::Preview {
@@ -676,12 +676,20 @@ impl Engine {
         Ok(())
     }
 
-    async fn confirm_insert(&self) -> Result<(), EngineError> {
+    /// `placeholders` is the confirm-time slot table, ferried to the
+    /// recorder beside the session pair (a pass-through; see
+    /// [`Command::ConfirmInsert`]).
+    async fn confirm_insert(
+        &self,
+        placeholders: Vec<prefill::PlaceholderFill>,
+    ) -> Result<(), EngineError> {
         let (sid, text, raw_transcript, scenario, source_session_id) = {
             let st = self.inner.state_lock();
             if st.state != SessionState::Preview {
                 return Err(EngineError::CommandRejected {
-                    command: Command::ConfirmInsert,
+                    command: Command::ConfirmInsert {
+                        placeholders: Vec::new(),
+                    },
                     state: st.state,
                 });
             }
@@ -723,6 +731,7 @@ impl Engine {
                         rectified_text: text,
                         scenario,
                         source_session_id,
+                        placeholders,
                     });
                 }
                 Ok(())
@@ -1166,13 +1175,16 @@ async fn paste_through(inner: &Arc<Inner>, pass: Passthrough) {
             inner.finish_session(&mut st, sid, SessionState::Inserted);
             drop(st);
             // History hands over the session pair after the insert
-            // feedback, so recording can never delay or fail it.
+            // feedback, so recording can never delay or fail it. The
+            // quick straight-through carries no slot table: its sessions
+            // upgraded with nothing pinned and never minted a slot.
             if let Some(history) = &inner.history {
                 history.record(RecordedSession {
                     raw_transcript,
                     rectified_text: text,
                     scenario,
                     source_session_id,
+                    placeholders: Vec::new(),
                 });
             }
         }

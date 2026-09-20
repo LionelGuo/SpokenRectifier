@@ -430,4 +430,40 @@ void main() {
       expect(doc.substitute(), 'x‡8:foo‡y');
     });
   });
+
+  group('确认槽表: confirm rows (占位符钉入入库)', () {
+    test('one row per live slot, in first-occurrence order', () {
+      final doc = SlotDocument();
+      // The prefill fact source is the event table (29 号票), never the
+      // body's inline values.
+      doc.arrive('发给‡1:张三‡和‡2‡再提‡1‡', {1: '张三', 2: ''});
+      doc.editValue(2, '吧');
+      expect(doc.confirmRows(), [
+        (number: 1, prefill: '张三', value: '张三'),
+        (number: 2, prefill: '', value: '吧'),
+      ]);
+    });
+
+    test('a deleted occurrence drops its row; a re-typed one restores it', () {
+      final doc = SlotDocument();
+      doc.arrive('发给‡1‡', {1: '一'});
+      doc.editSkeleton('发给'); // the sentinel deleted: nothing lands
+      expect(doc.confirmRows(), isEmpty);
+      doc.editSkeleton('发给‡1‡呀'); // re-typed: the value lands again
+      expect(doc.confirmRows(), [(number: 1, prefill: '一', value: '一')]);
+    });
+
+    test('an emptied slot is a real row with an empty value (掏空)', () {
+      final doc = SlotDocument();
+      doc.arrive('发给‡1:张三‡', {1: '张三'});
+      doc.editValue(1, '');
+      expect(doc.confirmRows(), [(number: 1, prefill: '张三', value: '')]);
+    });
+
+    test('a pin-less round has no rows', () {
+      final doc = SlotDocument();
+      doc.arrive('普通正文', const {});
+      expect(doc.confirmRows(), isEmpty);
+    });
+  });
 }

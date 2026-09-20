@@ -108,7 +108,13 @@ async fn a_pin_before_the_hold_refuses_the_upgrade() {
     ok(&h.engine, Command::MarkQuick).await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     let summary = collect_summary(&mut rx_all);
@@ -200,6 +206,7 @@ async fn quick_with_rectify_off_pastes_the_raw_transcript() {
             raw_transcript: "嗯那个原话".into(),
             rectified_text: "嗯那个原话".into(),
             scenario: None,
+            placeholders: Vec::new(),
             source_session_id: None,
         }]
     );
@@ -307,7 +314,13 @@ async fn a_failed_quick_attempt_degrades_into_preview() {
         ]
     );
     // What the box shows is what confirm inserts: the streamed text.
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(h.inserter.inserted_texts(), vec!["修"]);
 }
@@ -342,7 +355,13 @@ async fn a_degraded_quick_session_rerolls_on_the_ordinary_path() {
     assert_eq!(h.inserter.inserted_texts(), Vec::<String>::new());
 
     // Still a preview: the reroll's body waits for a manual confirm.
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(h.inserter.inserted_texts(), vec!["重来"]);
 }
@@ -379,7 +398,13 @@ async fn a_failed_paste_degrades_into_preview_holding_the_raw_transcript() {
             "state Recording->Preview",
         ]
     );
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(h.inserter.inserted_texts(), vec!["嗯那个原话"]);
 }
@@ -514,7 +539,13 @@ async fn the_quick_settings_apply_from_the_next_session_on() {
     ok(&h.engine, Command::MarkQuick).await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     ok(

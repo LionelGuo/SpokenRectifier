@@ -49,7 +49,13 @@ pub enum BridgeCommand {
     StartSession,
     StopSession,
     Cancel,
-    ConfirmInsert,
+    /// The confirm-time slot table rides beside the insert (占位符钉入
+    /// 入库): one row per slot whose value the shell's substitution
+    /// landed in the inserted text. A pass-through the engine ferries to
+    /// the recorder; pin-less and degraded confirms send an empty table.
+    ConfirmInsert {
+        placeholders: Vec<BridgePlaceholderFill>,
+    },
     Reroll,
     UpdatePreviewText {
         text: String,
@@ -211,6 +217,29 @@ impl From<spokenrectifier_engine::prefill::PrefillRow> for BridgePrefillRow {
     }
 }
 
+/// Dart-side mirror of one confirm-time slot row: the slot's number
+/// (its identity), the model's prefill for it ('' = none delivered),
+/// and the value the confirm actually substituted (possibly ''). The
+/// shell's slot document is the fact source and folds same-number
+/// occurrences to one row; the engine ferries the table without
+/// interpreting it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgePlaceholderFill {
+    pub number: u32,
+    pub prefill: String,
+    pub value: String,
+}
+
+impl From<BridgePlaceholderFill> for spokenrectifier_engine::prefill::PlaceholderFill {
+    fn from(value: BridgePlaceholderFill) -> Self {
+        spokenrectifier_engine::prefill::PlaceholderFill {
+            number: value.number,
+            prefill: value.prefill,
+            value: value.value,
+        }
+    }
+}
+
 /// Dart-side mirror of [`EventEnvelope`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct BridgeEventEnvelope {
@@ -248,7 +277,12 @@ impl From<BridgeCommand> for Command {
             BridgeCommand::StopSession => Command::StopSession,
             BridgeCommand::PinPlaceholder => Command::PinPlaceholder,
             BridgeCommand::Cancel => Command::Cancel,
-            BridgeCommand::ConfirmInsert => Command::ConfirmInsert,
+            BridgeCommand::ConfirmInsert { placeholders } => Command::ConfirmInsert {
+                placeholders: placeholders
+                    .into_iter()
+                    .map(spokenrectifier_engine::prefill::PlaceholderFill::from)
+                    .collect(),
+            },
             BridgeCommand::Reroll => Command::Reroll,
             BridgeCommand::UpdatePreviewText { text } => Command::UpdatePreviewText(text),
             BridgeCommand::SetStyleDirective {
@@ -1947,7 +1981,10 @@ mod tests {
         execute(BridgeCommand::StopSession).unwrap();
         block_on(wait_state(&mut rx, SessionState::Preview));
 
-        execute(BridgeCommand::ConfirmInsert).unwrap();
+        execute(BridgeCommand::ConfirmInsert {
+            placeholders: Vec::new(),
+        })
+        .unwrap();
         block_on(wait_state(&mut rx, SessionState::Idle));
 
         // The inserter is shared across tests: assert the latest entry.
@@ -1998,7 +2035,10 @@ mod tests {
         // The pin-only session survives the recording end and inserts.
         execute(BridgeCommand::StopSession).unwrap();
         block_on(wait_state(&mut rx, SessionState::Preview));
-        execute(BridgeCommand::ConfirmInsert).unwrap();
+        execute(BridgeCommand::ConfirmInsert {
+            placeholders: Vec::new(),
+        })
+        .unwrap();
         block_on(wait_state(&mut rx, SessionState::Idle));
     }
 
@@ -2261,7 +2301,10 @@ mod tests {
                 panic!("session {session} failed after stop: {message}");
             }
 
-            execute(BridgeCommand::ConfirmInsert).unwrap();
+            execute(BridgeCommand::ConfirmInsert {
+                placeholders: Vec::new(),
+            })
+            .unwrap();
             block_on(wait_state(&mut rx, SessionState::Idle));
         }
         assert_eq!(
@@ -2293,7 +2336,10 @@ mod tests {
         ));
         execute(BridgeCommand::StopSession).unwrap();
         block_on(wait_state(&mut rx, SessionState::Preview));
-        execute(BridgeCommand::ConfirmInsert).unwrap();
+        execute(BridgeCommand::ConfirmInsert {
+            placeholders: Vec::new(),
+        })
+        .unwrap();
         block_on(wait_state(&mut rx, SessionState::Idle));
         assert_eq!(
             inserted_texts().unwrap().last(),
@@ -2317,7 +2363,10 @@ mod tests {
         })
         .unwrap();
         block_on(wait_state(&mut rx, SessionState::Preview));
-        execute(BridgeCommand::ConfirmInsert).unwrap();
+        execute(BridgeCommand::ConfirmInsert {
+            placeholders: Vec::new(),
+        })
+        .unwrap();
         block_on(wait_state(&mut rx, SessionState::Idle));
         assert_eq!(
             inserted_texts().unwrap().last(),

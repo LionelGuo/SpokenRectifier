@@ -1,6 +1,7 @@
 //! Commands accepted by the engine (glossary: 会话, 修正, 预览窗).
 
 use crate::config::EngineTimings;
+use crate::prefill::PlaceholderFill;
 
 /// How one rectify session picks its style directive (the 场景 layer):
 /// follow the live selection, or pin one of the two one-time picks
@@ -87,8 +88,12 @@ pub enum Command {
     /// Abort the session at any point with zero output.
     Cancel,
     /// Insert the (possibly edited) rectified text at the cursor. Valid in
-    /// preview.
-    ConfirmInsert,
+    /// preview. `placeholders` is the confirm-time slot table — one row
+    /// per pinned/same-shape slot whose value the shell's substitution
+    /// actually landed in the inserted text — ferried to the recorder as
+    /// a pass-through (the engine never interprets a row); pin-less and
+    /// degraded-confirm callers pass an empty table.
+    ConfirmInsert { placeholders: Vec<PlaceholderFill> },
     /// Regenerate the rectified text from the same raw transcript. Valid in
     /// preview.
     Reroll,

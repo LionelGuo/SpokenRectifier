@@ -24,8 +24,10 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
       rust.execute(command: rust.BridgeCommand.cancel());
 
   @override
-  Future<void> confirmInsert() =>
-      rust.execute(command: rust.BridgeCommand.confirmInsert());
+  Future<void> confirmInsert(List<rust.BridgePlaceholderFill> placeholders) =>
+      rust.execute(
+        command: rust.BridgeCommand.confirmInsert(placeholders: placeholders),
+      );
 
   @override
   Future<void> reroll() => rust.execute(command: rust.BridgeCommand.reroll());

@@ -80,7 +80,12 @@ async fn utterance_flows_through_the_real_client_to_preview_and_insert() {
     }
     assert_eq!(chunks, vec!["明天", "开会"]);
 
-    engine.execute(Command::ConfirmInsert).await.unwrap();
+    engine
+        .execute(Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        })
+        .await
+        .unwrap();
     loop {
         let env = next_event(&mut rx).await;
         if let EngineEvent::SessionStateChanged { to, .. } = env.event

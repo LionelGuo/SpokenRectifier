@@ -35,6 +35,7 @@ fn pair(raw: &str, rectified: &str) -> RecordedSession {
         raw_transcript: raw.to_string(),
         rectified_text: rectified.to_string(),
         scenario: None,
+        placeholders: Vec::new(),
         source_session_id: None,
     }
 }
@@ -53,7 +54,13 @@ async fn an_inserted_session_is_recorded_with_both_texts() {
     await_live(&mut rx, "嗯那个原话").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     let entries = sink.entries();
@@ -76,7 +83,13 @@ async fn a_preview_edit_is_recorded_as_the_rectified_text() {
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
     ok(&h.engine, Command::UpdatePreviewText("改完的终稿".into())).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     // What went in is what history keeps: the edited text, with the raw
@@ -168,7 +181,13 @@ async fn rectify_text_runs_the_full_machine_without_a_microphone() {
     );
 
     // Insert records the re-rectified pair like any other session.
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(h.inserter.inserted_texts(), vec!["再修"]);
     assert_eq!(sink.entries(), vec![pair("第一段\n不对，第二段", "再修")]);

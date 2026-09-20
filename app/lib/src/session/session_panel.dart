@@ -201,18 +201,38 @@ class _SessionPanelState extends State<SessionPanel> {
     // Adopt the substituted text as the on-screen preview — but only
     // push when it differs from what the engine just streamed: a
     // pin-less round substitutes to itself, and the push would only arm
-    // a pointless debounce (无钉会话零影响).
+    // a pointless debounce (无钉会话零影响). The slot table republishes
+    // unconditionally: the confirm needs it even when the substituted
+    // text equals the streamed one.
     final substituted = _doc!.substitute();
+    _publishSlotRows();
     if (substituted != c.previewText) {
       c.editPreviewText(substituted);
     }
   }
 
   /// The editing surface reports a model change: adopt the substituted
-  /// text (the debounced engine push rides the controller's own path).
+  /// text (the debounced engine push rides the controller's own path)
+  /// and refresh the slot table — an edit can delete or re-type a
+  /// sentinel occurrence, changing which slots a confirm would land.
   void _onSlotChanged(String substituted) {
+    _publishSlotRows();
     c.editPreviewText(substituted);
     setState(() {});
+  }
+
+  /// Hand the controller the confirm-time slot table off the document —
+  /// one bridge row per live slot, what any confirm path rides to the
+  /// store (占位符钉入入库).
+  void _publishSlotRows() {
+    c.placeholderFills = [
+      for (final row in _doc!.confirmRows())
+        BridgePlaceholderFill(
+          number: row.number,
+          prefill: row.prefill,
+          value: row.value,
+        ),
+    ];
   }
 
   @override

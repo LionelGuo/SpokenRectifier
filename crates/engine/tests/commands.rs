@@ -38,7 +38,13 @@ async fn illegal_commands_are_rejected_without_events() {
     // Idle: every session command is rejected.
     rejected(&h.engine, Command::StopSession).await;
     rejected(&h.engine, Command::Cancel).await;
-    rejected(&h.engine, Command::ConfirmInsert).await;
+    rejected(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     rejected(&h.engine, Command::Reroll).await;
     rejected(&h.engine, Command::UpdatePreviewText("x".into())).await;
 
@@ -47,7 +53,13 @@ async fn illegal_commands_are_rejected_without_events() {
 
     ok(&h.engine, Command::StartSession).await;
     rejected(&h.engine, Command::StartSession).await;
-    rejected(&h.engine, Command::ConfirmInsert).await;
+    rejected(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     rejected(&h.engine, Command::Reroll).await;
     rejected(&h.engine, Command::UpdatePreviewText("x".into())).await;
 
@@ -56,7 +68,13 @@ async fn illegal_commands_are_rejected_without_events() {
     ok(&h.engine, Command::StopSession).await;
     rejected(&h.engine, Command::StartSession).await;
     rejected(&h.engine, Command::StopSession).await;
-    rejected(&h.engine, Command::ConfirmInsert).await;
+    rejected(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     rejected(&h.engine, Command::Reroll).await;
     rejected(&h.engine, Command::UpdatePreviewText("x".into())).await;
 

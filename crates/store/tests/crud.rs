@@ -44,6 +44,7 @@ fn entry(raw: &str, rectified: &str) -> RecordedSession {
         raw_transcript: raw.to_string(),
         rectified_text: rectified.to_string(),
         scenario: None,
+        placeholders: Vec::new(),
         source_session_id: None,
     }
 }

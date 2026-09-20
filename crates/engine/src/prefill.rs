@@ -25,6 +25,22 @@ pub struct PrefillRow {
     pub value: String,
 }
 
+/// One slot's state at confirm-insert, riding the confirm command as a
+/// pass-through the engine ferries to the recorder (the store's
+/// placeholders table): the number is the identity (`‡N‡`), `prefill`
+/// the model's initial value for the slot ('' = none delivered — a
+/// bare pin or an empty inline form alike), and `value` what the
+/// confirm actually substituted (possibly ''). The shell's slot
+/// document is the fact source and already folds same-number
+/// occurrences to one row (同号多处处处同一串); the engine never
+/// interprets a row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaceholderFill {
+    pub number: u32,
+    pub prefill: String,
+    pub value: String,
+}
+
 /// One form occurrence anywhere in a response body: where it sits, the
 /// slot number it carries, and its value verbatim. Bare `‡N‡` and
 /// inline `‡N:值‡` are occurrences alike (a bare form's value is

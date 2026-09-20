@@ -38,7 +38,13 @@ async fn an_asr_swap_applies_from_the_next_session_not_the_running_one() {
     // path and inserts normally.
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(
         h.inserter.inserted_texts().last(),
@@ -88,7 +94,13 @@ async fn an_llm_swap_applies_from_the_next_attempt_including_reroll() {
     })
     .await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     // The old model answered exactly once, the new one exactly once.

@@ -20,6 +20,7 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
     show
         BridgeEvent,
         BridgeHistoryEntry,
+        BridgePlaceholderFill,
         BridgePrefillRow,
         BridgeScenario,
         BridgeSessionState;
@@ -721,6 +722,8 @@ void main() {
     final confirmAt = commands.indexOf('confirmInsert');
     expect(editAt, greaterThanOrEqualTo(0));
     expect(confirmAt, greaterThan(editAt));
+    // A pin-less confirm carries an empty slot table.
+    expect(gateway.lastPlaceholderFills, isEmpty);
     expect(controller.phase, BridgeSessionState.idle);
     await windDown(tester, controller);
   });
@@ -780,6 +783,52 @@ void main() {
         isTrue,
         reason: 'the engine only ever sees the substituted text',
       );
+      expect(controller.phase, BridgeSessionState.idle);
+      await windDown(tester, controller);
+    },
+  );
+
+  testWidgets(
+    'the confirm rides the slot table to the store (占位符钉入入库)',
+    (tester) async {
+      // A pinned session's confirm carries one row per live slot —
+      // number, prefill, and the value actually substituted — beside
+      // the insert; the store writes them as placeholders rows.
+      final gateway = FakeGateway();
+      final controller = await pumpController(tester, gateway);
+      await pumpToRecording(tester, controller);
+      await gateway.pinPlaceholder();
+      await tester.pump();
+      await controller.stopSession();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      gateway.emit(const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡一下'));
+      gateway.emit(
+        const BridgeEvent.previewPrefills(
+          prefills: [BridgePrefillRow(number: 1, value: '张三')],
+        ),
+      );
+      gateway.emit(
+        const BridgeEvent.sessionStateChanged(
+          from: BridgeSessionState.rectifying,
+          to: BridgeSessionState.preview,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Step into the capsule (the same outside-0 → outside-1 →
+      // outside-left dock walk) and type, so the confirmed value is an
+      // edited one — not just the prefill echoing back.
+      for (final _ in '123'.split('')) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      }
+      await typeAtCaret(tester, '李');
+      await controller.hotkeyToggle();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(gateway.lastPlaceholderFills, const [
+        BridgePlaceholderFill(number: 1, prefill: '张三', value: '李张三'),
+      ]);
       expect(controller.phase, BridgeSessionState.idle);
       await windDown(tester, controller);
     },
@@ -3592,9 +3641,8 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('a thinking-less attempt never shows the marquee (zero-trace)', (
-    tester,
-  ) async {
+  testWidgets('a thinking-less attempt never shows the marquee (zero-trace)',
+      (tester) async {
     final gateway = FakeGateway();
     final window = RecordingStageWindow();
     final controller = await pumpController(

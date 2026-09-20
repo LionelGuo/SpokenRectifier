@@ -495,11 +495,7 @@ mod tests {
         inserter.insert("好").await.unwrap();
         assert_eq!(
             fake.calls()[4..],
-            vec![
-                OsCall::Wait(70),
-                OsCall::Char('好'),
-                OsCall::Wait(15),
-            ]
+            vec![OsCall::Wait(70), OsCall::Char('好'), OsCall::Wait(15),]
         );
     }
 

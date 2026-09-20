@@ -84,7 +84,13 @@ async fn passage_mode_off_auto_ends_on_long_silence() {
     ok(&h.engine, Command::StartSession).await;
     await_state(&mut rx, SessionState::Preview).await;
 
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     assert_eq!(

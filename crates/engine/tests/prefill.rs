@@ -102,7 +102,13 @@ async fn an_inline_response_streams_verbatim_and_delivers_rows() {
 
     // The preview body (and so the engine's insert, pre-substitution)
     // carries the forms verbatim.
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(
         h.inserter.inserted_texts(),
@@ -231,7 +237,13 @@ async fn a_retired_block_tail_streams_whole_as_residue() {
     assert_eq!(streamed, response);
     assert_eq!(prefills, Some(vec![row(1, "")]));
     // The insert carries the response whole, habit tail and all.
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(h.inserter.inserted_texts(), vec![response]);
 }
@@ -280,7 +292,13 @@ async fn a_pinless_session_is_byte_identical_and_never_announces() {
     assert_eq!(chunks, script);
     assert_eq!(prefills, None);
     // The insert carries the response whole, forms and all.
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(
         h.inserter.inserted_texts(),

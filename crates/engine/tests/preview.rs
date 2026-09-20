@@ -37,7 +37,13 @@ async fn edited_preview_text_is_what_gets_inserted() {
     .await;
     assert_eq!(preview.seq, 7, "preview update follows the preview state");
 
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     assert_eq!(h.inserter.inserted_texts(), vec!["手改版本"]);
@@ -63,7 +69,13 @@ async fn reroll_streams_a_fresh_result_and_inserts_it() {
 
     ok(&h.engine, Command::Reroll).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     expect_quiet(&mut rx, 50).await;
 
@@ -109,7 +121,13 @@ async fn failed_insertion_keeps_preview_alive() {
     await_state(&mut rx, SessionState::Preview).await;
 
     h.inserter.fail_next_insert();
-    ok(&h.engine, Command::ConfirmInsert).await; // insertion fails
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await; // insertion fails
     next_matching(&mut rx, |env| {
         matches!(env.event, EngineEvent::Error { .. })
     })
@@ -118,7 +136,13 @@ async fn failed_insertion_keeps_preview_alive() {
     assert!(h.inserter.inserted_texts().is_empty());
 
     // Not a dead end: retry succeeds.
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
     assert_eq!(h.inserter.inserted_texts(), vec!["修"]);
 }
@@ -164,7 +188,13 @@ async fn an_all_emptied_confirmation_inserts_empty_and_keeps_the_sentinels_raw()
     // The shell's substitution of an all-emptied document is the empty
     // string; the confirm path neither gates nor prompts.
     ok(&h.engine, Command::UpdatePreviewText(String::new())).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     assert_eq!(h.inserter.inserted_texts(), vec![""]);
@@ -174,6 +204,7 @@ async fn an_all_emptied_confirmation_inserts_empty_and_keeps_the_sentinels_raw()
             raw_transcript: "发给‡1‡吧".into(),
             rectified_text: String::new(),
             scenario: None,
+            placeholders: Vec::new(),
             source_session_id: None,
         }]
     );

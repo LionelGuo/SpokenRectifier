@@ -25,7 +25,13 @@ async fn full_happy_path_event_sequence() {
     await_live(&mut rx, "你好世界").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     // Collect every envelope, in order.
@@ -113,7 +119,13 @@ async fn sessions_run_back_to_back_with_fresh_ids() {
     await_live(&mut rx, "第一段").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     // A finished session is not a dead end: the next one just works.
@@ -121,7 +133,13 @@ async fn sessions_run_back_to_back_with_fresh_ids() {
     await_live(&mut rx, "第二段").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     let mut events = Vec::new();

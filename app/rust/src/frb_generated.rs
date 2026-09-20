@@ -1672,7 +1672,11 @@ impl SseDecode for crate::api::BridgeCommand {
                 return crate::api::BridgeCommand::Cancel;
             }
             3 => {
-                return crate::api::BridgeCommand::ConfirmInsert;
+                let mut var_placeholders =
+                    <Vec<crate::api::BridgePlaceholderFill>>::sse_decode(deserializer);
+                return crate::api::BridgeCommand::ConfirmInsert {
+                    placeholders: var_placeholders,
+                };
             }
             4 => {
                 return crate::api::BridgeCommand::Reroll;
@@ -2117,6 +2121,20 @@ impl SseDecode for crate::api::BridgeLlmVendorKey {
     }
 }
 
+impl SseDecode for crate::api::BridgePlaceholderFill {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_number = <u32>::sse_decode(deserializer);
+        let mut var_prefill = <String>::sse_decode(deserializer);
+        let mut var_value = <String>::sse_decode(deserializer);
+        return crate::api::BridgePlaceholderFill {
+            number: var_number,
+            prefill: var_prefill,
+            value: var_value,
+        };
+    }
+}
+
 impl SseDecode for crate::api::BridgePrefillRow {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -2303,6 +2321,20 @@ impl SseDecode for Vec<crate::api::BridgeLlmVendorKey> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::BridgeLlmVendorKey>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::BridgePlaceholderFill> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::BridgePlaceholderFill>::sse_decode(
+                deserializer,
+            ));
         }
         return ans_;
     }
@@ -2728,7 +2760,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
             crate::api::BridgeCommand::StartSession => [0.into_dart()].into_dart(),
             crate::api::BridgeCommand::StopSession => [1.into_dart()].into_dart(),
             crate::api::BridgeCommand::Cancel => [2.into_dart()].into_dart(),
-            crate::api::BridgeCommand::ConfirmInsert => [3.into_dart()].into_dart(),
+            crate::api::BridgeCommand::ConfirmInsert { placeholders } => {
+                [3.into_dart(), placeholders.into_into_dart().into_dart()].into_dart()
+            }
             crate::api::BridgeCommand::Reroll => [4.into_dart()].into_dart(),
             crate::api::BridgeCommand::UpdatePreviewText { text } => {
                 [5.into_dart(), text.into_into_dart().into_dart()].into_dart()
@@ -3215,6 +3249,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeLlmVendorKey>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgePlaceholderFill {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.number.into_into_dart().into_dart(),
+            self.prefill.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgePlaceholderFill
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgePlaceholderFill>
+    for crate::api::BridgePlaceholderFill
+{
+    fn into_into_dart(self) -> crate::api::BridgePlaceholderFill {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::BridgePrefillRow {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -3506,8 +3562,9 @@ impl SseEncode for crate::api::BridgeCommand {
             crate::api::BridgeCommand::Cancel => {
                 <i32>::sse_encode(2, serializer);
             }
-            crate::api::BridgeCommand::ConfirmInsert => {
+            crate::api::BridgeCommand::ConfirmInsert { placeholders } => {
                 <i32>::sse_encode(3, serializer);
+                <Vec<crate::api::BridgePlaceholderFill>>::sse_encode(placeholders, serializer);
             }
             crate::api::BridgeCommand::Reroll => {
                 <i32>::sse_encode(4, serializer);
@@ -3835,6 +3892,15 @@ impl SseEncode for crate::api::BridgeLlmVendorKey {
     }
 }
 
+impl SseEncode for crate::api::BridgePlaceholderFill {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.number, serializer);
+        <String>::sse_encode(self.prefill, serializer);
+        <String>::sse_encode(self.value, serializer);
+    }
+}
+
 impl SseEncode for crate::api::BridgePrefillRow {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3988,6 +4054,16 @@ impl SseEncode for Vec<crate::api::BridgeLlmVendorKey> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::BridgeLlmVendorKey>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::BridgePlaceholderFill> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::BridgePlaceholderFill>::sse_encode(item, serializer);
         }
     }
 }

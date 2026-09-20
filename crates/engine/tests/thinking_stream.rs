@@ -82,7 +82,13 @@ async fn the_thinking_text_rides_only_its_own_event() {
     await_live(&mut rx, "你好世界").await;
     ok(&h.engine, Command::StopSession).await;
     await_state(&mut rx, SessionState::Preview).await;
-    ok(&h.engine, Command::ConfirmInsert).await;
+    ok(
+        &h.engine,
+        Command::ConfirmInsert {
+            placeholders: Vec::new(),
+        },
+    )
+    .await;
     await_state(&mut rx, SessionState::Idle).await;
 
     let mut body = String::new();
@@ -113,7 +119,10 @@ async fn cancelling_mid_thinking_leaves_no_thinking_straggler() {
     let (h, mut rx) = harness(
         EngineConfig::default(),
         vec![vec![AsrStep::Say("你好世界".into())]],
-        vec![vec![LlmStep::Think("想".into()), LlmStep::Token("修".into())]],
+        vec![vec![
+            LlmStep::Think("想".into()),
+            LlmStep::Token("修".into()),
+        ]],
     );
 
     ok(&h.engine, Command::StartSession).await;

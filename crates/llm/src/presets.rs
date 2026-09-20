@@ -228,7 +228,10 @@ mod tests {
         assert_eq!(row("deepseek").model, "deepseek-flash");
         // absorb-clock 05: the chip's on share carries the effort too, so
         // a preset save cannot revert the default to the endpoint's high.
-        assert_eq!(row("deepseek").thinking_on["reasoning_effort"], json!("low"));
+        assert_eq!(
+            row("deepseek").thinking_on["reasoning_effort"],
+            json!("low")
+        );
         let volcengine = row("volcengine");
         assert_eq!(
             volcengine.base_url,

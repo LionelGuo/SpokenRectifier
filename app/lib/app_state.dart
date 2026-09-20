@@ -35,7 +35,7 @@ abstract class SpeechEngineGateway {
   Future<void> startSession();
   Future<void> stopSession();
   Future<void> cancelSession();
-  Future<void> confirmInsert();
+  Future<void> confirmInsert(List<BridgePlaceholderFill> placeholders);
   Future<void> reroll();
   Future<void> updatePreviewText(String text);
   Future<void> pinPlaceholder();
@@ -611,6 +611,13 @@ class SpeechController extends ChangeNotifier {
   /// (ticket 22) is the consumer.
   List<BridgePrefillRow> prefillTable = const [];
 
+  /// The confirm-time slot table the panel keeps current off its slot
+  /// document (占位符钉入入库): one row per slot with a live occurrence,
+  /// mirroring exactly what [confirmWhatYouSee] would substitute. Lives
+  /// mid-flight like [prefillTable] — republished at every round arrival
+  /// and slot edit, and dying with the round it belonged to.
+  List<BridgePlaceholderFill> placeholderFills = const [];
+
   /// Debounce for pushing preview edits to the engine: edits are adopted
   /// into [previewText] at once, only the engine push waits.
   Timer? _previewPushDebounce;
@@ -626,7 +633,8 @@ class SpeechController extends ChangeNotifier {
   /// Confirm what is on screen — the one entry every confirm path shares
   /// (button, Enter, hotkey): flush any edit still inside the debounce
   /// window to the engine, then insert, so the inserted text is what the
-  /// user sees, not the last pushed snapshot.
+  /// user sees, not the last pushed snapshot. The slot table rides the
+  /// confirm so the store records each slot beside the session pair.
   Future<void> confirmWhatYouSee() async {
     final pushPending = _previewPushDebounce != null;
     _previewPushDebounce?.cancel();
@@ -635,7 +643,7 @@ class SpeechController extends ChangeNotifier {
     if (pushPending) {
       await gateway.updatePreviewText(previewText);
     }
-    await gateway.confirmInsert();
+    await gateway.confirmInsert(placeholderFills);
   }
 
   /// Surface a startup failure (engine assembly refused to run) the same
@@ -1163,6 +1171,9 @@ class SpeechController extends ChangeNotifier {
           // The prefill table dies with the round it belonged to; a reroll
           // delivers the fresh table ahead of the preview state change.
           prefillTable = const [];
+          // So does the slot table — the panel republishes it off the
+          // fresh document when the round's preview lands.
+          placeholderFills = const [];
         }
         // The marquee machine lives exactly one rectify attempt (14 号票):
         // a fresh machine on entering rectifying (reroll included), gone

@@ -329,6 +329,28 @@ class SlotDocument {
     return (buffer..write(_skeleton.substring(copied))).toString();
   }
 
+  /// The confirm-time slot table (占位符钉入入库): one row per identity
+  /// with a live occurrence in the skeleton — exactly the slots whose
+  /// values [substitute] actually lands in the inserted text — in
+  /// first-occurrence order. Each row carries the identity's number,
+  /// the prefill of its most recent visible round ('' = none
+  /// delivered), and the current value the confirm substitutes
+  /// (possibly ''). Same-number occurrences fold to one row; a minted
+  /// identity whose occurrences the body edits deleted contributes
+  /// nothing and gets no row.
+  List<({int number, String prefill, String value})> confirmRows() {
+    final seen = <int>{};
+    return [
+      for (final span in fillSlots)
+        if (seen.add(span.id))
+          (
+            number: span.id,
+            prefill: prefillOf(span.id),
+            value: valueOf(span.id),
+          ),
+    ];
+  }
+
   /// A round of rectified text arrives at the preview. The first round
   /// and every regeneration — manual reroll, scenario switch, any
   /// trigger — are the same call (一切预览重生成同规则).

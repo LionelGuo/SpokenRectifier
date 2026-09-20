@@ -1609,7 +1609,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 2:
         return BridgeCommand_Cancel();
       case 3:
-        return BridgeCommand_ConfirmInsert();
+        return BridgeCommand_ConfirmInsert(
+          placeholders: dco_decode_list_bridge_placeholder_fill(raw[1]),
+        );
       case 4:
         return BridgeCommand_Reroll();
       case 5:
@@ -1939,6 +1941,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgePlaceholderFill dco_decode_bridge_placeholder_fill(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return BridgePlaceholderFill(
+      number: dco_decode_u_32(arr[0]),
+      prefill: dco_decode_String(arr[1]),
+      value: dco_decode_String(arr[2]),
+    );
+  }
+
+  @protected
   BridgePrefillRow dco_decode_bridge_prefill_row(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -2065,6 +2080,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>)
         .map(dco_decode_bridge_llm_vendor_key)
+        .toList();
+  }
+
+  @protected
+  List<BridgePlaceholderFill> dco_decode_list_bridge_placeholder_fill(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_bridge_placeholder_fill)
         .toList();
   }
 
@@ -2412,7 +2437,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 2:
         return BridgeCommand_Cancel();
       case 3:
-        return BridgeCommand_ConfirmInsert();
+        var var_placeholders = sse_decode_list_bridge_placeholder_fill(
+          deserializer,
+        );
+        return BridgeCommand_ConfirmInsert(placeholders: var_placeholders);
       case 4:
         return BridgeCommand_Reroll();
       case 5:
@@ -2807,6 +2835,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgePlaceholderFill sse_decode_bridge_placeholder_fill(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_number = sse_decode_u_32(deserializer);
+    var var_prefill = sse_decode_String(deserializer);
+    var var_value = sse_decode_String(deserializer);
+    return BridgePlaceholderFill(
+      number: var_number,
+      prefill: var_prefill,
+      value: var_value,
+    );
+  }
+
+  @protected
   BridgePrefillRow sse_decode_bridge_prefill_row(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_number = sse_decode_u_32(deserializer);
@@ -2983,6 +3026,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <BridgeLlmVendorKey>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_bridge_llm_vendor_key(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<BridgePlaceholderFill> sse_decode_list_bridge_placeholder_fill(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <BridgePlaceholderFill>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_bridge_placeholder_fill(deserializer));
     }
     return ans_;
   }
@@ -3346,8 +3403,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_i_32(1, serializer);
       case BridgeCommand_Cancel():
         sse_encode_i_32(2, serializer);
-      case BridgeCommand_ConfirmInsert():
+      case BridgeCommand_ConfirmInsert(placeholders: final placeholders):
         sse_encode_i_32(3, serializer);
+        sse_encode_list_bridge_placeholder_fill(placeholders, serializer);
       case BridgeCommand_Reroll():
         sse_encode_i_32(4, serializer);
       case BridgeCommand_UpdatePreviewText(text: final text):
@@ -3668,6 +3726,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_bridge_placeholder_fill(
+    BridgePlaceholderFill self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.number, serializer);
+    sse_encode_String(self.prefill, serializer);
+    sse_encode_String(self.value, serializer);
+  }
+
+  @protected
   void sse_encode_bridge_prefill_row(
     BridgePrefillRow self,
     SseSerializer serializer,
@@ -3821,6 +3890,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_bridge_llm_vendor_key(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_bridge_placeholder_fill(
+    List<BridgePlaceholderFill> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_bridge_placeholder_fill(item, serializer);
     }
   }
 

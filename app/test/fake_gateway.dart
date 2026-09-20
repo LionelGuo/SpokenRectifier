@@ -147,9 +147,14 @@ class FakeGateway implements SpeechEngineGateway {
     }
   }
 
+  /// The slot table the last confirm carried (占位符钉入入库), for
+  /// assertions; null before the first confirm.
+  List<BridgePlaceholderFill>? lastPlaceholderFills;
+
   @override
-  Future<void> confirmInsert() async {
+  Future<void> confirmInsert(List<BridgePlaceholderFill> placeholders) async {
     commands.add('confirmInsert');
+    lastPlaceholderFills = placeholders;
     emit(BridgeEvent.textInserted(text: '插入的文本'));
     // The engine records the finished session into its history store.
     historyEntries.add(
