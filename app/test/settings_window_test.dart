@@ -55,6 +55,7 @@ import 'package:spokenrectifier_app/src/settings/system_store.dart';
 import 'package:spokenrectifier_app/src/settings/terms_store.dart';
 
 import 'fake_gateway.dart';
+import 'fake_rectify_store.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -209,63 +210,6 @@ class FakeTermsStore implements TermsStore {
 
   @override
   Future<void> remove(String term) async => terms.remove(term);
-}
-
-/// The rectify domain's fake: the behavior in memory; a save records
-/// the ask and returns it as the re-read truth; the post-save engine
-/// adoption ([applyCalls]) is recorded and can be refused
-/// ([FakeRectifyBehaviorStore.failNextApply]).
-class FakeRectifyBehaviorStore implements RectifyBehaviorStore {
-  FakeRectifyBehaviorStore([
-    this.behavior = const RectifyBehavior(
-      fullThinkingPolicy: 'always',
-      fullPrefill: true,
-      lightTouchEnabled: true,
-      lightTouchMaxChars: 40,
-      lightTouchThinkingPolicy: 'always',
-      lightTouchPrefill: true,
-    ),
-  ]);
-
-  /// Today's defaults (ADR-0015: a missing section reads as the
-  /// always-on, prefill-on behavior).
-  RectifyBehavior behavior;
-
-  final saves = <RectifyBehavior>[];
-
-  /// When set, the next save throws (an unwritable layer file).
-  Object? failNextSave;
-
-  /// How many saves handed the files to the live engine afterwards.
-  int applyCalls = 0;
-
-  /// When set, the next apply throws (the engine refused the adoption).
-  Object? failNextApply;
-
-  @override
-  Future<RectifyBehavior> load() async => behavior;
-
-  @override
-  Future<RectifyBehavior> save(RectifyBehavior next) async {
-    if (failNextSave != null) {
-      final failure = failNextSave;
-      failNextSave = null;
-      throw failure!;
-    }
-    saves.add(next);
-    behavior = next;
-    return next;
-  }
-
-  @override
-  Future<void> applyConnections() async {
-    if (failNextApply != null) {
-      final failure = failNextApply;
-      failNextApply = null;
-      throw failure!;
-    }
-    applyCalls++;
-  }
 }
 
 /// Every vendor slot unset — the key map's floor for the view helpers.
@@ -747,8 +691,7 @@ class FakeSettingsChannel implements SettingsChannel {
     String rawTranscript, {
     required ScenarioPick style,
     required PlatformInt64? sourceSessionId,
-  }) async =>
-      rerectifies.add((raw: rawTranscript, style: style));
+  }) async => rerectifies.add((raw: rawTranscript, style: style));
 
   @override
   Future<void> sendTermsChanged() async => termsChanged++;
@@ -2659,15 +2602,10 @@ void main() {
     expect(find.byKey(const Key('settings-conn-asr-endpoint')), findsOneWidget);
     // The header caption is retired (copy.md conn-02); the adoption
     // semantics live in the spec, not on the page.
-    expect(
-      find.byKey(const Key('settings-conn-effective-note')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('settings-conn-effective-note')), findsNothing);
   });
 
-  testWidgets('an env key never echoes; no status line paints', (
-    tester,
-  ) async {
+  testWidgets('an env key never echoes; no status line paints', (tester) async {
     final store = FakeConnectionStore(
       llm: fakeLlm(
         keys: const {
@@ -2686,10 +2624,7 @@ void main() {
 
     expect(fieldText(tester, const Key('settings-conn-llm-key')), isEmpty);
     // The key block's status line is retired (copy.md conn-20/21).
-    expect(
-      find.byKey(const Key('settings-conn-key-status:llm')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('settings-conn-key-status:llm')), findsNothing);
     expect(find.textContaining('输入即另存本机'), findsNothing);
   });
 
@@ -3265,10 +3200,7 @@ void main() {
     expect((set.apiKey as ApiKeySet).key, 'sk-new');
     // The status line is retired (copy.md conn-20/21); the echo in the
     // field below is the only paint of the stored key.
-    expect(
-      find.byKey(const Key('settings-conn-key-status:llm')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('settings-conn-key-status:llm')), findsNothing);
     expect(fieldText(tester, const Key('settings-conn-llm-key')), 'sk-new');
 
     // Emptying the echoed key and saving asks one confirm; cancelling

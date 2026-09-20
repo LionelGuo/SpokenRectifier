@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     show PlatformInt64;
+
 import 'src/rust/api.dart' as rust;
 
 import 'app_state.dart';
@@ -74,13 +75,6 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
   );
 
   @override
-  Future<bool> passageMode() => rust.passageMode();
-
-  @override
-  Future<void> setPassageMode(bool on) =>
-      rust.execute(command: rust.BridgeCommand.setPassageMode(on_: on));
-
-  @override
   Future<List<String>> termsList() => rust.termsList();
 
   @override
@@ -115,10 +109,8 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
   Stream<rust.BridgeEventEnvelope> events() => rust.subscribe();
 
   @override
-  Future<bool> watchHold(
-    List<int> vks, {
-    required bool stopOnEarlyRelease,
-  }) => rust.watchHold(vks: vks, stopOnEarlyRelease: stopOnEarlyRelease);
+  Future<bool> watchHold(List<int> vks, {required bool stopOnEarlyRelease}) =>
+      rust.watchHold(vks: vks, stopOnEarlyRelease: stopOnEarlyRelease);
 
   @override
   Future<bool> isHolding() => rust.isHolding();

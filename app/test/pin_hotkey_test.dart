@@ -17,6 +17,7 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeSessionState;
 
 import 'fake_gateway.dart';
+import 'fake_rectify_store.dart';
 
 /// A registrar that records the lifecycle and keeps the armed callback,
 /// so tests can press the chord exactly the way the platform would.
@@ -53,7 +54,12 @@ Future<SpeechController> pumpController(
     pinHotkey: pinHotkey,
   );
   addTearDown(controller.dispose);
-  await tester.pumpWidget(SpokenRectifierApp(controller: controller));
+  await tester.pumpWidget(
+    SpokenRectifierApp(
+      controller: controller,
+      rectifyStore: FakeRectifyBehaviorStore(),
+    ),
+  );
   return controller;
 }
 

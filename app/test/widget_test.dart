@@ -24,6 +24,7 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
         BridgePrefillRow,
         BridgeScenario,
         BridgeSessionState;
+import 'package:spokenrectifier_app/src/settings/rectify_store.dart';
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
@@ -38,6 +39,7 @@ import 'package:spokenrectifier_app/src/shell/window_stage.dart'
 import 'package:spokenrectifier_app/ui_prefs.dart';
 
 import 'fake_gateway.dart';
+import 'fake_rectify_store.dart';
 
 /// The session field's editable core: the self-drawn slot surface
 /// (ticket 22). The Key sits on the SlotSurface itself.
@@ -143,6 +145,7 @@ Future<SpeechController> pumpController(
   ThemeMode themeMode = ThemeMode.dark,
   stage.StageWindow? stageWindow,
   void Function(SettingsDomain domain)? onOpenSettings,
+  FakeRectifyBehaviorStore? rectifyStore,
 }) async {
   final controller = SpeechController(
     gateway: gateway,
@@ -163,10 +166,23 @@ Future<SpeechController> pumpController(
       controller: controller,
       stageWindow: stageWindow,
       onOpenSettings: onOpenSettings,
+      rectifyStore: rectifyStore ?? FakeRectifyBehaviorStore(),
     ),
   );
   return controller;
 }
+
+/// The panel's own vertical list scrollable — the term field's inline
+/// horizontal Scrollable must never match a panel drag.
+Finder panelScrollable() => find.byWidgetPredicate(
+  (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+);
+
+/// A rectify switch row's inner Switch — the row key sits on the row
+/// itself and the row's center is empty space (the label-Spacer-switch
+/// layout), so taps and value reads must target the Switch inside.
+Finder rowSwitch(String key) =>
+    find.descendant(of: find.byKey(Key(key)), matching: find.byType(Switch));
 
 Future<void> pumpToRecording(
   WidgetTester tester,
@@ -788,51 +804,50 @@ void main() {
     },
   );
 
-  testWidgets(
-    'the confirm rides the slot table to the store (占位符钉入入库)',
-    (tester) async {
-      // A pinned session's confirm carries one row per live slot —
-      // number, prefill, and the value actually substituted — beside
-      // the insert; the store writes them as placeholders rows.
-      final gateway = FakeGateway();
-      final controller = await pumpController(tester, gateway);
-      await pumpToRecording(tester, controller);
-      await gateway.pinPlaceholder();
-      await tester.pump();
-      await controller.stopSession();
-      await tester.pump(const Duration(milliseconds: 350));
+  testWidgets('the confirm rides the slot table to the store (占位符钉入入库)', (
+    tester,
+  ) async {
+    // A pinned session's confirm carries one row per live slot —
+    // number, prefill, and the value actually substituted — beside
+    // the insert; the store writes them as placeholders rows.
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+    await pumpToRecording(tester, controller);
+    await gateway.pinPlaceholder();
+    await tester.pump();
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
 
-      gateway.emit(const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡一下'));
-      gateway.emit(
-        const BridgeEvent.previewPrefills(
-          prefills: [BridgePrefillRow(number: 1, value: '张三')],
-        ),
-      );
-      gateway.emit(
-        const BridgeEvent.sessionStateChanged(
-          from: BridgeSessionState.rectifying,
-          to: BridgeSessionState.preview,
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 400));
+    gateway.emit(const BridgeEvent.rectifiedTextChunk(delta: '发给‡1‡一下'));
+    gateway.emit(
+      const BridgeEvent.previewPrefills(
+        prefills: [BridgePrefillRow(number: 1, value: '张三')],
+      ),
+    );
+    gateway.emit(
+      const BridgeEvent.sessionStateChanged(
+        from: BridgeSessionState.rectifying,
+        to: BridgeSessionState.preview,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
 
-      // Step into the capsule (the same outside-0 → outside-1 →
-      // outside-left dock walk) and type, so the confirmed value is an
-      // edited one — not just the prefill echoing back.
-      for (final _ in '123'.split('')) {
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-      }
-      await typeAtCaret(tester, '李');
-      await controller.hotkeyToggle();
-      await tester.pump(const Duration(milliseconds: 350));
+    // Step into the capsule (the same outside-0 → outside-1 →
+    // outside-left dock walk) and type, so the confirmed value is an
+    // edited one — not just the prefill echoing back.
+    for (final _ in '123'.split('')) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    }
+    await typeAtCaret(tester, '李');
+    await controller.hotkeyToggle();
+    await tester.pump(const Duration(milliseconds: 350));
 
-      expect(gateway.lastPlaceholderFills, const [
-        BridgePlaceholderFill(number: 1, prefill: '张三', value: '李张三'),
-      ]);
-      expect(controller.phase, BridgeSessionState.idle);
-      await windDown(tester, controller);
-    },
-  );
+    expect(gateway.lastPlaceholderFills, const [
+      BridgePlaceholderFill(number: 1, prefill: '张三', value: '李张三'),
+    ]);
+    expect(controller.phase, BridgeSessionState.idle);
+    await windDown(tester, controller);
+  });
 
   testWidgets(
     'the raw transcript comparison expands under the rectified text',
@@ -901,7 +916,7 @@ void main() {
       find
           .ancestor(
             of: find.byKey(const Key('session-stream')).last,
-            matching: find.byType(Scrollable),
+            matching: panelScrollable(),
           )
           .first,
     );
@@ -1045,7 +1060,11 @@ void main() {
     );
     addTearDown(controller.dispose);
     await tester.pumpWidget(
-      SpokenRectifierApp(controller: controller, stageWindow: null),
+      SpokenRectifierApp(
+        controller: controller,
+        stageWindow: null,
+        rectifyStore: FakeRectifyBehaviorStore(),
+      ),
     );
 
     await controller.setOrbVisible(false);
@@ -1081,21 +1100,44 @@ void main() {
 
       expect(controller.stage, StageKind.quick);
       expect(find.text('快捷设置'), findsOneWidget);
-      // The sections paint: terms, passage, theme. The scenario picker
-      // row hides with an empty library, but the section keeps its
-      // editor entry (the creation path into the settings window);
-      // history shows its empty hint.
-      expect(find.text('术语'), findsOneWidget);
+      // The sections paint: terms, the three rectify tiers, theme. The
+      // scenario picker row hides with an empty library, but the
+      // section keeps its editor entry (the creation path into the
+      // settings window); history shows its empty hint. The 输入
+      // (passage) section is gone — the settings window's 高级 domain
+      // is the switch's one home now.
+      expect(find.text('术语速加'), findsOneWidget);
       expect(find.text('历史'), findsOneWidget);
       expect(find.byKey(const Key('quick-history-empty')), findsOneWidget);
-      expect(find.text('输入'), findsOneWidget);
-      expect(find.text('外观'), findsOneWidget);
       expect(find.text('场景'), findsOneWidget);
       expect(
         find.byKey(const Key('quick-open-settings:scenarios')),
         findsOneWidget,
       );
       expect(find.byKey(const Key('quick-scenario-default')), findsNothing);
+      expect(find.text('输入'), findsNothing);
+      expect(find.byKey(const Key('quick-passage')), findsNothing);
+      // The rectify mirror sits below the fold of the scrollable list:
+      // scroll each tier into view before asserting it.
+      await tester.dragUntilVisible(
+        find.text('全量修正模式'),
+        panelScrollable(),
+        const Offset(0, -40),
+      );
+      expect(find.text('全量修正模式'), findsOneWidget);
+      expect(
+        find.byKey(const Key('quick-rectify-full-prefill')),
+        findsOneWidget,
+      );
+      expect(find.text('开启思考'), findsOneWidget); // the panel copy
+      await tester.dragUntilVisible(
+        find.text('快速模式'),
+        panelScrollable(),
+        const Offset(0, -40),
+      );
+      expect(find.text('轻修模式'), findsOneWidget);
+      expect(find.text('快速模式'), findsOneWidget);
+      expect(find.text('外观'), findsOneWidget);
       // The anchor-zone bottom fade is part of the panel's shape.
       expect(find.byKey(const Key('quick-bottom-fade')), findsOneWidget);
       // Opening refreshed the panel's lists.
@@ -1159,6 +1201,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
     await tester.tap(find.byKey(const Key('quick-open-settings:scenarios')));
     await tester.tap(find.byKey(const Key('quick-open-settings:history')));
+    // The 设置入口 section sits below the fold of the grown list now.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('quick-open-settings:general')),
+      panelScrollable(),
+      const Offset(0, -40),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('quick-open-settings:general')));
     await tester.pump();
 
@@ -1561,48 +1610,279 @@ void main() {
     },
   );
 
-  testWidgets('the passage switch toggles the engine flag', (tester) async {
-    final gateway = FakeGateway();
-    final controller = await pumpController(tester, gateway);
-    await controller.loadPassageMode(); // engine says on
+  testWidgets('the rectify chips carry the panel copy, not the settings one', (
+    tester,
+  ) async {
+    final controller = await pumpController(tester, FakeGateway());
     await pumpQuickOpen(tester, controller);
 
+    // Rounds 3+4: bare chips (no 思考策略 field label), panel-side copy
+    // 开启思考 / 仅含占位图钉时思考 / 关闭思考 — the settings window's
+    // 始终开启… wording never leaks in here, and no micro label reads
+    // as another section title.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('quick-rectify-full-policy:off')),
+      panelScrollable(),
+      const Offset(0, -40),
+    );
+    await tester.drag(panelScrollable(), const Offset(0, -120));
+    await tester.pumpAndSettle();
+    expect(find.text('思考策略'), findsNothing);
+    expect(find.text('始终开启'), findsNothing);
+    expect(find.text('开启思考'), findsOneWidget);
+    expect(find.text('仅含占位图钉时思考'), findsOneWidget);
+    expect(find.text('关闭思考'), findsOneWidget);
+  });
+
+  testWidgets('a rectify point-select saves the whole model and adopts it', (
+    tester,
+  ) async {
+    final store = FakeRectifyBehaviorStore();
+    final controller = await pumpController(
+      tester,
+      FakeGateway(),
+      rectifyStore: store,
+    );
+    await pumpQuickOpen(tester, controller);
+
+    await tester.dragUntilVisible(
+      find.byKey(const Key('quick-rectify-full-policy:off')),
+      panelScrollable(),
+      const Offset(0, -40),
+    );
+    await tester.tap(find.byKey(const Key('quick-rectify-full-policy:off')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // Theme-caliber semantics: one tap writes the whole model with the
+    // one field moved, and the save hands the files to the live engine
+    // (the next rectify attempt — reroll included — runs it).
+    expect(store.saves, hasLength(1));
+    expect(store.saves.single.fullThinkingPolicy, 'off');
+    expect(store.saves.single.fullPrefill, isTrue); // untouched fields ride
+    expect(store.saves.single.lightTouchEnabled, isTrue);
+    expect(store.applyCalls, 1);
+    // The receipt repaints: the picked switch keeps painting the truth.
     expect(
-      (tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value,
+      tester.widget<Switch>(rowSwitch('quick-rectify-full-prefill')).value,
       isTrue,
     );
-    await tester.tap(find.byKey(const Key('quick-passage')));
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(gateway.commands, contains('setPassageMode:false'));
-    expect(controller.passageMode, isFalse);
-
-    await tester.tap(find.byKey(const Key('quick-passage')));
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(gateway.commands, contains('setPassageMode:true'));
-    expect(controller.passageMode, isTrue);
   });
 
   testWidgets(
-    'a failed passage switch rolls the toggle back to the engine truth',
+    'a point-select re-reads first — a concurrent settings edit survives',
     (tester) async {
-      final gateway = FakeGateway()
-        ..failNextSetPassageMode = StateError('engine gone');
-      final controller = await pumpController(tester, gateway);
+      final store = FakeRectifyBehaviorStore();
+      final controller = await pumpController(
+        tester,
+        FakeGateway(),
+        rectifyStore: store,
+      );
       await pumpQuickOpen(tester, controller);
 
-      await tester.tap(find.byKey(const Key('quick-passage')));
+      // A settings window open beside the panel commits its own edit
+      // after this panel's load (channel (b): the pick must commit over
+      // a FRESH read, never clobber the file with the stale snapshot).
+      store.behavior = store.behavior.copyWith(
+        lightTouchMaxChars: 99,
+        quickExtraDirective: '只改错别字',
+      );
+
+      await tester.dragUntilVisible(
+        find.byKey(const Key('quick-rectify-full-prefill')),
+        panelScrollable(),
+        const Offset(0, -40),
+      );
+      await tester.tap(rowSwitch('quick-rectify-full-prefill'));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
 
-      // The toggle mirrors engine state the next session runs with: a
-      // rejected switch must not paint a mode the engine never adopted.
-      expect(controller.passageMode, isTrue);
-      expect(gateway.passage, isTrue);
-      expect(controller.lastError, '切换失败');
-      expect(textOf(tester, const Key('sr-toast')), '切换失败');
-      // The switch still paints the truth.
+      expect(store.saves.single.fullPrefill, isFalse); // the pick
+      expect(store.saves.single.lightTouchMaxChars, 99); // the fresh read
+      expect(store.saves.single.quickExtraDirective, '只改错别字');
+    },
+  );
+
+  testWidgets('the §4.4 cascades disable in place, never hide', (tester) async {
+    final store = FakeRectifyBehaviorStore();
+    final controller = await pumpController(
+      tester,
+      FakeGateway(),
+      rectifyStore: store,
+    );
+    await pumpQuickOpen(tester, controller);
+    await tester.dragUntilVisible(
+      find.byKey(const Key('quick-rectify-light-enabled')),
+      panelScrollable(),
+      const Offset(0, -40),
+    );
+    await tester.drag(panelScrollable(), const Offset(0, -120));
+    await tester.pumpAndSettle();
+
+    // 轻修 master off = the tail is disabled, not hidden: the rows
+    // stay painted and swallow hits.
+    await tester.tap(rowSwitch('quick-rectify-light-enabled'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find
+                .ancestor(
+                  of: find.byKey(const Key('quick-rectify-light-prefill')),
+                  matching: find.byType(IgnorePointer),
+                )
+                .first,
+          )
+          .ignoring,
+      isTrue,
+    );
+    final savesBefore = store.saves.length;
+    await tester.tap(rowSwitch('quick-rectify-light-prefill'));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(store.saves, hasLength(savesBefore)); // swallowed
+
+    // 快速 master off (the file default) = the whole section's tail
+    // is disabled the same way.
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find
+                .ancestor(
+                  of: find.byKey(const Key('quick-rectify-quick-rectify')),
+                  matching: find.byType(IgnorePointer),
+                )
+                .first,
+          )
+          .ignoring,
+      isTrue,
+    );
+    await tester.tap(rowSwitch('quick-rectify-quick-rectify'));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(store.saves, hasLength(savesBefore));
+  });
+
+  testWidgets('an inert connection thinking state unselects both chip rows', (
+    tester,
+  ) async {
+    final store = FakeRectifyBehaviorStore(
+      const RectifyBehavior(
+        fullThinkingPolicy: 'always',
+        fullPrefill: true,
+        lightTouchEnabled: true,
+        lightTouchMaxChars: 40,
+        lightTouchThinkingPolicy: 'always',
+        lightTouchPrefill: true,
+        connectionThinking: 'off',
+      ),
+    );
+    final controller = await pumpController(
+      tester,
+      FakeGateway(),
+      rectifyStore: store,
+    );
+    await pumpQuickOpen(tester, controller);
+    await tester.dragUntilVisible(
+      find.byKey(const Key('quick-rectify-full-policy:off')),
+      panelScrollable(),
+      const Offset(0, -40),
+    );
+
+    // §4.4 / ADR-0019 item 3: while the connection's thinking fields
+    // are inert, both tiers' chips dim and swallow hits — recovery
+    // lives in 模型与连接, nothing on this panel. (The dimmer/pointer
+    // shield lives INSIDE the chip's build, so the probe reads the
+    // chip's own AnimatedOpacity target.)
+    expect(
+      tester
+          .widget<AnimatedOpacity>(
+            find
+                .descendant(
+                  of: find.byKey(const Key('quick-rectify-full-policy:off')),
+                  matching: find.byType(AnimatedOpacity),
+                )
+                .first,
+          )
+          .opacity,
+      0.45,
+    );
+    await tester.tap(find.byKey(const Key('quick-rectify-full-policy:off')));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(store.saves, isEmpty);
+  });
+
+  testWidgets(
+    'the directive preview rows hide when unset and land on the rectify domain',
+    (tester) async {
+      final opened = <SettingsDomain>[];
+      final controller = await pumpController(
+        tester,
+        FakeGateway(),
+        // The default 800x600 test view is too small for the grown
+        // list's deep rows (they land outside the root) — pin the
+        // work-area view like the geometry tests.
+        stageWindow: RecordingStageWindow(),
+        onOpenSettings: opened.add,
+        rectifyStore: FakeRectifyBehaviorStore(
+          const RectifyBehavior(
+            fullThinkingPolicy: 'always',
+            fullPrefill: true,
+            lightTouchEnabled: true,
+            lightTouchMaxChars: 40,
+            lightTouchThinkingPolicy: 'always',
+            lightTouchPrefill: true,
+            lightTouchExtraDirective: '保留技术术语原文',
+            quickEnabled: true,
+            quickRectify: true,
+            quickExtraDirective: '只改错别字和标点',
+          ),
+        ),
+      );
+      await pumpQuickOpen(tester, controller);
+      await tester.dragUntilVisible(
+        find.byKey(const Key('quick-rectify-quick-preview')),
+        panelScrollable(),
+        const Offset(0, -40),
+      );
+      // Clear the anchor (orb) zone: the ball pins the card's anchor
+      // corner and swallows taps over its footprint.
+      await tester.drag(panelScrollable(), const Offset(0, -120));
+      await tester.pumpAndSettle();
+
+      // The global preview row's shape: one truncated line, the
+      // settings jump on its right, one button PER ROW.
       expect(
-        (tester.widget(find.byKey(const Key('quick-passage'))) as Switch).value,
-        isTrue,
+        find.byKey(const Key('quick-rectify-light-preview')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('quick-rectify-quick-preview')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('quick-rectify-light-open')));
+      await tester.tap(find.byKey(const Key('quick-rectify-quick-open')));
+      await tester.pump();
+      expect(opened, [SettingsDomain.rectify, SettingsDomain.rectify]);
+
+      // Unset = hidden entirely (a fresh store, no directives).
+      final bare = await pumpController(
+        tester,
+        FakeGateway(),
+        rectifyStore: FakeRectifyBehaviorStore(),
+      );
+      await pumpQuickOpen(tester, bare);
+      await tester.dragUntilVisible(
+        find.text('快速模式'),
+        panelScrollable(),
+        const Offset(0, -40),
+      );
+      expect(
+        find.byKey(const Key('quick-rectify-light-preview')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('quick-rectify-quick-preview')),
+        findsNothing,
       );
     },
   );
@@ -1622,7 +1902,11 @@ void main() {
       );
       addTearDown(controller.dispose);
       await tester.pumpWidget(
-        SpokenRectifierApp(controller: controller, stageWindow: null),
+        SpokenRectifierApp(
+          controller: controller,
+          stageWindow: null,
+          rectifyStore: FakeRectifyBehaviorStore(),
+        ),
       );
       await pumpQuickOpen(tester, controller);
 
@@ -1630,7 +1914,7 @@ void main() {
       // bring it into view before tapping its segments.
       await tester.dragUntilVisible(
         find.byKey(const Key('quick-theme-dark')),
-        find.byType(Scrollable),
+        panelScrollable(),
         const Offset(0, -40),
       );
       await tester.pumpAndSettle();
@@ -1835,7 +2119,11 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
-        SpokenRectifierApp(controller: controller, stageWindow: window),
+        SpokenRectifierApp(
+          controller: controller,
+          stageWindow: window,
+          rectifyStore: FakeRectifyBehaviorStore(),
+        ),
       );
       await tester.pump();
       return controller;
@@ -3641,8 +3929,9 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('a thinking-less attempt never shows the marquee (zero-trace)',
-      (tester) async {
+  testWidgets('a thinking-less attempt never shows the marquee (zero-trace)', (
+    tester,
+  ) async {
     final gateway = FakeGateway();
     final window = RecordingStageWindow();
     final controller = await pumpController(

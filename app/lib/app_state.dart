@@ -48,8 +48,6 @@ abstract class SpeechEngineGateway {
   Future<void> setStyleDirective(String? directive, {String? scenario});
   Future<String?> globalDirective();
   Future<void> setGlobalDirective(String? directive);
-  Future<bool> passageMode();
-  Future<void> setPassageMode(bool on);
   Future<List<String>> termsList();
   Future<void> appendTerm(String term);
   Future<void> removeTerm(String term);
@@ -777,44 +775,6 @@ class SpeechController extends ChangeNotifier {
     } catch (e) {
       logRawError('err_directive_update', e);
       _setLastError('全局指令未更新');
-      notifyListeners();
-    }
-  }
-
-  // ---- the quick panel's own state ---------------------------------------
-
-  /// Passage mode (篇章模式) as the engine holds it: silence only marks
-  /// paragraphs vs. a long silence auto-ends. Seeded from the engine at
-  /// startup; a switch applies from the next session on and never
-  /// persists (a session-lifetime setting, like the scenario selection).
-  bool passageMode = true;
-
-  /// Load the engine's current passage mode for the panel's first paint.
-  /// A failed read keeps the built-in default (on).
-  Future<void> loadPassageMode() async {
-    try {
-      passageMode = await gateway.passageMode();
-    } catch (_) {
-      passageMode = true;
-    }
-    notifyListeners();
-  }
-
-  /// Toggle passage mode: the panel repaints at once, the engine adopts
-  /// it for the next session. A failed engine call rolls the paint back
-  /// — unlike the theme (app-local state), the toggle mirrors engine
-  /// state the next session will actually run with. Not persisted
-  /// across launches.
-  Future<void> setPassageMode(bool on) async {
-    final was = passageMode;
-    passageMode = on;
-    notifyListeners();
-    try {
-      await gateway.setPassageMode(on);
-    } catch (e) {
-      passageMode = was; // the engine never adopted it: paint the truth
-      logRawError('err_passage_toggle', e);
-      _setLastError('切换失败');
       notifyListeners();
     }
   }

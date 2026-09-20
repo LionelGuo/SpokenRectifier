@@ -26,6 +26,7 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgePrefillRow, BridgeSessionState;
 
 import 'fake_gateway.dart';
+import 'fake_rectify_store.dart';
 
 class SlotPreviewHarness {
   SlotPreviewHarness(this.tester, this.gateway, this.controller, this.surface);
@@ -95,7 +96,12 @@ Future<SlotPreviewHarness> pumpSlotPreview(
     scriptedPhrases: const [],
   );
   addTearDown(controller.dispose);
-  await tester.pumpWidget(SpokenRectifierApp(controller: controller));
+  await tester.pumpWidget(
+    SpokenRectifierApp(
+      controller: controller,
+      rectifyStore: FakeRectifyBehaviorStore(),
+    ),
+  );
 
   await controller.startSession();
   await tester.pump(const Duration(milliseconds: 350));

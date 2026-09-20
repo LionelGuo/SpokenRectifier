@@ -19,6 +19,7 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgePrefillRow, BridgeSessionState;
 
 import 'fake_gateway.dart';
+import 'fake_rectify_store.dart';
 
 /// Pumps a pinned session through to rectifying, ready for chunks.
 Future<SpeechController> pumpRectifying(
@@ -30,7 +31,12 @@ Future<SpeechController> pumpRectifying(
     scriptedPhrases: const [],
   );
   addTearDown(controller.dispose);
-  await tester.pumpWidget(SpokenRectifierApp(controller: controller));
+  await tester.pumpWidget(
+    SpokenRectifierApp(
+      controller: controller,
+      rectifyStore: FakeRectifyBehaviorStore(),
+    ),
+  );
   await controller.startSession();
   await tester.pump(const Duration(milliseconds: 350));
   await gateway.pinPlaceholder();

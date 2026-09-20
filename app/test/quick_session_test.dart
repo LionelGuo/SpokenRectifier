@@ -13,6 +13,7 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
     show BridgeEvent, BridgeSessionState;
 
 import 'fake_gateway.dart';
+import 'fake_rectify_store.dart';
 
 /// Same recorder [pin_hotkey_test] uses — kept local so this file
 /// does not import another test's `main`.
@@ -46,7 +47,12 @@ Future<SpeechController> pumpController(
     pinHotkey: pinHotkey,
   );
   addTearDown(controller.dispose);
-  await tester.pumpWidget(SpokenRectifierApp(controller: controller));
+  await tester.pumpWidget(
+    SpokenRectifierApp(
+      controller: controller,
+      rectifyStore: FakeRectifyBehaviorStore(),
+    ),
+  );
   return controller;
 }
 

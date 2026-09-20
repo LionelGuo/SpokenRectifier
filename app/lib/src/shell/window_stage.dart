@@ -60,6 +60,7 @@ import '../../app_state.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeSessionState;
+import '../settings/rectify_store.dart';
 import '../settings/settings_domain.dart';
 import 'orb_button.dart';
 import 'panel_gestures.dart';
@@ -208,6 +209,7 @@ class StageHost extends StatefulWidget {
     required this.controller,
     this.stageWindow,
     this.onOpenSettings,
+    required this.rectifyStore,
   });
 
   final SpeechController controller;
@@ -220,6 +222,10 @@ class StageHost extends StatefulWidget {
   /// The settings window's doorway, handed down to the quick panel's
   /// management entries. Null in tests.
   final void Function(SettingsDomain domain)? onOpenSettings;
+
+  /// The quick panel's rectify tiers ride the same store the settings
+  /// window's 修正 page edits (one key, both surfaces).
+  final RectifyBehaviorStore rectifyStore;
 
   @override
   State<StageHost> createState() => _StageHostState();
@@ -1087,6 +1093,7 @@ class _StageHostState extends State<StageHost>
                                 exiting: _exiting,
                                 onOpenSettings: widget.onOpenSettings,
                                 form: _form,
+                                rectifyStore: widget.rectifyStore,
                               ),
                       ),
                     ),

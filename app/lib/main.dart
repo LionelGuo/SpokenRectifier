@@ -177,9 +177,6 @@ Future<void> main(List<String> args) async {
   // The global directive rides every rectify (ticket 22): read the file,
   // push the text at the engine, paint the quick panel's preview card.
   await controller.loadGlobalDirective();
-  // The quick panel's passage-mode toggle paints the engine's current
-  // value (config-seeded; never persisted).
-  await controller.loadPassageMode();
 
   await controller.installProductHotkeys();
 
@@ -507,6 +504,7 @@ class _ShellState extends State<_Shell> with TrayListener {
       controller: controller,
       stageWindow: widget.stageWindow,
       onOpenSettings: widget.onOpenSettings,
+      rectifyStore: const RustRectifyBehaviorStore(),
     );
   }
 }

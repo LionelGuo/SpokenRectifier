@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import 'app_state.dart';
 import 'src/design/theme.dart';
+import 'src/settings/rectify_store.dart';
 import 'src/settings/settings_domain.dart';
 import 'src/shell/window_stage.dart';
 
@@ -20,6 +21,7 @@ class SpokenRectifierApp extends StatelessWidget {
     required this.controller,
     this.stageWindow,
     this.onOpenSettings,
+    required this.rectifyStore,
   });
 
   final SpeechController controller;
@@ -30,6 +32,10 @@ class SpokenRectifierApp extends StatelessWidget {
   /// The settings window's doorway (the quick panel's management
   /// entries); null in tests.
   final void Function(SettingsDomain domain)? onOpenSettings;
+
+  /// The quick panel's rectify tiers' store — the same store the
+  /// settings window's 修正 page edits.
+  final RectifyBehaviorStore rectifyStore;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +53,7 @@ class SpokenRectifierApp extends StatelessWidget {
             controller: controller,
             stageWindow: stageWindow,
             onOpenSettings: onOpenSettings,
+            rectifyStore: rectifyStore,
           ),
         ),
       ),

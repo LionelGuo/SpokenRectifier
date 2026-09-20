@@ -35,9 +35,6 @@ class FakeGateway implements SpeechEngineGateway {
   /// When set, the next `openConfigFile` throws this.
   Object? failNextOpenConfig;
 
-  /// When set, the next `setPassageMode` throws this.
-  Object? failNextSetPassageMode;
-
   /// When set, the next `rectifyText` throws this.
   Object? failNextRectifyText;
 
@@ -66,10 +63,6 @@ class FakeGateway implements SpeechEngineGateway {
   /// The global directive `globalDirective()` hands back (null = unset);
   /// tests mutate it to simulate a file change.
   String? global;
-
-  /// Passage mode as the engine holds it; `passageMode()` reads it and
-  /// `setPassageMode` writes it.
-  bool passage = true;
 
   /// The dictionary `termsList()` hands back; quick-add/remove mutate it
   /// with the same trim/dedup/blank-reject rules as the file-backed one.
@@ -256,23 +249,6 @@ class FakeGateway implements SpeechEngineGateway {
   @override
   Future<void> setGlobalDirective(String? directive) async {
     commands.add('setGlobalDirective:$directive');
-  }
-
-  @override
-  Future<bool> passageMode() async {
-    commands.add('passageMode');
-    return passage;
-  }
-
-  @override
-  Future<void> setPassageMode(bool on) async {
-    commands.add('setPassageMode:$on');
-    if (failNextSetPassageMode != null) {
-      final failure = failNextSetPassageMode;
-      failNextSetPassageMode = null;
-      throw failure!;
-    }
-    passage = on;
   }
 
   @override

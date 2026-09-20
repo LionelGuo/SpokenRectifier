@@ -9,10 +9,12 @@
 /// chip, tray and here all share [SpeechController.selectScenario]),
 /// quick terms (append/remove against the dictionary file, live for the
 /// next session), recent history (copy the rectified text shown on the
-/// row / re-rectify it under a picked scenario), passage mode
-/// (engine-seamed, applies from the next session on),
-/// and the theme tri-state (writes the app-owned ui.toml — the
-/// read/write loop). The orb-visibility switch lives in the tray only.
+/// row / re-rectify it under a picked scenario), the three rectify
+/// tiers as first-level sections (全量修正模式 / 轻修模式 / 快速模式 —
+/// the settings window's 修正 page's three cards, one section each,
+/// pick-to-save over the same [RectifyBehaviorStore]), and the theme
+/// tri-state (writes the app-owned ui.toml — the read/write loop). The
+/// orb-visibility switch lives in the tray only.
 ///
 /// The body's anchor edge dissolves into the card surface toward the
 /// orb (✕): a surface scrim fades scrolling content out before it can
@@ -32,7 +34,9 @@ import '../../app_state.dart';
 import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
+import '../errors.dart';
 import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
+import '../settings/rectify_store.dart';
 import '../settings/settings_domain.dart';
 import 'history_retrieval.dart'
     show HistoryRerectify, showScenarioRerectifyMenu;
@@ -45,10 +49,17 @@ class QuickPanel extends StatefulWidget {
     required this.exiting,
     this.onOpenSettings,
     required this.form,
+    required this.rectifyStore,
   });
 
   final SpeechController controller;
   final bool exiting;
+
+  /// The rectify tiers' persistence — the SAME store the settings
+  /// window's 修正 page edits (the theme precedent: one key, both
+  /// surfaces). Injectable so widget tests run with the in-memory
+  /// fake.
+  final RectifyBehaviorStore rectifyStore;
 
   /// The settings window's doorway: every management entry row calls it
   /// with the domain to land on. Null in tests that only exercise the
@@ -69,12 +80,20 @@ class _QuickPanelState extends State<QuickPanel> {
   final _termInput = TextEditingController();
   int _toastedErrorSeq = 0;
 
+  /// The rectify tiers' snapshot for PAINT (ticket 02's channel (b)):
+  /// loaded once when the panel mounts, refreshed by every save's
+  /// receipt — the files' truth, never a locally-guessed default. Null
+  /// until the load lands (or forever, on a refused read): the three
+  /// sections stay hidden and the rest of the panel works.
+  RectifyBehavior? _rectify;
+
   SpeechController get c => widget.controller;
 
   @override
   void initState() {
     super.initState();
     c.addListener(_onChanged);
+    _loadRectify();
     // A pending error from before this panel opened (the orb's tooltip
     // carried it at idle) still toasts once the slot scope is mounted.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -103,6 +122,62 @@ class _QuickPanelState extends State<QuickPanel> {
     if (seq == _toastedErrorSeq || message == null) return;
     _toastedErrorSeq = seq;
     SrToast.of(context).show(message, tone: SrToastTone.error);
+  }
+
+  /// Read the tiers' snapshot for the panel's first paint. A refused
+  /// read toasts and leaves the sections hidden — the panel's other
+  /// sections are not hostage to one unreadable file.
+  Future<void> _loadRectify() async {
+    try {
+      final behavior = await widget.rectifyStore.load();
+      if (!mounted) return;
+      setState(() => _rectify = behavior);
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('err_quick_rectify_load', e);
+      SrToast.of(context).show('修正设置读取失败', tone: SrToastTone.error);
+    }
+  }
+
+  /// A point-select (a switch flip, a chip tap): paint the pick at
+  /// once, then commit it over a FRESH read — the one field changed,
+  /// the whole model written (ticket 02's channel (b), read-modify-
+  /// write). A settings window open beside this panel never loses an
+  /// edit to a whole-model overwrite; the receipt repaints from the
+  /// files' truth. A refused write leaves the pick painted (a re-tap
+  /// is the retry — the 修正 pane's own contract), and the post-save
+  /// engine adoption follows the pane's: saved-but-not-adopted keeps
+  /// the files and says which of the two it is.
+  Future<void> _pickRectify(RectifyPick pick) async {
+    final painted = _rectify;
+    if (painted == null) return;
+    setState(() => _rectify = pick(painted));
+    final RectifyBehavior next;
+    try {
+      next = pick(await widget.rectifyStore.load());
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('err_quick_rectify_reread', e);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
+      return;
+    }
+    try {
+      final saved = await widget.rectifyStore.save(next);
+      if (!mounted) return;
+      setState(() => _rectify = saved);
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('err_quick_rectify_save', e);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
+      return;
+    }
+    try {
+      await widget.rectifyStore.applyConnections();
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('note_quick_rectify_engine_kept', e);
+      SrToast.of(context).show('已保存', tone: SrToastTone.error);
+    }
   }
 
   @override
@@ -194,8 +269,12 @@ class _QuickPanelState extends State<QuickPanel> {
                     // shown only while one is set — with an empty
                     // library too, it is not a picker among scenarios.
                     if (c.globalDirective != null) ...[
-                      _GlobalPreviewRow(
-                        directive: c.globalDirective!,
+                      _DirectivePreviewRow(
+                        icon: Icons.public_rounded,
+                        tooltip: '全局指令',
+                        text: c.globalDirective!,
+                        testKey: 'quick-global',
+                        domain: SettingsDomain.scenarios,
                         onOpen: _openSettings,
                       ),
                       const SizedBox(height: 8),
@@ -228,8 +307,8 @@ class _QuickPanelState extends State<QuickPanel> {
                       domain: SettingsDomain.scenarios,
                       onOpen: _openSettings,
                     ),
-                    const SizedBox(height: 20),
-                    _sectionLabel(pal, '术语'),
+                    _sectionGap(pal),
+                    _sectionLabel(pal, '术语速加'),
                     Row(
                       children: [
                         Expanded(
@@ -255,7 +334,7 @@ class _QuickPanelState extends State<QuickPanel> {
                             ),
                         ],
                       ),
-                    const SizedBox(height: 20),
+                    _sectionGap(pal),
                     _sectionLabel(pal, '历史'),
                     if (c.recentHistory.isEmpty)
                       Padding(
@@ -280,19 +359,42 @@ class _QuickPanelState extends State<QuickPanel> {
                       domain: SettingsDomain.history,
                       onOpen: _openSettings,
                     ),
-                    const SizedBox(height: 20),
-                    _sectionLabel(pal, '输入'),
-                    _SwitchRow(
-                      icon: Icons.notes_rounded,
-                      label: '篇章模式',
-                      caption: '停顿仅分段，不结束会话',
-                      value: c.passageMode,
-                      onChanged: c.setPassageMode,
-                    ),
-                    const SizedBox(height: 20),
+                    // The rectify mirror (quick-panel-additions 02): the
+                    // settings page's three cards as three FIRST-LEVEL
+                    // sections, pick-to-save over the same store. The
+                    // whole block stays hidden until the load lands (or
+                    // forever on a refused read) — the neighboring
+                    // sections are not hostage to it.
+                    if (_rectify case final RectifyBehavior rectify) ...[
+                      _sectionGap(pal),
+                      _sectionLabel(pal, '全量修正模式'),
+                      _RectifyTierSection(
+                        tier: _RectifyTier.full,
+                        behavior: rectify,
+                        onPick: _pickRectify,
+                        onOpen: _openSettings,
+                      ),
+                      _sectionGap(pal),
+                      _sectionLabel(pal, '轻修模式'),
+                      _RectifyTierSection(
+                        tier: _RectifyTier.lightTouch,
+                        behavior: rectify,
+                        onPick: _pickRectify,
+                        onOpen: _openSettings,
+                      ),
+                      _sectionGap(pal),
+                      _sectionLabel(pal, '快速模式'),
+                      _RectifyTierSection(
+                        tier: _RectifyTier.quick,
+                        behavior: rectify,
+                        onPick: _pickRectify,
+                        onOpen: _openSettings,
+                      ),
+                    ],
+                    _sectionGap(pal),
                     _sectionLabel(pal, '外观'),
                     _ThemeRow(controller: c),
-                    const SizedBox(height: 20),
+                    _sectionGap(pal),
                     _sectionLabel(pal, '设置入口'),
                     _EntryRow(
                       key: const Key('quick-open-settings:general'),
@@ -400,6 +502,13 @@ class _QuickPanelState extends State<QuickPanel> {
     padding: const EdgeInsets.only(bottom: 8),
     child: Text(text, style: SrType.caption.copyWith(color: pal.textTertiary)),
   );
+
+  /// Review round 2 (quick-panel-additions 02): the sections ran
+  /// together — a hairline with air on each side separates every pair
+  /// now (height 33 ≈ the old 20px gap plus the line's own breathing
+  /// room).
+  Widget _sectionGap(SrPalette pal) =>
+      Divider(height: 33, thickness: 1, color: pal.hairline);
 }
 
 /// One history row's timestamp: today shows the clock, yesterday says
@@ -473,65 +582,92 @@ TextStyle _chipText(SrPalette pal, {required bool selected}) =>
       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
     );
 
-/// The global directive's preview row (ticket 22): what is currently in
-/// force, one truncated line (the tooltip names it, the full text does
-/// not fit), with the settings jump on its right — the same mechanism
-/// the 编辑场景… entry uses, landing on the scenario domain where the
-/// directive's inline card lives. Hidden entirely while unset.
-class _GlobalPreviewRow extends StatelessWidget {
-  const _GlobalPreviewRow({required this.directive, required this.onOpen});
+/// A read-only directive preview row (the global directive's shape,
+/// ticket 22): what is currently in force, one truncated line (the
+/// tooltip names it, the full text does not fit), with the settings
+/// jump on its right — one button per row, each landing on the domain
+/// where the directive's editor lives (the same mechanism the
+/// 编辑场景… entry uses). Hidden entirely while unset. [dimmed] stages
+/// 启用修正-off's extra layer on the quick tier's row (§4.4: the
+/// directive is unused then — dim, not hide).
+class _DirectivePreviewRow extends StatelessWidget {
+  const _DirectivePreviewRow({
+    required this.icon,
+    required this.tooltip,
+    required this.text,
+    required this.testKey,
+    required this.domain,
+    required this.onOpen,
+    this.dimmed = false,
+  });
 
-  final String directive;
+  final IconData icon;
+  final String tooltip;
+  final String text;
+
+  /// The row's key base: the text paints '$testKey-preview', the
+  /// settings button '$testKey-open'.
+  final String testKey;
+  final SettingsDomain domain;
   final ValueChanged<SettingsDomain> onOpen;
+  final bool dimmed;
 
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return SrHover(
-      builder: (hover) => AnimatedContainer(
+    return IgnorePointer(
+      ignoring: dimmed,
+      child: AnimatedOpacity(
         duration: SrMotion.fade,
         curve: SrMotion.curveFade,
-        height: _termRowHeight,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
-          borderRadius: BorderRadius.circular(SrRadius.control),
-          border: Border.all(color: pal.hairline),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.public_rounded, size: 14, color: pal.textTertiary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Tooltip(
-                message: '全局指令',
-                waitDuration: SrMotion.tooltipWait,
-                child: Text(
-                  directive,
-                  key: const Key('quick-global-preview'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: SrType.caption.copyWith(color: pal.textSecondary),
-                ),
-              ),
+        opacity: dimmed ? 0.5 : 1,
+        child: SrHover(
+          builder: (hover) => AnimatedContainer(
+            duration: SrMotion.fade,
+            curve: SrMotion.curveFade,
+            height: _termRowHeight,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
+              borderRadius: BorderRadius.circular(SrRadius.control),
+              border: Border.all(color: pal.hairline),
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              key: const Key('quick-global-open'),
-              onTap: () => onOpen(SettingsDomain.scenarios),
-              child: Tooltip(
-                message: '编辑全局指令',
-                waitDuration: SrMotion.tooltipWait,
-                child: _HoverTintIcon(
-                  icon: Icons.settings_outlined,
-                  size: 15,
-                  hover: hover,
-                  resting: pal.textTertiary,
-                  hovered: pal.accentText,
+            child: Row(
+              children: [
+                Icon(icon, size: 14, color: pal.textTertiary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Tooltip(
+                    message: tooltip,
+                    waitDuration: SrMotion.tooltipWait,
+                    child: Text(
+                      text,
+                      key: Key('$testKey-preview'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: SrType.caption.copyWith(color: pal.textSecondary),
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  key: Key('$testKey-open'),
+                  onTap: () => onOpen(domain),
+                  child: Tooltip(
+                    message: '编辑$tooltip',
+                    waitDuration: SrMotion.tooltipWait,
+                    child: _HoverTintIcon(
+                      icon: Icons.settings_outlined,
+                      size: 15,
+                      hover: hover,
+                      resting: pal.textTertiary,
+                      hovered: pal.accentText,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -592,30 +728,42 @@ class _EntryRow extends StatelessWidget {
   }
 }
 
-/// A scenario quick-pick chip (dense, text only).
+/// A scenario quick-pick chip (dense, text only) — also the thinking
+/// policy trio's body. [enabled] stages §4.4's connection-thinking
+/// cascade: a disabled chip stays laid out but swallows hits and dims.
 class _SelectableChip extends StatelessWidget {
   const _SelectableChip({
     super.key,
     required this.label,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: SrMotion.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: _chipBox(pal, selected: selected, hover: hover),
-          child: Text(label, style: _chipText(pal, selected: selected)),
+    return IgnorePointer(
+      ignoring: !enabled,
+      child: AnimatedOpacity(
+        duration: SrMotion.fade,
+        curve: SrMotion.curveFade,
+        opacity: enabled ? 1 : 0.45,
+        child: SrHover(
+          builder: (hover) => GestureDetector(
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: SrMotion.fast,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: _chipBox(pal, selected: selected, hover: hover),
+              child: Text(label, style: _chipText(pal, selected: selected)),
+            ),
+          ),
         ),
       ),
     );
@@ -1039,18 +1187,20 @@ class _HistoryScenarioAction extends StatelessWidget {
   }
 }
 
+/// A switch row in the panel's zero-caption form (quick-panel-additions
+/// round 1): icon + bare label + Switch — the explanation text lives in
+/// the settings window, the panel is the accelerator.
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
+    super.key,
     required this.icon,
     required this.label,
-    required this.caption,
     required this.value,
     required this.onChanged,
   });
 
   final IconData icon;
   final String label;
-  final String caption;
   final bool value;
   final ValueChanged<bool> onChanged;
 
@@ -1061,22 +1211,9 @@ class _SwitchRow extends StatelessWidget {
       children: [
         Icon(icon, size: 16, color: pal.textSecondary),
         const SizedBox(width: 10),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: SrType.body.copyWith(color: pal.textPrimary)),
-            Text(
-              caption,
-              style: SrType.micro.copyWith(color: pal.textTertiary),
-            ),
-          ],
-        ),
+        Text(label, style: SrType.body.copyWith(color: pal.textPrimary)),
         const Spacer(),
-        Switch(
-          key: const Key('quick-passage'),
-          value: value,
-          onChanged: onChanged,
-        ),
+        Switch(value: value, onChanged: onChanged),
       ],
     );
   }
@@ -1113,4 +1250,204 @@ class _ThemeRow extends StatelessWidget {
       ],
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// The rectify tier sections (quick-panel-additions 02)
+// ---------------------------------------------------------------------------
+
+/// One point-select's single-field change, applied over whatever model
+/// it is handed — the snapshot for the optimistic paint, a FRESH read
+/// for the commit (channel (b): exactly one field moves, everything
+/// else rides the read).
+typedef RectifyPick = RectifyBehavior Function(RectifyBehavior behavior);
+
+/// The thinking trio's PANEL-side copy (rounds 3+4): bare chips, no
+/// 「思考策略」 field label (a micro label would read as another
+/// section title), and shorter wording than the settings window's
+/// 始终开启/仅包含占位图钉时开启/始终关闭 — the settings copy stays as
+/// it is; the two surfaces are allowed their own register.
+const _panelPolicyLabels = {
+  'always': '开启思考',
+  'placeholders': '仅含占位图钉时思考',
+  'off': '关闭思考',
+};
+
+/// Which settings-page rectify card a section mirrors. The three tiers
+/// stand as first-level panel sections (round 1 dropped the 修正
+/// umbrella), control-for-control forms of the cards with §4.4's
+/// cascades mirrored: 轻修 master off = tail disabled not hidden, 快速
+/// master off = whole section disabled, 启用修正 off = the directive
+/// preview row dimmed again, connection thinking off = both chip rows
+/// disabled.
+enum _RectifyTier { full, lightTouch, quick }
+
+class _RectifyTierSection extends StatelessWidget {
+  const _RectifyTierSection({
+    required this.tier,
+    required this.behavior,
+    required this.onPick,
+    required this.onOpen,
+  });
+
+  final _RectifyTier tier;
+  final RectifyBehavior behavior;
+  final ValueChanged<RectifyPick> onPick;
+  final ValueChanged<SettingsDomain> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (tier) {
+      _RectifyTier.full => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _prefillRow(
+            testKey: 'quick-rectify-full-prefill',
+            value: behavior.fullPrefill,
+            onChanged: (on) => onPick((b) => b.copyWith(fullPrefill: on)),
+          ),
+          const SizedBox(height: 8),
+          _thinkingRow(
+            testKey: 'quick-rectify-full-policy',
+            selected: behavior.fullThinkingPolicy,
+            onSelect: (policy) =>
+                onPick((b) => b.copyWith(fullThinkingPolicy: policy)),
+          ),
+        ],
+      ),
+      _RectifyTier.lightTouch => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow(
+            key: const Key('quick-rectify-light-enabled'),
+            icon: Icons.auto_fix_high_outlined,
+            label: '启用轻修模式',
+            value: behavior.lightTouchEnabled,
+            onChanged: (on) => onPick((b) => b.copyWith(lightTouchEnabled: on)),
+          ),
+          _cascade(
+            !behavior.lightTouchEnabled,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                _prefillRow(
+                  testKey: 'quick-rectify-light-prefill',
+                  value: behavior.lightTouchPrefill,
+                  onChanged: (on) =>
+                      onPick((b) => b.copyWith(lightTouchPrefill: on)),
+                ),
+                const SizedBox(height: 8),
+                _thinkingRow(
+                  testKey: 'quick-rectify-light-policy',
+                  selected: behavior.lightTouchThinkingPolicy,
+                  onSelect: (policy) => onPick(
+                    (b) => b.copyWith(lightTouchThinkingPolicy: policy),
+                  ),
+                ),
+                if (behavior.lightTouchExtraDirective case final text?) ...[
+                  const SizedBox(height: 8),
+                  _DirectivePreviewRow(
+                    icon: Icons.edit_note_rounded,
+                    tooltip: '轻修额外指令',
+                    text: text,
+                    testKey: 'quick-rectify-light',
+                    domain: SettingsDomain.rectify,
+                    onOpen: onOpen,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+      _RectifyTier.quick => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow(
+            key: const Key('quick-rectify-quick-enabled'),
+            icon: Icons.bolt_rounded,
+            label: '启用快速模式',
+            value: behavior.quickEnabled,
+            onChanged: (on) => onPick((b) => b.copyWith(quickEnabled: on)),
+          ),
+          _cascade(
+            !behavior.quickEnabled,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                _SwitchRow(
+                  key: const Key('quick-rectify-quick-rectify'),
+                  icon: Icons.task_alt_rounded,
+                  label: '启用修正',
+                  value: behavior.quickRectify,
+                  onChanged: (on) =>
+                      onPick((b) => b.copyWith(quickRectify: on)),
+                ),
+                if (behavior.quickExtraDirective case final text?) ...[
+                  const SizedBox(height: 8),
+                  _DirectivePreviewRow(
+                    icon: Icons.edit_note_rounded,
+                    tooltip: '快速额外指令',
+                    text: text,
+                    testKey: 'quick-rectify-quick',
+                    domain: SettingsDomain.rectify,
+                    onOpen: onOpen,
+                    // 启用修正 off = the directive is unused: dim, not hide.
+                    dimmed: !behavior.quickRectify,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    };
+  }
+
+  Widget _prefillRow({
+    required String testKey,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) => _SwitchRow(
+    key: Key(testKey),
+    icon: Icons.push_pin_rounded,
+    label: '预填',
+    value: value,
+    onChanged: onChanged,
+  );
+
+  /// Round 3: no 「思考策略」 field label — the trio hangs bare under
+  /// the section's own rows.
+  Widget _thinkingRow({
+    required String testKey,
+    required String selected,
+    required ValueChanged<String> onSelect,
+  }) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      for (final policy in rectifyPolicies)
+        _SelectableChip(
+          key: Key('$testKey:$policy'),
+          label: _panelPolicyLabels[policy] ?? policy,
+          selected: selected == policy,
+          // §4.4: the connection domain's thinking fields gate both
+          // tiers' chips (ADR-0019 item 3) — unselectable while inert,
+          // recovery lives in 模型与连接.
+          enabled: !behavior.thinkingDisabled,
+          onTap: () => onSelect(policy),
+        ),
+    ],
+  );
+
+  /// §4.4's disabled-not-hidden: dim + swallow hits, keep the rows laid
+  /// out (values still paint, still ride every whole-model write).
+  Widget _cascade(bool disabled, Widget child) => AnimatedOpacity(
+    duration: SrMotion.fade,
+    curve: SrMotion.curveFade,
+    opacity: disabled ? 0.45 : 1,
+    child: IgnorePointer(ignoring: disabled, child: child),
+  );
 }
