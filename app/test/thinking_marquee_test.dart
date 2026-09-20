@@ -8,6 +8,9 @@ import 'package:spokenrectifier_app/src/session/thinking_marquee.dart';
 
 ThinkingMarquee machine() => ThinkingMarquee()..setGeometry(420, 560);
 
+/// The gate's line count at this geometry: startVis (6) + capacity.
+const startVisLines = 6 + ThinkingMarquee.capacity;
+
 /// A run of `lineCount` lines fed at `msPerLine` cadence, ticking in
 /// 100 ms frames between feeds. Each phrase is 25 CJK chars → folds to
 /// exactly one line (375px > the 372px width) leaving a 1-char partial.
@@ -175,8 +178,7 @@ void main() {
       // …and the tape below the window stays dense — the first
       // waiting line sits exactly at the window's edge line, with no
       // dropped slot wedged open ahead of it.
-      final edge = ((m.view().tapeTop + m.hPx) / ThinkingMarquee.lineH)
-          .ceil();
+      final edge = ((m.view().tapeTop + m.hPx) / ThinkingMarquee.lineH).ceil();
       final waiting = [
         for (final (_, slot) in m.lineSnapshot)
           if (slot >= edge) slot,
@@ -267,5 +269,66 @@ void main() {
     m.pushText('先到的一个字');
     m.tick(1000);
     expect(m.view().elapsedMs, greaterThanOrEqualTo(1000));
+  });
+
+  test('the launch unfurls at the law speed — no dead ramp (21 号票)', () {
+    // The device failure (14 号票收图后): text appeared but barely moved
+    // at first — the pre-reveal machine was already integrating scroll
+    // (slow streams revealed with the runway burned, B≈1) AND the
+    // low-pass started every reveal from a 0 ramp. The accumulation is
+    // FROZEN now (whatever the pace, the reveal holds the full
+    // 「可视行数 + 容量」runway) and the reveal primes the low-pass to
+    // the law's target — the first visible frame already scrolls at
+    // vMax, fade-in or not.
+    for (final msPerLine in [50, 500, 1500, 3000]) {
+      final m = machine();
+      feedLines(m, startVisLines - 1, msPerLine);
+      expect(
+        m.view().tapeTop,
+        0,
+        reason: 'at $msPerLine ms/line: the window never creeps pre-reveal',
+      );
+      feedLines(m, 1, msPerLine);
+      expect(m.revealed, isTrue, reason: 'at $msPerLine ms/line');
+      final before = m.view().tapeTop;
+      m.tick(100);
+      final v = (m.view().tapeTop - before) * 10 / ThinkingMarquee.lineH;
+      expect(
+        v,
+        inExclusiveRange(1.8, 2.3),
+        reason: 'at $msPerLine ms/line: the launch speed is the law target',
+      );
+    }
+  });
+
+  test('a slow trickle keeps rolling at the floor — no dying tails '
+      '(21 号票)', () {
+    // Below ~0.75 lines/s the proportional law decelerates into each
+    // line's tail (k×B with B→0) and the band reads as stalling while
+    // material still waits. The floor holds v ≥ vMin whenever the
+    // backlog is non-empty; a dry tape still targets 0 (停等缓停,
+    // asserted above). 0.5 lines/s sustained: the runway burns in
+    // ~2.5s, then every 1.5s window must still contain a real roll —
+    // parks stay sub-second, no stretch of sub-perceptual crawl.
+    final m = machine();
+    feedLines(m, startVisLines, 50); // reveal with the full runway
+    final speeds = <double>[];
+    for (var i = 0; i < 300; i++) {
+      if (i > 0 && i % 20 == 0) m.pushText('思' * 25); // a line per 2s
+      final before = m.view().tapeTop;
+      m.tick(100);
+      speeds.add((m.view().tapeTop - before) * 10 / ThinkingMarquee.lineH);
+    }
+    // Skip the runway burn (~3s): the slow regime is the subject.
+    final regime = speeds.sublist(30);
+    for (var start = 0; start + 15 <= regime.length; start += 15) {
+      final window = regime.skip(start).take(15);
+      expect(
+        window.any((v) => v >= 0.5),
+        isTrue,
+        reason: 'a 1.5s window at ${start}00ms into the slow regime '
+            'rolled at nothing above 0.5 lines/s',
+      );
+    }
   });
 }

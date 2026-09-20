@@ -38,6 +38,7 @@ class ThinkingMarquee {
   // -- terminal constants (09 Answer; 照抄) ---------------------------
   static const double kSpeed = 0.75; // v = k × buffered lines
   static const double vMax = 2.2; // lines/s clamp
+  static const double vMin = 0.75; // lines/s floor while material waits
   static const int capacity = 4; // buffered lines before discard
   static const int tauMs = 500; // speed low-pass
   static const double growPxS = 13; // band growth after reveal
@@ -57,7 +58,7 @@ class ThinkingMarquee {
 
   // -- feed state -----------------------------------------------------
   final List<String> _pending = []; // text awaiting geometry
-  final List<_MarqueeLine> queue = [];
+  final List<_MarqueeLine> _queue = [];
   int _nextSlot = 0;
   int dropped = 0;
   String _partial = '';
@@ -88,13 +89,13 @@ class ThinkingMarquee {
         _pushChars(text);
       }
       _pending.clear();
-    } else if (widthChanged && (queue.isNotEmpty || _partial.isNotEmpty)) {
+    } else if (widthChanged && (_queue.isNotEmpty || _partial.isNotEmpty)) {
       // Re-fold from scratch at the new width.
       final all = [
-        for (final line in queue) line.text,
+        for (final line in _queue) line.text,
         if (_partial.isNotEmpty) _partial,
       ].join();
-      queue.clear();
+      _queue.clear();
       _nextSlot = 0;
       _partial = '';
       _pushChars(all);
@@ -143,10 +144,17 @@ class ThinkingMarquee {
   }
 
   void _takeLine(String text) {
-    queue.add(_MarqueeLine(text, _nextSlot++));
-    if (!revealed && queue.length + dropped >= startVis + capacity) {
+    _queue.add(_MarqueeLine(text, _nextSlot++));
+    if (!revealed && _queue.length + dropped >= startVis + capacity) {
       revealed = true;
       revealT0 = simT;
+      // Launch priming (21 号票): the fade-in shows the band ALREADY at
+      // the law's speed. The low-pass would otherwise spend its 500ms
+      // ramp eating the runway from a standstill (device: text appears
+      // but barely moves at first). The frozen accumulation hands over
+      // a full runway, so this primes to ~vMax whatever the stream's
+      // pace.
+      _vDisp = _targetV(windowTop(), hPx);
     }
   }
 
@@ -180,31 +188,41 @@ class ThinkingMarquee {
   /// above the alive head line (T monotone = 出顶即逝).
   double windowTop() {
     final raw = scrollPx - (hPx - _startH) / 2;
-    final headTop = queue.isNotEmpty ? queue.first.slot * lineH : 0.0;
+    final headTop = _queue.isNotEmpty ? _queue.first.slot * lineH : 0.0;
     return raw > headTop ? raw : headTop;
   }
 
   /// The tape as (text, slot) pairs — the paint loop's and the tests'
-  /// read over the queue without naming the private line type.
+  /// read over the _queue without naming the private line type.
   List<(String, int)> get lineSnapshot => [
-    for (final line in queue) (line.text, line.slot),
+    for (final line in _queue) (line.text, line.slot),
   ];
 
-  /// The unseen backlog in LINES: the queue lines below the window's
+  /// The unseen backlog in LINES: the _queue lines below the window's
   /// bottom edge (plus the fractional credit of the line entering it) —
   /// the honest 「已缓冲行数」 under discards. 09's formula read
-  /// `queue.length − bottom`, which equals this only while nothing has
+  /// `_queue.length − bottom`, which equals this only while nothing has
   /// been dropped; under drops a discard that does not touch the tape's
   /// tail left its count unchanged and burned the whole buffer.
   double _backlog(double top, double h) {
     final bottomLines = (top + h) / lineH;
     final firstWaiting = bottomLines.ceil();
     var unseen = 0;
-    for (final line in queue) {
+    for (final line in _queue) {
       if (line.slot >= firstWaiting) unseen++;
     }
     // Fractional credit for the entering line's still-unseen part.
     return unseen + (firstWaiting - bottomLines);
+  }
+
+  /// The speed law: v = k × buffered lines, floored while material
+  /// waits (a slow trickle still crawls visibly — sub-floor rates
+  /// decelerate into the line tails and read as stalling), clamped by
+  /// vMax. A dry tape targets 0 — 停等缓停 (04 号票's ruling).
+  double _targetV(double top, double h) {
+    final b = _backlog(top, h);
+    if (b <= 0) return 0;
+    return math.min(vMax, math.max(kSpeed * b, vMin));
   }
 
   /// Advance the machine one frame. Ported step-for-step from 09's
@@ -226,33 +244,43 @@ class ThinkingMarquee {
       if (_backlog(windowTop(), hPx) < 0.5) hPx = prevH; // starved
     }
 
-    // Speed: v = k × buffered, clamp, low-pass, integrate scroll.
-    var top = windowTop();
-    final vTarget = (kSpeed * _backlog(top, hPx)).clamp(0.0, vMax);
-    _vDisp += (vTarget - _vDisp) * (1 - math.exp(-dtMs / tauMs));
-    scrollPx += _vDisp * dt * lineH;
-    // Park clamp (停等): the window's bottom never passes the last
-    // alive line — pinned HERE, before the overshoot can exist, because
-    // trimming after the fact (09's belt) drags visible content
-    // downward. The growth gate keeps T + h ≤ lastEnd inductively, so
-    // this only ever shaves the current tick's overshoot.
-    if (queue.isNotEmpty) {
-      final lastEnd = (queue.last.slot + 1) * lineH;
-      final maxScroll = lastEnd - hPx + (hPx - _startH) / 2;
-      if (scrollPx > maxScroll) scrollPx = maxScroll;
-    }
+    // Speed: v = k × buffered (floored while material waits), clamp,
+    // low-pass, integrate scroll — REVEALED ONLY (21 号票): nothing
+    // paints before the reveal, and an integrating window would spend
+    // the accumulation eating the capacity runway the launch rides
+    // (device: slow streams revealed with the buffer already burned and
+    // crawled from a standstill). The discard below still runs —
+    // overflow protection does not care whether anyone is watching.
+    if (revealed) {
+      var top = windowTop();
+      final vTarget = _targetV(top, hPx);
+      _vDisp += (vTarget - _vDisp) * (1 - math.exp(-dtMs / tauMs));
+      scrollPx += _vDisp * dt * lineH;
+      // Park clamp (停等): the window's bottom never passes the last
+      // alive line — pinned HERE, before the overshoot can exist,
+      // because trimming after the fact (09's belt) drags visible
+      // content downward. The growth gate keeps T + h ≤ lastEnd
+      // inductively (the frozen reveal starts with T=0, h=startH and
+      // the gate's startVis+capacity lines below), so this only ever
+      // shaves the current tick's overshoot.
+      if (_queue.isNotEmpty) {
+        final lastEnd = (_queue.last.slot + 1) * lineH;
+        final maxScroll = lastEnd - hPx + (hPx - _startH) / 2;
+        if (scrollPx > maxScroll) scrollPx = maxScroll;
+      }
 
-    // T 单调 by construction (出顶即逝): the band's growth pulls the
-    // centered window back up the tape; when the (low-passed) scroll
-    // cannot pay for it — v still recovering from a stall — hold the
-    // window where it was instead of letting content regress downward.
-    final tNow = windowTop();
-    if (tNow < tStart) {
-      scrollPx += tStart - tNow;
+      // T 单调 by construction (出顶即逝): the band's growth pulls the
+      // centered window back up the tape; when the (low-passed) scroll
+      // cannot pay for it — v still recovering from a stall — hold the
+      // window where it was instead of letting content regress downward.
+      final tNow = windowTop();
+      if (tNow < tStart) {
+        scrollPx += tStart - tNow;
+      }
     }
 
     // Bounded discard: whole unseen LINES beyond capacity sacrifice
-    // the OLDEST not-yet-shown line — the first queue entry at or
+    // the OLDEST not-yet-shown line — the first _queue entry at or
     // past ceil(bottom edge). The splice COMPRESSES the waiting tape
     // below the victim (every later line's slot steps down one): the
     // lines already on screen keep their slots (09 trap ②), and the
@@ -261,16 +289,16 @@ class ThinkingMarquee {
     // window cannot cross (device: first page shows, then nothing
     // for the whole attempt). The compression lives wholly below the
     // bottom edge; the reader sees line N then N+2, never a gap.
-    top = windowTop();
-    final bottomLines = (top + hPx) / lineH;
+    final topNow = windowTop();
+    final bottomLines = (topNow + hPx) / lineH;
     final firstWaiting = bottomLines.ceil();
-    final unseen = queue.where((line) => line.slot >= firstWaiting).length;
+    final unseen = _queue.where((line) => line.slot >= firstWaiting).length;
     if (unseen > capacity) {
-      final j = queue.indexWhere((line) => line.slot >= firstWaiting);
+      final j = _queue.indexWhere((line) => line.slot >= firstWaiting);
       if (j >= 0) {
-        queue.removeAt(j);
-        for (var k = j; k < queue.length; k++) {
-          queue[k] = _MarqueeLine(queue[k].text, queue[k].slot - 1);
+        _queue.removeAt(j);
+        for (var k = j; k < _queue.length; k++) {
+          _queue[k] = _MarqueeLine(_queue[k].text, _queue[k].slot - 1);
         }
         _nextSlot--;
         dropped++;
@@ -573,7 +601,7 @@ class _MarqueePainter extends CustomPainter {
     );
     canvas.clipRect(band);
     final tapeTop = view.tapeTop;
-    for (final line in machine.queue) {
+    for (final line in machine._queue) {
       final y = line.slot * ThinkingMarquee.lineH - tapeTop;
       if (y + ThinkingMarquee.lineH <= 0 || y >= h) continue;
       cache

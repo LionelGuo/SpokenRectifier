@@ -3076,8 +3076,8 @@ void main() {
             reason: 'gap moved while content still visible at frame $i',
           );
         } else {
-          final pW = (width0! - width) / (width0! - height0!);
-          final pG = (gap0! - gapNow) / (gap0! - 4.0);
+          final pW = (width0! - width) / (width0 - height0);
+          final pG = (gap0! - gapNow) / (gap0 - 4.0);
           expect(pG, closeTo(pW, 0.05), reason: 'gap/width desync at frame $i');
         }
         if (lastWidth != null) {
