@@ -1338,6 +1338,7 @@ class PanelBody extends StatefulWidget {
     required this.header,
     required this.body,
     this.footer,
+    this.rawBlock,
     this.overlay,
   });
 
@@ -1363,6 +1364,16 @@ class PanelBody extends StatefulWidget {
   /// visual bottom. Null for the quick panel.
   final Widget? footer;
 
+  /// The raw-transcript fold (对照原文): a bottom-pinned chrome band
+  /// ABOVE the footer, laid out at its natural height (capped like the
+  /// section's own 140 box) — the body gets the true remainder. A band
+  /// rather than a body-column sibling because the flex economy splits
+  /// by shares: an `Expanded` text area next to a loose sibling is
+  /// hard-clamped to its HALF, leaving the card's lower half blank
+  /// (latent since the 15/16 号票 shell; surfaced once device sessions
+  /// grew long text). Null for the quick panel.
+  final Widget? rawBlock;
+
   /// An optional layer painted ABOVE the chrome bands, laid out over
   /// the whole painted card — the session window's thinking marquee
   /// (14 号票), whose bands are card-anchored fractions. Feedback
@@ -1387,7 +1398,12 @@ class _PinnedChromeLayout extends MultiChildLayoutDelegate {
   static const _header = 'header';
   static const _body = 'body';
   static const _footer = 'footer';
+  static const _raw = 'raw';
   static const _overlay = 'overlay';
+
+  /// The raw fold's height cap — the section's own 140 box, mirrored
+  /// here so the band can never out-grow its slot arithmetic.
+  static const _rawMaxHeight = 140.0;
 
   @override
   void performLayout(Size size) {
@@ -1414,7 +1430,20 @@ class _PinnedChromeLayout extends MultiChildLayoutDelegate {
     if (hasFooter) {
       positionChild(_footer, Offset(0, size.height - footerH));
     }
-    final bottom = hasFooter ? size.height - footerH : size.height;
+    // The raw fold rides pinned just above the footer — the same
+    // natural-height measurement, so the body slot below is the true
+    // remainder (the band, not a flex share).
+    final hasRaw = hasChild(_raw);
+    final rawH = hasRaw
+        ? layoutChild(
+            _raw,
+            BoxConstraints(maxWidth: width, maxHeight: _rawMaxHeight),
+          ).height
+        : 0.0;
+    if (hasRaw) {
+      positionChild(_raw, Offset(0, size.height - footerH - rawH));
+    }
+    final bottom = size.height - footerH - rawH;
     layoutChild(
       _body,
       BoxConstraints.tight(Size(width, (bottom - headerH).clamp(0.0, 9e9))),
@@ -1552,6 +1581,11 @@ class _PanelBodyState extends State<PanelBody>
                               id: _PinnedChromeLayout._body,
                               child: widget.body,
                             ),
+                            if (widget.rawBlock != null)
+                              LayoutId(
+                                id: _PinnedChromeLayout._raw,
+                                child: widget.rawBlock!,
+                              ),
                             if (widget.footer != null)
                               LayoutId(
                                 id: _PinnedChromeLayout._footer,

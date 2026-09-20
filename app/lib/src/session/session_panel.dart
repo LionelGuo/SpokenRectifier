@@ -234,17 +234,16 @@ class _SessionPanelState extends State<SessionPanel> {
           Divider(height: 1, thickness: 1, color: pal.hairline),
         ],
       ),
-      // The middle: whatever height is left between the bands, clipped
-      // to it while the card is still growing. The transcript block is
-      // loose-flexible (and flexible inside) so the exit cramp clips it
-      // instead of reporting an overflow.
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: _textArea(context, pal)),
-          Flexible(fit: FlexFit.loose, child: _transcriptSection(context, pal)),
-        ],
-      ),
+      // The middle: whatever height is left between the bands — now the
+      // TRUE remainder: the raw fold moved out of the body column into
+      // its own pinned band (see PanelBody.rawBlock). It used to be the
+      // column's loose-flexible sibling, and the flex economy splits by
+      // shares — the Expanded text area was hard-clamped to its HALF of
+      // the column, so long text only ever showed in the card's upper
+      // half with bare surface below (latent since the 15/16 号票 shell).
+      body: _textArea(context, pal),
+      // The raw-transcript fold: a chrome band above the footer.
+      rawBlock: _transcriptSection(context, pal),
       // The pinned bottom band: rides the card's current visual bottom.
       footer: _footer(context, pal),
       // The thinking marquee (14 号票): card-anchored bands painted over
@@ -273,12 +272,15 @@ class _SessionPanelState extends State<SessionPanel> {
         pal.live,
         true,
       ),
-      BridgeSessionState.rectifying =>
-        thinking ? ('思考中', pal.accent, true) : ('修正中', pal.accent, false),
+      BridgeSessionState.rectifying => thinking
+          ? ('思考中', pal.accent, true)
+          : ('修正中', pal.accent, false),
       _ => ('预览', pal.success, false),
     };
     final elapsed = thinking
-        ? _formatElapsed(Duration(milliseconds: c.thinking!.view().elapsedMs))
+        ? _formatElapsed(
+            Duration(milliseconds: c.thinking!.view().elapsedMs),
+          )
         : _formatElapsed(c.recordElapsed);
     // The 场景 chip's label: a one-time pick paints its own name — 默认
     // included (ticket 28), so an explicit default session never
@@ -510,7 +512,14 @@ class _SessionPanelState extends State<SessionPanel> {
                 ],
               ),
             )
-          : const SizedBox(width: double.infinity),
+          // Height 0 PINNED: a width-only SizedBox takes the incoming
+          // constraints' biggest height, and inside the body's loose
+          // Flexible that ate the section's whole flex share (half the
+          // column) even while collapsed — the text area lived in the
+          // top half of the card and the bottom half showed bare
+          // surface (latent since the 15/16 号票 shell; surfaced once
+          // device sessions grew long text).
+          : const SizedBox(width: double.infinity, height: 0),
     );
   }
 

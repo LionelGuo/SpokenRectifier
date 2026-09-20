@@ -817,6 +817,76 @@ void main() {
     },
   );
 
+  testWidgets('long text fills the whole body — no half-card blank', (
+    tester,
+  ) async {
+    // The raw fold used to be the body column's loose-flexible sibling,
+    // and the flex economy splits by SHARES: the Expanded text area was
+    // hard-clamped to its half of the column, so long text only ever
+    // showed in the card's upper half with bare surface below (latent
+    // since the 15/16 号票 shell; surfaced on device once sessions grew
+    // long text). The fold is a pinned chrome band now — the body is
+    // the true remainder.
+    final gateway = FakeGateway();
+    final window = RecordingStageWindow();
+    final controller = await pumpController(
+      tester,
+      gateway,
+      stageWindow: window,
+    );
+    await pumpToRecording(tester, controller);
+
+    gateway.emit(
+      BridgeEvent.liveTranscriptUpdated(
+        text: List<String>.filled(30, '这是一行比较长的转写文本\n').join(),
+      ),
+    );
+    await tester.pump();
+
+    // The stream viewport reaches down to the footer's band (the sm
+    // gutter inside the text area), not to the card's midline.
+    final footerTop = tester
+        .getTopLeft(find.byKey(const Key('panel-chrome-footer')))
+        .dy;
+    final streamViewport = tester.getRect(
+      find
+          .ancestor(
+            of: find.byKey(const Key('session-stream')).last,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(
+      streamViewport.bottom,
+      closeTo(footerTop - SrSpace.sm, 1),
+      reason: 'the body is the true remainder above the footer',
+    );
+    expect(streamViewport.height, greaterThan(350));
+
+    // The OPEN fold caps itself at its 140 box and the text yields
+    // exactly its height — the band, not a flex share.
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    gateway.streamRectify(['修正后的正文']);
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.byKey(const Key('session-raw-toggle')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final raw = tester.getRect(find.byKey(const Key('session-raw')));
+    expect(
+      raw.height,
+      allOf(greaterThan(50), lessThanOrEqualTo(140)),
+      reason: 'the fold sizes within its capped box',
+    );
+    expect(
+      raw.bottom,
+      closeTo(footerTop, 1),
+      reason: 'the band sits flush above the footer band',
+    );
+    await windDown(tester, controller);
+  });
+
   testWidgets('the scenario chip mirrors the selection from the tray entry', (
     tester,
   ) async {
