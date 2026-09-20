@@ -2595,11 +2595,40 @@ void main() {
       double? lastOpacity;
       var deadRun = 0;
       var worstDeadRun = 0;
+      double? height0;
+      double? top0;
       // Frame 0 latches the post-frame-started ticker (its own delta is
       // the parked capsule); frames 1..20 walk the flight, 16ms a frame.
       for (var i = 0; i <= 20; i++) {
         await tester.pump(const Duration(milliseconds: 16));
-        final width = tester.getSize(reroll).width;
+        final box = tester.getRect(reroll);
+        final width = box.width;
+        // 四轮 ruling: BOTH arms pin the same constant height and the
+        // band is bottom-pinned, so neither a button's height nor its
+        // top edge may move on ANY frame. The capsule arm's INTRINSIC
+        // height (the kbd chip's line box, tallest) used to step into
+        // the circle's pinned one at the branch swap — a sub-pixel band
+        // twitch the device raster snapped into view.
+        if (i == 0) {
+          height0 = box.height;
+          top0 = box.top;
+        } else {
+          expect(
+            box.height,
+            closeTo(height0!, 0.25),
+            reason: 'height step at frame $i',
+          );
+          expect(
+            box.top,
+            closeTo(top0!, 0.25),
+            reason: 'vertical bob at frame $i',
+          );
+          expect(
+            tester.getSize(find.byKey(const Key('session-cancel'))).height,
+            closeTo(height0, 0.25),
+            reason: 'kbd capsule height at frame $i',
+          );
+        }
         // 三轮 ruling: the icon's inset from the capsule's left border
         // is CONSTANT through the entire morph, both branches — the
         // collapse eats the right side only. The constant is the pad

@@ -630,6 +630,11 @@ class _PhaseDotState extends State<_PhaseDot>
 /// Layout only shrinks AFTER the text's opacity has reached zero — text
 /// is faded out, never clipped. The tuck rides a Transform (layout
 /// untouched), so it can never clip either.
+///
+/// Both arms render the SAME constant height (the measured 28.8 + the
+/// hairline border) — nothing moves vertically through the flight (四轮
+/// 真机: the capsule arm's intrinsic height used to step into the
+/// circle's pinned one at the swap, twitching the whole band).
 const _footerGuardPad = 24.0;
 const _tTextShown = 0.9;
 const _tTextGone = 0.45;
@@ -733,7 +738,9 @@ class _FooterMetrics {
   final List<double> buttonWidths;
 
   /// The constant button height — also the circle's diameter (钮高 ≈29:
-  /// vertical padding 12 over the caption's 16.8 line, the row's tallest).
+  /// vertical padding 12 over the caption's 16.8 line). BOTH arms pin
+  /// it: the capsule arm's intrinsic tallest line box (the kbd chip's
+  /// 17.2) sits a hair above and would step the band at the swap.
   final double height;
 
   /// G1: the group's natural capsule width.
@@ -1010,53 +1017,69 @@ class _GhostButtonState extends State<_GhostButton> {
         border: Border.all(color: pal.hairline),
       ),
       child: textOpacity > 0
-          ? Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: _padCapsule,
-                vertical: 6,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(spec.icon, size: _footerIcon, color: pal.textSecondary),
-                  const SizedBox(width: 6),
-                  Transform.translate(
-                    offset: tuck,
-                    child: Opacity(
-                      opacity: textOpacity,
-                      child: Text(
-                        spec.label,
-                        style: SrType.caption.copyWith(
-                          color: pal.textSecondary,
-                        ),
-                      ),
+          ? SizedBox(
+              // 四轮真机: pin the capsule arm to the SAME constant height
+              // the circle arm pins. Its intrinsic height was the row's
+              // tallest line box (the kbd chip's 17.2 over the caption's
+              // 16.8) — a hair above the measured 28.8 — so the branch
+              // swap stepped the band's height mid-flight, and the raster
+              // snapped the sub-pixel twitch into view. Identical boxes
+              // in both arms move nothing vertically, by construction.
+              height: widget.height,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: _padCapsule,
+                  vertical: 6,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      spec.icon,
+                      size: _footerIcon,
+                      color: pal.textSecondary,
                     ),
-                  ),
-                  if (spec.kbd != null) ...[
                     const SizedBox(width: 6),
                     Transform.translate(
                       offset: tuck,
                       child: Opacity(
                         opacity: textOpacity,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: pal.surfaceOverlay,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: pal.hairline),
-                          ),
-                          child: Text(
-                            spec.kbd!,
-                            style: SrType.kbd.copyWith(color: pal.textTertiary),
+                        child: Text(
+                          spec.label,
+                          style: SrType.caption.copyWith(
+                            color: pal.textSecondary,
                           ),
                         ),
                       ),
                     ),
+                    if (spec.kbd != null) ...[
+                      const SizedBox(width: 6),
+                      Transform.translate(
+                        offset: tuck,
+                        child: Opacity(
+                          opacity: textOpacity,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: pal.surfaceOverlay,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: pal.hairline),
+                            ),
+                            child: Text(
+                              spec.kbd!,
+                              style: SrType.kbd.copyWith(
+                                color: pal.textTertiary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             )
           : SizedBox(
