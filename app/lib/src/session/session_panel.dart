@@ -615,17 +615,21 @@ class _PhaseDotState extends State<_PhaseDot>
 /// parameter t runs 1 (capsule) → 0.30 (circle); everything below 0.30
 /// is geometrically dead, so the flight never goes there:
 ///
-/// 1 → 0.9        gaps tighten (button padding 8→5, button gap 8→4)
-/// 0.85 → 0.45    the label and the Esc chip fade out
-/// 0.45 → 0.30    the width collapses to the circle (diameter = the
-///                button's own height, ≈29) and the icon slides to its
-///                center
+/// 1 → 0.45        the bloom / gather: the label and the Esc chip fade
+///                 (band 0.9 → 0.45) WHILE tucking 6px toward the icon
+///                 and while the padding 5→8 / inter-button gap 4→8
+///                 loosen over the whole band (19 号票 二轮: one stage,
+///                 three concurrent channels — a fade-only stage read
+///                 as a second animation spliced on)
+/// 0.45 → 0.30     the width collapses to the circle (diameter = the
+///                 button's own height, ≈29) and the icon slides to its
+///                 center
 ///
 /// Layout only shrinks AFTER the text's opacity has reached zero — text
-/// is faded out, never clipped.
+/// is faded out, never clipped. The tuck rides a Transform (layout
+/// untouched), so it can never clip either.
 const _footerGuardPad = 24.0;
-const _tGapsTight = 0.9;
-const _tTextShown = 0.85;
+const _tTextShown = 0.9;
 const _tTextGone = 0.45;
 const _tRoundDone = 0.3;
 const _padCapsule = 8.0;
@@ -634,14 +638,10 @@ const _gapCapsule = 8.0;
 const _gapRound = 4.0;
 const _footerIcon = 14.0;
 
-// The stage shares of the flight parameter s (19 号票 pacing): 35% of
-// the timeline rides the width collapse, 45% the text fade, 20% the gap
-// tightening. Driving t directly left the whole dance crammed into a
-// sliver of the curve — everything below t = 0.30 is dead, and the
-// emphasized curve's violent middle blew the live stages through in a
-// couple of frames (真机读作先跳变后长段静止).
-const _sWidthDone = 0.35;
-const _sFadeDone = 0.80;
+/// The bloom's slide distance — the inter-content gap doubling as the
+/// tuck: at zero opacity the label sits flush against its neighbour,
+/// fully inside the button (no overflow, no clip).
+const _tuckSlide = 6.0;
 
 /// The fraction of [t] inside the band [lo, hi], clamped to 0–1.
 double _seg(double t, double lo, double hi) =>
@@ -649,36 +649,50 @@ double _seg(double t, double lo, double hi) =>
 
 double _lerp(double a, double b, double u) => a + (b - a) * u;
 
-/// Stage space (s: 0 = circle, 1 = capsule) → the ladder's t, piecewise
-/// linear through the stage boundaries — one symmetric curve then
-/// spreads all three stages across the whole flight.
-double _tOfStage(double s) {
-  if (s < _sWidthDone) {
-    return _lerp(_tRoundDone, _tTextGone, s / _sWidthDone);
-  }
-  if (s < _sFadeDone) {
+/// The expand flight's map u → t (19 号票 二轮): the width pops open on
+/// [curveEnter] over the first 40%, then the content blooms on
+/// [curveFade] for the remaining 60% — fade + tuck + pads loosening
+/// together. Both curves arrive at the handoff at ZERO velocity, so the
+/// phase change is a soft hinge, not a splice.
+double _tExpand(double u) {
+  if (u < 0.40) {
     return _lerp(
+      _tRoundDone,
       _tTextGone,
-      _tGapsTight,
-      (s - _sWidthDone) / (_sFadeDone - _sWidthDone),
+      SrMotion.curveEnter.transform(u / 0.40),
     );
   }
-  return _lerp(_tGapsTight, 1.0, (s - _sFadeDone) / (1 - _sFadeDone));
+  return _lerp(
+    _tTextGone,
+    1.0,
+    SrMotion.curveFade.transform((u - 0.40) / 0.60),
+  );
 }
 
-/// The inverse — a fresh flight continues from the current t's own
-/// stage position, never snapped to an endpoint.
-double _sOfT(double t) {
-  if (t < _tTextGone) {
-    return _sWidthDone * (t - _tRoundDone) / (_tTextGone - _tRoundDone);
+/// The collapse flight's map: the mirror — gather on [curveFade] over
+/// the first 60% (fade + tuck + pads tightening together), then the
+/// width falls into the circle on [curveFade], landing at rest.
+double _tCollapse(double u) {
+  if (u < 0.60) {
+    return _lerp(1.0, _tTextGone, SrMotion.curveFade.transform(u / 0.60));
   }
-  if (t < _tGapsTight) {
-    return _sWidthDone +
-        (_sFadeDone - _sWidthDone) *
-            (t - _tTextGone) /
-            (_tGapsTight - _tTextGone);
-  }
-  return _sFadeDone + (1 - _sFadeDone) * (t - _tGapsTight) / (1 - _tGapsTight);
+  return _lerp(
+    _tTextGone,
+    _tRoundDone,
+    SrMotion.curveFade.transform((u - 0.60) / 0.40),
+  );
+}
+
+/// One flight, fixed direction — the controller's u drives [_tExpand]
+/// or [_tCollapse] directly (flips only launch from a parked endpoint,
+/// so the map's u = 0 value always equals the parked state).
+class _FlightMap extends Animatable<double> {
+  const _FlightMap({required this.expand});
+
+  final bool expand;
+
+  @override
+  double transform(double u) => expand ? _tExpand(u) : _tCollapse(u);
 }
 
 /// One footer button's capsule-state spec. The group owns the specs so it
@@ -791,12 +805,11 @@ class _FooterGroupState extends State<_FooterGroup>
     duration: SrMotion.emphasize,
   );
 
-  /// The one-shot flight in STAGE space (s: 1 = capsule, 0 = circle —
-  /// 19 号票 pacing; the ladder's t derives through [_tOfStage]). At
-  /// rest the controller parks and the tween's begin IS the resting
-  /// state; a fresh flip rebuilds the tween from the current position so
-  /// nothing ever jumps.
-  Animatable<double> _ladder = Tween<double>(begin: 1, end: 1);
+  /// The one-shot flight (t: 1 = capsule … 0.30 = circle). At rest the
+  /// controller parks and the map's u = 0 value IS the resting state —
+  /// a flip only launches from the parked endpoint, and its map starts
+  /// exactly there, so nothing ever jumps.
+  Animatable<double> _ladder = const _FlightMap(expand: true);
 
   /// The available width the guard last saw. The completion re-check
   /// re-evaluates against it: a crossing that arrives mid-flight lands
@@ -836,20 +849,17 @@ class _FooterGroupState extends State<_FooterGroup>
     super.dispose();
   }
 
-  double get _t => _tOfStage(_ladder.transform(_morph.value));
+  double get _t => _ladder.transform(_morph.value);
 
   void _evaluate(double available) {
     _lastA = available;
     if (_morph.isAnimating) return; // 忙锁: in flight, no re-flip
     final fits = available >= _metrics.guard;
     if (fits == (_t > 0.5)) return;
-    // curveFade, not curveEmphasized (19 号票): the emphasized curve's
-    // violent middle blows a staged ladder through in a couple of frames
-    // — the symmetric fade curve keeps every stage legible.
-    _ladder = Tween<double>(
-      begin: _sOfT(_t),
-      end: fits ? 1.0 : 0.0,
-    ).chain(CurveTween(curve: SrMotion.curveFade));
+    // One flight per crossing, its own shaped map per direction (19 号
+    // 票 二轮): each phase decelerates into the handoff — a splice at
+    // full speed read as two animations stitched together.
+    _ladder = _FlightMap(expand: fits);
     _morph.forward(from: 0);
   }
 
@@ -884,10 +894,8 @@ class _FooterGroupState extends State<_FooterGroup>
           // is the sweep's own doing, never a mount flash).
           _lastA = a;
           final capsule = a >= _metrics.guard;
-          _ladder = Tween<double>(
-            begin: capsule ? 1.0 : 0.0,
-            end: capsule ? 1.0 : 0.0,
-          );
+          final t0 = capsule ? 1.0 : _tRoundDone;
+          _ladder = Tween<double>(begin: t0, end: t0);
         } else {
           _scheduleEvaluate(a);
         }
@@ -895,7 +903,7 @@ class _FooterGroupState extends State<_FooterGroup>
           animation: _morph,
           builder: (context, _) {
             final t = _t;
-            final gap = _lerp(_gapRound, _gapCapsule, _seg(t, _tGapsTight, 1));
+            final gap = _lerp(_gapRound, _gapCapsule, _seg(t, _tTextGone, 1));
             return UnconstrainedBox(
               alignment: Alignment(widget.form.footerAlignX, 0),
               constrainedAxis: Axis.vertical,
@@ -967,8 +975,15 @@ class _GhostButtonState extends State<_GhostButton> {
     final pal = widget.pal;
     final spec = widget.spec;
     final t = widget.t;
-    final pad = _lerp(_padRound, _padCapsule, _seg(t, _tGapsTight, 1));
+    // The pads/gaps loosen across the WHOLE bloom band (19 号票 二轮):
+    // while the text fades, the button keeps breathing wider — the
+    // fade-only stretch read as a dead second animation.
+    final pad = _lerp(_padRound, _padCapsule, _seg(t, _tTextGone, 1));
     final textOpacity = _seg(t, _tTextGone, _tTextShown);
+    // The content tucks 6px toward the icon as it fades (a Transform —
+    // layout untouched, nothing to clip): the bloom keeps a direction,
+    // continuous with the width move that hands off to it.
+    final tuck = Offset(-_tuckSlide * (1 - textOpacity), 0);
     // The width collapse runs only once the text is fully gone (t ≤ 0.45)
     // and finishes at t = 0.30 — layout never squeezes visible ink.
     final collapse = 1 - _seg(t, _tRoundDone, _tTextGone);
@@ -1007,30 +1022,38 @@ class _GhostButtonState extends State<_GhostButton> {
                 children: [
                   Icon(spec.icon, size: _footerIcon, color: pal.textSecondary),
                   const SizedBox(width: 6),
-                  Opacity(
-                    opacity: textOpacity,
-                    child: Text(
-                      spec.label,
-                      style: SrType.caption.copyWith(color: pal.textSecondary),
+                  Transform.translate(
+                    offset: tuck,
+                    child: Opacity(
+                      opacity: textOpacity,
+                      child: Text(
+                        spec.label,
+                        style: SrType.caption.copyWith(
+                          color: pal.textSecondary,
+                        ),
+                      ),
                     ),
                   ),
                   if (spec.kbd != null) ...[
                     const SizedBox(width: 6),
-                    Opacity(
-                      opacity: textOpacity,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: pal.surfaceOverlay,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: pal.hairline),
-                        ),
-                        child: Text(
-                          spec.kbd!,
-                          style: SrType.kbd.copyWith(color: pal.textTertiary),
+                    Transform.translate(
+                      offset: tuck,
+                      child: Opacity(
+                        opacity: textOpacity,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: pal.surfaceOverlay,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: pal.hairline),
+                          ),
+                          child: Text(
+                            spec.kbd!,
+                            style: SrType.kbd.copyWith(color: pal.textTertiary),
+                          ),
                         ),
                       ),
                     ),

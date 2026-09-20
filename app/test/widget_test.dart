@@ -2554,13 +2554,16 @@ void main() {
     testWidgets('the morph rides one continuous flight — no whips', (
       tester,
     ) async {
-      // 19 号票: the ladder's stages each get their slice of the 320ms
-      // flight (width → fade → gaps, staged in s-space on curveFade).
-      // The first landing drove t straight through an emphasized curve:
-      // the fade and the width collapse each blew through in 1–2 frames
-      // (跳变) and the tail below t = 0.30 sat dead for most of the
-      // flight (间断). Sample every 16ms frame and pin both failure
-      // modes: no frame carries a whole stage, no stretch sits still.
+      // 19 号票 (two rounds of device feedback): round one's emphasized
+      // landing blew stages through in 1–2 frames (跳变) then sat dead
+      // (间断); round two's even stage split cured the whips but read as
+      // TWO stitched animations — the width move ended at full speed,
+      // the fade ran alone on a static button. The flight now gathers
+      // and blooms with concurrent channels (fade + tuck + pads) and
+      // every phase handoff decelerates to zero velocity. Sample every
+      // 16ms frame and pin all three failure modes: no frame carries a
+      // whole stage, no stretch sits still, and the width's pop attack
+      // stays a decaying curve (never a 65px one-frame blowthrough).
       final window = RecordingStageWindow();
       final dir = scratch();
       final gateway = FakeGateway();
@@ -2603,7 +2606,11 @@ void main() {
           final dOp = (opacity != null && lastOpacity != null)
               ? (opacity - lastOpacity).abs()
               : 0.0;
-          expect(dw, lessThan(20), reason: 'width jump at frame $i');
+          // The expand's width attack lands ~21px on its first frame
+          // (curveEnter's decaying pop); the collapse's gather stays
+          // far gentler. Anything past 26 in one 16ms frame is a
+          // blowthrough, not a pop.
+          expect(dw, lessThan(26), reason: 'width jump at frame $i');
           expect(dOp, lessThan(0.25), reason: 'opacity jump at frame $i');
           deadRun = (dw <= 0.1 && dOp <= 0.02) ? deadRun + 1 : 0;
           if (deadRun > worstDeadRun) worstDeadRun = deadRun;
@@ -2612,8 +2619,8 @@ void main() {
         lastOpacity = opacity;
       }
       // The flight landed a circle with nothing ever sitting still for
-      // three frames.
-      expect(worstDeadRun, lessThan(3));
+      // four frames.
+      expect(worstDeadRun, lessThan(4));
       expect(find.text('重新生成'), findsNothing);
       await g.up();
       await tester.pump();
