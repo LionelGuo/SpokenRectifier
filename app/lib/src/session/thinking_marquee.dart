@@ -462,6 +462,20 @@ double _quinticEaseInOut(double u) {
 const _rampStops = [0.0, 0.25, 0.5, 0.75, 1.0];
 const _rampAlphas = [0.0, 0.16, 0.5, 0.84, 1.0];
 
+/// The vertical mask's stops (09 终值: each edge ramp covers 20% of the
+/// band) — the top ramp up, then its mirror into the bottom edge
+/// (`1 − s·ramp`: 0.85/0.90/0.95/1.0 for the falling alphas, α0 exactly
+/// at the edge like the top's). The list MUST stay strictly ascending:
+/// an unsorted stop list is an invalid gradient and Skia shades it
+/// undefined (22 号票: the mirrored positions were first written as the
+/// complement `1 − (1−s)·ramp`, and the sweep's bottom edge cut hard
+/// while the top — whose half of the list was sorted — faded normally).
+@visibleForTesting
+List<double> shimmerVerticalMaskStops({double rampFrac = 0.20}) => [
+  for (final s in _rampStops) s * rampFrac,
+  for (final s in _rampStops.reversed.skip(1)) 1.0 - s * rampFrac,
+];
+
 class _MarqueePainter extends CustomPainter {
   _MarqueePainter({
     required this.machine,
@@ -551,10 +565,7 @@ class _MarqueePainter extends CustomPainter {
           for (final a in _rampAlphas.reversed.skip(1))
             Colors.white.withValues(alpha: a),
         ],
-        stops: [
-          ..._rampStops.map((s) => s * 0.20),
-          ..._rampStops.reversed.skip(1).map((s) => 1.0 - (1.0 - s) * 0.20),
-        ],
+        stops: shimmerVerticalMaskStops(),
       ).createShader(wrap),
     );
     _applyMask(

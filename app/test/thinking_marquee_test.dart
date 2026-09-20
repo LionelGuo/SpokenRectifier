@@ -331,4 +331,29 @@ void main() {
       );
     }
   });
+
+  test('the vertical shimmer mask ramps BOTH edges — valid, mirrored '
+      'stops (22 号票)', () {
+    final stops = shimmerVerticalMaskStops();
+    // A gradient's stop list must be strictly ascending — an unsorted
+    // list shades undefined in Skia (device: the bottom edge cut hard
+    // while the top, whose half of the list was sorted, faded normally).
+    for (var i = 1; i < stops.length; i++) {
+      expect(
+        stops[i],
+        greaterThan(stops[i - 1]),
+        reason: 'stop $i must sit above its predecessor; the bottom '
+            'ramp once ran its positions descending',
+      );
+    }
+    // The bottom ramp mirrors the top: stops[i] + stops[n−1−i] == 1 for
+    // each off-center pair (the center stop pairs with itself), so the
+    // fade reaches α0 exactly at the bottom edge, same shape as the
+    // top's (09's .reg-vfade is symmetric).
+    for (var i = 0; i < stops.length - 1 - i; i++) {
+      expect(stops[i] + stops[stops.length - 1 - i], closeTo(1.0, 1e-9));
+    }
+    expect(stops.first, 0.0);
+    expect(stops.last, 1.0);
+  });
 }
