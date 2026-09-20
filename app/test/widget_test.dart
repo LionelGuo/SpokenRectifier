@@ -907,8 +907,9 @@ void main() {
     );
     await tester.pump();
 
-    // The stream viewport reaches down to the footer's band (the sm
-    // gutter inside the text area), not to the card's midline.
+    // The stream viewport reaches down to the footer's band (the md
+    // gutter inside the text area — paired with the bottom soft cut,
+    // 小修 13), not to the card's midline.
     final footerTop = tester
         .getTopLeft(find.byKey(const Key('panel-chrome-footer')))
         .dy;
@@ -922,7 +923,7 @@ void main() {
     );
     expect(
       streamViewport.bottom,
-      closeTo(footerTop - SrSpace.sm, 1),
+      closeTo(footerTop - SrSpace.md, 1),
       reason: 'the body is the true remainder above the footer',
     );
     expect(streamViewport.height, greaterThan(350));
@@ -3393,8 +3394,16 @@ void main() {
         );
         await pumpToPreview(tester, controller, gateway);
 
-        // Bottom-anchored at rest: no top fade yet.
-        expect(find.byKey(const Key('session-top-fade')), findsNothing);
+        // Bottom-anchored at rest: the top fade is the resident md soft
+        // cut already (小修 13 — it never unmounts; only its height
+        // rides the form).
+        expect(find.byKey(const Key('session-top-fade')), findsOneWidget);
+        expect(
+          tester.widget<Positioned>(
+            find.byKey(const Key('session-top-fade')),
+          ).height,
+          SrSpace.md,
+        );
 
         // A pure VERTICAL flip (the x threshold is never crossed).
         final g = await tester.startGesture(
@@ -3406,9 +3415,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 180));
 
         // Mid-switch everything stays MOUNTED: the header cluster, all
-        // three footer capsules, the footer band — and the fading-IN
-        // top fade rides the same window (opacity is the one legal
-        // handoff; controls never unmount).
+        // three footer capsules, the footer band — and the top fade
+        // rides the same window, its height handing over 12 → 48 (小修
+        // 13: the height is the handoff now; controls never unmount,
+        // and neither does the fade).
         expect(find.text('预览'), findsOneWidget);
         for (final key in [
           const Key('session-raw-toggle'),
@@ -3420,9 +3430,15 @@ void main() {
         expect(find.byKey(const Key('panel-chrome-footer')), findsOneWidget);
         expect(find.byKey(const Key('session-top-fade')), findsOneWidget);
 
-        // Settled top-anchored: the fade is the resident one now.
+        // Settled top-anchored: the fade is the 48 anchor band now.
         await tester.pump(const Duration(milliseconds: 600));
         expect(find.byKey(const Key('session-top-fade')), findsOneWidget);
+        expect(
+          tester.widget<Positioned>(
+            find.byKey(const Key('session-top-fade')),
+          ).height,
+          SrGeometry.anchorInset,
+        );
         await g.up();
         await tester.pump();
         await windDown(tester, controller);
@@ -3710,11 +3726,24 @@ void main() {
           'the scenario chip',
         );
         // The body's fade + padding pair rides the anchor's edge only
-        // (义务随锚点角走): top pair exactly while the orb shares the
-        // header row, never while it sits on the footer's edge.
+        // (义务随锚点角走) — now as a HEIGHT handover (小修 13: both
+        // edges always carry a fade): the 48 anchor band exactly while
+        // the orb shares the header row, the md soft cut (12) while it
+        // sits on the footer's edge.
         expect(
-          find.byKey(const Key('session-top-fade')),
-          dir.growUp ? findsNothing : findsOneWidget,
+          tester.widget<Positioned>(
+            find.byKey(const Key('session-top-fade')),
+          ).height,
+          dir.growUp ? SrSpace.md : SrGeometry.anchorInset,
+        );
+        // The bottom soft cut is the md constant in every quadrant: the
+        // raw fold / footer band — never the orb — owns the body's
+        // bottom edge, so the bottom fade carries no anchor semantics.
+        expect(
+          tester.widget<Positioned>(
+            find.byKey(const Key('session-bottom-fade')),
+          ).height,
+          SrSpace.md,
         );
         if (!dir.growUp) {
           // At rest the first body line (the placeholder paints while
@@ -3856,6 +3885,22 @@ void main() {
         expect(
           find.byKey(const Key('quick-top-fade')),
           dir.growUp ? findsNothing : findsOneWidget,
+        );
+        // The list's tail clearance (小修 13): the anchor band (96)
+        // while the orb anchors the bottom edge; the md floor (12) at
+        // the top quadrants — the last entry row never kisses the
+        // card's bottom edge. Scroll the tail itself into the built
+        // range first (the list builds lazily).
+        await tester.dragUntilVisible(
+          find.byKey(const Key('quick-tail-clearance')),
+          panelScrollable(),
+          const Offset(0, -60),
+        );
+        expect(
+          tester.widget<SizedBox>(
+            find.byKey(const Key('quick-tail-clearance')),
+          ).height,
+          dir.growUp ? SrGeometry.anchorInset * 2 : SrSpace.md,
         );
         await controller.closeQuick();
         await tester.pump(const Duration(milliseconds: 700));

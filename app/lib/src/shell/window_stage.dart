@@ -1295,6 +1295,17 @@ class PanelForm extends ChangeNotifier {
   /// growing to 48 as the orb takes the header's edge (连续插值).
   double get bodyTopPad =>
       SrSpace.md + (SrGeometry.anchorInset - SrSpace.md) * (1 - gu);
+
+  /// List content's tail clearance (小修 13): the anchor band (96 =
+  /// 2× anchorInset) while the orb grows the panel up — its whole
+  /// footprint rides this band — floored at the md buffer at the top
+  /// quadrants, where a zero tail let the last entry row kiss the
+  /// card's bottom edge (the top-anchored obligations live at the
+  /// list's head; the tail keeps only the standing floor).
+  double get bodyTailPad {
+    final band = SrGeometry.anchorInset * 2 * gu;
+    return band < SrSpace.md ? SrSpace.md : band;
+  }
 }
 
 /// One axis's flight: the running simulation, its target, and the time

@@ -406,10 +406,12 @@ class _QuickPanelState extends State<QuickPanel> {
                     // anchor sits at the bottom edge (up-growth): the
                     // orb's whole footprint rides this band. A
                     // top-anchored orb's obligations live at the list's
-                    // head (fade + padding above), so the tail carries
-                    // none at rest.
+                    // head (fade + padding above); the tail keeps the
+                    // standing md floor (小修 13) — a zero tail let the
+                    // last entry row kiss the card's bottom edge.
                     SizedBox(
-                      height: SrGeometry.anchorInset * 2 * widget.form.gu,
+                      key: const Key('quick-tail-clearance'),
+                      height: widget.form.bodyTailPad,
                     ),
                   ],
                 ),

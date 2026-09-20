@@ -292,15 +292,12 @@ class _SessionPanelState extends State<SessionPanel> {
         pal.live,
         true,
       ),
-      BridgeSessionState.rectifying => thinking
-          ? ('思考中', pal.accent, true)
-          : ('修正中', pal.accent, false),
+      BridgeSessionState.rectifying =>
+        thinking ? ('思考中', pal.accent, true) : ('修正中', pal.accent, false),
       _ => ('预览', pal.success, false),
     };
     final elapsed = thinking
-        ? _formatElapsed(
-            Duration(milliseconds: c.thinking!.view().elapsedMs),
-          )
+        ? _formatElapsed(Duration(milliseconds: c.thinking!.view().elapsedMs))
         : _formatElapsed(c.recordElapsed);
     // The 场景 chip's label: a one-time pick paints its own name — 默认
     // included (ticket 28), so an explicit default session never
@@ -420,15 +417,18 @@ class _SessionPanelState extends State<SessionPanel> {
           ),
       ],
     );
-    // Top-anchored orb (右上/左上): the ball's lower half rides over
-    // this region — the body keeps a 48 top padding (scrolled to top,
-    // the first line rests exactly at the fade's lower edge) under a
-    // surface-colored fade that dissolves arriving content into the
-    // card below the header (锚边渐隐, spec §3). Bottom-anchored orb: no
-    // body fade — the footer row plus its 48 reserve carry the bottom
-    // edge. Both interpolate continuously with the form (12 号票); the
-    // fade hands over by OPACITY — surface over surface, the one
-    // "disappearance" that is not a control.
+    // Both edges carry a fade in every quadrant (小修 13): the top band
+    // hands over by HEIGHT — the 48 anchor dissolve while the orb
+    // shares the header row (右上/左上: the ball's lower half rides
+    // over this region; the stage stack paints the ball above the fade,
+    // so it stays crisp), shrinking to the md soft cut (12) once the
+    // orb sits on the footer's edge — always paired with bodyTopPad, so
+    // scrolled to top the first line rests exactly at the fade's lower
+    // edge, never inside it. The bottom band is the constant md soft
+    // cut: the raw fold / footer band — never the orb — owns the body's
+    // bottom edge in every quadrant, so streaming text dissolves into
+    // the surface there instead of slicing hard against the band above.
+    // Surface over surface, both are invisible over empty regions.
     return AnimatedBuilder(
       animation: widget.form,
       child: content,
@@ -437,48 +437,70 @@ class _SessionPanelState extends State<SessionPanel> {
           Positioned.fill(
             child: Padding(
               // Straight-edge body content: contentInset (below the
-              // corner band); the top rides the form (12 ↔ 48).
+              // corner band); the top rides the form (12 ↔ 48), the
+              // bottom pairs with the soft cut (md).
               padding: EdgeInsets.fromLTRB(
                 SrSpace.contentInset,
                 widget.form.bodyTopPad,
                 SrSpace.contentInset,
-                SrSpace.sm,
+                SrSpace.md,
               ),
               child: inner!,
             ),
           ),
-          if (widget.form.gu < 0.999)
-            // Full-width, flush under the header row: opaque surface at
-            // the top dissolving to transparent 48 in (the bottom
-            // fade's mirror). The orb (stage layer) paints above it and
-            // stays crisp; content under the fade is inert to the
-            // pointer.
-            Positioned(
-              key: const Key('session-top-fade'),
-              left: 0,
-              right: 0,
-              top: 0,
-              height: SrGeometry.anchorInset,
-              child: IgnorePointer(
-                child: Opacity(
-                  opacity: (1 - widget.form.gu).clamp(0.0, 1.0),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          pal.surface,
-                          pal.surface,
-                          pal.surface.withValues(alpha: 0),
-                        ],
-                        stops: const [0.0, 0.25, 1.0],
-                      ),
-                    ),
+          // Full-width, flush under the header row: opaque surface at
+          // the top dissolving to transparent at the height's far edge
+          // (height = bodyTopPad: 48 anchored, 12 at the far form). The
+          // orb (stage layer) paints above it and stays crisp; content
+          // under the fade is inert to the pointer.
+          Positioned(
+            key: const Key('session-top-fade'),
+            left: 0,
+            right: 0,
+            top: 0,
+            height: widget.form.bodyTopPad,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      pal.surface,
+                      pal.surface,
+                      pal.surface.withValues(alpha: 0),
+                    ],
+                    stops: const [0.0, 0.25, 1.0],
                   ),
                 ),
               ),
             ),
+          ),
+          // Its mirror at the body's bottom seam: the same md budget as
+          // the bottom padding, opaque at the seam dissolving upward.
+          Positioned(
+            key: const Key('session-bottom-fade'),
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: SrSpace.md,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      pal.surface,
+                      pal.surface,
+                      pal.surface.withValues(alpha: 0),
+                    ],
+                    stops: const [0.0, 0.25, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
