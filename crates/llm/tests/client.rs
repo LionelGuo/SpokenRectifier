@@ -6,7 +6,7 @@ mod common;
 use common::{config_with_base, long_request, quick_request, request};
 use futures::StreamExt;
 use httpmock::{Method, MockServer};
-use spokenrectifier_engine::provider::llm::{RectifyLlm, RectifyRequest};
+use spokenrectifier_engine::provider::llm::{RectifyDelta, RectifyLlm, RectifyRequest};
 use spokenrectifier_llm::{Format, OpenAiCompatLlm};
 
 fn sse_body() -> String {
@@ -20,16 +20,35 @@ fn sse_body() -> String {
     .into()
 }
 
-async fn collect(llm: &OpenAiCompatLlm, request: RectifyRequest) -> Vec<String> {
+async fn collect(llm: &OpenAiCompatLlm, request: RectifyRequest) -> Vec<RectifyDelta> {
     let stream = llm.rectify(request).await.expect("stream opens");
     stream
         .map(|item| item.expect("delta"))
-        .collect::<Vec<String>>()
+        .collect::<Vec<RectifyDelta>>()
         .await
 }
 
+/// The two arms as plain strings: `(content deltas, reasoning deltas)`.
+/// The empty deltas a keep-alive frame produces never appear — the
+/// transport skips items with nothing to carry.
+async fn collect_arms(
+    llm: &OpenAiCompatLlm,
+    request: RectifyRequest,
+) -> (Vec<String>, Vec<String>) {
+    let deltas = collect(llm, request).await;
+    let content = deltas
+        .iter()
+        .filter_map(|d| d.content.clone())
+        .collect::<Vec<_>>();
+    let reasoning = deltas
+        .iter()
+        .filter_map(|d| d.reasoning.clone())
+        .collect::<Vec<_>>();
+    (content, reasoning)
+}
+
 #[tokio::test]
-async fn streams_content_deltas_in_order_and_skips_reasoning() {
+async fn streams_content_and_thinking_on_their_own_arms() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(Method::POST)
@@ -48,9 +67,12 @@ async fn streams_content_deltas_in_order_and_skips_reasoning() {
     });
 
     let llm = OpenAiCompatLlm::new(config_with_base(server.base_url(), false)).unwrap();
-    let deltas = collect(&llm, long_request()).await;
+    let (content, reasoning) = collect_arms(&llm, long_request()).await;
 
-    assert_eq!(deltas, vec!["会议", "纪要"]);
+    assert_eq!(content, vec!["会议", "纪要"]);
+    // The thinking channel rides its own arm (14 号票's marquee feed):
+    // forwarded verbatim, never merged into the content arm.
+    assert_eq!(reasoning, vec!["思考"]);
     mock.assert_hits(1);
 }
 
@@ -154,7 +176,10 @@ async fn midstream_error_event_fails_the_stream() {
 
     let llm = OpenAiCompatLlm::new(config_with_base(server.base_url(), false)).unwrap();
     let mut stream = llm.rectify(long_request()).await.expect("stream opens");
-    assert_eq!(stream.next().await.unwrap().unwrap(), "会");
+    assert_eq!(
+        stream.next().await.unwrap().unwrap(),
+        RectifyDelta::content("会".into()),
+    );
     let err = match stream.next().await {
         Some(Err(err)) => err.0,
         other => panic!("expected stream error, got {other:?}"),
@@ -181,8 +206,9 @@ async fn vllm_reasoning_field_is_counted_and_never_leaked() {
     let llm = OpenAiCompatLlm::new(config_with_base(server.base_url(), false))
         .unwrap()
         .with_reasoning_counter(counter.clone());
-    let deltas = collect(&llm, long_request()).await;
-    assert_eq!(deltas, vec!["会议"]);
+    let (content, reasoning) = collect_arms(&llm, long_request()).await;
+    assert_eq!(content, vec!["会议"]);
+    assert_eq!(reasoning, vec!["想"]);
     assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(1));
 }
 
@@ -251,8 +277,9 @@ async fn anthropic_streams_text_deltas_skips_thinking_and_stops_at_message_stop(
     let llm = OpenAiCompatLlm::new(config)
         .unwrap()
         .with_reasoning_counter(counter);
-    let deltas = collect(&llm, long_request()).await;
-    assert_eq!(deltas, vec!["会议", "纪要"]);
+    let (content, reasoning) = collect_arms(&llm, long_request()).await;
+    assert_eq!(content, vec!["会议", "纪要"]);
+    assert_eq!(reasoning, vec!["想"]);
     assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(1));
     mock.assert_hits(1);
 }
@@ -277,7 +304,10 @@ async fn anthropic_error_event_fails_the_stream() {
     config.model.format = Format::Anthropic;
     let llm = OpenAiCompatLlm::new(config).unwrap();
     let mut stream = llm.rectify(long_request()).await.expect("stream opens");
-    assert_eq!(stream.next().await.unwrap().unwrap(), "会");
+    assert_eq!(
+        stream.next().await.unwrap().unwrap(),
+        RectifyDelta::content("会".into()),
+    );
     let err = match stream.next().await {
         Some(Err(err)) => err.0,
         other => panic!("expected stream error, got {other:?}"),
@@ -306,8 +336,9 @@ async fn gemini_streams_unmarked_parts_skips_thoughts_and_ends_with_the_body() {
     let llm = OpenAiCompatLlm::new(config)
         .unwrap()
         .with_reasoning_counter(counter);
-    let deltas = collect(&llm, long_request()).await;
-    assert_eq!(deltas, vec!["会议", "纪要"]);
+    let (content, reasoning) = collect_arms(&llm, long_request()).await;
+    assert_eq!(content, vec!["会议", "纪要"]);
+    assert_eq!(reasoning, vec!["想"]);
     assert_eq!(RectifyLlm::take_reasoning_chars(&llm), Some(1));
     mock.assert_hits(1);
 }
@@ -331,7 +362,10 @@ async fn gemini_error_object_fails_the_stream() {
     config.model.format = Format::Gemini;
     let llm = OpenAiCompatLlm::new(config).unwrap();
     let mut stream = llm.rectify(long_request()).await.expect("stream opens");
-    assert_eq!(stream.next().await.unwrap().unwrap(), "会");
+    assert_eq!(
+        stream.next().await.unwrap().unwrap(),
+        RectifyDelta::content("会".into()),
+    );
     let err = match stream.next().await {
         Some(Err(err)) => err.0,
         other => panic!("expected stream error, got {other:?}"),
@@ -382,8 +416,8 @@ async fn a_quick_attempt_streams_the_light_touch_section_with_the_quick_directiv
     config.rectify.quick.extra_directive = Some("快速私货".into());
     let llm = OpenAiCompatLlm::new(config).unwrap();
 
-    let deltas = collect(&llm, quick_request(&"字".repeat(40))).await;
-    assert_eq!(deltas, vec!["会议", "纪要"]);
+    let (content, _) = collect_arms(&llm, quick_request(&"字".repeat(40))).await;
+    assert_eq!(content, vec!["会议", "纪要"]);
 
     quick.assert_hits(1);
     full_form.assert_hits(0);

@@ -878,9 +878,9 @@ impl Inner {
             EngineEvent::LiveTranscriptUpdated { .. }
             | EngineEvent::ParagraphMarked
             | EngineEvent::SpeechActivityChanged { .. } => st.state == SessionState::Recording,
-            EngineEvent::RectifiedTextChunk { .. } | EngineEvent::PreviewPrefills { .. } => {
-                st.state == SessionState::Rectifying
-            }
+            EngineEvent::RectifiedTextChunk { .. }
+            | EngineEvent::RectifyThinkingDelta { .. }
+            | EngineEvent::PreviewPrefills { .. } => st.state == SessionState::Rectifying,
             EngineEvent::PreviewTextUpdated { .. } => st.state == SessionState::Preview,
             _ => true,
         };
@@ -1674,7 +1674,29 @@ async fn rectify_task(
             }
             item = stream.next() => {
                 match item {
-                    Some(Ok(delta)) => {
+                    Some(Ok(item)) => {
+                        // Thinking text rides its own one-shot channel
+                        // (14 号票): forwarded verbatim, never through the
+                        // splitter, never into the body.
+                        if let Some(delta) = item.reasoning {
+                            let mut st = inner.state_lock();
+                            if st.state != SessionState::Rectifying
+                                || !session_matches(&st, sid)
+                            {
+                                return;
+                            }
+                            inner.emit_stream_event(
+                                &mut st,
+                                sid,
+                                EngineEvent::RectifyThinkingDelta { delta },
+                            );
+                        }
+                        let Some(delta) = item.content else {
+                            // A thinking-only item (or a keep-alive): the
+                            // cancel/supersede check rides the next
+                            // producing delta or the stream's end.
+                            continue;
+                        };
                         let out = splitter.push(&delta);
                         if out.is_empty() {
                             // Fully held back (a `‡N` run still growing):

@@ -17,6 +17,7 @@ pub fn fmt_event(event: &EngineEvent) -> String {
             }
         }
         EngineEvent::RectifiedTextChunk { delta } => format!("chunk {delta:?}"),
+        EngineEvent::RectifyThinkingDelta { delta } => format!("think {delta:?}"),
         EngineEvent::PreviewPrefills { prefills } => format!(
             "prefills {:?}",
             prefills

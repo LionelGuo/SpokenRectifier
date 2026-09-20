@@ -69,6 +69,7 @@ pub(crate) fn parse_anthropic_event(data: &str) -> Result<ParsedEvent, String> {
     if kind == "message_stop" {
         return Ok(ParsedEvent {
             content: None,
+            reasoning: None,
             reasoning_chars: 0,
             done: true,
         });
@@ -84,17 +85,19 @@ pub(crate) fn parse_anthropic_event(data: &str) -> Result<ParsedEvent, String> {
     match delta.kind.as_deref() {
         Some("text_delta") => Ok(ParsedEvent {
             content: delta.text.filter(|text| !text.is_empty()),
+            reasoning: None,
             reasoning_chars: 0,
             done: false,
         }),
         Some("thinking_delta") => {
-            let reasoning_chars = delta
-                .thinking
+            let reasoning = delta.thinking.filter(|text| !text.is_empty());
+            let reasoning_chars = reasoning
                 .as_deref()
                 .map(|text| text.chars().count() as u64)
                 .unwrap_or(0);
             Ok(ParsedEvent {
                 content: None,
+                reasoning,
                 reasoning_chars,
                 done: false,
             })

@@ -1399,7 +1399,7 @@ extension BridgeEventPatterns on BridgeEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeEvent_SessionStateChanged value)?  sessionStateChanged,TResult Function( BridgeEvent_LiveTranscriptUpdated value)?  liveTranscriptUpdated,TResult Function( BridgeEvent_ParagraphMarked value)?  paragraphMarked,TResult Function( BridgeEvent_QuickMarked value)?  quickMarked,TResult Function( BridgeEvent_SpeechActivityChanged value)?  speechActivityChanged,TResult Function( BridgeEvent_RectifiedTextChunk value)?  rectifiedTextChunk,TResult Function( BridgeEvent_PreviewPrefills value)?  previewPrefills,TResult Function( BridgeEvent_PreviewTextUpdated value)?  previewTextUpdated,TResult Function( BridgeEvent_TextInserted value)?  textInserted,TResult Function( BridgeEvent_Error value)?  error,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BridgeEvent_SessionStateChanged value)?  sessionStateChanged,TResult Function( BridgeEvent_LiveTranscriptUpdated value)?  liveTranscriptUpdated,TResult Function( BridgeEvent_ParagraphMarked value)?  paragraphMarked,TResult Function( BridgeEvent_QuickMarked value)?  quickMarked,TResult Function( BridgeEvent_SpeechActivityChanged value)?  speechActivityChanged,TResult Function( BridgeEvent_RectifiedTextChunk value)?  rectifiedTextChunk,TResult Function( BridgeEvent_RectifyThinkingDelta value)?  rectifyThinkingDelta,TResult Function( BridgeEvent_PreviewPrefills value)?  previewPrefills,TResult Function( BridgeEvent_PreviewTextUpdated value)?  previewTextUpdated,TResult Function( BridgeEvent_TextInserted value)?  textInserted,TResult Function( BridgeEvent_Error value)?  error,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged() when sessionStateChanged != null:
@@ -1408,7 +1408,8 @@ return liveTranscriptUpdated(_that);case BridgeEvent_ParagraphMarked() when para
 return paragraphMarked(_that);case BridgeEvent_QuickMarked() when quickMarked != null:
 return quickMarked(_that);case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
 return speechActivityChanged(_that);case BridgeEvent_RectifiedTextChunk() when rectifiedTextChunk != null:
-return rectifiedTextChunk(_that);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
+return rectifiedTextChunk(_that);case BridgeEvent_RectifyThinkingDelta() when rectifyThinkingDelta != null:
+return rectifyThinkingDelta(_that);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
 return previewPrefills(_that);case BridgeEvent_PreviewTextUpdated() when previewTextUpdated != null:
 return previewTextUpdated(_that);case BridgeEvent_TextInserted() when textInserted != null:
 return textInserted(_that);case BridgeEvent_Error() when error != null:
@@ -1430,7 +1431,7 @@ return error(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeEvent_SessionStateChanged value)  sessionStateChanged,required TResult Function( BridgeEvent_LiveTranscriptUpdated value)  liveTranscriptUpdated,required TResult Function( BridgeEvent_ParagraphMarked value)  paragraphMarked,required TResult Function( BridgeEvent_QuickMarked value)  quickMarked,required TResult Function( BridgeEvent_SpeechActivityChanged value)  speechActivityChanged,required TResult Function( BridgeEvent_RectifiedTextChunk value)  rectifiedTextChunk,required TResult Function( BridgeEvent_PreviewPrefills value)  previewPrefills,required TResult Function( BridgeEvent_PreviewTextUpdated value)  previewTextUpdated,required TResult Function( BridgeEvent_TextInserted value)  textInserted,required TResult Function( BridgeEvent_Error value)  error,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BridgeEvent_SessionStateChanged value)  sessionStateChanged,required TResult Function( BridgeEvent_LiveTranscriptUpdated value)  liveTranscriptUpdated,required TResult Function( BridgeEvent_ParagraphMarked value)  paragraphMarked,required TResult Function( BridgeEvent_QuickMarked value)  quickMarked,required TResult Function( BridgeEvent_SpeechActivityChanged value)  speechActivityChanged,required TResult Function( BridgeEvent_RectifiedTextChunk value)  rectifiedTextChunk,required TResult Function( BridgeEvent_RectifyThinkingDelta value)  rectifyThinkingDelta,required TResult Function( BridgeEvent_PreviewPrefills value)  previewPrefills,required TResult Function( BridgeEvent_PreviewTextUpdated value)  previewTextUpdated,required TResult Function( BridgeEvent_TextInserted value)  textInserted,required TResult Function( BridgeEvent_Error value)  error,}){
 final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged():
@@ -1439,7 +1440,8 @@ return liveTranscriptUpdated(_that);case BridgeEvent_ParagraphMarked():
 return paragraphMarked(_that);case BridgeEvent_QuickMarked():
 return quickMarked(_that);case BridgeEvent_SpeechActivityChanged():
 return speechActivityChanged(_that);case BridgeEvent_RectifiedTextChunk():
-return rectifiedTextChunk(_that);case BridgeEvent_PreviewPrefills():
+return rectifiedTextChunk(_that);case BridgeEvent_RectifyThinkingDelta():
+return rectifyThinkingDelta(_that);case BridgeEvent_PreviewPrefills():
 return previewPrefills(_that);case BridgeEvent_PreviewTextUpdated():
 return previewTextUpdated(_that);case BridgeEvent_TextInserted():
 return textInserted(_that);case BridgeEvent_Error():
@@ -1457,7 +1459,7 @@ return error(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeEvent_SessionStateChanged value)?  sessionStateChanged,TResult? Function( BridgeEvent_LiveTranscriptUpdated value)?  liveTranscriptUpdated,TResult? Function( BridgeEvent_ParagraphMarked value)?  paragraphMarked,TResult? Function( BridgeEvent_QuickMarked value)?  quickMarked,TResult? Function( BridgeEvent_SpeechActivityChanged value)?  speechActivityChanged,TResult? Function( BridgeEvent_RectifiedTextChunk value)?  rectifiedTextChunk,TResult? Function( BridgeEvent_PreviewPrefills value)?  previewPrefills,TResult? Function( BridgeEvent_PreviewTextUpdated value)?  previewTextUpdated,TResult? Function( BridgeEvent_TextInserted value)?  textInserted,TResult? Function( BridgeEvent_Error value)?  error,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BridgeEvent_SessionStateChanged value)?  sessionStateChanged,TResult? Function( BridgeEvent_LiveTranscriptUpdated value)?  liveTranscriptUpdated,TResult? Function( BridgeEvent_ParagraphMarked value)?  paragraphMarked,TResult? Function( BridgeEvent_QuickMarked value)?  quickMarked,TResult? Function( BridgeEvent_SpeechActivityChanged value)?  speechActivityChanged,TResult? Function( BridgeEvent_RectifiedTextChunk value)?  rectifiedTextChunk,TResult? Function( BridgeEvent_RectifyThinkingDelta value)?  rectifyThinkingDelta,TResult? Function( BridgeEvent_PreviewPrefills value)?  previewPrefills,TResult? Function( BridgeEvent_PreviewTextUpdated value)?  previewTextUpdated,TResult? Function( BridgeEvent_TextInserted value)?  textInserted,TResult? Function( BridgeEvent_Error value)?  error,}){
 final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged() when sessionStateChanged != null:
@@ -1466,7 +1468,8 @@ return liveTranscriptUpdated(_that);case BridgeEvent_ParagraphMarked() when para
 return paragraphMarked(_that);case BridgeEvent_QuickMarked() when quickMarked != null:
 return quickMarked(_that);case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
 return speechActivityChanged(_that);case BridgeEvent_RectifiedTextChunk() when rectifiedTextChunk != null:
-return rectifiedTextChunk(_that);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
+return rectifiedTextChunk(_that);case BridgeEvent_RectifyThinkingDelta() when rectifyThinkingDelta != null:
+return rectifyThinkingDelta(_that);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
 return previewPrefills(_that);case BridgeEvent_PreviewTextUpdated() when previewTextUpdated != null:
 return previewTextUpdated(_that);case BridgeEvent_TextInserted() when textInserted != null:
 return textInserted(_that);case BridgeEvent_Error() when error != null:
@@ -1487,7 +1490,7 @@ return error(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( BridgeSessionState from,  BridgeSessionState to)?  sessionStateChanged,TResult Function( String text)?  liveTranscriptUpdated,TResult Function()?  paragraphMarked,TResult Function()?  quickMarked,TResult Function( bool speaking)?  speechActivityChanged,TResult Function( String delta)?  rectifiedTextChunk,TResult Function( List<BridgePrefillRow> prefills)?  previewPrefills,TResult Function( String text)?  previewTextUpdated,TResult Function( String text)?  textInserted,TResult Function( String message)?  error,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( BridgeSessionState from,  BridgeSessionState to)?  sessionStateChanged,TResult Function( String text)?  liveTranscriptUpdated,TResult Function()?  paragraphMarked,TResult Function()?  quickMarked,TResult Function( bool speaking)?  speechActivityChanged,TResult Function( String delta)?  rectifiedTextChunk,TResult Function( String delta)?  rectifyThinkingDelta,TResult Function( List<BridgePrefillRow> prefills)?  previewPrefills,TResult Function( String text)?  previewTextUpdated,TResult Function( String text)?  textInserted,TResult Function( String message)?  error,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged() when sessionStateChanged != null:
 return sessionStateChanged(_that.from,_that.to);case BridgeEvent_LiveTranscriptUpdated() when liveTranscriptUpdated != null:
@@ -1495,7 +1498,8 @@ return liveTranscriptUpdated(_that.text);case BridgeEvent_ParagraphMarked() when
 return paragraphMarked();case BridgeEvent_QuickMarked() when quickMarked != null:
 return quickMarked();case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
 return speechActivityChanged(_that.speaking);case BridgeEvent_RectifiedTextChunk() when rectifiedTextChunk != null:
-return rectifiedTextChunk(_that.delta);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
+return rectifiedTextChunk(_that.delta);case BridgeEvent_RectifyThinkingDelta() when rectifyThinkingDelta != null:
+return rectifyThinkingDelta(_that.delta);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
 return previewPrefills(_that.prefills);case BridgeEvent_PreviewTextUpdated() when previewTextUpdated != null:
 return previewTextUpdated(_that.text);case BridgeEvent_TextInserted() when textInserted != null:
 return textInserted(_that.text);case BridgeEvent_Error() when error != null:
@@ -1517,7 +1521,7 @@ return error(_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( BridgeSessionState from,  BridgeSessionState to)  sessionStateChanged,required TResult Function( String text)  liveTranscriptUpdated,required TResult Function()  paragraphMarked,required TResult Function()  quickMarked,required TResult Function( bool speaking)  speechActivityChanged,required TResult Function( String delta)  rectifiedTextChunk,required TResult Function( List<BridgePrefillRow> prefills)  previewPrefills,required TResult Function( String text)  previewTextUpdated,required TResult Function( String text)  textInserted,required TResult Function( String message)  error,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( BridgeSessionState from,  BridgeSessionState to)  sessionStateChanged,required TResult Function( String text)  liveTranscriptUpdated,required TResult Function()  paragraphMarked,required TResult Function()  quickMarked,required TResult Function( bool speaking)  speechActivityChanged,required TResult Function( String delta)  rectifiedTextChunk,required TResult Function( String delta)  rectifyThinkingDelta,required TResult Function( List<BridgePrefillRow> prefills)  previewPrefills,required TResult Function( String text)  previewTextUpdated,required TResult Function( String text)  textInserted,required TResult Function( String message)  error,}) {final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged():
 return sessionStateChanged(_that.from,_that.to);case BridgeEvent_LiveTranscriptUpdated():
@@ -1525,7 +1529,8 @@ return liveTranscriptUpdated(_that.text);case BridgeEvent_ParagraphMarked():
 return paragraphMarked();case BridgeEvent_QuickMarked():
 return quickMarked();case BridgeEvent_SpeechActivityChanged():
 return speechActivityChanged(_that.speaking);case BridgeEvent_RectifiedTextChunk():
-return rectifiedTextChunk(_that.delta);case BridgeEvent_PreviewPrefills():
+return rectifiedTextChunk(_that.delta);case BridgeEvent_RectifyThinkingDelta():
+return rectifyThinkingDelta(_that.delta);case BridgeEvent_PreviewPrefills():
 return previewPrefills(_that.prefills);case BridgeEvent_PreviewTextUpdated():
 return previewTextUpdated(_that.text);case BridgeEvent_TextInserted():
 return textInserted(_that.text);case BridgeEvent_Error():
@@ -1543,7 +1548,7 @@ return error(_that.message);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( BridgeSessionState from,  BridgeSessionState to)?  sessionStateChanged,TResult? Function( String text)?  liveTranscriptUpdated,TResult? Function()?  paragraphMarked,TResult? Function()?  quickMarked,TResult? Function( bool speaking)?  speechActivityChanged,TResult? Function( String delta)?  rectifiedTextChunk,TResult? Function( List<BridgePrefillRow> prefills)?  previewPrefills,TResult? Function( String text)?  previewTextUpdated,TResult? Function( String text)?  textInserted,TResult? Function( String message)?  error,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( BridgeSessionState from,  BridgeSessionState to)?  sessionStateChanged,TResult? Function( String text)?  liveTranscriptUpdated,TResult? Function()?  paragraphMarked,TResult? Function()?  quickMarked,TResult? Function( bool speaking)?  speechActivityChanged,TResult? Function( String delta)?  rectifiedTextChunk,TResult? Function( String delta)?  rectifyThinkingDelta,TResult? Function( List<BridgePrefillRow> prefills)?  previewPrefills,TResult? Function( String text)?  previewTextUpdated,TResult? Function( String text)?  textInserted,TResult? Function( String message)?  error,}) {final _that = this;
 switch (_that) {
 case BridgeEvent_SessionStateChanged() when sessionStateChanged != null:
 return sessionStateChanged(_that.from,_that.to);case BridgeEvent_LiveTranscriptUpdated() when liveTranscriptUpdated != null:
@@ -1551,7 +1556,8 @@ return liveTranscriptUpdated(_that.text);case BridgeEvent_ParagraphMarked() when
 return paragraphMarked();case BridgeEvent_QuickMarked() when quickMarked != null:
 return quickMarked();case BridgeEvent_SpeechActivityChanged() when speechActivityChanged != null:
 return speechActivityChanged(_that.speaking);case BridgeEvent_RectifiedTextChunk() when rectifiedTextChunk != null:
-return rectifiedTextChunk(_that.delta);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
+return rectifiedTextChunk(_that.delta);case BridgeEvent_RectifyThinkingDelta() when rectifyThinkingDelta != null:
+return rectifyThinkingDelta(_that.delta);case BridgeEvent_PreviewPrefills() when previewPrefills != null:
 return previewPrefills(_that.prefills);case BridgeEvent_PreviewTextUpdated() when previewTextUpdated != null:
 return previewTextUpdated(_that.text);case BridgeEvent_TextInserted() when textInserted != null:
 return textInserted(_that.text);case BridgeEvent_Error() when error != null:
@@ -1885,6 +1891,72 @@ class _$BridgeEvent_RectifiedTextChunkCopyWithImpl<$Res>
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') $Res call({Object? delta = null,}) {
   return _then(BridgeEvent_RectifiedTextChunk(
+delta: null == delta ? _self.delta : delta // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class BridgeEvent_RectifyThinkingDelta extends BridgeEvent {
+  const BridgeEvent_RectifyThinkingDelta({required this.delta}): super._();
+  
+
+ final  String delta;
+
+/// Create a copy of BridgeEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BridgeEvent_RectifyThinkingDeltaCopyWith<BridgeEvent_RectifyThinkingDelta> get copyWith => _$BridgeEvent_RectifyThinkingDeltaCopyWithImpl<BridgeEvent_RectifyThinkingDelta>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeEvent_RectifyThinkingDelta&&(identical(other.delta, delta) || other.delta == delta));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,delta);
+
+@override
+String toString() {
+  return 'BridgeEvent.rectifyThinkingDelta(delta: $delta)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $BridgeEvent_RectifyThinkingDeltaCopyWith<$Res> implements $BridgeEventCopyWith<$Res> {
+  factory $BridgeEvent_RectifyThinkingDeltaCopyWith(BridgeEvent_RectifyThinkingDelta value, $Res Function(BridgeEvent_RectifyThinkingDelta) _then) = _$BridgeEvent_RectifyThinkingDeltaCopyWithImpl;
+@useResult
+$Res call({
+ String delta
+});
+
+
+
+
+}
+/// @nodoc
+class _$BridgeEvent_RectifyThinkingDeltaCopyWithImpl<$Res>
+    implements $BridgeEvent_RectifyThinkingDeltaCopyWith<$Res> {
+  _$BridgeEvent_RectifyThinkingDeltaCopyWithImpl(this._self, this._then);
+
+  final BridgeEvent_RectifyThinkingDelta _self;
+  final $Res Function(BridgeEvent_RectifyThinkingDelta) _then;
+
+/// Create a copy of BridgeEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? delta = null,}) {
+  return _then(BridgeEvent_RectifyThinkingDelta(
 delta: null == delta ? _self.delta : delta // ignore: cast_nullable_to_non_nullable
 as String,
   ));

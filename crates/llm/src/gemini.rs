@@ -80,17 +80,23 @@ pub(crate) fn parse_gemini_event(data: &str) -> Result<ParsedEvent, String> {
     };
 
     let mut text = String::new();
-    let mut reasoning_chars = 0_u64;
+    let mut reasoning = String::new();
     for part in content.parts {
         let piece = part.text.unwrap_or_default();
         if part.thought {
-            reasoning_chars += piece.chars().count() as u64;
+            reasoning.push_str(&piece);
             continue;
         }
         text.push_str(&piece);
     }
+    let reasoning_chars = reasoning.chars().count() as u64;
     Ok(ParsedEvent {
         content: if text.is_empty() { None } else { Some(text) },
+        reasoning: if reasoning.is_empty() {
+            None
+        } else {
+            Some(reasoning)
+        },
         reasoning_chars,
         done: false,
     })

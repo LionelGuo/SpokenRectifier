@@ -1891,21 +1891,25 @@ impl SseDecode for crate::api::BridgeEvent {
                 return crate::api::BridgeEvent::RectifiedTextChunk { delta: var_delta };
             }
             6 => {
+                let mut var_delta = <String>::sse_decode(deserializer);
+                return crate::api::BridgeEvent::RectifyThinkingDelta { delta: var_delta };
+            }
+            7 => {
                 let mut var_prefills =
                     <Vec<crate::api::BridgePrefillRow>>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::PreviewPrefills {
                     prefills: var_prefills,
                 };
             }
-            7 => {
+            8 => {
                 let mut var_text = <String>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::PreviewTextUpdated { text: var_text };
             }
-            8 => {
+            9 => {
                 let mut var_text = <String>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::TextInserted { text: var_text };
             }
-            9 => {
+            10 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return crate::api::BridgeEvent::Error {
                     message: var_message,
@@ -2950,17 +2954,20 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeEvent {
             crate::api::BridgeEvent::RectifiedTextChunk { delta } => {
                 [5.into_dart(), delta.into_into_dart().into_dart()].into_dart()
             }
+            crate::api::BridgeEvent::RectifyThinkingDelta { delta } => {
+                [6.into_dart(), delta.into_into_dart().into_dart()].into_dart()
+            }
             crate::api::BridgeEvent::PreviewPrefills { prefills } => {
-                [6.into_dart(), prefills.into_into_dart().into_dart()].into_dart()
+                [7.into_dart(), prefills.into_into_dart().into_dart()].into_dart()
             }
             crate::api::BridgeEvent::PreviewTextUpdated { text } => {
-                [7.into_dart(), text.into_into_dart().into_dart()].into_dart()
-            }
-            crate::api::BridgeEvent::TextInserted { text } => {
                 [8.into_dart(), text.into_into_dart().into_dart()].into_dart()
             }
+            crate::api::BridgeEvent::TextInserted { text } => {
+                [9.into_dart(), text.into_into_dart().into_dart()].into_dart()
+            }
             crate::api::BridgeEvent::Error { message } => {
-                [9.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [10.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
             _ => {
                 unimplemented!("");
@@ -3667,20 +3674,24 @@ impl SseEncode for crate::api::BridgeEvent {
                 <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(delta, serializer);
             }
-            crate::api::BridgeEvent::PreviewPrefills { prefills } => {
+            crate::api::BridgeEvent::RectifyThinkingDelta { delta } => {
                 <i32>::sse_encode(6, serializer);
+                <String>::sse_encode(delta, serializer);
+            }
+            crate::api::BridgeEvent::PreviewPrefills { prefills } => {
+                <i32>::sse_encode(7, serializer);
                 <Vec<crate::api::BridgePrefillRow>>::sse_encode(prefills, serializer);
             }
             crate::api::BridgeEvent::PreviewTextUpdated { text } => {
-                <i32>::sse_encode(7, serializer);
-                <String>::sse_encode(text, serializer);
-            }
-            crate::api::BridgeEvent::TextInserted { text } => {
                 <i32>::sse_encode(8, serializer);
                 <String>::sse_encode(text, serializer);
             }
-            crate::api::BridgeEvent::Error { message } => {
+            crate::api::BridgeEvent::TextInserted { text } => {
                 <i32>::sse_encode(9, serializer);
+                <String>::sse_encode(text, serializer);
+            }
+            crate::api::BridgeEvent::Error { message } => {
+                <i32>::sse_encode(10, serializer);
                 <String>::sse_encode(message, serializer);
             }
             _ => {

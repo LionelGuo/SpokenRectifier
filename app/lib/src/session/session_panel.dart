@@ -19,7 +19,8 @@ import '../design/tokens.dart';
 import '../preview/slot_document.dart';
 import '../preview/slot_editor.dart';
 import '../preview/slot_surface.dart';
-import '../rust/api.dart' show BridgeSessionState;
+import '../rust/api.dart' show BridgePlaceholderFill, BridgeSessionState;
+import 'thinking_marquee.dart';
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
 import '../shell/window_stage.dart';
@@ -246,10 +247,23 @@ class _SessionPanelState extends State<SessionPanel> {
       ),
       // The pinned bottom band: rides the card's current visual bottom.
       footer: _footer(context, pal),
+      // The thinking marquee (14 号票): card-anchored bands painted over
+      // the chrome while the attempt walks a thinking channel. Mounted
+      // only while something paints — the mount gate retires it after
+      // the handover fade; a thinking-less attempt never mounts it.
+      overlay: c.thinking != null && c.thinking!.hasVisual
+          ? ThinkingMarqueeOverlay(machine: c.thinking!)
+          : null,
     );
   }
 
   Widget _header(BuildContext context, SrPalette pal) {
+    // The thinking three-piece (14 号票): the FIRST thinking token flips
+    // the word to 思考中 with the accent dot breathing and the elapsed
+    // timer beside it (the recording slot's family); the body's first
+    // delta flips it back — signal-driven, so a thinking-less attempt
+    // never shows any of it (zero-trace).
+    final thinking = c.thinkingActive;
     final (label, dotColor, live) = switch (c.phase) {
       // Upgrade keeps the recording-red breath (ADR-0020); only the
       // word flips. Rectifying and Preview (incl. a failed demotion)
@@ -259,10 +273,13 @@ class _SessionPanelState extends State<SessionPanel> {
         pal.live,
         true,
       ),
-      BridgeSessionState.rectifying => ('修正中', pal.accent, false),
+      BridgeSessionState.rectifying =>
+        thinking ? ('思考中', pal.accent, true) : ('修正中', pal.accent, false),
       _ => ('预览', pal.success, false),
     };
-    final elapsed = _formatElapsed(c.recordElapsed);
+    final elapsed = thinking
+        ? _formatElapsed(Duration(milliseconds: c.thinking!.view().elapsedMs))
+        : _formatElapsed(c.recordElapsed);
     // The 场景 chip's label: a one-time pick paints its own name — 默认
     // included (ticket 28), so an explicit default session never
     // masquerades as the selection — otherwise the live selection, or
@@ -298,7 +315,7 @@ class _SessionPanelState extends State<SessionPanel> {
             _PhaseDot(color: dotColor, live: live),
             const SizedBox(width: SrSpace.sm),
             Text(label, style: SrType.body.copyWith(color: pal.textPrimary)),
-            if (c.phase == BridgeSessionState.recording) ...[
+            if (c.phase == BridgeSessionState.recording || thinking) ...[
               const SizedBox(width: SrSpace.sm),
               Text(
                 elapsed,

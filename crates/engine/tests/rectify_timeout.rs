@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 use common::{await_live, await_state, expect_quiet, next_matching, ok};
 use spokenrectifier_engine::fakes::{AsrStep, ScriptedAsr};
 use spokenrectifier_engine::provider::llm::{
-    RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
+    RectifyDelta, RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
 };
 use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EngineTimings, EventEnvelope,
@@ -41,7 +41,10 @@ struct OnceThenHanging {
 impl RectifyLlm for OnceThenHanging {
     async fn rectify(&self, _request: RectifyRequest) -> Result<RectifyTokenStream, RectifyError> {
         if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-            return Ok(futures::stream::iter(vec![Ok("第一次".to_string())]).boxed());
+            return Ok(futures::stream::iter(vec![Ok(RectifyDelta::content(
+                "第一次".to_string(),
+            ))])
+            .boxed());
         }
         Ok(futures::stream::pending().boxed())
     }
@@ -125,7 +128,7 @@ impl RectifyLlm for SlowLlm {
         Ok(futures::stream::iter(["慢慢", "来"])
             .then(|delta| async move {
                 tokio::time::sleep(Duration::from_millis(120)).await;
-                Ok::<_, RectifyError>(delta.to_string())
+                Ok::<_, RectifyError>(RectifyDelta::content(delta.to_string()))
             })
             .boxed())
     }

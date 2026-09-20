@@ -17,7 +17,9 @@ use tokio::sync::mpsc;
 use crate::clock::Clock;
 use crate::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
 use crate::provider::inserter::{InsertError, TextInserter};
-use crate::provider::llm::{RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream};
+use crate::provider::llm::{
+    RectifyDelta, RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
+};
 
 // ---------------------------------------------------------------------------
 // ScriptedAsr
@@ -196,8 +198,11 @@ impl AsrProvider for ChannelAsr {
 /// ending in a failure.
 #[derive(Debug, Clone)]
 pub enum LlmStep {
-    /// Stream one token delta.
+    /// Stream one rectified-body token delta.
     Token(String),
+    /// Stream one thinking-channel text delta (14 号票) — the marquee's
+    /// feed; never reaches the rectified body.
+    Think(String),
     /// Fail the stream with an error message.
     Fail(String),
 }
@@ -259,7 +264,8 @@ impl RectifyLlm for ScriptedLlm {
         let items = script
             .into_iter()
             .map(|step| match step {
-                LlmStep::Token(delta) => Ok(delta),
+                LlmStep::Token(delta) => Ok(RectifyDelta::content(delta)),
+                LlmStep::Think(delta) => Ok(RectifyDelta::reasoning(delta)),
                 LlmStep::Fail(message) => Err(RectifyError(message)),
             })
             .collect::<Vec<_>>();

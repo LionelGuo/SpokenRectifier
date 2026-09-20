@@ -222,6 +222,7 @@ pub fn summarize(events: &[EventEnvelope]) -> Vec<String> {
             EngineEvent::QuickMarked => "quick".to_string(),
             EngineEvent::SpeechActivityChanged { speaking } => format!("speech {speaking}"),
             EngineEvent::RectifiedTextChunk { delta } => format!("chunk {delta:?}"),
+            EngineEvent::RectifyThinkingDelta { delta } => format!("think {delta:?}"),
             EngineEvent::PreviewPrefills { prefills } => {
                 format!("prefills {:?}", prefills)
             }

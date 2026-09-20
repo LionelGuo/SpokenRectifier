@@ -7,8 +7,10 @@
 //! dialect (ADR-0019 item 6; gemini generateContent is Legacy).
 //!
 //! A thinking-channel token is the 「正在思考」 signal (ADR-0019 item 6):
-//! counted, never leaked into the rectified text. The session-window
-//! display is out of this ticket's scope.
+//! counted for the eval's observation column, forwarded verbatim on the
+//! stream's own arm ([`RectifyDelta::reasoning`]) for the session
+//! window's one-shot marquee (14 号票), and never merged into the
+//! rectified text.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -21,7 +23,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use spokenrectifier_engine::provider::llm::{
-    RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
+    RectifyDelta, RectifyError, RectifyLlm, RectifyRequest, RectifyTokenStream,
 };
 
 use crate::anthropic::AnthropicDialect;
@@ -33,16 +35,19 @@ use crate::intensity::{Intensity, select_intensity};
 use crate::prompt::{ChatPrompt, compose_prompt_with_extra, has_pins};
 
 /// One SSE data payload, decoded. Format dialects map their frames
-/// onto this; the transport yields only `content` and counts
-/// `reasoning_chars`.
+/// onto this; the transport yields only `content`, counts
+/// `reasoning_chars`, and forwards the thinking text for the session
+/// window's one-shot marquee (14 号票).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ParsedEvent {
     /// A rectified-text token delta, if this frame carried one.
     pub content: Option<String>,
-    /// Thinking-channel characters on this frame. A non-zero value is
-    /// the 「正在思考」 signal (ADR-0019 item 6): counted, never leaked
-    /// into the rectified text. The session-window display is out of
-    /// this ticket's scope.
+    /// The thinking-channel text on this frame, verbatim — feedback
+    /// material that rides [`RectifyDelta::reasoning`] to the shell's
+    /// marquee, never into the rectified text (ADR-0019 item 6).
+    pub reasoning: Option<String>,
+    /// Thinking-channel characters on this frame (the eval's observation
+    /// counter; unchanged by the marquee bridge).
     pub reasoning_chars: u64,
     /// End of stream (`[DONE]` for openai_chat, `message_stop` for
     /// anthropic). Gemini has no sentinel — the HTTP body ending is
@@ -54,6 +59,7 @@ impl ParsedEvent {
     pub(crate) fn empty() -> Self {
         Self {
             content: None,
+            reasoning: None,
             reasoning_chars: 0,
             done: false,
         }
@@ -330,17 +336,6 @@ struct ChunkError {
     message: String,
 }
 
-fn reasoning_chars(delta: &Delta) -> u64 {
-    // Prefer the current vLLM name; fall back to the original. A
-    // gateway that sends both with the same text is counted once.
-    let text = delta
-        .reasoning
-        .as_deref()
-        .or(delta.reasoning_content.as_deref())
-        .unwrap_or("");
-    text.chars().count() as u64
-}
-
 /// One openai_chat SSE data payload: content, thinking, keep-alive,
 /// `[DONE]`, or a stream error.
 pub(crate) fn parse_openai_chat_event(data: &str) -> Result<ParsedEvent, String> {
@@ -350,6 +345,7 @@ pub(crate) fn parse_openai_chat_event(data: &str) -> Result<ParsedEvent, String>
     if data.trim() == "[DONE]" {
         return Ok(ParsedEvent {
             content: None,
+            reasoning: None,
             reasoning_chars: 0,
             done: true,
         });
@@ -362,9 +358,23 @@ pub(crate) fn parse_openai_chat_event(data: &str) -> Result<ParsedEvent, String>
     let Some(choice) = chunk.choices.into_iter().next() else {
         return Ok(ParsedEvent::empty());
     };
-    let reasoning_chars = reasoning_chars(&choice.delta);
+    let Delta {
+        content,
+        reasoning,
+        reasoning_content,
+    } = choice.delta;
+    // Prefer the current vLLM name; fall back to the original. A
+    // gateway that sends both with the same text is forwarded (and
+    // counted) once.
+    let reasoning = reasoning
+        .or(reasoning_content)
+        .filter(|text| !text.is_empty());
+    let reasoning_chars = reasoning
+        .as_deref()
+        .map_or(0, |text| text.chars().count() as u64);
     Ok(ParsedEvent {
-        content: choice.delta.content.filter(|text| !text.is_empty()),
+        content: content.filter(|text| !text.is_empty()),
+        reasoning,
         reasoning_chars,
         done: false,
     })
@@ -403,8 +413,14 @@ fn sse_token_stream<D: SseDialect>(
                             {
                                 counter.fetch_add(parsed.reasoning_chars, Ordering::Relaxed);
                             }
-                            if let Some(delta) = parsed.content {
-                                return Ok(Some((delta, state)));
+                            if parsed.content.is_some() || parsed.reasoning.is_some() {
+                                return Ok(Some((
+                                    RectifyDelta {
+                                        content: parsed.content,
+                                        reasoning: parsed.reasoning,
+                                    },
+                                    state,
+                                )));
                             }
                             continue;
                         }

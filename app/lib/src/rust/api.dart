@@ -978,6 +978,13 @@ sealed class BridgeEvent with _$BridgeEvent {
   const factory BridgeEvent.rectifiedTextChunk({required String delta}) =
       BridgeEvent_RectifiedTextChunk;
 
+  /// Thinking-channel text off the same rectify stream (14 号票,
+  /// ADR-0019 item 6): the one-shot marquee's feed. Feedback material
+  /// only — the shell keeps it out of the preview text and the
+  /// insertion.
+  const factory BridgeEvent.rectifyThinkingDelta({required String delta}) =
+      BridgeEvent_RectifyThinkingDelta;
+
   /// The pin session's prefill table (ticket 18), arriving between
   /// the last chunk and the Preview state change.
   const factory BridgeEvent.previewPrefills({

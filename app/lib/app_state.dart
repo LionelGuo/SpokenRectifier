@@ -23,6 +23,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
 import 'src/design/tokens.dart' show SrGeometry, SrMotion;
 import 'src/errors.dart';
 import 'src/rust/api.dart';
+import 'src/session/thinking_marquee.dart' show ThinkingMarquee;
 import 'src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;
 import 'hotkey_binding.dart';
@@ -175,6 +176,7 @@ class SpeechController extends ChangeNotifier {
   Timer? _speechTimer;
   Timer? _micBreathTimer;
   Timer? _flashTimer;
+  Timer? _thinkingTimer;
   int _nextPhrase = 0;
   int _tick = 0;
 
@@ -209,6 +211,23 @@ class SpeechController extends ChangeNotifier {
   Duration get recordElapsed => recordStartedAt == null
       ? Duration.zero
       : DateTime.now().difference(recordStartedAt!);
+
+  /// The current rectify attempt's thinking marquee (14 号票): created
+  /// on entering rectifying, dies with the attempt (a reroll gets a
+  /// fresh one). The thinking text lives ONLY here — one-shot feedback
+  /// material for the marquee, never the preview text, never inserted.
+  ThinkingMarquee? thinking;
+
+  /// Whether the header paints the 思考中 three-piece now. Signal-driven
+  /// (zero-trace): only a real thinking token turns it on — a thinking
+  /// policy left off, an unconfigured connection, or an endpoint that
+  /// never walks the channel leaves the word at 修正中 with no band, no
+  /// shimmer, no breath, no timer.
+  bool get thinkingActive =>
+      phase == BridgeSessionState.rectifying &&
+      thinking != null &&
+      thinking!.thinkStarted &&
+      !thinking!.handedOver;
 
   /// The receipt flash currently overriding the orb's idle look.
   OrbFlash orbFlash = OrbFlash.none;
@@ -1057,6 +1076,22 @@ class SpeechController extends ChangeNotifier {
     micLevel = 0;
   }
 
+  /// The header's 思考中 elapsed label needs repaints while the
+  /// marquee's own ticker (inside the panel) drives the bands. Light
+  /// 500 ms cadence — the label shows m:ss.
+  void _startThinkingTick() {
+    _stopThinkingTick();
+    _thinkingTimer = Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) => notifyListeners(),
+    );
+  }
+
+  void _stopThinkingTick() {
+    _thinkingTimer?.cancel();
+    _thinkingTimer = null;
+  }
+
   /// Show the receipt flash on the ball for the token feedback span,
   /// even though the engine has already continued to idle.
   void _flash(OrbFlash kind) {
@@ -1129,6 +1164,16 @@ class SpeechController extends ChangeNotifier {
           // delivers the fresh table ahead of the preview state change.
           prefillTable = const [];
         }
+        // The marquee machine lives exactly one rectify attempt (14 号票):
+        // a fresh machine on entering rectifying (reroll included), gone
+        // with the attempt otherwise — a cancelled mid-thinking attempt
+        // leaves no trace.
+        if (to == BridgeSessionState.rectifying) {
+          thinking = ThinkingMarquee();
+        } else {
+          thinking = null;
+          _stopThinkingTick();
+        }
       case BridgeEvent_LiveTranscriptUpdated(:final text):
         liveText = text;
       case BridgeEvent_ParagraphMarked():
@@ -1141,7 +1186,19 @@ class SpeechController extends ChangeNotifier {
         unawaited(_disarmPinHotkey());
       case BridgeEvent_SpeechActivityChanged(:final speaking):
         this.speaking = speaking;
+      case BridgeEvent_RectifyThinkingDelta(:final delta):
+        // The 「正在思考」 signal itself (ADR-0019 item 6): feeds the
+        // one-shot marquee. The first token also starts the header's
+        // elapsed cadence.
+        final started = thinking?.pushText(delta) ?? false;
+        if (started) _startThinkingTick();
       case BridgeEvent_RectifiedTextChunk(:final delta):
+        // The one-way handover latch: the body's first delta retires
+        // the 思考中 three-piece (the marquee's own ticker finishes its
+        // 180 ms fade); later thinking text still feeds the machine but
+        // never relights it.
+        thinking?.handOver();
+        _stopThinkingTick();
         previewText += delta;
       case BridgeEvent_PreviewPrefills(:final prefills):
         // The round's table lands ahead of the Preview state change, so
@@ -1165,6 +1222,7 @@ class SpeechController extends ChangeNotifier {
     _stopScriptedSpeech();
     _stopMicBreath();
     _flashTimer?.cancel();
+    _thinkingTimer?.cancel();
     _previewPushDebounce?.cancel();
     _geometrySave?.cancel();
     _subscription?.cancel();

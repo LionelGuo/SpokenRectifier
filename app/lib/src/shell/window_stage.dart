@@ -1338,6 +1338,7 @@ class PanelBody extends StatefulWidget {
     required this.header,
     required this.body,
     this.footer,
+    this.overlay,
   });
 
   /// True while the stage host plays the grow-back animation before
@@ -1362,6 +1363,13 @@ class PanelBody extends StatefulWidget {
   /// visual bottom. Null for the quick panel.
   final Widget? footer;
 
+  /// An optional layer painted ABOVE the chrome bands, laid out over
+  /// the whole painted card — the session window's thinking marquee
+  /// (14 号票), whose bands are card-anchored fractions. Feedback
+  /// material only: its subtree ignores the pointer, so the chrome
+  /// beneath keeps handling hits. Null for the quick panel.
+  final Widget? overlay;
+
   @override
   State<PanelBody> createState() => _PanelBodyState();
 }
@@ -1379,6 +1387,7 @@ class _PinnedChromeLayout extends MultiChildLayoutDelegate {
   static const _header = 'header';
   static const _body = 'body';
   static const _footer = 'footer';
+  static const _overlay = 'overlay';
 
   @override
   void performLayout(Size size) {
@@ -1411,6 +1420,12 @@ class _PinnedChromeLayout extends MultiChildLayoutDelegate {
       BoxConstraints.tight(Size(width, (bottom - headerH).clamp(0.0, 9e9))),
     );
     positionChild(_body, Offset(0, headerH));
+    if (hasChild(_overlay)) {
+      // The card-anchored overlay (thinking marquee): the full painted
+      // card, so the band fractions hold whatever the growth is doing.
+      layoutChild(_overlay, BoxConstraints.tight(size));
+      positionChild(_overlay, Offset.zero);
+    }
   }
 
   @override
@@ -1544,6 +1559,14 @@ class _PanelBodyState extends State<PanelBody>
                                   key: const Key('panel-chrome-footer'),
                                   child: widget.footer!,
                                 ),
+                              ),
+                            // Last in the list = painted on top of every
+                            // band; the marquee's own subtree ignores the
+                            // pointer, so the chrome keeps its hits.
+                            if (widget.overlay != null)
+                              LayoutId(
+                                id: _PinnedChromeLayout._overlay,
+                                child: widget.overlay!,
                               ),
                           ],
                         ),

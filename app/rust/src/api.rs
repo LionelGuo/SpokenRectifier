@@ -169,6 +169,13 @@ pub enum BridgeEvent {
     RectifiedTextChunk {
         delta: String,
     },
+    /// Thinking-channel text off the same rectify stream (14 号票,
+    /// ADR-0019 item 6): the one-shot marquee's feed. Feedback material
+    /// only — the shell keeps it out of the preview text and the
+    /// insertion.
+    RectifyThinkingDelta {
+        delta: String,
+    },
     /// The pin session's prefill table (ticket 18), arriving between
     /// the last chunk and the Preview state change.
     PreviewPrefills {
@@ -318,6 +325,9 @@ impl From<EngineEvent> for BridgeEvent {
                 BridgeEvent::SpeechActivityChanged { speaking }
             }
             EngineEvent::RectifiedTextChunk { delta } => BridgeEvent::RectifiedTextChunk { delta },
+            EngineEvent::RectifyThinkingDelta { delta } => {
+                BridgeEvent::RectifyThinkingDelta { delta }
+            }
             EngineEvent::PreviewPrefills { prefills } => BridgeEvent::PreviewPrefills {
                 prefills: prefills.into_iter().map(BridgePrefillRow::from).collect(),
             },
@@ -2343,6 +2353,9 @@ mod tests {
             EngineEvent::RectifiedTextChunk {
                 delta: "好".into()
             },
+            EngineEvent::RectifyThinkingDelta {
+                delta: "想".into()
+            },
             EngineEvent::PreviewPrefills {
                 prefills: vec![spokenrectifier_engine::prefill::PrefillRow {
                     number: 1,
@@ -2384,6 +2397,19 @@ mod tests {
             mapped,
             BridgeEvent::RectifiedTextChunk {
                 delta: "字".into()
+            }
+        );
+        // The thinking channel maps onto its own wire variant (14 号票):
+        // the marquee's feed, a sibling of the body chunk — never a part
+        // of it.
+        let mapped: BridgeEvent = EngineEvent::RectifyThinkingDelta {
+            delta: "想".into()
+        }
+        .into();
+        assert_eq!(
+            mapped,
+            BridgeEvent::RectifyThinkingDelta {
+                delta: "想".into()
             }
         );
         // The prefill table's rows map field by field (ticket 18).

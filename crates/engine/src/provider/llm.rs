@@ -49,8 +49,41 @@ pub struct RectifyRequest {
     pub quick: bool,
 }
 
-/// Stream of rectified-text token deltas.
-pub type RectifyTokenStream = BoxStream<'static, Result<String, RectifyError>>;
+/// One item off a rectify stream: the rectified-body delta and — when
+/// the endpoint walks a thinking channel — the thinking-text delta
+/// (ADR-0019 item 6). Either arm may be empty on a given item; a
+/// non-empty [`Self::reasoning`] is the 「正在思考」 signal. Thinking
+/// text is feedback material for the session window's one-shot marquee
+/// (14 号票) — it never merges into the rectified body.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RectifyDelta {
+    /// A rectified-text token delta, if this item carried one.
+    pub content: Option<String>,
+    /// Thinking-channel text delta, verbatim.
+    pub reasoning: Option<String>,
+}
+
+impl RectifyDelta {
+    /// A body-only item (the historical bare-`String` shape).
+    pub fn content(text: String) -> Self {
+        Self {
+            content: Some(text),
+            reasoning: None,
+        }
+    }
+
+    /// A thinking-only item — the 「正在思考」 signal.
+    pub fn reasoning(text: String) -> Self {
+        Self {
+            content: None,
+            reasoning: Some(text),
+        }
+    }
+}
+
+/// Stream of rectify deltas: body and thinking text interleaved as the
+/// endpoint produced them.
+pub type RectifyTokenStream = BoxStream<'static, Result<RectifyDelta, RectifyError>>;
 
 #[async_trait]
 pub trait RectifyLlm: Send + Sync + 'static {

@@ -111,6 +111,15 @@ class FakeGateway implements SpeechEngineGateway {
     _transition(BridgeSessionState.preview);
   }
 
+  /// Simulate thinking-channel deltas (14 号票) mid-rectify: emitted as
+  /// the marquee's feed, no state change — the caller interleaves them
+  /// with [streamRectify] chunks to shape the handover.
+  void streamThinking(List<String> deltas) {
+    for (final delta in deltas) {
+      emit(BridgeEvent.rectifyThinkingDelta(delta: delta));
+    }
+  }
+
   @override
   Future<void> startSession() async {
     commands.add('startSession');

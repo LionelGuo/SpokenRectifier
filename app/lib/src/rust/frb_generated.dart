@@ -1767,14 +1767,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 5:
         return BridgeEvent_RectifiedTextChunk(delta: dco_decode_String(raw[1]));
       case 6:
+        return BridgeEvent_RectifyThinkingDelta(
+          delta: dco_decode_String(raw[1]),
+        );
+      case 7:
         return BridgeEvent_PreviewPrefills(
           prefills: dco_decode_list_bridge_prefill_row(raw[1]),
         );
-      case 7:
-        return BridgeEvent_PreviewTextUpdated(text: dco_decode_String(raw[1]));
       case 8:
-        return BridgeEvent_TextInserted(text: dco_decode_String(raw[1]));
+        return BridgeEvent_PreviewTextUpdated(text: dco_decode_String(raw[1]));
       case 9:
+        return BridgeEvent_TextInserted(text: dco_decode_String(raw[1]));
+      case 10:
         return BridgeEvent_Error(message: dco_decode_String(raw[1]));
       default:
         throw Exception("unreachable");
@@ -2595,15 +2599,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_delta = sse_decode_String(deserializer);
         return BridgeEvent_RectifiedTextChunk(delta: var_delta);
       case 6:
+        var var_delta = sse_decode_String(deserializer);
+        return BridgeEvent_RectifyThinkingDelta(delta: var_delta);
+      case 7:
         var var_prefills = sse_decode_list_bridge_prefill_row(deserializer);
         return BridgeEvent_PreviewPrefills(prefills: var_prefills);
-      case 7:
-        var var_text = sse_decode_String(deserializer);
-        return BridgeEvent_PreviewTextUpdated(text: var_text);
       case 8:
         var var_text = sse_decode_String(deserializer);
-        return BridgeEvent_TextInserted(text: var_text);
+        return BridgeEvent_PreviewTextUpdated(text: var_text);
       case 9:
+        var var_text = sse_decode_String(deserializer);
+        return BridgeEvent_TextInserted(text: var_text);
+      case 10:
         var var_message = sse_decode_String(deserializer);
         return BridgeEvent_Error(message: var_message);
       default:
@@ -3500,17 +3507,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case BridgeEvent_RectifiedTextChunk(delta: final delta):
         sse_encode_i_32(5, serializer);
         sse_encode_String(delta, serializer);
-      case BridgeEvent_PreviewPrefills(prefills: final prefills):
+      case BridgeEvent_RectifyThinkingDelta(delta: final delta):
         sse_encode_i_32(6, serializer);
+        sse_encode_String(delta, serializer);
+      case BridgeEvent_PreviewPrefills(prefills: final prefills):
+        sse_encode_i_32(7, serializer);
         sse_encode_list_bridge_prefill_row(prefills, serializer);
       case BridgeEvent_PreviewTextUpdated(text: final text):
-        sse_encode_i_32(7, serializer);
-        sse_encode_String(text, serializer);
-      case BridgeEvent_TextInserted(text: final text):
         sse_encode_i_32(8, serializer);
         sse_encode_String(text, serializer);
-      case BridgeEvent_Error(message: final message):
+      case BridgeEvent_TextInserted(text: final text):
         sse_encode_i_32(9, serializer);
+        sse_encode_String(text, serializer);
+      case BridgeEvent_Error(message: final message):
+        sse_encode_i_32(10, serializer);
         sse_encode_String(message, serializer);
     }
   }

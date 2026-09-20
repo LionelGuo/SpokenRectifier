@@ -3455,6 +3455,115 @@ void main() {
       });
     }
   });
+  testWidgets('the thinking stream drives the 思考中 three-piece and the '
+      'marquee, then hands over once', (tester) async {
+    final gateway = FakeGateway();
+    final window = RecordingStageWindow();
+    final controller = await pumpController(
+      tester,
+      gateway,
+      stageWindow: window,
+    );
+
+    await pumpToRecording(tester, controller);
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(controller.phase, BridgeSessionState.rectifying);
+    // Zero-trace before any thinking token: plain 修正中, no marquee.
+    expect(find.text('修正中'), findsOneWidget);
+    expect(find.byKey(const Key('thinking-marquee')), findsNothing);
+    expect(controller.thinkingActive, isFalse);
+
+    // First thinking token: the word flips, the dot breathes accent, the
+    // elapsed slot appears (the recording timer's family), the marquee
+    // mounts over the card (shimmer from the first token — text waits
+    // for the reveal gate).
+    gateway.streamThinking(['先听一遍原句,想清楚时间与术语的处理']);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('思考中'), findsOneWidget);
+    expect(controller.thinkingActive, isTrue);
+    expect(find.byKey(const Key('thinking-marquee')), findsOneWidget);
+    expect(find.text('0:00'), findsOneWidget);
+
+    // Feed through the reveal gate (startVis + capacity lines at the
+    // real card geometry) — pump in ticker frames so the machine folds
+    // and reveals.
+    for (var i = 0; i < 14; i++) {
+      gateway.streamThinking(['思考内容占位思考内容占位思考内容占位思']);
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+    expect(controller.thinking!.revealed, isTrue);
+
+    // The one-way handover: the body's first chunk flips the word back
+    // WHILE STILL RECTIFYING (the preview transition comes later), and
+    // the marquee unmounts after its fade.
+    gateway.emit(BridgeEvent.rectifiedTextChunk(delta: '修正好的文本'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.phase, BridgeSessionState.rectifying);
+    expect(find.text('修正中'), findsOneWidget);
+    expect(controller.thinkingActive, isFalse);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('thinking-marquee')), findsNothing);
+    // Late thinking after the handover never relights anything.
+    gateway.streamThinking(['迟到的思考']);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('修正中'), findsOneWidget);
+    expect(find.byKey(const Key('thinking-marquee')), findsNothing);
+
+    expect(controller.previewText, '修正好的文本');
+    gateway.emit(
+      BridgeEvent.sessionStateChanged(
+        from: BridgeSessionState.rectifying,
+        to: BridgeSessionState.preview,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.phase, BridgeSessionState.preview);
+    await windDown(tester, controller);
+  });
+
+  testWidgets('a thinking-less attempt never shows the marquee (zero-trace)', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final window = RecordingStageWindow();
+    final controller = await pumpController(
+      tester,
+      gateway,
+      stageWindow: window,
+    );
+
+    await pumpToRecording(tester, controller);
+    await controller.stopSession();
+    await tester.pump(const Duration(milliseconds: 350));
+    // Rectifying with no thinking token: plain 修正中, no machine
+    // activity, no marquee — the signal-driven zero-trace.
+    expect(find.text('修正中'), findsOneWidget);
+    expect(controller.thinkingActive, isFalse);
+    expect(find.byKey(const Key('thinking-marquee')), findsNothing);
+    await windDown(tester, controller);
+  });
+
+  testWidgets('a reroll mints a fresh marquee machine', (tester) async {
+    final gateway = FakeGateway();
+    final window = RecordingStageWindow();
+    final controller = await pumpController(
+      tester,
+      gateway,
+      stageWindow: window,
+    );
+
+    await pumpToPreview(tester, controller, gateway);
+    await controller.reroll();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.phase, BridgeSessionState.rectifying);
+    // A fresh machine: no first token yet.
+    expect(controller.thinking!.thinkStarted, isFalse);
+    gateway.streamThinking(['第二轮思考']);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.thinkingActive, isTrue);
+    await windDown(tester, controller);
+  });
 }
 
 String textOf(WidgetTester tester, Key key) =>

@@ -76,6 +76,13 @@ pub enum EngineEvent {
     /// (`‡N:值‡`); only a half-grown sentinel run (`‡N`) is held back
     /// until it resolves, so fragments never flash (ruling 26).
     RectifiedTextChunk { delta: String },
+    /// Thinking-channel text off the same rectify stream (14 号票,
+    /// ADR-0019 item 6): feedback material for the session window's
+    /// one-shot marquee. Emitted before the body starts (or interleaved,
+    /// if the endpoint alternates) — the shell latches its one-time
+    /// handover on the first `RectifiedTextChunk`. Never part of the
+    /// rectified text, the preview, or the insertion.
+    RectifyThinkingDelta { delta: String },
     /// The prefill table parsed from a pin session's rectify response
     /// body, delivered once per attempt as it enters Preview: after the
     /// last `RectifiedTextChunk`, before the Preview state change. Rows
