@@ -507,7 +507,11 @@ class _ScenarioRerectifyAction extends StatelessWidget {
       itemKeyPrefix: 'settings-history-scenario-item',
     );
     if (pick == null) return;
-    await onRerectify(entry.rawTranscript, style: pick);
+    await onRerectify(
+      entry.rawTranscript,
+      style: pick,
+      sourceSessionId: entry.id,
+    );
   }
 
   @override

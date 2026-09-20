@@ -107,7 +107,10 @@ async fn a_style_directive_applies_to_the_next_rectify_including_reroll() {
     // a reroll included.
     ok(
         &h.engine,
-        Command::SetStyleDirective(Some("以 Markdown 分条输出".into())),
+        Command::SetStyleDirective {
+            directive: Some("以 Markdown 分条输出".into()),
+            scenario: None,
+        },
     )
     .await;
     ok(&h.engine, Command::Reroll).await;
@@ -127,7 +130,14 @@ async fn a_blank_directive_reads_as_the_default_register() {
     );
 
     // Whitespace-only directive text normalizes to "no directive".
-    ok(&h.engine, Command::SetStyleDirective(Some("   ".into()))).await;
+    ok(
+        &h.engine,
+        Command::SetStyleDirective {
+            directive: Some("   ".into()),
+            scenario: None,
+        },
+    )
+    .await;
     ok(&h.engine, Command::StartSession).await;
     await_live(&mut rx, "一段").await;
     ok(&h.engine, Command::StopSession).await;
@@ -151,14 +161,21 @@ async fn a_one_time_directive_pins_the_re_rectify_session() {
     // directive for just this session (ticket 23's 指定场景重新修正).
     ok(
         &h.engine,
-        Command::SetStyleDirective(Some("选中场景的指令".into())),
+        Command::SetStyleDirective {
+            directive: Some("选中场景的指令".into()),
+            scenario: None,
+        },
     )
     .await;
     ok(
         &h.engine,
         Command::RectifyText {
             raw_transcript: "旧话".into(),
-            style: SessionStyle::Directive("一次性指令".into()),
+            style: SessionStyle::Directive {
+                text: "一次性指令".into(),
+                scenario: None,
+            },
+            source_session_id: None,
         },
     )
     .await;
@@ -172,7 +189,10 @@ async fn a_one_time_directive_pins_the_re_rectify_session() {
     // made mid-session.
     ok(
         &h.engine,
-        Command::SetStyleDirective(Some("中途换的指令".into())),
+        Command::SetStyleDirective {
+            directive: Some("中途换的指令".into()),
+            scenario: None,
+        },
     )
     .await;
     ok(&h.engine, Command::Reroll).await;
@@ -191,6 +211,7 @@ async fn a_one_time_directive_pins_the_re_rectify_session() {
         Command::RectifyText {
             raw_transcript: "又一句".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         },
     )
     .await;
@@ -214,14 +235,21 @@ async fn a_blank_one_time_directive_reads_as_no_override() {
     // SetStyleDirective's.
     ok(
         &h.engine,
-        Command::SetStyleDirective(Some("选中场景的指令".into())),
+        Command::SetStyleDirective {
+            directive: Some("选中场景的指令".into()),
+            scenario: None,
+        },
     )
     .await;
     ok(
         &h.engine,
         Command::RectifyText {
             raw_transcript: "旧话".into(),
-            style: SessionStyle::Directive("   ".into()),
+            style: SessionStyle::Directive {
+                text: "   ".into(),
+                scenario: None,
+            },
+            source_session_id: None,
         },
     )
     .await;
@@ -251,7 +279,10 @@ async fn a_default_register_pin_ignores_the_live_selection() {
     // style pick).
     ok(
         &h.engine,
-        Command::SetStyleDirective(Some("选中场景的指令".into())),
+        Command::SetStyleDirective {
+            directive: Some("选中场景的指令".into()),
+            scenario: None,
+        },
     )
     .await;
     ok(
@@ -264,6 +295,7 @@ async fn a_default_register_pin_ignores_the_live_selection() {
         Command::RectifyText {
             raw_transcript: "旧话".into(),
             style: SessionStyle::DefaultRegister,
+            source_session_id: None,
         },
     )
     .await;
@@ -278,7 +310,10 @@ async fn a_default_register_pin_ignores_the_live_selection() {
     // mid-session — and the global layer keeps riding.
     ok(
         &h.engine,
-        Command::SetStyleDirective(Some("中途换的指令".into())),
+        Command::SetStyleDirective {
+            directive: Some("中途换的指令".into()),
+            scenario: None,
+        },
     )
     .await;
     ok(&h.engine, Command::Reroll).await;
@@ -298,6 +333,7 @@ async fn a_default_register_pin_ignores_the_live_selection() {
         Command::RectifyText {
             raw_transcript: "又一句".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         },
     )
     .await;
@@ -332,6 +368,7 @@ async fn a_global_directive_is_live_read_into_every_attempt() {
         Command::RectifyText {
             raw_transcript: "旧话".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         },
     )
     .await;
@@ -367,6 +404,7 @@ async fn a_global_directive_is_live_read_into_every_attempt() {
         Command::RectifyText {
             raw_transcript: "又一句".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         },
     )
     .await;
@@ -388,7 +426,10 @@ async fn a_global_directive_rides_alongside_a_scenario_or_one_time_override() {
     // scenario layer — the global one stays live.
     ok(
         &h.engine,
-        Command::SetStyleDirective(Some("场景指令".into())),
+        Command::SetStyleDirective {
+            directive: Some("场景指令".into()),
+            scenario: None,
+        },
     )
     .await;
     ok(
@@ -400,7 +441,11 @@ async fn a_global_directive_rides_alongside_a_scenario_or_one_time_override() {
         &h.engine,
         Command::RectifyText {
             raw_transcript: "旧话".into(),
-            style: SessionStyle::Directive("一次性指令".into()),
+            style: SessionStyle::Directive {
+                text: "一次性指令".into(),
+                scenario: None,
+            },
+            source_session_id: None,
         },
     )
     .await;

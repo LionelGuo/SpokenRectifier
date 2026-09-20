@@ -173,6 +173,8 @@ async fn an_all_emptied_confirmation_inserts_empty_and_keeps_the_sentinels_raw()
         vec![RecordedSession {
             raw_transcript: "发给‡1‡吧".into(),
             rectified_text: String::new(),
+            scenario: None,
+            source_session_id: None,
         }]
     );
 }

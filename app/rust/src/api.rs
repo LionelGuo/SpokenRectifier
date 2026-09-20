@@ -27,8 +27,8 @@ use tokio::runtime::Runtime;
 use crate::frb_generated::StreamSink;
 
 use spokenrectifier_asr::schema::{
-    AliyunConfig, AliyunEdit, AsrConfig, AsrConnectionEdit, AsrProviderKind, AzureEdit,
-    TencentConfig, TencentEdit, VolcengineEdit, load_asr_config, save_asr_connection,
+    load_asr_config, save_asr_connection, AliyunConfig, AliyunEdit, AsrConfig, AsrConnectionEdit,
+    AsrProviderKind, AzureEdit, TencentConfig, TencentEdit, VolcengineEdit,
 };
 use spokenrectifier_engine::fakes::{
     AsrFeed, ChannelAsr, ChannelScripter, FakeClock, FakeInserter, LlmStep, ScriptedLlm,
@@ -37,9 +37,9 @@ use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, RectifyLlm,
     SessionState, SessionStyle, TokioClock,
 };
-use spokenrectifier_history::HistoryStore;
+use spokenrectifier_store::{HistoryConfig, HistoryEntry, Store};
 
-use crate::engine_factory::{LlmChoice, llm_choice, production_inserter};
+use crate::engine_factory::{llm_choice, production_inserter, LlmChoice};
 
 // -- wire types ---------------------------------------------------------------
 
@@ -54,11 +54,13 @@ pub enum BridgeCommand {
     UpdatePreviewText {
         text: String,
     },
-    /// The selected scenario's style-directive text; `None` returns to
-    /// the built-in default register. The engine knows nothing about
-    /// scenario names.
+    /// The selected scenario's style-directive text and its name (a
+    /// pass-through pair the engine carries without interpreting; the
+    /// store resolves the name when the session is recorded); `None`
+    /// returns to the built-in default register.
     SetStyleDirective {
         directive: Option<String>,
+        scenario: Option<String>,
     },
     /// The global directive's text (ticket 22; the engine knows nothing
     /// about where it is stored); `None` unsets it. A live value read at
@@ -88,9 +90,12 @@ pub enum BridgeCommand {
     /// History retrieval re-running a past utterance (see `RectifyText`).
     /// `style` pins the session's one-time style pick (ticket 23's named
     /// scenarios, ticket 28's 默认); `Live` runs under the live selection.
+    /// `source_session_id` names the history row being re-run (another
+    /// pass-through: the store records it as the new session's 来源会话).
     RectifyText {
         raw_transcript: String,
         style: BridgeSessionStyle,
+        source_session_id: Option<i64>,
     },
 }
 
@@ -101,21 +106,30 @@ pub enum BridgeCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BridgeSessionStyle {
     Live,
-    Directive { text: String },
+    /// `scenario` is the pick's name (a pass-through; `None` for a
+    /// directive pinned without a library entry).
+    Directive {
+        text: String,
+        scenario: Option<String>,
+    },
     DefaultRegister,
 }
 
 /// Dart-side mirror of one scenario (场景): a user-named style directive
-/// from the scenario library.
+/// from the scenario library. `id` carries the table row's identity —
+/// `None` only on an entry the editor has not saved yet — so a rename
+/// keeps it and the history rows referencing the scenario with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BridgeScenario {
+    pub id: Option<i64>,
     pub name: String,
     pub directive: String,
 }
 
-impl From<spokenrectifier_config::scenarios::Scenario> for BridgeScenario {
-    fn from(value: spokenrectifier_config::scenarios::Scenario) -> Self {
+impl From<spokenrectifier_store::Scenario> for BridgeScenario {
+    fn from(value: spokenrectifier_store::Scenario) -> Self {
         BridgeScenario {
+            id: Some(value.id),
             name: value.name,
             directive: value.directive,
         }
@@ -209,8 +223,8 @@ pub struct BridgeHistoryEntry {
     pub rectified_text: String,
 }
 
-impl From<spokenrectifier_history::HistoryEntry> for BridgeHistoryEntry {
-    fn from(value: spokenrectifier_history::HistoryEntry) -> Self {
+impl From<HistoryEntry> for BridgeHistoryEntry {
+    fn from(value: HistoryEntry) -> Self {
         BridgeHistoryEntry {
             id: value.id,
             created_at_ms: value.created_at_ms,
@@ -230,7 +244,13 @@ impl From<BridgeCommand> for Command {
             BridgeCommand::ConfirmInsert => Command::ConfirmInsert,
             BridgeCommand::Reroll => Command::Reroll,
             BridgeCommand::UpdatePreviewText { text } => Command::UpdatePreviewText(text),
-            BridgeCommand::SetStyleDirective { directive } => Command::SetStyleDirective(directive),
+            BridgeCommand::SetStyleDirective {
+                directive,
+                scenario,
+            } => Command::SetStyleDirective {
+                directive,
+                scenario,
+            },
             BridgeCommand::SetGlobalDirective { directive } => {
                 Command::SetGlobalDirective(directive)
             }
@@ -247,9 +267,11 @@ impl From<BridgeCommand> for Command {
             BridgeCommand::RectifyText {
                 raw_transcript,
                 style,
+                source_session_id,
             } => Command::RectifyText {
                 raw_transcript,
                 style: style.into(),
+                source_session_id,
             },
         }
     }
@@ -259,7 +281,9 @@ impl From<BridgeSessionStyle> for SessionStyle {
     fn from(value: BridgeSessionStyle) -> Self {
         match value {
             BridgeSessionStyle::Live => SessionStyle::Live,
-            BridgeSessionStyle::Directive { text } => SessionStyle::Directive(text),
+            BridgeSessionStyle::Directive { text, scenario } => {
+                SessionStyle::Directive { text, scenario }
+            }
             BridgeSessionStyle::DefaultRegister => SessionStyle::DefaultRegister,
         }
     }
@@ -333,10 +357,10 @@ struct Global {
     engine: Engine,
     source: SpeechSource,
     inserter: InserterSlot,
-    /// Session history: what the panel lists, what `RectifyText` re-runs,
-    /// what the tray's clear empties. Disabled on the fake engine (tests
-    /// and headless demos keep no files).
-    history: Arc<HistoryStore>,
+    /// The business store: what the panels list and the editors write —
+    /// scenarios, terms, sessions. Ephemeral (in-memory) on the fake
+    /// engine, so tests and headless demos keep no files.
+    store: Arc<Store>,
 }
 
 /// The real engine's inserter: the production one remembers the target
@@ -408,11 +432,13 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
         LlmChoice::ScriptedDemo => ScriptedLlm::new_cycling(token_scripts(&llm_responses)),
     };
     let inserter = production_inserter(&dirs)?;
-    // The same store the engine records into and the panel reads from.
-    let history = crate::history::open_history(&dirs)?;
+    // The same store the engine records into, the panels read from, and
+    // the editors write to — its opening also runs the one-time legacy
+    // file migration.
+    let store = crate::store::open_store(&dirs)?;
     // The dictionary re-read per session: Aliyun recognition gets it as
     // the transcription corpus, the rectify prompt as the term reference.
-    let terms = crate::terms::FileTermSource::new(dirs);
+    let terms = crate::store::DbTermSource::new(store.clone());
     let engine = Engine::new(
         config,
         EngineDeps {
@@ -421,7 +447,7 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
             // The same instance the slot holds, so `note_target` on
             // StartSession arms the very inserter ConfirmInsert runs.
             inserter: inserter.clone(),
-            history: Some(history.clone()),
+            history: Some(store.clone()),
             terms: Some(terms),
             clock: Arc::new(TokioClock::new()),
         },
@@ -431,7 +457,7 @@ pub fn create_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
         engine,
         source: SpeechSource::Mic,
         inserter: InserterSlot::Real(inserter),
-        history,
+        store,
     });
     // The real engine owns the keyboard-wide Esc semantics: while a
     // session is active, a bare Esc cancels it even when the session
@@ -480,9 +506,16 @@ pub fn create_fake_engine(llm_responses: Vec<String>) -> anyhow::Result<()> {
             feed: Mutex::new(None),
         },
         inserter: InserterSlot::Fake(inserter),
-        // The all-fake setup runs in tests and headless demos: no history
-        // file appears next to the test binary.
-        history: Arc::new(HistoryStore::default()),
+        // The all-fake setup runs in tests and headless demos: an
+        // in-memory store, so no database file appears next to the test
+        // binary. Keep-nothing, matching the disabled history before it.
+        store: Arc::new(Store::open_memory(
+            HistoryConfig {
+                enabled: false,
+                retention_days: 30,
+            },
+            spokenrectifier_store::wall_clock(),
+        )),
     });
     Ok(())
 }
@@ -592,61 +625,65 @@ pub fn restore_focus() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The hotword dictionary as it stands now, in file order — the quick
-/// panel's term chips. File-level, engine-independent (the engine
-/// re-reads the file when the next session opens, which is what makes a
+/// The hotword dictionary as it stands now, in stored order — the quick
+/// panel's term chips. Store-level, engine-independent (the engine
+/// re-reads the table when the next session opens, which is what makes a
 /// quick-added term live for that session).
 pub fn terms_list() -> anyhow::Result<Vec<String>> {
-    Ok(spokenrectifier_config::terms::load_terms(
-        &spokenrectifier_config::search_dirs(),
-    ))
+    Ok(global()?.store.list_terms())
 }
 
-/// Quick-add one term to the dictionary (idempotent; blank rejected).
-/// See [`spokenrectifier_config::terms::append_term`] for the placement
-/// and repair rules.
+/// Quick-add one term to the dictionary (idempotent; blank rejected;
+/// appended at the end of the order).
 pub fn append_term(term: String) -> anyhow::Result<()> {
-    spokenrectifier_config::terms::append_term(&spokenrectifier_config::search_dirs(), &term)
+    global()?
+        .store
+        .append_term(&term)
         .map_err(|err| anyhow!("cannot add the term: {err}"))
 }
 
-/// Remove a term from the dictionary (a no-op when absent).
+/// Remove a term from the dictionary (a no-op when absent; the positions
+/// close the gap inside the same transaction).
 pub fn remove_term(term: String) -> anyhow::Result<()> {
-    spokenrectifier_config::terms::remove_term(&spokenrectifier_config::search_dirs(), &term)
+    global()?
+        .store
+        .remove_term(&term)
         .map_err(|err| anyhow!("cannot remove the term: {err}"))
 }
 
 /// The scenario library (场景库): user-named style directives from the
-/// app-owned `spokenrectifier-scenarios.toml`. A missing or corrupt file
-/// reads as an empty library — this never errors and never writes. The
-/// shell paints its pickers from the list and resolves the selected
-/// entry's directive text itself (selection lives app-side, never
-/// persisted; ADR-0004).
+/// store, in editor order. The shell paints its pickers from the list
+/// and resolves the selected entry's directive text itself (selection
+/// lives app-side, never persisted; ADR-0004).
 pub fn scenarios() -> anyhow::Result<Vec<BridgeScenario>> {
-    let dirs = spokenrectifier_config::search_dirs();
-    Ok(spokenrectifier_config::scenarios::load_scenarios(&dirs)
+    Ok(global()?
+        .store
+        .list_scenarios()
         .into_iter()
         .map(BridgeScenario::from)
         .collect())
 }
 
 /// Save the whole scenario library — the settings editor's model,
-/// wholesale — into the file the loader resolves (created in the app's
-/// settings home when no library exists yet). File-level and
-/// engine-independent like [`scenarios`]: the pickers re-read the library
-/// after a save; the selected scenario's directive rides the next
-/// `SetStyleDirective` as usual. Only ever runs on a user action (the
-/// editor's add/edit/delete), never on load.
+/// wholesale — into the store: one transaction that updates identified
+/// rows in place (a rename keeps its identity and its history
+/// references), inserts the new ones, deletes the rest. Store-level and
+/// engine-independent like [`scenarios`]: the pickers re-read the
+/// library after a save; the selected scenario's directive rides the
+/// next `SetStyleDirective` as usual. Only ever runs on a user action
+/// (the editor's add/edit/delete), never on load.
 pub fn save_scenarios(scenarios: Vec<BridgeScenario>) -> anyhow::Result<()> {
-    let dirs = spokenrectifier_config::search_dirs();
-    let library: Vec<spokenrectifier_config::scenarios::Scenario> = scenarios
+    let entries: Vec<spokenrectifier_store::ScenarioInput> = scenarios
         .into_iter()
-        .map(|scenario| spokenrectifier_config::scenarios::Scenario {
+        .map(|scenario| spokenrectifier_store::ScenarioInput {
+            id: scenario.id,
             name: scenario.name,
             directive: scenario.directive,
         })
         .collect();
-    spokenrectifier_config::scenarios::save_scenarios(&dirs, &library)
+    global()?
+        .store
+        .save_scenarios(&entries)
         .map_err(|err| anyhow!("cannot save the scenario library: {err}"))
 }
 
@@ -690,20 +727,22 @@ pub fn inserted_texts() -> anyhow::Result<Vec<String>> {
 const HISTORY_PANEL_LIMIT: usize = 200;
 
 /// The most recent stored sessions, newest first — the history panel's
-/// content. Empty in the keep-nothing mode (and on the fake engine).
+/// content, read through the sessions⋈scenarios view. Empty in the
+/// keep-nothing mode (and on the fake engine's ephemeral store).
 pub fn history_list() -> anyhow::Result<Vec<BridgeHistoryEntry>> {
     Ok(global()?
-        .history
+        .store
         .list(HISTORY_PANEL_LIMIT)
         .into_iter()
         .map(BridgeHistoryEntry::from)
         .collect())
 }
 
-/// Remove every stored session — the tray's one-click clear. A no-op in
-/// the keep-nothing mode.
+/// Remove every stored session — the tray's one-click clear (the
+/// placeholders go with them, by CASCADE). A no-op in the keep-nothing
+/// mode.
 pub fn history_clear() -> anyhow::Result<()> {
-    global()?.history.clear();
+    global()?.store.clear();
     Ok(())
 }
 
@@ -714,8 +753,8 @@ pub struct BridgeHistoryConfig {
     pub retention_days: u64,
 }
 
-impl From<spokenrectifier_history::HistoryConfig> for BridgeHistoryConfig {
-    fn from(value: spokenrectifier_history::HistoryConfig) -> Self {
+impl From<HistoryConfig> for BridgeHistoryConfig {
+    fn from(value: HistoryConfig) -> Self {
         BridgeHistoryConfig {
             enabled: value.enabled,
             retention_days: value.retention_days,
@@ -724,7 +763,7 @@ impl From<spokenrectifier_history::HistoryConfig> for BridgeHistoryConfig {
 }
 
 /// The `[history]` config errors share one shape across the pair.
-fn history_config_err(err: spokenrectifier_history::HistoryConfigError) -> anyhow::Error {
+fn history_config_err(err: spokenrectifier_store::HistoryConfigError) -> anyhow::Error {
     anyhow!("history {}", err.0)
 }
 
@@ -732,7 +771,7 @@ fn history_config_err(err: spokenrectifier_history::HistoryConfigError) -> anyho
 /// settings window's history pane initial paint.
 pub fn history_config() -> anyhow::Result<BridgeHistoryConfig> {
     let dirs = spokenrectifier_config::search_dirs();
-    spokenrectifier_history::load_history_config(&dirs)
+    spokenrectifier_store::load_history_config(&dirs)
         .map(BridgeHistoryConfig::from)
         .map_err(history_config_err)
 }
@@ -741,20 +780,22 @@ pub fn history_config() -> anyhow::Result<BridgeHistoryConfig> {
 /// once (the settings window's 保留期 / 不留存 controls): the file edit
 /// is section-preserving in the layer that owns the effective values,
 /// and the store adopts the new config immediately — a tightened
-/// retention sweeps at once, keep-nothing wipes, and turning it back on
-/// resumes recording. Returns the re-read effective config.
+/// retention sweeps at once, keep-nothing clears the sessions rows (the
+/// database itself stays, as the scenarios' and terms' home), and
+/// turning it back on resumes recording. Returns the re-read effective
+/// config.
 pub fn set_history_config(
     enabled: bool,
     retention_days: u64,
 ) -> anyhow::Result<BridgeHistoryConfig> {
     let dirs = spokenrectifier_config::search_dirs();
-    let config = spokenrectifier_history::HistoryConfig {
+    let config = HistoryConfig {
         enabled,
         retention_days,
     };
-    spokenrectifier_history::save_history_config(&dirs, &config).map_err(history_config_err)?;
+    spokenrectifier_store::save_history_config(&dirs, &config).map_err(history_config_err)?;
     global()?
-        .history
+        .store
         .apply_config(config)
         .map_err(|err| anyhow!("history {}", err.0))?;
     history_config()
@@ -1405,10 +1446,11 @@ pub fn set_rectify_behavior(edit: BridgeRectifyBehavior) -> anyhow::Result<Bridg
 
 /// Rename a term in the dictionary, in place (the settings editor's 改;
 /// the quick panel's quick-add and quick-remove stay the same calls).
-/// See [`spokenrectifier_config::terms::update_term`] for the placement
-/// and collision rules.
+/// Renaming onto a held spelling is refused.
 pub fn update_term(old: String, new: String) -> anyhow::Result<()> {
-    spokenrectifier_config::terms::update_term(&spokenrectifier_config::search_dirs(), &old, &new)
+    global()?
+        .store
+        .update_term(&old, &new)
         .map_err(|err| anyhow!("cannot rename the term: {err}"))
 }
 
@@ -1958,9 +2000,14 @@ mod tests {
         setup();
         execute(BridgeCommand::SetStyleDirective {
             directive: Some("以 Markdown 分条输出".into()),
+            scenario: Some("以 Markdown 分条".into()),
         })
         .unwrap();
-        execute(BridgeCommand::SetStyleDirective { directive: None }).unwrap();
+        execute(BridgeCommand::SetStyleDirective {
+            directive: None,
+            scenario: None,
+        })
+        .unwrap();
         // The global directive rides the same seam (ticket 22), with the
         // same any-time semantics and reset.
         execute(BridgeCommand::SetGlobalDirective {
@@ -2256,6 +2303,7 @@ mod tests {
         execute(BridgeCommand::RectifyText {
             raw_transcript: "历史上的原话".into(),
             style: BridgeSessionStyle::Live,
+            source_session_id: None,
         })
         .unwrap();
         block_on(wait_state(&mut rx, SessionState::Preview));

@@ -1011,7 +1011,11 @@ class _HistoryScenarioAction extends StatelessWidget {
       itemKeyPrefix: 'quick-history-scenario-item',
     );
     if (pick == null) return;
-    await onRerectify(entry.rawTranscript, style: pick);
+    await onRerectify(
+      entry.rawTranscript,
+      style: pick,
+      sourceSessionId: entry.id,
+    );
   }
 
   @override

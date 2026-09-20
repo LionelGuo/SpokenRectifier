@@ -60,6 +60,11 @@ struct Inner {
     /// built-in default register). Read fresh when each rectify request
     /// is built, so a switch any time shapes the next attempt.
     style_directive: RwLock<Option<String>>,
+    /// The selected scenario's NAME riding beside its directive — a
+    /// pass-through the engine never interprets (the store resolves it
+    /// to a scenario id when the session is recorded). Moves with
+    /// [`Inner::style_directive`]: blanking the directive clears both.
+    style_scenario: RwLock<Option<String>>,
     /// The global directive's text (ticket 22; `None` = unset). A live
     /// value like the style selection — read fresh when each request is
     /// built, never pinned per session: a change mid-session shapes the
@@ -165,6 +170,10 @@ struct Session {
     /// Pinned for the session's lifetime: rerolls keep it, and it dies
     /// with the session.
     style: SessionStyle,
+    /// The store id of the history entry this session re-runs, if any —
+    /// a pass-through from the retrieval command, recorded with the
+    /// session pair as its 来源会话. `None` on every mic session.
+    source_session_id: Option<i64>,
     /// Whether this session was upgraded to quick mode (ADR-0020) by a
     /// hotkey chord held past the threshold. Decided at most once, and
     /// dropped the moment the session fails into preview: from there
@@ -256,6 +265,7 @@ impl Engine {
         Self {
             inner: Arc::new(Inner {
                 style_directive: RwLock::new(None),
+                style_scenario: RwLock::new(None),
                 global_directive: RwLock::new(None),
                 passage_mode: RwLock::new(config.passage_mode),
                 timings: RwLock::new(config.timings()),
@@ -346,7 +356,8 @@ impl Engine {
             Command::RectifyText {
                 raw_transcript,
                 style,
-            } => self.rectify_text(raw_transcript, style),
+                source_session_id,
+            } => self.rectify_text(raw_transcript, style, source_session_id),
             Command::StopSession => {
                 let state = self.inner.state_lock().state;
                 if state != SessionState::Recording {
@@ -375,12 +386,23 @@ impl Engine {
                 Ok(())
             }
             Command::UpdatePreviewText(text) => self.update_preview_text(text),
-            Command::SetStyleDirective(directive) => {
+            Command::SetStyleDirective {
+                directive,
+                scenario,
+            } => {
                 // Blank directive text reads as no directive: the default
                 // register. (Scenario entries with blank directives are
                 // already filtered by the library loader; this guards the
-                // engine seam itself.)
-                *self.inner.style_directive.write().unwrap() = non_blank(directive);
+                // engine seam itself.) The selection's name rides beside
+                // its directive and falls with it.
+                let directive = non_blank(directive);
+                let scenario = if directive.is_some() {
+                    non_blank(scenario)
+                } else {
+                    None
+                };
+                *self.inner.style_directive.write().unwrap() = directive;
+                *self.inner.style_scenario.write().unwrap() = scenario;
                 Ok(())
             }
             Command::SetGlobalDirective(directive) => {
@@ -453,7 +475,12 @@ impl Engine {
     /// preview editing, cancel, and insert all work as after a recording.
     /// `style` optionally pins the session's one-time style pick (see
     /// [`Command::RectifyText`]).
-    fn rectify_text(&self, raw_transcript: String, style: SessionStyle) -> Result<(), EngineError> {
+    fn rectify_text(
+        &self,
+        raw_transcript: String,
+        style: SessionStyle,
+        source_session_id: Option<i64>,
+    ) -> Result<(), EngineError> {
         let (sid, cancel, request, timings) = {
             let mut st = self.inner.state_lock();
             if st.state != SessionState::Idle {
@@ -461,6 +488,7 @@ impl Engine {
                     command: Command::RectifyText {
                         raw_transcript,
                         style,
+                        source_session_id,
                     },
                     state: st.state,
                 });
@@ -471,8 +499,11 @@ impl Engine {
             // Same blank guard as SetStyleDirective's: whitespace-only
             // pinned text reads as no pin.
             let style = match style {
-                SessionStyle::Directive(text) => match non_blank(Some(text)) {
-                    Some(text) => SessionStyle::Directive(text),
+                SessionStyle::Directive { text, scenario } => match non_blank(Some(text)) {
+                    Some(text) => SessionStyle::Directive {
+                        text,
+                        scenario: non_blank(scenario),
+                    },
                     None => SessionStyle::Live,
                 },
                 other => other,
@@ -494,6 +525,7 @@ impl Engine {
                 paragraphs: paragraphs.clone(),
             });
             session.style = style;
+            session.source_session_id = source_session_id;
             let cancel = CancellationToken::new();
             session.rectify_cancel = Some(cancel.clone());
             let sid = session.id;
@@ -645,7 +677,7 @@ impl Engine {
     }
 
     async fn confirm_insert(&self) -> Result<(), EngineError> {
-        let (sid, text, raw_transcript) = {
+        let (sid, text, raw_transcript, scenario, source_session_id) = {
             let st = self.inner.state_lock();
             if st.state != SessionState::Preview {
                 return Err(EngineError::CommandRejected {
@@ -660,7 +692,14 @@ impl Engine {
                 .expect("frozen before preview")
                 .raw_transcript
                 .clone();
-            (session.id, session.preview_text.clone(), raw_transcript)
+            let scenario = Inner::session_scenario(session, &self.inner);
+            (
+                session.id,
+                session.preview_text.clone(),
+                raw_transcript,
+                scenario,
+                session.source_session_id,
+            )
         };
         match self.inner.inserter.insert(&text).await {
             Ok(()) => {
@@ -682,6 +721,8 @@ impl Engine {
                     history.record(RecordedSession {
                         raw_transcript,
                         rectified_text: text,
+                        scenario,
+                        source_session_id,
                     });
                 }
                 Ok(())
@@ -737,6 +778,12 @@ impl Inner {
         self.style_directive.read().unwrap().clone()
     }
 
+    /// The selection's name, read fresh beside its directive — never
+    /// snapshotted, same live-read rule.
+    fn current_style_scenario(&self) -> Option<String> {
+        self.style_scenario.read().unwrap().clone()
+    }
+
     /// The global directive every rectify request stamps — same live-read
     /// rule: never snapshotted into a session, so a change any time
     /// shapes the next attempt.
@@ -751,7 +798,19 @@ impl Inner {
     fn session_style_directive(session: &Session, inner: &Inner) -> Option<String> {
         match &session.style {
             SessionStyle::Live => inner.current_style_directive(),
-            SessionStyle::Directive(text) => Some(text.clone()),
+            SessionStyle::Directive { text, .. } => Some(text.clone()),
+            SessionStyle::DefaultRegister => None,
+        }
+    }
+
+    /// The scenario NAME a recorded session runs under — the same
+    /// resolution rule as [`Inner::session_style_directive`], for the
+    /// store to resolve into a scenario id (a pin without a name, like
+    /// the CLI's raw directive, records as 未选场景).
+    fn session_scenario(session: &Session, inner: &Inner) -> Option<String> {
+        match &session.style {
+            SessionStyle::Live => inner.current_style_scenario(),
+            SessionStyle::Directive { scenario, .. } => scenario.clone(),
             SessionStyle::DefaultRegister => None,
         }
     }
@@ -892,6 +951,10 @@ struct Passthrough {
     /// into preview must stream the very text confirm would insert.
     /// False when the text already streamed as chunks.
     announce: bool,
+    /// The scenario name / source row for the history pair (pass-throughs
+    /// resolved from the session at plan time).
+    scenario: Option<String>,
+    source_session_id: Option<i64>,
 }
 
 /// What a recording end (or a reroll) leads to.
@@ -955,6 +1018,8 @@ fn begin_rectify(inner: &Arc<Inner>) {
                         raw_transcript,
                         from: SessionState::Recording,
                         announce: true,
+                        scenario: Inner::session_scenario(session, inner),
+                        source_session_id: session.source_session_id,
                     })
                 } else {
                     let frozen = session.frozen.as_ref().expect("just frozen above");
@@ -1079,6 +1144,8 @@ async fn paste_through(inner: &Arc<Inner>, pass: Passthrough) {
         raw_transcript,
         from,
         announce,
+        scenario,
+        source_session_id,
     } = pass;
     {
         // Re-checked under the gate: the session must still be exactly
@@ -1104,6 +1171,8 @@ async fn paste_through(inner: &Arc<Inner>, pass: Passthrough) {
                 history.record(RecordedSession {
                     raw_transcript,
                     rectified_text: text,
+                    scenario,
+                    source_session_id,
                 });
             }
         }
@@ -1165,6 +1234,7 @@ impl Session {
             any_speech: false,
             frozen: None,
             style: SessionStyle::Live,
+            source_session_id: None,
             quick: false,
             hold_gate: false,
             preview_text: String::new(),
@@ -1412,7 +1482,20 @@ fn trailing_punctuation_len(text: &str) -> usize {
 fn is_clause_punctuation(ch: char) -> bool {
     matches!(
         ch,
-        '。' | '．' | '.' | '！' | '!' | '？' | '?' | '，' | ',' | '、' | '；' | ';' | '：' | ':' | '…'
+        '。' | '．'
+            | '.'
+            | '！'
+            | '!'
+            | '？'
+            | '?'
+            | '，'
+            | ','
+            | '、'
+            | '；'
+            | ';'
+            | '：'
+            | ':'
+            | '…'
     )
 }
 
@@ -1646,6 +1729,8 @@ async fn rectify_task(
                                     raw_transcript,
                                     from: SessionState::Rectifying,
                                     announce: false,
+                                    scenario: Inner::session_scenario(session, &inner),
+                                    source_session_id: session.source_session_id,
                                 }
                             };
                             let _gate = inner.command_gate.lock().await;

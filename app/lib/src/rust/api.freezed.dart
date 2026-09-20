@@ -150,7 +150,7 @@ return rectifyText(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive)?  setStyleDirective,TResult Function( String? directive)?  setGlobalDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function()?  pinPlaceholder,TResult Function( String rawTranscript,  BridgeSessionStyle style)?  rectifyText,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  startSession,TResult Function()?  stopSession,TResult Function()?  cancel,TResult Function()?  confirmInsert,TResult Function()?  reroll,TResult Function( String text)?  updatePreviewText,TResult Function( String? directive,  String? scenario)?  setStyleDirective,TResult Function( String? directive)?  setGlobalDirective,TResult Function( bool on_)?  setPassageMode,TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult Function()?  pinPlaceholder,TResult Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)?  rectifyText,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -159,12 +159,12 @@ return cancel();case BridgeCommand_ConfirmInsert() when confirmInsert != null:
 return confirmInsert();case BridgeCommand_Reroll() when reroll != null:
 return reroll();case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when setStyleDirective != null:
-return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
+return setStyleDirective(_that.directive,_that.scenario);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_PinPlaceholder() when pinPlaceholder != null:
 return pinPlaceholder();case BridgeCommand_RectifyText() when rectifyText != null:
-return rectifyText(_that.rawTranscript,_that.style);case _:
+return rectifyText(_that.rawTranscript,_that.style,_that.sourceSessionId);case _:
   return orElse();
 
 }
@@ -182,7 +182,7 @@ return rectifyText(_that.rawTranscript,_that.style);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive)  setStyleDirective,required TResult Function( String? directive)  setGlobalDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function()  pinPlaceholder,required TResult Function( String rawTranscript,  BridgeSessionStyle style)  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  startSession,required TResult Function()  stopSession,required TResult Function()  cancel,required TResult Function()  confirmInsert,required TResult Function()  reroll,required TResult Function( String text)  updatePreviewText,required TResult Function( String? directive,  String? scenario)  setStyleDirective,required TResult Function( String? directive)  setGlobalDirective,required TResult Function( bool on_)  setPassageMode,required TResult Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)  setEngineTimings,required TResult Function()  pinPlaceholder,required TResult Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession():
 return startSession();case BridgeCommand_StopSession():
@@ -191,12 +191,12 @@ return cancel();case BridgeCommand_ConfirmInsert():
 return confirmInsert();case BridgeCommand_Reroll():
 return reroll();case BridgeCommand_UpdatePreviewText():
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective():
-return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective():
+return setStyleDirective(_that.directive,_that.scenario);case BridgeCommand_SetGlobalDirective():
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode():
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings():
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_PinPlaceholder():
 return pinPlaceholder();case BridgeCommand_RectifyText():
-return rectifyText(_that.rawTranscript,_that.style);}
+return rectifyText(_that.rawTranscript,_that.style,_that.sourceSessionId);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -210,7 +210,7 @@ return rectifyText(_that.rawTranscript,_that.style);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive)?  setStyleDirective,TResult? Function( String? directive)?  setGlobalDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function()?  pinPlaceholder,TResult? Function( String rawTranscript,  BridgeSessionStyle style)?  rectifyText,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  startSession,TResult? Function()?  stopSession,TResult? Function()?  cancel,TResult? Function()?  confirmInsert,TResult? Function()?  reroll,TResult? Function( String text)?  updatePreviewText,TResult? Function( String? directive,  String? scenario)?  setStyleDirective,TResult? Function( String? directive)?  setGlobalDirective,TResult? Function( bool on_)?  setPassageMode,TResult? Function( BigInt paragraphSilenceMs,  BigInt sessionEndSilenceMs,  BigInt rectifyTimeoutMs)?  setEngineTimings,TResult? Function()?  pinPlaceholder,TResult? Function( String rawTranscript,  BridgeSessionStyle style,  PlatformInt64? sourceSessionId)?  rectifyText,}) {final _that = this;
 switch (_that) {
 case BridgeCommand_StartSession() when startSession != null:
 return startSession();case BridgeCommand_StopSession() when stopSession != null:
@@ -219,12 +219,12 @@ return cancel();case BridgeCommand_ConfirmInsert() when confirmInsert != null:
 return confirmInsert();case BridgeCommand_Reroll() when reroll != null:
 return reroll();case BridgeCommand_UpdatePreviewText() when updatePreviewText != null:
 return updatePreviewText(_that.text);case BridgeCommand_SetStyleDirective() when setStyleDirective != null:
-return setStyleDirective(_that.directive);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
+return setStyleDirective(_that.directive,_that.scenario);case BridgeCommand_SetGlobalDirective() when setGlobalDirective != null:
 return setGlobalDirective(_that.directive);case BridgeCommand_SetPassageMode() when setPassageMode != null:
 return setPassageMode(_that.on_);case BridgeCommand_SetEngineTimings() when setEngineTimings != null:
 return setEngineTimings(_that.paragraphSilenceMs,_that.sessionEndSilenceMs,_that.rectifyTimeoutMs);case BridgeCommand_PinPlaceholder() when pinPlaceholder != null:
 return pinPlaceholder();case BridgeCommand_RectifyText() when rectifyText != null:
-return rectifyText(_that.rawTranscript,_that.style);case _:
+return rectifyText(_that.rawTranscript,_that.style,_that.sourceSessionId);case _:
   return null;
 
 }
@@ -462,10 +462,11 @@ as String,
 
 
 class BridgeCommand_SetStyleDirective extends BridgeCommand {
-  const BridgeCommand_SetStyleDirective({this.directive}): super._();
+  const BridgeCommand_SetStyleDirective({this.directive, this.scenario}): super._();
   
 
  final  String? directive;
+ final  String? scenario;
 
 /// Create a copy of BridgeCommand
 /// with the given fields replaced by the non-null parameter values.
@@ -477,16 +478,16 @@ $BridgeCommand_SetStyleDirectiveCopyWith<BridgeCommand_SetStyleDirective> get co
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_SetStyleDirective&&(identical(other.directive, directive) || other.directive == directive));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_SetStyleDirective&&(identical(other.directive, directive) || other.directive == directive)&&(identical(other.scenario, scenario) || other.scenario == scenario));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,directive);
+int get hashCode => Object.hash(runtimeType,directive,scenario);
 
 @override
 String toString() {
-  return 'BridgeCommand.setStyleDirective(directive: $directive)';
+  return 'BridgeCommand.setStyleDirective(directive: $directive, scenario: $scenario)';
 }
 
 
@@ -497,7 +498,7 @@ abstract mixin class $BridgeCommand_SetStyleDirectiveCopyWith<$Res> implements $
   factory $BridgeCommand_SetStyleDirectiveCopyWith(BridgeCommand_SetStyleDirective value, $Res Function(BridgeCommand_SetStyleDirective) _then) = _$BridgeCommand_SetStyleDirectiveCopyWithImpl;
 @useResult
 $Res call({
- String? directive
+ String? directive, String? scenario
 });
 
 
@@ -514,9 +515,10 @@ class _$BridgeCommand_SetStyleDirectiveCopyWithImpl<$Res>
 
 /// Create a copy of BridgeCommand
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? directive = freezed,}) {
+@pragma('vm:prefer-inline') $Res call({Object? directive = freezed,Object? scenario = freezed,}) {
   return _then(BridgeCommand_SetStyleDirective(
 directive: freezed == directive ? _self.directive : directive // ignore: cast_nullable_to_non_nullable
+as String?,scenario: freezed == scenario ? _self.scenario : scenario // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }
@@ -762,11 +764,12 @@ String toString() {
 
 
 class BridgeCommand_RectifyText extends BridgeCommand {
-  const BridgeCommand_RectifyText({required this.rawTranscript, required this.style}): super._();
+  const BridgeCommand_RectifyText({required this.rawTranscript, required this.style, this.sourceSessionId}): super._();
   
 
  final  String rawTranscript;
  final  BridgeSessionStyle style;
+ final  PlatformInt64? sourceSessionId;
 
 /// Create a copy of BridgeCommand
 /// with the given fields replaced by the non-null parameter values.
@@ -778,16 +781,16 @@ $BridgeCommand_RectifyTextCopyWith<BridgeCommand_RectifyText> get copyWith => _$
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_RectifyText&&(identical(other.rawTranscript, rawTranscript) || other.rawTranscript == rawTranscript)&&(identical(other.style, style) || other.style == style));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeCommand_RectifyText&&(identical(other.rawTranscript, rawTranscript) || other.rawTranscript == rawTranscript)&&(identical(other.style, style) || other.style == style)&&(identical(other.sourceSessionId, sourceSessionId) || other.sourceSessionId == sourceSessionId));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,rawTranscript,style);
+int get hashCode => Object.hash(runtimeType,rawTranscript,style,sourceSessionId);
 
 @override
 String toString() {
-  return 'BridgeCommand.rectifyText(rawTranscript: $rawTranscript, style: $style)';
+  return 'BridgeCommand.rectifyText(rawTranscript: $rawTranscript, style: $style, sourceSessionId: $sourceSessionId)';
 }
 
 
@@ -798,7 +801,7 @@ abstract mixin class $BridgeCommand_RectifyTextCopyWith<$Res> implements $Bridge
   factory $BridgeCommand_RectifyTextCopyWith(BridgeCommand_RectifyText value, $Res Function(BridgeCommand_RectifyText) _then) = _$BridgeCommand_RectifyTextCopyWithImpl;
 @useResult
 $Res call({
- String rawTranscript, BridgeSessionStyle style
+ String rawTranscript, BridgeSessionStyle style, PlatformInt64? sourceSessionId
 });
 
 
@@ -815,11 +818,12 @@ class _$BridgeCommand_RectifyTextCopyWithImpl<$Res>
 
 /// Create a copy of BridgeCommand
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? rawTranscript = null,Object? style = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? rawTranscript = null,Object? style = null,Object? sourceSessionId = freezed,}) {
   return _then(BridgeCommand_RectifyText(
 rawTranscript: null == rawTranscript ? _self.rawTranscript : rawTranscript // ignore: cast_nullable_to_non_nullable
 as String,style: null == style ? _self.style : style // ignore: cast_nullable_to_non_nullable
-as BridgeSessionStyle,
+as BridgeSessionStyle,sourceSessionId: freezed == sourceSessionId ? _self.sourceSessionId : sourceSessionId // ignore: cast_nullable_to_non_nullable
+as PlatformInt64?,
   ));
 }
 
@@ -2896,11 +2900,11 @@ return defaultRegister(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  live,TResult Function( String text)?  directive,TResult Function()?  defaultRegister,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  live,TResult Function( String text,  String? scenario)?  directive,TResult Function()?  defaultRegister,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BridgeSessionStyle_Live() when live != null:
 return live();case BridgeSessionStyle_Directive() when directive != null:
-return directive(_that.text);case BridgeSessionStyle_DefaultRegister() when defaultRegister != null:
+return directive(_that.text,_that.scenario);case BridgeSessionStyle_DefaultRegister() when defaultRegister != null:
 return defaultRegister();case _:
   return orElse();
 
@@ -2919,11 +2923,11 @@ return defaultRegister();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  live,required TResult Function( String text)  directive,required TResult Function()  defaultRegister,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  live,required TResult Function( String text,  String? scenario)  directive,required TResult Function()  defaultRegister,}) {final _that = this;
 switch (_that) {
 case BridgeSessionStyle_Live():
 return live();case BridgeSessionStyle_Directive():
-return directive(_that.text);case BridgeSessionStyle_DefaultRegister():
+return directive(_that.text,_that.scenario);case BridgeSessionStyle_DefaultRegister():
 return defaultRegister();}
 }
 /// A variant of `when` that fallback to returning `null`
@@ -2938,11 +2942,11 @@ return defaultRegister();}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  live,TResult? Function( String text)?  directive,TResult? Function()?  defaultRegister,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  live,TResult? Function( String text,  String? scenario)?  directive,TResult? Function()?  defaultRegister,}) {final _that = this;
 switch (_that) {
 case BridgeSessionStyle_Live() when live != null:
 return live();case BridgeSessionStyle_Directive() when directive != null:
-return directive(_that.text);case BridgeSessionStyle_DefaultRegister() when defaultRegister != null:
+return directive(_that.text,_that.scenario);case BridgeSessionStyle_DefaultRegister() when defaultRegister != null:
 return defaultRegister();case _:
   return null;
 
@@ -2987,10 +2991,11 @@ String toString() {
 
 
 class BridgeSessionStyle_Directive extends BridgeSessionStyle {
-  const BridgeSessionStyle_Directive({required this.text}): super._();
+  const BridgeSessionStyle_Directive({required this.text, this.scenario}): super._();
   
 
  final  String text;
+ final  String? scenario;
 
 /// Create a copy of BridgeSessionStyle
 /// with the given fields replaced by the non-null parameter values.
@@ -3002,16 +3007,16 @@ $BridgeSessionStyle_DirectiveCopyWith<BridgeSessionStyle_Directive> get copyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeSessionStyle_Directive&&(identical(other.text, text) || other.text == text));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BridgeSessionStyle_Directive&&(identical(other.text, text) || other.text == text)&&(identical(other.scenario, scenario) || other.scenario == scenario));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,text);
+int get hashCode => Object.hash(runtimeType,text,scenario);
 
 @override
 String toString() {
-  return 'BridgeSessionStyle.directive(text: $text)';
+  return 'BridgeSessionStyle.directive(text: $text, scenario: $scenario)';
 }
 
 
@@ -3022,7 +3027,7 @@ abstract mixin class $BridgeSessionStyle_DirectiveCopyWith<$Res> implements $Bri
   factory $BridgeSessionStyle_DirectiveCopyWith(BridgeSessionStyle_Directive value, $Res Function(BridgeSessionStyle_Directive) _then) = _$BridgeSessionStyle_DirectiveCopyWithImpl;
 @useResult
 $Res call({
- String text
+ String text, String? scenario
 });
 
 
@@ -3039,10 +3044,11 @@ class _$BridgeSessionStyle_DirectiveCopyWithImpl<$Res>
 
 /// Create a copy of BridgeSessionStyle
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? text = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? text = null,Object? scenario = freezed,}) {
   return _then(BridgeSessionStyle_Directive(
 text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
-as String,
+as String,scenario: freezed == scenario ? _self.scenario : scenario // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

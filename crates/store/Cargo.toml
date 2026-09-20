@@ -1,0 +1,15 @@
+[package]
+name = "spokenrectifier-store"
+description = "The local business store: one SQLite database for scenarios, hotword terms, inserted sessions, and placeholders — the full guard set (unique, check, foreign keys, one trigger) plus the sessions-join-scenarios view, the one-time file migration, layered [history] config, retention sweep, and one-call clear (glossary: 场景库, 术语词表, 历史与取回)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+spokenrectifier-config = { path = "../config" }
+spokenrectifier-engine = { path = "../engine" }
+thiserror.workspace = true
+
+[dev-dependencies]

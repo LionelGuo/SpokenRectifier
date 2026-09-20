@@ -5,6 +5,8 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
+    show PlatformInt64;
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/rust/api.dart';
 
@@ -52,6 +54,14 @@ class FakeGateway implements SpeechEngineGateway {
 
   /// The scenario library `scenarios()` hands back.
   final scenarioLibrary = <BridgeScenario>[];
+
+  /// The scenario name the last `setStyleDirective` carried (the
+  /// pass-through the store resolves; recorded separately so the
+  /// command log's format stays stable).
+  String? lastStyleScenario;
+
+  /// The source row the last `rectifyText` named, if any.
+  PlatformInt64? lastSourceSessionId;
 
   /// The global directive `globalDirective()` hands back (null = unset);
   /// tests mutate it to simulate a file change.
@@ -176,7 +186,9 @@ class FakeGateway implements SpeechEngineGateway {
   Future<void> rectifyText(
     String rawTranscript, {
     required BridgeSessionStyle style,
+    PlatformInt64? sourceSessionId,
   }) async {
+    lastSourceSessionId = sourceSessionId;
     // The one-time pin decorates the recorded command, so tests can
     // tell the retrieval kinds apart (named directive / explicit 默认 /
     // following the live selection).
@@ -211,8 +223,9 @@ class FakeGateway implements SpeechEngineGateway {
   }
 
   @override
-  Future<void> setStyleDirective(String? directive) async {
+  Future<void> setStyleDirective(String? directive, {String? scenario}) async {
     commands.add('setStyleDirective:$directive');
+    lastStyleScenario = scenario;
     if (failNextSetStyleDirective != null) {
       final failure = failNextSetStyleDirective;
       failNextSetStyleDirective = null;

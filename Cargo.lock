@@ -2288,9 +2288,9 @@ dependencies = [
  "spokenrectifier-config",
  "spokenrectifier-engine",
  "spokenrectifier-eval",
- "spokenrectifier-history",
  "spokenrectifier-insertion",
  "spokenrectifier-llm",
+ "spokenrectifier-store",
  "spokenrectifier-tencent",
  "spokenrectifier-volcengine",
  "tokio",
@@ -2621,17 +2621,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spokenrectifier-history"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
- "serde",
- "spokenrectifier-config",
- "spokenrectifier-engine",
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "spokenrectifier-insertion"
 version = "0.1.0"
 dependencies = [
@@ -2659,6 +2648,17 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "spokenrectifier-store"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "spokenrectifier-config",
+ "spokenrectifier-engine",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -2720,6 +2720,7 @@ dependencies = [
  "spokenrectifier-engine",
  "spokenrectifier-eval",
  "spokenrectifier-llm",
+ "spokenrectifier-store",
  "tokio",
  "toml",
 ]

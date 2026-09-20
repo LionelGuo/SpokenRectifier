@@ -614,7 +614,9 @@ class _ScenarioPane extends StatelessWidget {
     if (edited == null) return;
     final (name, directive) = edited;
     await onAddOrUpdate(
-      BridgeScenario(name: name, directive: directive),
+      // The existing entry's id rides along, so a rename keeps the
+      // row's identity and the history rows referencing it.
+      BridgeScenario(id: existing?.id, name: name, directive: directive),
       existing?.name,
     );
   }

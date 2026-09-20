@@ -84,6 +84,7 @@ async fn rectify_case(
         .execute(Command::RectifyText {
             raw_transcript: transcript.to_string(),
             style: SessionStyle::Live,
+            source_session_id: None,
         })
         .await
         .map_err(|err| format!("command rejected: {err}"))?;

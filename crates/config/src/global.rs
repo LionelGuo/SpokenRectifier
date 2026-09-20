@@ -2,16 +2,15 @@
 //! file with a single `directive` key — not a layered config layer, and
 //! never a home for secrets.
 //!
-//! A companion file rather than a key inside the scenario library
-//! (ticket 22): `save_scenarios` rewrites its whole model wholesale, so a
-//! shared file would either lose the global key on every library edit or
-//! couple the two save APIs. One file, one owner — a corrupt library
-//! cannot take the directive down with it, and vice versa.
+//! A file, still, after the business data moved into the store
+//! (ADR-0023): the directive is configuration — one value with no
+//! relationships — not business data, so it stays beside the layer files
+//! rather than inside the database. One file, one owner.
 //!
-//! Same tolerance posture as the scenario library: a missing, unparsable,
-//! or blank-directive file reads as "no global directive" (`None`); the
-//! loader never errors and never writes. The save path only ever runs on
-//! a user action (the settings editor's save button).
+//! Same tolerance posture as the rest of the config: a missing,
+//! unparsable, or blank-directive file reads as "no global directive"
+//! (`None`); the loader never errors and never writes. The save path
+//! only ever runs on a user action (the settings editor's save button).
 
 use std::path::PathBuf;
 
@@ -261,35 +260,18 @@ mod tests {
     }
 
     #[test]
-    fn the_scenario_library_and_the_global_file_never_touch_each_other() {
-        // The companion-file contract: a library save rewrites only the
-        // library, a directive save rewrites only the directive file.
+    fn a_directive_save_rewrites_only_the_directive_file() {
+        // The directive file is a file precisely because it is config,
+        // not business data (ADR-0023 took the library and the terms to
+        // the store); its writes must stay contained to their own file.
         let dir = scratch("sr-global-companion");
-        std::fs::write(
-            dir.join(crate::scenarios::SCENARIO_FILE),
-            "[[scenario]]\nname = \"论文\"\ndirective = \"学术书面语\"\n",
-        )
-        .unwrap();
+        std::fs::write(dir.join("spokenrectifier-scenarios.toml"), "not this one\n").unwrap();
 
         save_global_directive(std::slice::from_ref(&dir), Some("全局")).unwrap();
         assert_eq!(
-            std::fs::read_to_string(dir.join(crate::scenarios::SCENARIO_FILE)).unwrap(),
-            "[[scenario]]\nname = \"论文\"\ndirective = \"学术书面语\"\n",
-            "a directive save must not rewrite the library"
-        );
-
-        crate::scenarios::save_scenarios(
-            std::slice::from_ref(&dir),
-            &[crate::scenarios::Scenario {
-                name: "聊天".into(),
-                directive: "轻松".into(),
-            }],
-        )
-        .unwrap();
-        assert_eq!(
-            load_global_directive(std::slice::from_ref(&dir)).as_deref(),
-            Some("全局"),
-            "a library save must not lose the global directive"
+            std::fs::read_to_string(dir.join("spokenrectifier-scenarios.toml")).unwrap(),
+            "not this one\n",
+            "a directive save must not rewrite a neighboring file"
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

@@ -10,6 +10,15 @@
 pub struct RecordedSession {
     pub raw_transcript: String,
     pub rectified_text: String,
+    /// The scenario NAME the session ran under, if any — a pass-through:
+    /// the engine ferries the shell's selection without interpreting it
+    /// (it knows directive text, not library semantics), and the store
+    /// resolves the name to a scenario id; a name that no longer resolves
+    /// records as 未选场景.
+    pub scenario: Option<String>,
+    /// The store id of the session this one re-ran from, if any — also a
+    /// pass-through; a source row that no longer exists records as none.
+    pub source_session_id: Option<i64>,
 }
 
 /// Receiver of finished sessions. Absent from [`crate::EngineDeps`]

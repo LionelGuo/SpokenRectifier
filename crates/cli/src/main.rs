@@ -263,7 +263,10 @@ async fn run() -> Result<(), String> {
             Step::StyleDirective(directive) => {
                 println!(">> SetStyleDirective({directive:?})");
                 engine
-                    .execute(Command::SetStyleDirective(directive.clone()))
+                    .execute(Command::SetStyleDirective {
+                        directive: directive.clone(),
+                        scenario: None,
+                    })
                     .await
             }
             Step::Say(text) => {

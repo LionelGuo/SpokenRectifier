@@ -10,7 +10,7 @@ members = [
     "crates/tencent",
     "crates/cli",
     "crates/eval",
-    "crates/history",
+    "crates/store",
     "crates/insertion",
     "crates/llm",
     "app/rust",

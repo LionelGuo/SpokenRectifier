@@ -1429,6 +1429,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_i_64(raw);
+  }
+
+  @protected
   BridgeAbout dco_decode_bridge_about(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1611,6 +1617,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 6:
         return BridgeCommand_SetStyleDirective(
           directive: dco_decode_opt_String(raw[1]),
+          scenario: dco_decode_opt_String(raw[2]),
         );
       case 7:
         return BridgeCommand_SetGlobalDirective(
@@ -1630,6 +1637,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         return BridgeCommand_RectifyText(
           rawTranscript: dco_decode_String(raw[1]),
           style: dco_decode_box_autoadd_bridge_session_style(raw[2]),
+          sourceSessionId: dco_decode_opt_box_autoadd_i_64(raw[3]),
         );
       default:
         throw Exception("unreachable");
@@ -1963,11 +1971,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BridgeScenario dco_decode_bridge_scenario(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return BridgeScenario(
-      name: dco_decode_String(arr[0]),
-      directive: dco_decode_String(arr[1]),
+      id: dco_decode_opt_box_autoadd_i_64(arr[0]),
+      name: dco_decode_String(arr[1]),
+      directive: dco_decode_String(arr[2]),
     );
   }
 
@@ -1984,7 +1993,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 0:
         return BridgeSessionStyle_Live();
       case 1:
-        return BridgeSessionStyle_Directive(text: dco_decode_String(raw[1]));
+        return BridgeSessionStyle_Directive(
+          text: dco_decode_String(raw[1]),
+          scenario: dco_decode_opt_String(raw[2]),
+        );
       case 2:
         return BridgeSessionStyle_DefaultRegister();
       default:
@@ -2086,6 +2098,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_i_64(raw);
   }
 
   @protected
@@ -2195,6 +2213,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_bridge_session_style(deserializer));
+  }
+
+  @protected
+  PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_i_64(deserializer));
   }
 
   @protected
@@ -2392,7 +2416,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         return BridgeCommand_UpdatePreviewText(text: var_text);
       case 6:
         var var_directive = sse_decode_opt_String(deserializer);
-        return BridgeCommand_SetStyleDirective(directive: var_directive);
+        var var_scenario = sse_decode_opt_String(deserializer);
+        return BridgeCommand_SetStyleDirective(
+          directive: var_directive,
+          scenario: var_scenario,
+        );
       case 7:
         var var_directive = sse_decode_opt_String(deserializer);
         return BridgeCommand_SetGlobalDirective(directive: var_directive);
@@ -2415,9 +2443,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_style = sse_decode_box_autoadd_bridge_session_style(
           deserializer,
         );
+        var var_sourceSessionId = sse_decode_opt_box_autoadd_i_64(deserializer);
         return BridgeCommand_RectifyText(
           rawTranscript: var_rawTranscript,
           style: var_style,
+          sourceSessionId: var_sourceSessionId,
         );
       default:
         throw UnimplementedError('');
@@ -2811,9 +2841,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   BridgeScenario sse_decode_bridge_scenario(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_name = sse_decode_String(deserializer);
     var var_directive = sse_decode_String(deserializer);
-    return BridgeScenario(name: var_name, directive: var_directive);
+    return BridgeScenario(id: var_id, name: var_name, directive: var_directive);
   }
 
   @protected
@@ -2837,7 +2868,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         return BridgeSessionStyle_Live();
       case 1:
         var var_text = sse_decode_String(deserializer);
-        return BridgeSessionStyle_Directive(text: var_text);
+        var var_scenario = sse_decode_opt_String(deserializer);
+        return BridgeSessionStyle_Directive(
+          text: var_text,
+          scenario: var_scenario,
+        );
       case 2:
         return BridgeSessionStyle_DefaultRegister();
       default:
@@ -3006,6 +3041,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_i_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
@@ -3135,6 +3181,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_bridge_session_style(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_i_64(
+    PlatformInt64 self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self, serializer);
   }
 
   @protected
@@ -3291,9 +3346,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case BridgeCommand_UpdatePreviewText(text: final text):
         sse_encode_i_32(5, serializer);
         sse_encode_String(text, serializer);
-      case BridgeCommand_SetStyleDirective(directive: final directive):
+      case BridgeCommand_SetStyleDirective(
+        directive: final directive,
+        scenario: final scenario,
+      ):
         sse_encode_i_32(6, serializer);
         sse_encode_opt_String(directive, serializer);
+        sse_encode_opt_String(scenario, serializer);
       case BridgeCommand_SetGlobalDirective(directive: final directive):
         sse_encode_i_32(7, serializer);
         sse_encode_opt_String(directive, serializer);
@@ -3314,10 +3373,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case BridgeCommand_RectifyText(
         rawTranscript: final rawTranscript,
         style: final style,
+        sourceSessionId: final sourceSessionId,
       ):
         sse_encode_i_32(11, serializer);
         sse_encode_String(rawTranscript, serializer);
         sse_encode_box_autoadd_bridge_session_style(style, serializer);
+        sse_encode_opt_box_autoadd_i_64(sourceSessionId, serializer);
     }
   }
 
@@ -3631,6 +3692,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_i_64(self.id, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_String(self.directive, serializer);
   }
@@ -3653,9 +3715,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     switch (self) {
       case BridgeSessionStyle_Live():
         sse_encode_i_32(0, serializer);
-      case BridgeSessionStyle_Directive(text: final text):
+      case BridgeSessionStyle_Directive(
+        text: final text,
+        scenario: final scenario,
+      ):
         sse_encode_i_32(1, serializer);
         sse_encode_String(text, serializer);
+        sse_encode_opt_String(scenario, serializer);
       case BridgeSessionStyle_DefaultRegister():
         sse_encode_i_32(2, serializer);
     }
@@ -3811,6 +3877,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_64(
+    PlatformInt64? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_i_64(self, serializer);
     }
   }
 

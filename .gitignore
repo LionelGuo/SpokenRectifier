@@ -4,6 +4,9 @@
 # Local session history database (dev runs create it in the working directory)
 spokenrectifier-history.db
 
+# Local business store database (dev runs create it in the working directory)
+spokenrectifier-store.db
+
 # Personal hotword dictionary (one term per line; force-add to share one)
 spokenrectifier-terms.txt
 

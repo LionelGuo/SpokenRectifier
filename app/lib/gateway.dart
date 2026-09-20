@@ -4,6 +4,8 @@
 
 library;
 
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
+    show PlatformInt64;
 import 'src/rust/api.dart' as rust;
 
 import 'app_state.dart';
@@ -40,10 +42,12 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
   Future<void> rectifyText(
     String rawTranscript, {
     required rust.BridgeSessionStyle style,
+    PlatformInt64? sourceSessionId,
   }) => rust.execute(
     command: rust.BridgeCommand.rectifyText(
       rawTranscript: rawTranscript,
       style: style,
+      sourceSessionId: sourceSessionId,
     ),
   );
 
@@ -51,9 +55,13 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
   Future<List<rust.BridgeScenario>> scenarios() => rust.scenarios();
 
   @override
-  Future<void> setStyleDirective(String? directive) => rust.execute(
-    command: rust.BridgeCommand.setStyleDirective(directive: directive),
-  );
+  Future<void> setStyleDirective(String? directive, {String? scenario}) =>
+      rust.execute(
+        command: rust.BridgeCommand.setStyleDirective(
+          directive: directive,
+          scenario: scenario,
+        ),
+      );
 
   @override
   Future<String?> globalDirective() => rust.globalDirective();

@@ -1683,8 +1683,10 @@ impl SseDecode for crate::api::BridgeCommand {
             }
             6 => {
                 let mut var_directive = <Option<String>>::sse_decode(deserializer);
+                let mut var_scenario = <Option<String>>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::SetStyleDirective {
                     directive: var_directive,
+                    scenario: var_scenario,
                 };
             }
             7 => {
@@ -1713,9 +1715,11 @@ impl SseDecode for crate::api::BridgeCommand {
             11 => {
                 let mut var_rawTranscript = <String>::sse_decode(deserializer);
                 let mut var_style = <crate::api::BridgeSessionStyle>::sse_decode(deserializer);
+                let mut var_sourceSessionId = <Option<i64>>::sse_decode(deserializer);
                 return crate::api::BridgeCommand::RectifyText {
                     raw_transcript: var_rawTranscript,
                     style: var_style,
+                    source_session_id: var_sourceSessionId,
                 };
             }
             _ => {
@@ -2154,9 +2158,11 @@ impl SseDecode for crate::api::BridgeRectifyBehavior {
 impl SseDecode for crate::api::BridgeScenario {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <Option<i64>>::sse_decode(deserializer);
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_directive = <String>::sse_decode(deserializer);
         return crate::api::BridgeScenario {
+            id: var_id,
             name: var_name,
             directive: var_directive,
         };
@@ -2189,7 +2195,11 @@ impl SseDecode for crate::api::BridgeSessionStyle {
             }
             1 => {
                 let mut var_text = <String>::sse_decode(deserializer);
-                return crate::api::BridgeSessionStyle::Directive { text: var_text };
+                let mut var_scenario = <Option<String>>::sse_decode(deserializer);
+                return crate::api::BridgeSessionStyle::Directive {
+                    text: var_text,
+                    scenario: var_scenario,
+                };
             }
             2 => {
                 return crate::api::BridgeSessionStyle::DefaultRegister;
@@ -2347,6 +2357,17 @@ impl SseDecode for Option<String> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<String>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<i64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<i64>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -2708,9 +2729,15 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
             crate::api::BridgeCommand::UpdatePreviewText { text } => {
                 [5.into_dart(), text.into_into_dart().into_dart()].into_dart()
             }
-            crate::api::BridgeCommand::SetStyleDirective { directive } => {
-                [6.into_dart(), directive.into_into_dart().into_dart()].into_dart()
-            }
+            crate::api::BridgeCommand::SetStyleDirective {
+                directive,
+                scenario,
+            } => [
+                6.into_dart(),
+                directive.into_into_dart().into_dart(),
+                scenario.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
             crate::api::BridgeCommand::SetGlobalDirective { directive } => {
                 [7.into_dart(), directive.into_into_dart().into_dart()].into_dart()
             }
@@ -2732,10 +2759,12 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeCommand {
             crate::api::BridgeCommand::RectifyText {
                 raw_transcript,
                 style,
+                source_session_id,
             } => [
                 11.into_dart(),
                 raw_transcript.into_into_dart().into_dart(),
                 style.into_into_dart().into_dart(),
+                source_session_id.into_into_dart().into_dart(),
             ]
             .into_dart(),
             _ => {
@@ -3234,6 +3263,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeRectifyBehavior>
 impl flutter_rust_bridge::IntoDart for crate::api::BridgeScenario {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.id.into_into_dart().into_dart(),
             self.name.into_into_dart().into_dart(),
             self.directive.into_into_dart().into_dart(),
         ]
@@ -3276,9 +3306,12 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeSessionStyle {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
             crate::api::BridgeSessionStyle::Live => [0.into_dart()].into_dart(),
-            crate::api::BridgeSessionStyle::Directive { text } => {
-                [1.into_dart(), text.into_into_dart().into_dart()].into_dart()
-            }
+            crate::api::BridgeSessionStyle::Directive { text, scenario } => [
+                1.into_dart(),
+                text.into_into_dart().into_dart(),
+                scenario.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
             crate::api::BridgeSessionStyle::DefaultRegister => [2.into_dart()].into_dart(),
             _ => {
                 unimplemented!("");
@@ -3476,9 +3509,13 @@ impl SseEncode for crate::api::BridgeCommand {
                 <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(text, serializer);
             }
-            crate::api::BridgeCommand::SetStyleDirective { directive } => {
+            crate::api::BridgeCommand::SetStyleDirective {
+                directive,
+                scenario,
+            } => {
                 <i32>::sse_encode(6, serializer);
                 <Option<String>>::sse_encode(directive, serializer);
+                <Option<String>>::sse_encode(scenario, serializer);
             }
             crate::api::BridgeCommand::SetGlobalDirective { directive } => {
                 <i32>::sse_encode(7, serializer);
@@ -3504,10 +3541,12 @@ impl SseEncode for crate::api::BridgeCommand {
             crate::api::BridgeCommand::RectifyText {
                 raw_transcript,
                 style,
+                source_session_id,
             } => {
                 <i32>::sse_encode(11, serializer);
                 <String>::sse_encode(raw_transcript, serializer);
                 <crate::api::BridgeSessionStyle>::sse_encode(style, serializer);
+                <Option<i64>>::sse_encode(source_session_id, serializer);
             }
             _ => {
                 unimplemented!("");
@@ -3813,6 +3852,7 @@ impl SseEncode for crate::api::BridgeRectifyBehavior {
 impl SseEncode for crate::api::BridgeScenario {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<i64>>::sse_encode(self.id, serializer);
         <String>::sse_encode(self.name, serializer);
         <String>::sse_encode(self.directive, serializer);
     }
@@ -3845,9 +3885,10 @@ impl SseEncode for crate::api::BridgeSessionStyle {
             crate::api::BridgeSessionStyle::Live => {
                 <i32>::sse_encode(0, serializer);
             }
-            crate::api::BridgeSessionStyle::Directive { text } => {
+            crate::api::BridgeSessionStyle::Directive { text, scenario } => {
                 <i32>::sse_encode(1, serializer);
                 <String>::sse_encode(text, serializer);
+                <Option<String>>::sse_encode(scenario, serializer);
             }
             crate::api::BridgeSessionStyle::DefaultRegister => {
                 <i32>::sse_encode(2, serializer);
@@ -3986,6 +4027,16 @@ impl SseEncode for Option<String> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <String>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<i64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <i64>::sse_encode(value, serializer);
         }
     }
 }

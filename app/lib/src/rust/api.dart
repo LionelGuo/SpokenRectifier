@@ -45,11 +45,17 @@ Future<void> execute({required BridgeCommand command}) =>
 /// virtual-key codes of the current main-flow chord. Returns whether a
 /// watch is now live — Dart swallows `WM_HOTKEY` repeats off that.
 ///
-/// A quiet `false` (never an error) when the master switch is off, the
-/// engine is not recording, or `vks` is empty: Dart then keeps today's
-/// tap path. `stop_on_early_release` is the later press while already
-/// recording (today's tap-to-stop); the opening hold that started the
-/// session passes false so a short release keeps recording.
+/// Arms for every primary-hotkey session, master switch on or off: the
+/// watch owns the chord's release either way, so the auto-repeats of one
+/// physical hold can never toggle the session (a switch-off hold used to
+/// flicker start/stop through today's tap path). Whether the 400 ms mark
+/// upgrades is the engine's call — with the switch off it refuses
+/// `MarkQuick`, `is_quick()` stays false, and the hold ends as an
+/// ordinary one (a short release keeps recording). A quiet `false`
+/// (never an error) when the engine is not recording or `vks` is empty.
+/// `stop_on_early_release` is the later press while already recording
+/// (today's tap-to-stop); the opening hold that started the session
+/// passes false so a short release keeps recording.
 ///
 /// Independent of [`execute`] / `StartSession`: the orb click shares
 /// that command and must not start a watch (球左键不跟).
@@ -79,38 +85,37 @@ Future<bool> passageMode() => RustLib.instance.api.crateApiPassageMode();
 /// cancel-path restore. No-op on the fake engine.
 Future<void> restoreFocus() => RustLib.instance.api.crateApiRestoreFocus();
 
-/// The hotword dictionary as it stands now, in file order — the quick
-/// panel's term chips. File-level, engine-independent (the engine
-/// re-reads the file when the next session opens, which is what makes a
+/// The hotword dictionary as it stands now, in stored order — the quick
+/// panel's term chips. Store-level, engine-independent (the engine
+/// re-reads the table when the next session opens, which is what makes a
 /// quick-added term live for that session).
 Future<List<String>> termsList() => RustLib.instance.api.crateApiTermsList();
 
-/// Quick-add one term to the dictionary (idempotent; blank rejected).
-/// See [`spokenrectifier_config::terms::append_term`] for the placement
-/// and repair rules.
+/// Quick-add one term to the dictionary (idempotent; blank rejected;
+/// appended at the end of the order).
 Future<void> appendTerm({required String term}) =>
     RustLib.instance.api.crateApiAppendTerm(term: term);
 
-/// Remove a term from the dictionary (a no-op when absent).
+/// Remove a term from the dictionary (a no-op when absent; the positions
+/// close the gap inside the same transaction).
 Future<void> removeTerm({required String term}) =>
     RustLib.instance.api.crateApiRemoveTerm(term: term);
 
 /// The scenario library (场景库): user-named style directives from the
-/// app-owned `spokenrectifier-scenarios.toml`. A missing or corrupt file
-/// reads as an empty library — this never errors and never writes. The
-/// shell paints its pickers from the list and resolves the selected
-/// entry's directive text itself (selection lives app-side, never
-/// persisted; ADR-0004).
+/// store, in editor order. The shell paints its pickers from the list
+/// and resolves the selected entry's directive text itself (selection
+/// lives app-side, never persisted; ADR-0004).
 Future<List<BridgeScenario>> scenarios() =>
     RustLib.instance.api.crateApiScenarios();
 
 /// Save the whole scenario library — the settings editor's model,
-/// wholesale — into the file the loader resolves (created in the app's
-/// settings home when no library exists yet). File-level and
-/// engine-independent like [`scenarios`]: the pickers re-read the library
-/// after a save; the selected scenario's directive rides the next
-/// `SetStyleDirective` as usual. Only ever runs on a user action (the
-/// editor's add/edit/delete), never on load.
+/// wholesale — into the store: one transaction that updates identified
+/// rows in place (a rename keeps its identity and its history
+/// references), inserts the new ones, deletes the rest. Store-level and
+/// engine-independent like [`scenarios`]: the pickers re-read the
+/// library after a save; the selected scenario's directive rides the
+/// next `SetStyleDirective` as usual. Only ever runs on a user action
+/// (the editor's add/edit/delete), never on load.
 Future<void> saveScenarios({required List<BridgeScenario> scenarios}) =>
     RustLib.instance.api.crateApiSaveScenarios(scenarios: scenarios);
 
@@ -140,12 +145,14 @@ Future<List<String>> insertedTexts() =>
     RustLib.instance.api.crateApiInsertedTexts();
 
 /// The most recent stored sessions, newest first — the history panel's
-/// content. Empty in the keep-nothing mode (and on the fake engine).
+/// content, read through the sessions⋈scenarios view. Empty in the
+/// keep-nothing mode (and on the fake engine's ephemeral store).
 Future<List<BridgeHistoryEntry>> historyList() =>
     RustLib.instance.api.crateApiHistoryList();
 
-/// Remove every stored session — the tray's one-click clear. A no-op in
-/// the keep-nothing mode.
+/// Remove every stored session — the tray's one-click clear (the
+/// placeholders go with them, by CASCADE). A no-op in the keep-nothing
+/// mode.
 Future<void> historyClear() => RustLib.instance.api.crateApiHistoryClear();
 
 /// The effective `[history]` settings from the layer files — the
@@ -157,8 +164,10 @@ Future<BridgeHistoryConfig> historyConfig() =>
 /// once (the settings window's 保留期 / 不留存 controls): the file edit
 /// is section-preserving in the layer that owns the effective values,
 /// and the store adopts the new config immediately — a tightened
-/// retention sweeps at once, keep-nothing wipes, and turning it back on
-/// resumes recording. Returns the re-read effective config.
+/// retention sweeps at once, keep-nothing clears the sessions rows (the
+/// database itself stays, as the scenarios' and terms' home), and
+/// turning it back on resumes recording. Returns the re-read effective
+/// config.
 Future<BridgeHistoryConfig> setHistoryConfig({
   required bool enabled,
   required BigInt retentionDays,
@@ -263,8 +272,7 @@ Future<BridgeRectifyBehavior> setRectifyBehavior({
 
 /// Rename a term in the dictionary, in place (the settings editor's 改;
 /// the quick panel's quick-add and quick-remove stay the same calls).
-/// See [`spokenrectifier_config::terms::update_term`] for the placement
-/// and collision rules.
+/// Renaming onto a held spelling is refused.
 Future<void> updateTerm({required String old, required String new_}) =>
     RustLib.instance.api.crateApiUpdateTerm(old: old, new_: new_);
 
@@ -707,11 +715,14 @@ sealed class BridgeCommand with _$BridgeCommand {
   const factory BridgeCommand.updatePreviewText({required String text}) =
       BridgeCommand_UpdatePreviewText;
 
-  /// The selected scenario's style-directive text; `None` returns to
-  /// the built-in default register. The engine knows nothing about
-  /// scenario names.
-  const factory BridgeCommand.setStyleDirective({String? directive}) =
-      BridgeCommand_SetStyleDirective;
+  /// The selected scenario's style-directive text and its name (a
+  /// pass-through pair the engine carries without interpreting; the
+  /// store resolves the name when the session is recorded); `None`
+  /// returns to the built-in default register.
+  const factory BridgeCommand.setStyleDirective({
+    String? directive,
+    String? scenario,
+  }) = BridgeCommand_SetStyleDirective;
 
   /// The global directive's text (ticket 22; the engine knows nothing
   /// about where it is stored); `None` unsets it. A live value read at
@@ -743,9 +754,12 @@ sealed class BridgeCommand with _$BridgeCommand {
   /// History retrieval re-running a past utterance (see `RectifyText`).
   /// `style` pins the session's one-time style pick (ticket 23's named
   /// scenarios, ticket 28's 默认); `Live` runs under the live selection.
+  /// `source_session_id` names the history row being re-run (another
+  /// pass-through: the store records it as the new session's 来源会话).
   const factory BridgeCommand.rectifyText({
     required String rawTranscript,
     required BridgeSessionStyle style,
+    PlatformInt64? sourceSessionId,
   }) = BridgeCommand_RectifyText;
 }
 
@@ -1434,21 +1448,25 @@ class BridgeRectifyBehavior {
 }
 
 /// Dart-side mirror of one scenario (场景): a user-named style directive
-/// from the scenario library.
+/// from the scenario library. `id` carries the table row's identity —
+/// `None` only on an entry the editor has not saved yet — so a rename
+/// keeps it and the history rows referencing the scenario with it.
 class BridgeScenario {
+  final PlatformInt64? id;
   final String name;
   final String directive;
 
-  const BridgeScenario({required this.name, required this.directive});
+  const BridgeScenario({this.id, required this.name, required this.directive});
 
   @override
-  int get hashCode => name.hashCode ^ directive.hashCode;
+  int get hashCode => id.hashCode ^ name.hashCode ^ directive.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is BridgeScenario &&
           runtimeType == other.runtimeType &&
+          id == other.id &&
           name == other.name &&
           directive == other.directive;
 }
@@ -1468,8 +1486,13 @@ sealed class BridgeSessionStyle with _$BridgeSessionStyle {
   const BridgeSessionStyle._();
 
   const factory BridgeSessionStyle.live() = BridgeSessionStyle_Live;
-  const factory BridgeSessionStyle.directive({required String text}) =
-      BridgeSessionStyle_Directive;
+
+  /// `scenario` is the pick's name (a pass-through; `None` for a
+  /// directive pinned without a library entry).
+  const factory BridgeSessionStyle.directive({
+    required String text,
+    String? scenario,
+  }) = BridgeSessionStyle_Directive;
   const factory BridgeSessionStyle.defaultRegister() =
       BridgeSessionStyle_DefaultRegister;
 }

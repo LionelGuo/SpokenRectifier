@@ -16,6 +16,8 @@ import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
+    show PlatformInt64Util;
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart' show MethodCall;
 
@@ -165,9 +167,13 @@ class DesktopSettingsWindow {
         final style = args?['defaultRegister'] == true
             ? const DefaultRegisterPick()
             : NamedScenarioPick(args?['scenario'] as String? ?? '');
+        final sourceId = args?['sourceId'] as int?;
         await _controller.rerectifyHistory(
           args?['raw'] as String? ?? '',
           style: style,
+          sourceSessionId: sourceId == null
+              ? null
+              : PlatformInt64Util.from(sourceId),
         );
       case 'terms-changed':
         // The terms domain edited the dictionary file: the quick panel's

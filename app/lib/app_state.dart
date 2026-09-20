@@ -17,6 +17,8 @@ import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
+    show PlatformInt64;
 
 import 'src/design/tokens.dart' show SrGeometry, SrMotion;
 import 'src/errors.dart';
@@ -39,9 +41,10 @@ abstract class SpeechEngineGateway {
   Future<void> rectifyText(
     String rawTranscript, {
     required BridgeSessionStyle style,
+    PlatformInt64? sourceSessionId,
   });
   Future<List<BridgeScenario>> scenarios();
-  Future<void> setStyleDirective(String? directive);
+  Future<void> setStyleDirective(String? directive, {String? scenario});
   Future<String?> globalDirective();
   Future<void> setGlobalDirective(String? directive);
   Future<bool> passageMode();
@@ -687,7 +690,9 @@ class SpeechController extends ChangeNotifier {
     selectedScenario = name;
     notifyListeners();
     try {
-      await gateway.setStyleDirective(_directiveOf(name));
+      // The name rides beside its directive (a pass-through the store
+      // resolves when the session is recorded).
+      await gateway.setStyleDirective(_directiveOf(name), scenario: name);
     } catch (e) {
       logRawError('err_scenario_switch', e);
       _setLastError('切换失败');
@@ -860,6 +865,7 @@ class SpeechController extends ChangeNotifier {
   Future<void> rerectifyHistory(
     String rawTranscript, {
     required ScenarioPick style,
+    PlatformInt64? sourceSessionId,
   }) async {
     final BridgeSessionStyle bridgeStyle;
     ScenarioPick? chipPick = style;
@@ -871,13 +877,22 @@ class SpeechController extends ChangeNotifier {
         if (directive == null) {
           bridgeStyle = BridgeSessionStyle.live();
         } else {
-          bridgeStyle = BridgeSessionStyle.directive(text: directive);
+          // The pin carries the scenario's name beside its directive,
+          // so the recorded session names the scenario it ran under.
+          bridgeStyle = BridgeSessionStyle.directive(
+            text: directive,
+            scenario: name,
+          );
         }
         chipPick = directive == null ? null : NamedScenarioPick(name);
     }
     oneTimeStyle = chipPick;
     try {
-      await gateway.rectifyText(rawTranscript, style: bridgeStyle);
+      await gateway.rectifyText(
+        rawTranscript,
+        style: bridgeStyle,
+        sourceSessionId: sourceSessionId,
+      );
     } catch (e) {
       oneTimeStyle = null;
       logRawError('err_reroll', e);

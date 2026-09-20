@@ -19,7 +19,7 @@ spokenrectifier-audio = { path = "../../crates/audio" }
 spokenrectifier-config = { path = "../../crates/config" }
 spokenrectifier-engine = { path = "../../crates/engine" }
 spokenrectifier-eval = { path = "../../crates/eval" }
-spokenrectifier-history = { path = "../../crates/history" }
+spokenrectifier-store = { path = "../../crates/store" }
 spokenrectifier-insertion = { path = "../../crates/insertion" }
 spokenrectifier-llm = { path = "../../crates/llm" }
 spokenrectifier-tencent = { path = "../../crates/tencent" }

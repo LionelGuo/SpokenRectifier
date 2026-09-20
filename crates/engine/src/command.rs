@@ -14,8 +14,13 @@ pub enum SessionStyle {
     Live,
     /// Pinned to a directive text for this session's lifetime: rerolls
     /// keep it, the session ends with it, and the live selection applies
-    /// again afterwards.
-    Directive(String),
+    /// again afterwards. `scenario` names the pick (a pass-through the
+    /// engine never interprets; the store resolves it to a scenario id)
+    /// and is `None` for a directive pinned without a library entry.
+    Directive {
+        text: String,
+        scenario: Option<String>,
+    },
     /// Pinned to the built-in default register for this session's
     /// lifetime (指定场景重新修正's 默认 item): the live selection is
     /// ignored and requests carry no style directive at all —
@@ -41,6 +46,10 @@ pub enum Command {
     RectifyText {
         raw_transcript: String,
         style: SessionStyle,
+        /// The store id of the history entry being re-run, if any (a
+        /// pass-through: the store records it as the new session's
+        /// 来源会话; `None` when the caller has no row to name).
+        source_session_id: Option<i64>,
     },
     /// End the recording session and start rectifying (hotkey press again).
     StopSession,
@@ -87,9 +96,15 @@ pub enum Command {
     UpdatePreviewText(String),
     /// Set the style-directive text for the next rectify — a selected
     /// scenario's resolved directive (the engine knows nothing about
-    /// scenario names). `None` returns to the built-in default register.
-    /// Valid any time.
-    SetStyleDirective(Option<String>),
+    /// scenario semantics: it carries the pair without interpreting it).
+    /// `None` returns to the built-in default register. `scenario` is
+    /// the selection's name riding beside its directive (the store
+    /// resolves it to a scenario id when the session is recorded);
+    /// a blank directive clears both. Valid any time.
+    SetStyleDirective {
+        directive: Option<String>,
+        scenario: Option<String>,
+    },
     /// Set the global directive's text (ticket 22; the engine knows
     /// nothing about where it is stored). `None` unsets it. Unlike the
     /// one-time style override, the global directive is a live value read

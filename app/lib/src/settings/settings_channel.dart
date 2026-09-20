@@ -15,6 +15,8 @@ import 'dart:async' show unawaited;
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
+    show PlatformInt64;
 import 'package:flutter/services.dart' show MethodCall;
 import 'package:window_manager/window_manager.dart' show windowManager;
 
@@ -71,10 +73,11 @@ abstract class SettingsChannel {
   /// window runs the utterance through the same rectify path the quick
   /// panel's rows use. [scenario] optionally names a one-time scenario
   /// (ticket 23): that session alone runs under it, the live selection
-  /// stays untouched.
+  /// stays untouched. [sourceSessionId] names the row being re-run.
   Future<void> sendHistoryRerectify(
     String rawTranscript, {
     required ScenarioPick style,
+    required PlatformInt64? sourceSessionId,
   });
 
   /// The dictionary changed on disk (the terms domain's add/rename/
@@ -165,6 +168,7 @@ class DesktopSettingsChannel implements SettingsChannel {
   Future<void> sendHistoryRerectify(
     String rawTranscript, {
     required ScenarioPick style,
+    required PlatformInt64? sourceSessionId,
   }) => _send('history-rerectify', {
     'raw': rawTranscript,
     // The pick rides as one discriminator key: a scenario's name, or
@@ -172,6 +176,7 @@ class DesktopSettingsChannel implements SettingsChannel {
     // collide with the flag.
     if (style is NamedScenarioPick) 'scenario': style.name,
     if (style is DefaultRegisterPick) 'defaultRegister': true,
+    if (sourceSessionId != null) 'sourceId': sourceSessionId.toInt(),
   });
 
   @override

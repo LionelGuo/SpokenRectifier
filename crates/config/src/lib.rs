@@ -169,7 +169,7 @@ fn read_layer_file(path: &Path) -> Result<Option<toml::Table>, ConfigError> {
             return Err(ConfigError(format!(
                 "{}: cannot read layer file: {err}",
                 path.display()
-            )))
+            )));
         }
     };
     let table = toml::from_str(&text).map_err(|err| {
@@ -540,11 +540,7 @@ mod tests {
     #[test]
     fn a_vanished_layer_file_reads_as_absent() {
         let dir = scratch("sr-config-vanished");
-        assert!(
-            read_layer_file(&dir.join(LOCAL_FILE))
-                .unwrap()
-                .is_none()
-        );
+        assert!(read_layer_file(&dir.join(LOCAL_FILE)).unwrap().is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

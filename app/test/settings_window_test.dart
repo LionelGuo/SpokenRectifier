@@ -21,6 +21,8 @@ import 'dart:io';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey, SystemChannels;
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
+    show PlatformInt64;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_state.dart';
@@ -744,7 +746,9 @@ class FakeSettingsChannel implements SettingsChannel {
   Future<void> sendHistoryRerectify(
     String rawTranscript, {
     required ScenarioPick style,
-  }) async => rerectifies.add((raw: rawTranscript, style: style));
+    required PlatformInt64? sourceSessionId,
+  }) async =>
+      rerectifies.add((raw: rawTranscript, style: style));
 
   @override
   Future<void> sendTermsChanged() async => termsChanged++;

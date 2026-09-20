@@ -140,6 +140,7 @@ async fn history_re_rectify_reads_the_dictionary_fresh() {
         Command::RectifyText {
             raw_transcript: "再修一遍的原话".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         },
     )
     .await;
@@ -155,6 +156,7 @@ async fn history_re_rectify_reads_the_dictionary_fresh() {
         Command::RectifyText {
             raw_transcript: "再修一遍的原话".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         },
     )
     .await;

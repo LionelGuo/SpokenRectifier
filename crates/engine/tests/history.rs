@@ -34,6 +34,8 @@ fn pair(raw: &str, rectified: &str) -> RecordedSession {
     RecordedSession {
         raw_transcript: raw.to_string(),
         rectified_text: rectified.to_string(),
+        scenario: None,
+        source_session_id: None,
     }
 }
 
@@ -135,6 +137,7 @@ async fn rectify_text_runs_the_full_machine_without_a_microphone() {
         Command::RectifyText {
             raw_transcript: "第一段\n不对，第二段".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         },
     )
     .await;
@@ -189,6 +192,7 @@ async fn rectify_text_is_rejected_outside_idle_and_when_empty() {
         .execute(Command::RectifyText {
             raw_transcript: "".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         })
         .await
         .unwrap_err();
@@ -201,6 +205,7 @@ async fn rectify_text_is_rejected_outside_idle_and_when_empty() {
         .execute(Command::RectifyText {
             raw_transcript: "排队的字".into(),
             style: SessionStyle::Live,
+            source_session_id: None,
         })
         .await
         .unwrap_err();

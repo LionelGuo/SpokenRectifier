@@ -199,6 +199,8 @@ async fn quick_with_rectify_off_pastes_the_raw_transcript() {
         vec![RecordedSession {
             raw_transcript: "嗯那个原话".into(),
             rectified_text: "嗯那个原话".into(),
+            scenario: None,
+            source_session_id: None,
         }]
     );
 }

@@ -14,5 +14,6 @@ spokenrectifier-config = { path = "../config" }
 spokenrectifier-engine = { path = "../engine" }
 spokenrectifier-eval = { path = "../eval" }
 spokenrectifier-llm = { path = "../llm" }
+spokenrectifier-store = { path = "../store" }
 tokio.workspace = true
 toml = "0.8"

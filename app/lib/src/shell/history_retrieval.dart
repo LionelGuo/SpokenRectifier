@@ -9,6 +9,9 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
+    show PlatformInt64;
+
 import '../design/tokens.dart';
 import '../rust/api.dart' show BridgeScenario;
 
@@ -48,10 +51,12 @@ class NamedScenarioPick extends ScenarioPick {
 }
 
 /// History retrieval handed up to the main window: the utterance to
-/// re-run, plus the style pick this one session runs under.
+/// re-run, the style pick this one session runs under, and the history
+/// row it re-runs (the new session's 来源会话 when it is recorded).
 typedef HistoryRerectify = Future<void> Function(
   String rawTranscript, {
   required ScenarioPick style,
+  required PlatformInt64? sourceSessionId,
 });
 
 /// Open the scenario picker anchored at the calling button's box (the
