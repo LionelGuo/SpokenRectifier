@@ -31,10 +31,17 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 
   // ADR 0017: receives the card-slot window region ("setRegion",
-  // physical window pixels, or no arguments for the whole window) while
-  // a panel stage holds the window at the panel growth ceiling.
+  // logical window pixels scaled here by the live dpr, or no arguments
+  // for the whole window) while a panel stage holds the window at the
+  // panel growth ceiling, and the physical-faithful seating
+  // ("setBoundsPhysical", ticket 17).
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       hit_channel_;
+
+  // The window's CURRENT dpr straight from the OS (ticket 17): the
+  // Flutter view's devicePixelRatio lags a monitor hop, so every
+  // logical<->physical conversion on this channel uses this instead.
+  double LiveDpr();
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

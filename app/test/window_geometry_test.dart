@@ -324,73 +324,142 @@ void main() {
       const anchor = Offset(1060, 900);
       final ceiling = maxPanelSize(anchor, GrowthDirection.upLeft, wa);
       expect(
-        clampPanelSize(const Size(9999, 9999), anchor, GrowthDirection.upLeft, wa),
+        clampPanelSize(
+          const Size(9999, 9999),
+          anchor,
+          GrowthDirection.upLeft,
+          wa,
+        ),
         ceiling,
       );
     });
 
-    test('the freeze window it implies pins the anchor, on screen, every quadrant', () {
-      // The resize gesture jumps the HWND to panelRectFor(anchor,
-      // maxPanelSize) before growing the card by layout inside it: that
-      // window must itself obey the anchor contract (iron law 1) and the
-      // work area, and contain every smaller panel rect.
-      for (final anchor in const [
-        Offset(1872, 984),
-        Offset(48, 984),
-        Offset(1872, 48),
-        Offset(48, 48),
-      ]) {
-        final dir = chooseGrowthDirection(anchor, wa);
-        final frozen = panelRectFor(anchor, maxPanelSize(anchor, dir, wa), dir);
-        expect(anchorOf(frozen, dir), anchor, reason: 'anchor $anchor');
-        expect(frozen.left, greaterThanOrEqualTo(wa.left));
-        expect(frozen.top, greaterThanOrEqualTo(wa.top));
-        expect(frozen.right, lessThanOrEqualTo(wa.right));
-        expect(frozen.bottom, lessThanOrEqualTo(wa.bottom));
-        // Every clamp-legal panel rect during the gesture sits inside the
-        // frozen window (the slot is that rect shifted by its origin).
-        final mid = clampPanelSize(
-          SrGeometry.panelSize,
-          anchor,
-          dir,
-          wa,
-        );
-        final midRect = panelRectFor(anchor, mid, dir);
-        expect(
-          midRect.left >= frozen.left &&
-              midRect.top >= frozen.top &&
-              midRect.right <= frozen.right &&
-              midRect.bottom <= frozen.bottom,
-          isTrue,
-          reason: 'anchor $anchor',
-        );
-      }
+    test(
+      'the freeze window it implies pins the anchor, on screen, every quadrant',
+      () {
+        // The resize gesture jumps the HWND to panelRectFor(anchor,
+        // maxPanelSize) before growing the card by layout inside it: that
+        // window must itself obey the anchor contract (iron law 1) and the
+        // work area, and contain every smaller panel rect.
+        for (final anchor in const [
+          Offset(1872, 984),
+          Offset(48, 984),
+          Offset(1872, 48),
+          Offset(48, 48),
+        ]) {
+          final dir = chooseGrowthDirection(anchor, wa);
+          final frozen = panelRectFor(
+            anchor,
+            maxPanelSize(anchor, dir, wa),
+            dir,
+          );
+          expect(anchorOf(frozen, dir), anchor, reason: 'anchor $anchor');
+          expect(frozen.left, greaterThanOrEqualTo(wa.left));
+          expect(frozen.top, greaterThanOrEqualTo(wa.top));
+          expect(frozen.right, lessThanOrEqualTo(wa.right));
+          expect(frozen.bottom, lessThanOrEqualTo(wa.bottom));
+          // Every clamp-legal panel rect during the gesture sits inside the
+          // frozen window (the slot is that rect shifted by its origin).
+          final mid = clampPanelSize(SrGeometry.panelSize, anchor, dir, wa);
+          final midRect = panelRectFor(anchor, mid, dir);
+          expect(
+            midRect.left >= frozen.left &&
+                midRect.top >= frozen.top &&
+                midRect.right <= frozen.right &&
+                midRect.bottom <= frozen.bottom,
+            isTrue,
+            reason: 'anchor $anchor',
+          );
+        }
+      },
+    );
+  });
+
+  group('normalizeAreas', () {
+    test('re-normalizes per-monitor reports into one window space', () {
+      // Mixed-DPI desktop (17 号票): a 150% primary beside a 100%
+      // secondary. screen_retriever divides each monitor's rcWork by
+      // ITS OWN factor — rects that tile no single space. One window
+      // dpr (1.5) must re-tile the whole desktop exactly.
+      final areas = normalizeAreas([
+        (reported: Rect.fromLTWH(0, 0, 1920, 1560), scaleFactor: 1.5),
+        (reported: Rect.fromLTWH(2880, 0, 3840, 1560), scaleFactor: 1.0),
+      ], 1.5);
+      expect(areas.physical[0], const Rect.fromLTWH(0, 0, 2880, 2340));
+      expect(areas.physical[1], const Rect.fromLTWH(2880, 0, 3840, 1560));
+      expect(areas.logical[0], const Rect.fromLTWH(0, 0, 1920, 1560));
+      expect(areas.logical[1], const Rect.fromLTWH(1920, 0, 2560, 1040));
+      // Tiling: the secondary picks up exactly where the primary ends
+      // — the dead zone the per-monitor normalization left is gone.
+      expect(areas.logical[1].left, areas.logical[0].right);
+      expect(areas.dpr, 1.5);
+      expect(areas.factors, [1.5, 1.0]);
+    });
+
+    test('a non-positive window dpr degrades to identity', () {
+      final areas = normalizeAreas([
+        (reported: Rect.fromLTWH(0, 0, 1920, 1032), scaleFactor: 1.0),
+      ], 0);
+      expect(areas.logical.single, wa);
+      expect(areas.dpr, 1.0);
     });
   });
 
-  group('anchorRestorable', () {
-    test('an anchor inside a work area restores', () {
-      expect(anchorRestorable(const Offset(1000, 500), [wa]), isTrue);
-    });
+  group('restoreAnchor', () {
+    // A dpr-2 window snapshot of a mixed desktop: the primary's own
+    // factor is 2, the secondary's is 1 — both logical rects share the
+    // window's single divisor (2).
+    const areas = WorkAreas(
+      logical: [
+        Rect.fromLTWH(0, 0, 1920, 1080),
+        Rect.fromLTWH(1920, 0, 1920, 1080),
+      ],
+      physical: [
+        Rect.fromLTWH(0, 0, 3840, 2160),
+        Rect.fromLTWH(3840, 0, 3840, 2160),
+      ],
+      factors: [2.0, 1.0],
+    );
 
-    test('a flush anchor restores (edges count as inside)', () {
+    test('an anchor inside a work area restores in the snapshot space', () {
+      expect(restoreAnchor(const Offset(1000, 500), areas), isNotNull);
+      // The primary's own factor equals the snapshot divisor: identity.
       expect(
-        anchorRestorable(
-          Offset(wa.left + SrGeometry.anchorInset, wa.bottom - 48),
-          [wa],
-        ),
-        isTrue,
+        restoreAnchor(const Offset(1000, 500), areas),
+        const Offset(1000, 500),
       );
     });
 
-    test('an anchor outside every work area does not', () {
-      expect(anchorRestorable(const Offset(3000, 500), [wa]), isFalse);
-      expect(anchorRestorable(const Offset(1000, 500), const []), isFalse);
+    test('a save made on the other monitor revives through its factor', () {
+      // Saved while the window sat on the secondary (divisor 1): the
+      // value IS that monitor's physical coordinates.
+      expect(
+        restoreAnchor(const Offset(5760, 500), areas),
+        const Offset(2880, 250),
+      );
     });
 
-    test('any one monitor suffices', () {
-      final second = Rect.fromLTWH(1920, 0, 1920, 1080);
-      expect(anchorRestorable(const Offset(3000, 500), [wa, second]), isTrue);
+    test('a flush anchor restores (edges count as inside)', () {
+      final flush = Offset(wa.left + SrGeometry.anchorInset, wa.bottom - 48);
+      expect(
+        restoreAnchor(
+          flush,
+          WorkAreas(logical: [wa], physical: [wa], factors: [1.0]),
+        ),
+        flush,
+      );
+    });
+
+    test('an anchor outside every work area discards (不夹紧复活)', () {
+      expect(restoreAnchor(const Offset(9000, 500), areas), isNull);
+      expect(
+        restoreAnchor(
+          const Offset(1000, 500),
+          const WorkAreas(logical: [], physical: []),
+        ),
+        isNull,
+      );
+      expect(restoreAnchor(null, areas), isNull);
     });
   });
 
@@ -426,8 +495,7 @@ void main() {
       expect(size.width, 700 + SrGeometry.anchorInset); // 748 < the 960 half
       // The card lands flush, never off screen.
       expect(
-        panelRectFor(const Offset(700, 900), size, GrowthDirection.upLeft)
-            .left,
+        panelRectFor(const Offset(700, 900), size, GrowthDirection.upLeft).left,
         wa.left,
       );
     });

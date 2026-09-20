@@ -45,7 +45,7 @@ import 'src/settings/system_store.dart';
 import 'src/settings/terms_store.dart';
 import 'src/shell/window_stage.dart' show StageWindow, WindowManagerStageWindow;
 import 'src/shell/window_geometry.dart'
-    show anchorRestorable, areaHolding, defaultAnchor;
+    show restoreAnchor, areaHolding, defaultAnchor;
 import 'hotkey_binding.dart';
 import 'ui_prefs.dart';
 
@@ -93,31 +93,35 @@ Future<void> main(List<String> args) async {
 
   // Ticket 20 restore, decided once: a persisted orb_position comes back
   // only if the WHOLE orb footprint sits inside some current work area
-  // (a display-topology change discards it — 回退默认右下,不夹紧复活).
+  // (a display-topology change discards it — 回退默认右下,不夹紧复活);
+  // the test runs in PHYSICAL pixels, un-scaling per monitor's own
+  // factor, so a save made on any monitor revives exactly (17 号票).
   // panel_size rides as intent only; every open clamps it to what the
   // anchor can host.
   final geo = loadUiGeometry(uiPrefsSearchDirs());
-  final workAreas = await const WindowManagerStageWindow().workAreas();
-  final savedAnchor = geo.orbPosition;
-  final anchorRestored =
-      savedAnchor != null && anchorRestorable(savedAnchor, workAreas);
+  final stageSeat = const WindowManagerStageWindow();
+  final workAreas = await stageSeat.workAreas();
   // The permanent work-area window (16 号票 / ADR-0022): the anchor is
   // decided HERE — restored, or the default that parks the orb 24px
   // inside the primary work area's bottom-right corner (the old
   // setAlignment flow's spot) — so the one footprint→work-area resize
   // lands while the window is still HIDDEN. A visible size change
   // races the engine's present (ADR-0017's stale-surface ghost); a
-  // hidden one cannot compose at all. Null only in the degenerate
-  // no-displays launch, which keeps the legacy alignment fallback.
-  final anchor = anchorRestored
-      ? savedAnchor
-      : workAreas.isNotEmpty
-      ? defaultAnchor(workAreas.first)
-      : null;
+  // hidden one cannot compose at all. The seating itself goes through
+  // the PHYSICAL channel — a logical setBounds would convert through
+  // the boot view's dpr and land wrong on a mixed-DPI secondary (17
+  // 号票). Null anchor only in the degenerate no-displays launch, which
+  // keeps the legacy alignment fallback.
+  final anchor =
+      restoreAnchor(geo.orbPosition, workAreas) ??
+      (workAreas.logical.isNotEmpty
+          ? defaultAnchor(workAreas.logical.first)
+          : null);
 
   await windowManager.waitUntilReadyToShow(options, () async {
     if (anchor != null) {
-      await windowManager.setBounds(areaHolding(anchor, workAreas));
+      final area = areaHolding(anchor, workAreas.logical);
+      await stageSeat.seatBoundsPhysical(workAreas.physicalFor(area));
     } else {
       await windowManager.setAlignment(Alignment.bottomRight);
     }

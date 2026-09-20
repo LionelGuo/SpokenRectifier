@@ -38,6 +38,17 @@ bool FlutterWindow::OnCreate() {
   // HTTRANSPARENT only forwards within one thread -- probed, does not
   // pass). A region change triggers no WM_SIZE, so the engine's EGL
   // surface stays put. No arguments restores the whole window.
+  //
+  // Ticket 17: the rect arrives in LOGICAL window coordinates and is
+  // scaled here by the window's LIVE dpr (GetDpiForWindow) -- a
+  // Dart-side multiplication would ride the Flutter view's dpr, which
+  // lags a monitor hop and put the region outside the seated window
+  // (invisible, unclickable orb). setBoundsPhysical moves the window
+  // in GLOBAL PHYSICAL pixels for the same reason: window_manager's
+  // setBounds converts through that same lagging dpr, which is how a
+  // mixed-DPI monitor crossing used to land the window misplaced. Its
+  // reply reports the landed rect in the POST-move logical space, the
+  // truth Dart adopts.
   hit_channel_ = std::make_unique<flutter::MethodChannel<
       flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), "spokenrectifier/window",
@@ -46,32 +57,73 @@ bool FlutterWindow::OnCreate() {
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) {
-        if (call.method_name() != "setRegion") {
-          result->NotImplemented();
-          return;
-        }
-        HRGN region = nullptr;  // default: the whole window
         const auto* args =
             std::get_if<flutter::EncodableMap>(call.arguments());
-        if (args != nullptr) {
-          const auto left = args->find(flutter::EncodableValue("left"));
-          const auto top = args->find(flutter::EncodableValue("top"));
-          const auto right = args->find(flutter::EncodableValue("right"));
-          const auto bottom = args->find(flutter::EncodableValue("bottom"));
-          if (left != args->end() && top != args->end() &&
-              right != args->end() && bottom != args->end()) {
-            region = CreateRectRgn(
-                static_cast<int>(std::get<int32_t>(left->second)),
-                static_cast<int>(std::get<int32_t>(top->second)),
-                static_cast<int>(std::get<int32_t>(right->second)),
-                static_cast<int>(std::get<int32_t>(bottom->second)));
+        if (call.method_name() == "setRegion") {
+          HRGN region = nullptr;  // default: the whole window
+          if (args != nullptr) {
+            const auto left = args->find(flutter::EncodableValue("left"));
+            const auto top = args->find(flutter::EncodableValue("top"));
+            const auto right = args->find(flutter::EncodableValue("right"));
+            const auto bottom = args->find(flutter::EncodableValue("bottom"));
+            if (left != args->end() && top != args->end() &&
+                right != args->end() && bottom != args->end()) {
+              const double dpr = LiveDpr();
+              const auto scale = [&dpr](const flutter::EncodableValue& v) {
+                const double logical = std::get<double>(v);
+                return static_cast<int>(logical * dpr +
+                                        (logical >= 0 ? 0.5 : -0.5));
+              };
+              region = CreateRectRgn(scale(left->second), scale(top->second),
+                                     scale(right->second),
+                                     scale(bottom->second));
+            }
           }
+          // On success the system owns the region; on failure we do.
+          if (SetWindowRgn(GetHandle(), region, TRUE) == 0 &&
+              region != nullptr) {
+            DeleteObject(region);
+          }
+          result->Success();
+        } else if (call.method_name() == "setBoundsPhysical") {
+          if (args == nullptr) {
+            result->Error("bad_args");
+            return;
+          }
+          const auto read = [&args](const char* key) -> std::optional<int> {
+            const auto it = args->find(flutter::EncodableValue(key));
+            if (it == args->end()) return std::nullopt;
+            return std::get<int32_t>(it->second);
+          };
+          const auto left = read("left");
+          const auto top = read("top");
+          const auto right = read("right");
+          const auto bottom = read("bottom");
+          if (!left || !top || !right || !bottom) {
+            result->Error("bad_args");
+            return;
+          }
+          SetWindowPos(GetHandle(), HWND_TOP, *left, *top, *right - *left,
+                       *bottom - *top, 0);
+          // Report the LANDED rect in the post-move logical space;
+          // GetDpiForWindow already reflects the monitor we just
+          // seated on.
+          RECT rc{};
+          GetWindowRect(GetHandle(), &rc);
+          const double dpr = LiveDpr();
+          flutter::EncodableMap landed;
+          landed[flutter::EncodableValue("left")] =
+              flutter::EncodableValue(rc.left / dpr);
+          landed[flutter::EncodableValue("top")] =
+              flutter::EncodableValue(rc.top / dpr);
+          landed[flutter::EncodableValue("width")] =
+              flutter::EncodableValue((rc.right - rc.left) / dpr);
+          landed[flutter::EncodableValue("height")] =
+              flutter::EncodableValue((rc.bottom - rc.top) / dpr);
+          result->Success(flutter::EncodableValue(landed));
+        } else {
+          result->NotImplemented();
         }
-        // On success the system owns the region; on failure we do.
-        if (SetWindowRgn(GetHandle(), region, TRUE) == 0 && region != nullptr) {
-          DeleteObject(region);
-        }
-        result->Success();
       });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -92,6 +144,11 @@ void FlutterWindow::OnDestroy() {
   }
 
   Win32Window::OnDestroy();
+}
+
+double FlutterWindow::LiveDpr() {
+  const UINT dpi = GetDpiForWindow(GetHandle());
+  return dpi > 0 ? dpi / 96.0 : 1.0;
 }
 
 LRESULT

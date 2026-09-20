@@ -231,20 +231,114 @@ double _clampAxis(double intent, double floor, double ceiling) {
   return intent.clamp(floor, ceiling);
 }
 
-/// Whether a persisted anchor may come back to life: the whole orb
-/// footprint must sit inside SOME current work area (显示器拓扑变化时
-/// 整组丢弃回默认,不夹紧复活). Flush edges count as inside.
-bool anchorRestorable(Offset anchor, List<Rect> workAreas) {
-  final inset = SrGeometry.anchorInset;
-  for (final wa in workAreas) {
-    if (anchor.dx >= wa.left + inset &&
-        anchor.dx <= wa.right - inset &&
-        anchor.dy >= wa.top + inset &&
-        anchor.dy <= wa.bottom - inset) {
-      return true;
+/// One snapshot of the desktop's work areas in the window's coordinate
+/// space (17 号票): screen_retriever reports each monitor normalized by
+/// ITS OWN scale factor, which on a mixed-DPI desktop does not tile any
+/// single space — the drag's cursor (÷ the window's dpr) falls into dead
+/// zones between the reported areas, and a setBounds toward them (× the
+/// window's possibly-stale dpr) lands the window physically misplaced.
+/// The fix is ONE space: every monitor's rect de-normalized to global
+/// physical, then divided by the SAME window dpr — a uniform scaling of
+/// the physical desktop, so the areas tile exactly at any DPI mix. The
+/// physical twins ride along: the OS move is commanded in physical
+/// pixels, immune to every dpr lag.
+class WorkAreas {
+  const WorkAreas({
+    required this.logical,
+    required this.physical,
+    this.factors = const [],
+  });
+
+  /// Work areas in the window's logical space (physical ÷ the window's
+  /// dpr at snapshot time). Parallel to [physical].
+  final List<Rect> logical;
+
+  /// The same rects in global physical pixels — what the OS moves in.
+  final List<Rect> physical;
+
+  /// Each monitor's OWN scale factor (parallel; 1.0 when unstated) — the
+  /// persisted-anchor revival needs per-monitor de-normalization.
+  final List<double> factors;
+
+  /// The single divisor the logical rects share (= the window's dpr when
+  /// the snapshot was taken). 1.0 for degenerate snapshots.
+  double get dpr {
+    if (logical.isEmpty || logical.first.width <= 0) return 1.0;
+    return physical.first.width / logical.first.width;
+  }
+
+  /// The physical twin of a logical area from this snapshot (the logical
+  /// rect itself when it is not one of ours — tests' dpr-1 world).
+  Rect physicalFor(Rect logicalArea) {
+    final i = logical.indexOf(logicalArea);
+    return i >= 0 ? physical[i] : logicalArea;
+  }
+
+  double _factorAt(int i) =>
+      i < factors.length && factors[i] > 0 ? factors[i] : 1.0;
+}
+
+/// Re-normalize per-monitor reports into [WorkAreas]: a display's
+/// reported rect is its physical rect ÷ its own scale factor, so × the
+/// factor restores global physical exactly (screen_retriever rounds per
+/// axis to integers on the way in); ÷ [windowDpr] then puts every area
+/// into the window's single space.
+WorkAreas normalizeAreas(
+  List<({Rect reported, double scaleFactor})> displays,
+  double windowDpr,
+) {
+  final divisor = windowDpr <= 0 ? 1.0 : windowDpr;
+  final physical = [
+    for (final d in displays)
+      Rect.fromLTWH(
+        d.reported.left * d.scaleFactor,
+        d.reported.top * d.scaleFactor,
+        d.reported.width * d.scaleFactor,
+        d.reported.height * d.scaleFactor,
+      ),
+  ];
+  return WorkAreas(
+    logical: [
+      for (final p in physical)
+        Rect.fromLTWH(
+          p.left / divisor,
+          p.top / divisor,
+          p.width / divisor,
+          p.height / divisor,
+        ),
+    ],
+    physical: physical,
+    factors: [for (final d in displays) d.scaleFactor],
+  );
+}
+
+/// Revive a persisted anchor (17 号票): the saved value lives in the
+/// snapshot space of the session that wrote it (the window's dpr when
+/// the ball parked — the window sits on the anchor's monitor then, so
+/// the divisor is that monitor's own factor). Per area, un-scale by that
+/// monitor's factor and test PHYSICAL containment — exact whichever
+/// monitor hosted the save — then re-scale into the current snapshot
+/// space. Null when no monitor hosts the footprint (显示器拓扑变化时整组
+/// 丢弃回默认,不夹紧复活 — the old anchorRestorable verdict).
+Offset? restoreAnchor(Offset? saved, WorkAreas areas) {
+  if (saved == null || areas.logical.isEmpty) return null;
+  final footprint = SrGeometry.orbFootprint;
+  for (var i = 0; i < areas.logical.length; i++) {
+    final f = areas._factorAt(i);
+    final phys = Rect.fromCenter(
+      center: Offset(saved.dx * f, saved.dy * f),
+      width: footprint.width * f,
+      height: footprint.height * f,
+    );
+    final areaP = areas.physical[i];
+    if (phys.left >= areaP.left &&
+        phys.right <= areaP.right &&
+        phys.top >= areaP.top &&
+        phys.bottom <= areaP.bottom) {
+      return Offset(saved.dx * f / areas.dpr, saved.dy * f / areas.dpr);
     }
   }
-  return false;
+  return null;
 }
 
 /// The full geometry plan for opening a panel at an anchor: the derived

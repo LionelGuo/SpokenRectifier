@@ -33,7 +33,7 @@ import 'package:spokenrectifier_app/src/shell/quick_panel.dart'
 import 'package:spokenrectifier_app/src/shell/session_flow.dart' show StageKind;
 import 'package:spokenrectifier_app/src/shell/window_stage.dart'
     as stage
-    show GrowthDirection, GrowthDirectionX, StageWindow;
+    show GrowthDirection, GrowthDirectionX, StageWindow, WorkAreas;
 import 'package:spokenrectifier_app/ui_prefs.dart';
 
 import 'fake_gateway.dart';
@@ -59,21 +59,34 @@ Future<void> typeAtCaret(WidgetTester tester, String text) async {
   await tester.pump();
 }
 
-/// A stage window that records every bounds call and region push, so
-/// tests can assert the choreography (the permanent work-area window
-/// is seated once at startup; expand/collapse ride regions only,
-/// ADR-0022) without platform channels.
+/// A stage window that records every seating and region push, so tests
+/// can assert the choreography (the permanent work-area window is
+/// seated once at startup — in PHYSICAL pixels, 17 号票; expand/collapse
+/// ride regions only, ADR-0022) without platform channels.
 class RecordingStageWindow implements stage.StageWindow {
   RecordingStageWindow([this.position = const Offset(1000, 500)]);
 
   Offset position;
   Size size = SrGeometry.orbFootprint;
+
+  /// The PHYSICAL rects every seating commanded (the OS move's own
+  /// units — a mixed-DPI test distinguishes them from the logical list).
   final bounds = <Rect>[];
 
   /// The work areas the expand chooser and the clamps see; tests pin it
   /// to place the orb in a quadrant or squeeze a fit. (Named `screens` —
-  /// a field cannot share the interface method's name.)
+  /// a field cannot share the interface method's name.) The physical
+  /// twins default to the same rects (dpr-1 world); a mixed-DPI test
+  /// pins [screensPhysical], and [screenFactors] feeds the persisted
+  /// anchor's revival.
   List<Rect> screens = const [Rect.fromLTWH(0, 0, 1920, 1080)];
+  List<Rect> screensPhysical = const [];
+  List<double> screenFactors = const [];
+
+  /// The landed rect a seating reports (the post-move truth the host
+  /// adopts, 17 号票 — production derives it from the post-move dpr).
+  /// Null → the physical rect itself (the dpr-1 identity).
+  Rect? Function(Rect physical)? landedFor;
 
   /// How many times the window was asked to take the foreground.
   int focuses = 0;
@@ -81,7 +94,14 @@ class RecordingStageWindow implements stage.StageWindow {
   /// The window regions pushed while panels open (ADR 0017 ceiling
   /// window; the region hugs the card slot, null = the whole window --
   /// the orb stage and a live resize whose card must paint unclipped).
+  /// LOGICAL window coordinates since 17 号票.
   final regions = <Rect?>[];
+
+  stage.WorkAreas get _areas => stage.WorkAreas(
+    logical: screens,
+    physical: screensPhysical.isEmpty ? screens : screensPhysical,
+    factors: screenFactors,
+  );
 
   @override
   Future<Offset> getPosition() async => position;
@@ -90,21 +110,23 @@ class RecordingStageWindow implements stage.StageWindow {
   Future<Size> getSize() async => size;
 
   @override
-  Future<void> setBounds(Rect bounds) async {
-    this.bounds.add(bounds);
-    position = bounds.topLeft;
-    size = bounds.size;
+  Future<Rect> seatBoundsPhysical(Rect physical) async {
+    bounds.add(physical);
+    final landed = landedFor?.call(physical) ?? physical;
+    position = landed.topLeft;
+    size = landed.size;
+    return landed;
   }
 
   @override
   Future<void> setCardRegion(Rect? windowRect) async => regions.add(windowRect);
 
   @override
-  Future<List<Rect>> workAreas() async => screens;
+  Future<stage.WorkAreas> workAreas() async => _areas;
 
   /// When set, the host tracks this as the screen cursor (production
   /// path). Null keeps the test-view's `PointerEvent.position` as the
-  /// screen-stable stand-in — `setBounds` never moves the test view.
+  /// screen-stable stand-in — a seating never moves the test view.
   Offset? Function()? screenPointer;
 
   @override
@@ -1767,6 +1789,123 @@ void main() {
       await tester.pump(const Duration(milliseconds: 700));
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+    });
+
+    testWidgets('a mixed-dpi monitor hop seats in physical pixels', (
+      tester,
+    ) async {
+      // 17 号票: screen_retriever reports each monitor normalized by ITS
+      // OWN scale factor, and window_manager converts setBounds through
+      // the Flutter view's dpr — which lags a monitor hop. On a mixed-
+      // DPI desktop those three spaces disagree: the candidate fell in
+      // dead zones, and the hop's logical setBounds landed the window
+      // (and the footprint region) somewhere the orb never paints —
+      // stranded invisible until a hotkey heal. The snapshot now
+      // re-normalizes everything to ONE window space (uniform ÷ dpr,
+      // dead-zone-free), and the hop commands the PHYSICAL twin.
+      final window = RecordingStageWindow();
+      // A dpr-2 world: logical 1920-wide areas, 3840-wide physical
+      // twins. The landed reply is the physical rect ÷ the post-move
+      // dpr — exactly what the native side derives.
+      window.screens = const [
+        Rect.fromLTRB(0, 0, 1920, 1080),
+        Rect.fromLTRB(1920, 0, 3840, 1080),
+      ];
+      window.screensPhysical = const [
+        Rect.fromLTRB(0, 0, 3840, 2160),
+        Rect.fromLTRB(3840, 0, 7680, 2160),
+      ];
+      window.landedFor = (p) =>
+          Rect.fromLTRB(p.left / 2, p.top / 2, p.right / 2, p.bottom / 2);
+      var screen = const Offset(1048, 548);
+      window.screenPointer = () => screen;
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      // The startup seating went out in physical pixels too.
+      expect(window.bounds.single, const Rect.fromLTRB(0, 0, 3840, 2160));
+
+      final center = tester.getCenter(find.byIcon(Icons.mic_none_rounded));
+      final g = await tester.startGesture(center);
+      // Deep into the second monitor — in the single window space this
+      // is plain containment, no dead zone to fall through.
+      screen = const Offset(2200, 548);
+      await g.moveBy(const Offset(1152, 0));
+      await tester.pump();
+
+      // The hop commanded the second area's PHYSICAL twin — not the
+      // logical rect a dpr-riding setBounds would mangle.
+      expect(window.bounds, const [
+        Rect.fromLTRB(0, 0, 3840, 2160),
+        Rect.fromLTRB(3840, 0, 7680, 2160),
+      ]);
+      // The orb is window-internal content of the NEW area: 280 from
+      // its left edge (anchor 2200 − origin 1920).
+      expect(
+        tester.getRect(find.byType(OrbButton)).center,
+        const Offset(280, 548),
+      );
+
+      await g.up();
+      await tester.pump();
+      // The footprint region lands inside the seated window and the
+      // anchor persists in the (settled) logical space.
+      expect(window.regions.last, const Rect.fromLTRB(232, 500, 328, 596));
+      expect(controller.orbAnchor, const Offset(2200, 548));
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        contains('orb_position = [2200, 548]'),
+      );
+    });
+
+    testWidgets('a dpr flip mid-hop re-bases the rect and snaps the anchor', (
+      tester,
+    ) async {
+      // The hop's REPLY, not the assumption, is the truth: the dpr can
+      // flip between the send and the landing, seating the window at a
+      // different logical rect than the cache assumed. The host adopts
+      // the landed rect, and the release's prime clamps any stale-space
+      // anchor back INSIDE it — the footprint region can never again
+      // land outside the window (the stranding symptom's backstop).
+      final window = RecordingStageWindow();
+      window.screens = const [
+        Rect.fromLTRB(0, 0, 1920, 1080),
+        Rect.fromLTRB(1920, 0, 3840, 1080),
+      ];
+      window.screensPhysical = const [
+        Rect.fromLTRB(0, 0, 3840, 2160),
+        Rect.fromLTRB(3840, 0, 7680, 2160),
+      ];
+      // Primary behaves dpr-2; the hop's landing reports a HALVED rect
+      // on the second monitor (whatever the OS decided — the reply
+      // wins).
+      window.landedFor = (p) => p.topLeft == const Offset(3840, 0)
+          ? const Rect.fromLTRB(1920, 0, 2400, 540)
+          : Rect.fromLTRB(p.left / 2, p.top / 2, p.right / 2, p.bottom / 2);
+      var screen = const Offset(1048, 548);
+      window.screenPointer = () => screen;
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+
+      final center = tester.getCenter(find.byIcon(Icons.mic_none_rounded));
+      final g = await tester.startGesture(center);
+      screen = const Offset(2200, 548);
+      await g.moveBy(const Offset(1152, 0));
+      await tester.pump();
+      // The drag frame clamped the anchor into the ASSUMED second-area
+      // rect (2200, 548) — outside the landed window's bottom edge.
+      expect(controller.orbAnchor, const Offset(2200, 548));
+
+      await g.up();
+      await tester.pump();
+      // The prime snapped the anchor inside the LANDED rect: y 548 →
+      // 492 (540 − 48). The correction persists.
+      expect(controller.orbAnchor, const Offset(2200, 492));
+      expect(
+        File('${dir.path}/$uiPrefsFile').readAsStringSync(),
+        contains('orb_position = [2200, 492]'),
+      );
+      // And the footprint region sits inside the landed window.
+      expect(window.regions.last, const Rect.fromLTRB(232, 444, 328, 540));
     });
 
     testWidgets('an idle drag clamps the anchor and persists it', (

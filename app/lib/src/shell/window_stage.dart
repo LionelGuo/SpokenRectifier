@@ -71,26 +71,39 @@ import 'window_geometry.dart';
 
 // The direction enum lives with the rest of the orb-anchored geometry
 // (ticket 20); re-exported here so existing imports keep resolving.
-export 'window_geometry.dart' show GrowthDirection, GrowthDirectionX;
+export 'window_geometry.dart' show GrowthDirection, GrowthDirectionX, WorkAreas;
 
 /// The window bounds a stage needs. One seam, two implementations: the
 /// real window_manager-backed one in production, a recorder in tests.
 abstract class StageWindow {
   Future<Offset> getPosition();
   Future<Size> getSize();
-  Future<void> setBounds(Rect bounds);
+
+  /// Seat the window on a rect in GLOBAL PHYSICAL pixels (17 号票): the
+  /// OS move must never ride a logical→physical conversion through the
+  /// Flutter view's dpr — that value lags a monitor hop, which is how a
+  /// mixed-DPI crossing used to land the window misplaced and strand the
+  /// orb outside it (invisible and unclickable until the next heal).
+  /// Returns the LANDED rect in the window's logical space, normalized
+  /// by the post-move dpr — the truth the host adopts.
+  Future<Rect> seatBoundsPhysical(Rect physical);
 
   /// While a panel stage holds the work-area window (ADR 0017, 02 号
-  /// 票), the card slot's rect in WINDOW coordinates — the OS window
-  /// region narrows to it, so the transparent margin neither paints nor
-  /// hit-tests (clicks fall through to the desktop). Null restores the
-  /// whole window (the orb stage, and any gesture whose moving card
-  /// must paint beyond the stale slot — resize growth, anchor drag).
+  /// 票), the card slot's rect in WINDOW LOGICAL coordinates — the OS
+  /// window region narrows to it, so the transparent margin neither
+  /// paints nor hit-tests (clicks fall through to the desktop). The
+  /// native side scales by its live dpr at execution time. Null
+  /// restores the whole window (the orb stage, and any gesture whose
+  /// moving card must paint beyond the stale slot — resize growth,
+  /// anchor drag).
   Future<void> setCardRegion(Rect? windowRect);
 
-  /// Every display's work area, logical coordinates — the drag/resize
-  /// clamps and the expand-direction chooser consume these (ticket 20).
-  Future<List<Rect>> workAreas();
+  /// Every display's work area in the window's single coordinate space
+  /// (17 号票: uniformly ÷ the window's dpr, so the rects tile the
+  /// desktop exactly at any DPI mix) with their physical twins — the
+  /// drag/resize clamps, the expand-direction chooser, and the monitor
+  /// hop consume these.
+  Future<WorkAreas> workAreas();
 
   /// Live pointer in logical screen coordinates. Synchronous: a drag
   /// update has no await budget, and a method-channel read would race
@@ -117,42 +130,66 @@ class WindowManagerStageWindow implements StageWindow {
   Future<Size> getSize() => windowManager.getSize();
 
   @override
-  Future<void> setBounds(Rect bounds) => windowManager.setBounds(bounds);
+  Future<Rect> seatBoundsPhysical(Rect physical) async {
+    const channel = MethodChannel('spokenrectifier/window');
+    final res = await channel.invokeMethod('setBoundsPhysical', {
+      'left': physical.left.round(),
+      'top': physical.top.round(),
+      'right': physical.right.round(),
+      'bottom': physical.bottom.round(),
+    });
+    final map = Map<String, dynamic>.from(res as Map);
+    return Rect.fromLTWH(
+      (map['left'] as num).toDouble(),
+      (map['top'] as num).toDouble(),
+      (map['width'] as num).toDouble(),
+      (map['height'] as num).toDouble(),
+    );
+  }
 
   @override
   Future<void> setCardRegion(Rect? windowRect) {
-    // The native side works in physical pixels; this seam speaks
-    // logical, like every other method here.
+    // Logical window coordinates; the native side scales by its LIVE
+    // dpr at execution time — a Dart-side × view-dpr multiplication
+    // would ride the same lag the seating above sheds (17 号票).
     const channel = MethodChannel('spokenrectifier/window');
     if (windowRect == null) {
       return channel.invokeMethod('setRegion');
     }
-    final dpr = windowManager.getDevicePixelRatio();
     return channel.invokeMethod('setRegion', {
-      'left': (windowRect.left * dpr).round(),
-      'top': (windowRect.top * dpr).round(),
-      'right': (windowRect.right * dpr).round(),
-      'bottom': (windowRect.bottom * dpr).round(),
+      'left': windowRect.left,
+      'top': windowRect.top,
+      'right': windowRect.right,
+      'bottom': windowRect.bottom,
     });
   }
 
   @override
-  Future<List<Rect>> workAreas() async {
+  Future<WorkAreas> workAreas() async {
     final displays = await sr.screenRetriever.getAllDisplays();
-    return [
-      // visible* is the monitor's work area (rcWork) in the monitor's
-      // own logical units — the coordinate system window_manager reports
-      // positions in. A display without them is unusable for clamping;
-      // skip it rather than guess.
+    // visible* arrives normalized by EACH monitor's own scale factor
+    // (screen_retriever's MonitorToEncodableMap) — on a mixed-DPI
+    // desktop those rects tile no single space. De-normalize to global
+    // physical, then divide every rect by the SAME window dpr: one
+    // uniform scaling of the desktop, dead-zone-free at any DPI mix.
+    // A display without visible*/scale readings is unusable for
+    // clamping; skip it rather than guess.
+    return normalizeAreas([
       for (final d in displays)
-        if (d.visiblePosition != null && d.visibleSize != null)
-          Rect.fromLTWH(
-            d.visiblePosition!.dx,
-            d.visiblePosition!.dy,
-            d.visibleSize!.width,
-            d.visibleSize!.height,
+        if (d.visiblePosition != null &&
+            d.visibleSize != null &&
+            d.scaleFactor != null &&
+            d.scaleFactor! > 0)
+          (
+            reported: Rect.fromLTWH(
+              d.visiblePosition!.dx,
+              d.visiblePosition!.dy,
+              d.visibleSize!.width,
+              d.visibleSize!.height,
+            ),
+            scaleFactor: d.scaleFactor!.toDouble(),
           ),
-    ];
+    ], windowManager.getDevicePixelRatio());
   }
 
   @override
@@ -371,18 +408,22 @@ class _StageHostState extends State<StageHost>
   /// the card rect from here on). Win+Tab sees a work-area transparent
   /// window — the known, accepted cost (02).
   Future<void> _expandBounds(StageWindow window) async {
-    _areas = await window.workAreas(); // refresh for the gestures to come
-    final anchor = _anchor;
-    final area = _gestureArea(anchor);
-    final plan = expandPlan(anchor, c.panelFootprint, area);
-    _dir = plan.dir;
-    _form.snap(plan.dir.growLeft, plan.dir.growUp);
-    _panelSize.value = plan.size;
+    _areasW = await window.workAreas(); // refresh for the gestures to come
+    final area = _gestureArea(_anchor);
     if (_rect != area) {
       await _applyBounds(area);
     } else {
       _syncAnchorLocal();
     }
+    // The hotkey wake-up path lands here with the anchor possibly parked
+    // outside the window (the stranding this ticket cured at the source;
+    // the snap is the belt-and-suspenders that also heals legacy states)
+    // — pull it in before the plan derives from it (17 号票).
+    _snapAnchorInto(_rect);
+    final plan = expandPlan(_anchor, c.panelFootprint, _rect);
+    _dir = plan.dir;
+    _form.snap(plan.dir.growLeft, plan.dir.growUp);
+    _panelSize.value = plan.size;
     unawaited(_pushStageRegion());
   }
 
@@ -424,8 +465,9 @@ class _StageHostState extends State<StageHost>
   /// can land before an async capture from its start would — so the
   /// cache is primed at mount and every gesture step runs synchronously
   /// against it. Areas refresh at every expand and gesture end (topology
-  /// changes between gestures, never under a held pointer).
-  List<Rect>? _areas;
+  /// changes between gestures, never under a held pointer). The snapshot
+  /// carries the physical twins the monitor hop commands (17 号票).
+  WorkAreas? _areasW;
   Rect _rect = Rect.zero;
 
   /// The rect commanded before [_rect]: while the view lags a jump
@@ -462,11 +504,13 @@ class _StageHostState extends State<StageHost>
   Offset _grabPointer = Offset.zero;
   bool _useScreenPointer = false;
 
-  /// In-flight setBounds coalescing: pointer events outrun the platform
+  /// In-flight seating coalescing: pointer events outrun the platform
   /// channel, and a queue of stale rects flickers the window backwards.
-  /// One pump sends the latest pending rect each lap; expand/collapse
+  /// One pump sends the latest pending seat each lap; expand/collapse
   /// await until the pump is idle so their jump lands before the swap.
-  Rect? _pendingBounds;
+  /// The seat carries both frames — the logical rect the cache assumes
+  /// immediately, and the physical twin the OS move commands (17 号票).
+  ({Rect logical, Rect physical})? _pendingBounds;
   Future<void>? _boundsIdle;
   bool _pumping = false;
 
@@ -483,7 +527,7 @@ class _StageHostState extends State<StageHost>
   Future<void> _primeGeometry() async {
     final window = widget.stageWindow;
     if (window == null) return;
-    _areas = await window.workAreas();
+    _areasW = await window.workAreas();
     if (!_rectKnown) {
       final pos = await window.getPosition();
       final size = await window.getSize();
@@ -500,10 +544,11 @@ class _StageHostState extends State<StageHost>
     // recording window that starts as the footprint. Always off the
     // visual path: primes run at mount and gesture ends, never under a
     // held pointer.
-    final areas = _areas;
-    if (areas != null && areas.isNotEmpty) {
-      final area = areaHolding(_anchor, areas);
+    final areas = _areasW;
+    if (areas != null && areas.logical.isNotEmpty) {
+      final area = areaHolding(_anchor, areas.logical);
       if (_rect != area) await _applyBounds(area);
+      _snapAnchorInto(_rect);
     }
     // Resting idle: the region is the orb footprint (the window's
     // shape). Skipped while a panel still holds the window — its own
@@ -515,9 +560,23 @@ class _StageHostState extends State<StageHost>
     }
   }
 
+  /// Pull the anchor back inside the (landed) window whenever its
+  /// footprint fell out (17 号票): a monitor hop's dpr flip leaves the
+  /// last drag frames computing the cursor in the STALE space — the
+  /// anchor can park outside the window the OS actually seated. Clamping
+  /// into the landed rect bounds the error to the work-area edge and
+  /// persists the correction; a coherent anchor never moves (the clamp
+  /// is the identity then).
+  void _snapAnchorInto(Rect area) {
+    final snapped = clampAnchor(_anchor, area);
+    if (snapped == _anchor) return;
+    _setAnchor(snapped);
+    c.noteGeometryDone(anchor: snapped);
+  }
+
   /// Every bounds this host commands goes through here: the cache and
   /// the OS window never disagree about where the window is. In-flight
-  /// calls coalesce to the latest rect — a queue of stale SetWindowPos
+  /// calls coalesce to the latest seat — a queue of stale SetWindowPos
   /// is what flickered the orb backwards mid-drag. Expand/collapse await
   /// until this rect (or a later one) has been sent, including a leftover
   /// pump spawned after the previous future already completed.
@@ -526,7 +585,10 @@ class _StageHostState extends State<StageHost>
     _rect = bounds;
     _rectKnown = true;
     _syncAnchorLocal(); // a jump re-bases the local frame
-    _pendingBounds = bounds;
+    _pendingBounds = (
+      logical: bounds,
+      physical: _areasW?.physicalFor(bounds) ?? bounds,
+    );
     if (!_pumping) {
       _boundsIdle = _pumpBounds();
     }
@@ -543,7 +605,20 @@ class _StageHostState extends State<StageHost>
       while (_pendingBounds != null) {
         final next = _pendingBounds!;
         _pendingBounds = null;
-        await widget.stageWindow?.setBounds(next);
+        final window = widget.stageWindow;
+        if (window == null) continue;
+        final landed = await window.seatBoundsPhysical(next.physical);
+        // A monitor hop flips the window's dpr between the send and the
+        // reply: adopt the LANDED rect (the post-move truth, normalized
+        // by the new dpr) as the cache — unless a newer seat already
+        // superseded this lap (17 号票: this is the re-base that keeps
+        // the region and the paint computing in the settled space).
+        if (_pendingBounds == null && mounted && landed != _rect) {
+          _prevRect = _rect;
+          _rect = landed;
+          _rectKnown = true;
+          _syncAnchorLocal();
+        }
       }
     } finally {
       if (_pendingBounds != null) {
@@ -558,12 +633,16 @@ class _StageHostState extends State<StageHost>
     }
   }
 
+  /// The logical work-area list of the cached snapshot (empty while
+  /// unprimed).
+  List<Rect> get _areas => _areasW?.logical ?? const <Rect>[];
+
   /// The area a point lands in for planning and clamping; a silent
   /// query (no areas at all) falls back to a rect so wide the clamps
   /// never bind.
   Rect _gestureArea(Offset point) {
     final areas = _areas;
-    if (areas == null || areas.isEmpty) {
+    if (areas.isEmpty) {
       return Rect.fromLTWH(-16000, -16000, 32000, 32000);
     }
     return areaHolding(point, areas);
@@ -602,7 +681,7 @@ class _StageHostState extends State<StageHost>
   /// current rect when the candidate sits between work areas (the
   /// pointer is on its way somewhere; the clamp holds the ball inside).
   Rect _dragTargetArea(Offset candidate) {
-    for (final area in _areas ?? const <Rect>[]) {
+    for (final area in _areas) {
       if (area.contains(candidate)) return area;
     }
     return _rect;
