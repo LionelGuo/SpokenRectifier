@@ -72,6 +72,42 @@ class _SessionPanelState extends State<SessionPanel> {
   /// state; nothing else reads it).
   bool _showTranscript = false;
 
+  /// The footer's button sets, minted once (stable identities: the group
+  /// re-measures only when the set — or the text scale — actually
+  /// changes). Preview carries the full three; recording the lone cancel
+  /// (Esc's twin — 窗底取消文字钮), which never crosses the guard line in
+  /// practice (组宽 ≤98, 13 号票).
+  late final List<_FooterSpec> _previewFooter = [
+    _FooterSpec(
+      key: const Key('session-raw-toggle'),
+      icon: Icons.compare_arrows_rounded,
+      label: '对照原文',
+      onTap: _toggleTranscript,
+    ),
+    _FooterSpec(
+      key: const Key('session-reroll'),
+      icon: Icons.refresh_rounded,
+      label: '重新生成',
+      onTap: c.reroll,
+    ),
+    _FooterSpec(
+      key: const Key('session-cancel'),
+      icon: Icons.close_rounded,
+      label: '取消',
+      kbd: 'Esc',
+      onTap: c.escapeAction,
+    ),
+  ];
+  late final List<_FooterSpec> _recordingFooter = [
+    _FooterSpec(
+      key: const Key('session-cancel'),
+      icon: Icons.close_rounded,
+      label: '取消',
+      kbd: 'Esc',
+      onTap: c.escapeAction,
+    ),
+  ];
+
   void _toggleTranscript() =>
       setState(() => _showTranscript = !_showTranscript);
 
@@ -487,51 +523,17 @@ class _SessionPanelState extends State<SessionPanel> {
             // keeps a 5px gap. The header's twin keeps 56 instead (the
             // recording ring's reach; the footer band never carries one).
             SizedBox(width: widget.form.footerReserve(leading: true)),
-            // Capsules keep their intrinsic width (icon-only shrinking is a
-            // later change). At the reshape floor they no longer fit beside
-            // the reserve — clip the overflow so the debug stripe stays gone
-            // (ticket 01's 420-wide pin still holds; 360 is 60px tighter).
-            // 左下 alone right-aligns the group (仅左下底栏钮组右对齐:
-            // the orb holds the row's start, the three buttons yield to the
-            // far side — their ORDER stays frozen, 对照 → 重新生成 → 取消).
+            // Capsules while the band fits them, icon-only circles once
+            // the guard line is crossed — ONE shared morph (13 号票) that
+            // retires 小修 10's permanent hard clip. 左下 alone
+            // right-aligns the group (仅左下底栏钮组右对齐: the orb holds
+            // the row's start, the buttons yield to the far side — their
+            // ORDER stays frozen, 对照 → 重新生成 → 取消).
             Expanded(
-              child: UnconstrainedBox(
-                alignment: Alignment(widget.form.footerAlignX, 0),
-                constrainedAxis: Axis.vertical,
-                clipBehavior: Clip.hardEdge,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_isPreview) ...[
-                      _GhostButton(
-                        key: const Key('session-raw-toggle'),
-                        pal: pal,
-                        icon: Icons.compare_arrows_rounded,
-                        label: '对照原文',
-                        onTap: _toggleTranscript,
-                      ),
-                      const SizedBox(width: SrSpace.sm),
-                      _GhostButton(
-                        key: const Key('session-reroll'),
-                        pal: pal,
-                        icon: Icons.refresh_rounded,
-                        label: '重新生成',
-                        onTap: c.reroll,
-                      ),
-                      const SizedBox(width: SrSpace.sm),
-                    ],
-                    // Cancel spans the whole session, recording included
-                    // (Esc's twin — 窗底取消文字钮).
-                    _GhostButton(
-                      key: const Key('session-cancel'),
-                      pal: pal,
-                      icon: Icons.close_rounded,
-                      label: '取消',
-                      kbd: 'Esc',
-                      onTap: c.escapeAction,
-                    ),
-                  ],
-                ),
+              child: _FooterGroup(
+                pal: pal,
+                form: widget.form,
+                specs: _isPreview ? _previewFooter : _recordingFooter,
               ),
             ),
             // 右下 (upLeft) full weight: the orb button lives here, above
@@ -606,22 +608,307 @@ class _PhaseDotState extends State<_PhaseDot>
   }
 }
 
-/// Ghost (secondary) button.
-class _GhostButton extends StatefulWidget {
-  const _GhostButton({
-    super.key,
-    required this.pal,
+// ---- footer morph: capsule ⇄ circle (13 号票 / 03 prototype) --------------
+
+/// The morph's geometry constants — deliberately NOT SrMotion tokens (03
+/// 号票: they only ever participate in this one dance). The parameter t
+/// runs 1 (capsule) → 0 (circle) along one 320ms emphasized tween; the
+/// ladder it walks:
+///
+/// 1 → 0.9        gaps tighten (button padding 8→5, button gap 8→4)
+/// 0.85 → 0.45    the label and the Esc chip fade out
+/// 0.45 → 0.30    the width collapses to the circle (diameter = the
+///                button's own height, ≈29) and the icon slides to its
+///                center
+///
+/// Layout only shrinks AFTER the text's opacity has reached zero — text
+/// is faded out, never clipped.
+const _footerGuardPad = 24.0;
+const _tGapsTight = 0.9;
+const _tTextShown = 0.85;
+const _tTextGone = 0.45;
+const _tRoundDone = 0.3;
+const _padCapsule = 8.0;
+const _padRound = 5.0;
+const _gapCapsule = 8.0;
+const _gapRound = 4.0;
+const _footerIcon = 14.0;
+
+/// The fraction of [t] inside the band [lo, hi], clamped to 0–1.
+double _seg(double t, double lo, double hi) =>
+    ((t - lo) / (hi - lo)).clamp(0.0, 1.0);
+
+double _lerp(double a, double b, double u) => a + (b - a) * u;
+
+/// One footer button's capsule-state spec. The group owns the specs so it
+/// can measure the group's natural width analytically — the guard line
+/// must be known even while the group rests in circle state, where no
+/// capsule is mounted to measure.
+class _FooterSpec {
+  const _FooterSpec({
+    required this.key,
     required this.icon,
     required this.label,
     required this.onTap,
     this.kbd,
   });
 
-  final SrPalette pal;
+  final Key key;
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+
+  /// The optional key hint — painted as the capsule's kbd chip, folded
+  /// into the circle state's tooltip.
   final String? kbd;
+}
+
+/// The group's capsule-state measurements. Analytic on purpose: the same
+/// TextPainter machinery the Text widgets lay out through, so the numbers
+/// match the real layout at any font / text scale — no post-frame probing.
+class _FooterMetrics {
+  _FooterMetrics({required this.buttonWidths, required this.height})
+    : natural =
+          buttonWidths.fold(0.0, (a, w) => a + w) +
+          _gapCapsule * (buttonWidths.length - 1);
+
+  /// Each button's natural capsule width (padding 8, full row).
+  final List<double> buttonWidths;
+
+  /// The constant button height — also the circle's diameter (钮高 ≈29:
+  /// vertical padding 12 over the caption's 16.8 line, the row's tallest).
+  final double height;
+
+  /// G1: the group's natural capsule width.
+  final double natural;
+
+  /// The flip line, both directions the SAME line — a band that flips
+  /// down inside and up outside is an ANTI-hysteresis and oscillates (the
+  /// prototype's smoke run caught exactly that); debounce duty belongs to
+  /// the busy lock. The 24px guard lets the down-tween beat a fast drag
+  /// past the real overflow point (G1) instead of clipping mid-flight.
+  double get guard => natural + _footerGuardPad;
+}
+
+_FooterMetrics _measureFooter(BuildContext context, List<_FooterSpec> specs) {
+  double textWidth(String text, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textScaler: MediaQuery.textScalerOf(context),
+      // The labels are CJK-first with latin key hints; the footer row
+      // reads left-to-right in both locales.
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final w = painter.width;
+    painter.dispose();
+    return w;
+  }
+
+  final style = SrType.caption;
+  return _FooterMetrics(
+    buttonWidths: [
+      for (final s in specs)
+        // The row the capsule wraps — icon + 6 + label (+ 6 + the chip's
+        // own 5×2 + its text) — plus the 8px horizontal padding twice.
+        _padCapsule * 2 +
+            _footerIcon +
+            6 +
+            textWidth(s.label, style) +
+            (s.kbd != null ? 6 + 10 + textWidth(s.kbd!, SrType.kbd) : 0),
+    ],
+    height: 6 * 2 + style.fontSize! * style.height!,
+  );
+}
+
+/// The session footer's button group: capsules while the band's available
+/// width fits them, icon-only circles once the guard line is crossed —
+/// ONE shared morph, every button riding the same t (13 号票). The whole
+/// group slides with the form's alignment (整组横滑换对齐, 12 号票); the
+/// buttons never unmount and their order is frozen.
+class _FooterGroup extends StatefulWidget {
+  const _FooterGroup({
+    required this.pal,
+    required this.form,
+    required this.specs,
+  });
+
+  final SrPalette pal;
+  final PanelForm form;
+
+  /// The button set (preview: three; recording: the lone cancel — same
+  /// function, the narrower group never crosses the guard in practice).
+  final List<_FooterSpec> specs;
+
+  @override
+  State<_FooterGroup> createState() => _FooterGroupState();
+}
+
+class _FooterGroupState extends State<_FooterGroup>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _morph = AnimationController(
+    vsync: this,
+    duration: SrMotion.emphasize,
+  );
+
+  /// The one-shot ladder for the CURRENT flight (t: 1 = capsule … 0 =
+  /// circle). At rest the controller parks at 0 and the tween's begin IS
+  /// the resting state; a fresh flip rebuilds the tween from the current
+  /// t so an interrupted state continues instead of jumping.
+  Animatable<double> _ladder = Tween<double>(begin: 1, end: 1);
+
+  /// The available width the guard last saw. The completion re-check
+  /// re-evaluates against it: a crossing that arrives mid-flight lands
+  /// when the flight lands, never mid-air (the busy lock).
+  double? _lastA;
+  bool _evalPending = false;
+
+  List<_FooterSpec>? _measuredSpecs;
+  TextScaler _measuredScale = TextScaler.noScaling;
+  late _FooterMetrics _metrics;
+
+  @override
+  void initState() {
+    super.initState();
+    _morph.addStatusListener((status) {
+      if (status != AnimationStatus.completed) return;
+      final a = _lastA; // the busy lock just released
+      if (a != null) _evaluate(a);
+    });
+  }
+
+  @override
+  void didUpdateWidget(_FooterGroup old) {
+    super.didUpdateWidget(old);
+    // The phase swapped the button set (preview ⇄ recording): re-measure
+    // and re-judge the same width — the wider preview group may cross a
+    // line the lone cancel never could.
+    if (!identical(old.specs, widget.specs)) {
+      final a = _lastA;
+      if (a != null) _scheduleEvaluate(a);
+    }
+  }
+
+  @override
+  void dispose() {
+    _morph.dispose();
+    super.dispose();
+  }
+
+  double get _t => _ladder.transform(_morph.value);
+
+  void _evaluate(double available) {
+    _lastA = available;
+    if (_morph.isAnimating) return; // 忙锁: in flight, no re-flip
+    final fits = available >= _metrics.guard;
+    if (fits == (_t > 0.5)) return;
+    _ladder = Tween<double>(
+      begin: _t,
+      end: fits ? 1.0 : 0.0,
+    ).chain(CurveTween(curve: SrMotion.curveEmphasized));
+    _morph.forward(from: 0);
+  }
+
+  /// Defer the threshold check to the frame's end: the LayoutBuilder runs
+  /// in the layout phase, and starting the tween from there would notify
+  /// builders mid-layout.
+  void _scheduleEvaluate(double available) {
+    _lastA = available;
+    if (_evalPending) return;
+    _evalPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _evalPending = false;
+      if (!mounted) return;
+      _evaluate(_lastA!);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = MediaQuery.textScalerOf(context);
+    if (!identical(_measuredSpecs, widget.specs) || scale != _measuredScale) {
+      _metrics = _measureFooter(context, widget.specs);
+      _measuredSpecs = widget.specs;
+      _measuredScale = scale;
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final a = constraints.maxWidth;
+        if (_lastA == null) {
+          // First layout: rest in the state this width says — the
+          // entrance sweep must START settled (the up-flip at the guard
+          // is the sweep's own doing, never a mount flash).
+          _lastA = a;
+          final capsule = a >= _metrics.guard;
+          _ladder = Tween<double>(
+            begin: capsule ? 1.0 : 0.0,
+            end: capsule ? 1.0 : 0.0,
+          );
+        } else {
+          _scheduleEvaluate(a);
+        }
+        return AnimatedBuilder(
+          animation: _morph,
+          builder: (context, _) {
+            final t = _t;
+            final gap = _lerp(_gapRound, _gapCapsule, _seg(t, _tGapsTight, 1));
+            return UnconstrainedBox(
+              alignment: Alignment(widget.form.footerAlignX, 0),
+              constrainedAxis: Axis.vertical,
+              // The last-ditch clip: only a degenerate window too narrow
+              // for even the circles reaches it (小修 10's PERMANENT hard
+              // clip is retired — the guard keeps every normal state
+              // clear of the edge).
+              clipBehavior: Clip.hardEdge,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var i = 0; i < widget.specs.length; i++) ...[
+                    if (i > 0) SizedBox(width: gap),
+                    _GhostButton(
+                      key: widget.specs[i].key,
+                      pal: widget.pal,
+                      spec: widget.specs[i],
+                      t: t,
+                      naturalWidth: _metrics.buttonWidths[i],
+                      height: _metrics.height,
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+/// Ghost (secondary) button — the capsule↔circle morph's rider (13 号
+/// 票). The group hands down the shared parameter [t]; the button walks
+/// its end of the ladder (gaps → text fade → width collapse) and keeps
+/// its tap target mounted through all of it.
+class _GhostButton extends StatefulWidget {
+  const _GhostButton({
+    super.key,
+    required this.pal,
+    required this.spec,
+    required this.t,
+    required this.naturalWidth,
+    required this.height,
+  });
+
+  final SrPalette pal;
+  final _FooterSpec spec;
+
+  /// The group's shared morph parameter (1 = capsule, 0 = circle).
+  final double t;
+
+  /// The capsule's natural width (padding 8) — the collapse lerps from
+  /// its tight-padding twin (t = 0.45) down to the circle.
+  final double naturalWidth;
+
+  /// The constant button height — also the circle's diameter.
+  final double height;
 
   @override
   State<_GhostButton> createState() => _GhostButtonState();
@@ -633,54 +920,106 @@ class _GhostButtonState extends State<_GhostButton> {
   @override
   Widget build(BuildContext context) {
     final pal = widget.pal;
-    return MouseRegion(
+    final spec = widget.spec;
+    final t = widget.t;
+    final pad = _lerp(_padRound, _padCapsule, _seg(t, _tGapsTight, 1));
+    final textOpacity = _seg(t, _tTextGone, _tTextShown);
+    // The width collapse runs only once the text is fully gone (t ≤ 0.45)
+    // and finishes at t = 0.30 — layout never squeezes visible ink.
+    final collapse = 1 - _seg(t, _tRoundDone, _tTextGone);
+    final tight = widget.naturalWidth - (_padCapsule - _padRound) * 2;
+    final roundWidth = _lerp(tight, widget.height, collapse);
+    // The icon slides from its capsule resting spot (pad) to the circle's
+    // center as the width collapses.
+    final iconLeft = _lerp(
+      _padRound,
+      (widget.height - _footerIcon) / 2,
+      collapse,
+    );
+    final iconAlign = Alignment(
+      -1 + 2 * iconLeft / (roundWidth - _footerIcon),
+      0,
+    );
+
+    // Only the decoration rides an implicit transition (the hover fill);
+    // every morphing value — padding, width, content — is driven
+    // explicitly by t, tick for tick.
+    final button = AnimatedContainer(
+      duration: SrMotion.fast,
+      decoration: BoxDecoration(
+        color: _hover ? pal.surfaceOverlay : pal.surfaceRaised,
+        // Capsule: the footer buttons live in the corner band — pill
+        // ends echo the concentric corner arc; at the circle width the
+        // capsule radius clamps into the circle itself.
+        borderRadius: BorderRadius.circular(SrRadius.capsule),
+        border: Border.all(color: pal.hairline),
+      ),
+      child: textOpacity > 0
+          ? Padding(
+              padding: EdgeInsets.symmetric(horizontal: pad, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(spec.icon, size: _footerIcon, color: pal.textSecondary),
+                  const SizedBox(width: 6),
+                  Opacity(
+                    opacity: textOpacity,
+                    child: Text(
+                      spec.label,
+                      style: SrType.caption.copyWith(color: pal.textSecondary),
+                    ),
+                  ),
+                  if (spec.kbd != null) ...[
+                    const SizedBox(width: 6),
+                    Opacity(
+                      opacity: textOpacity,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: pal.surfaceOverlay,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: pal.hairline),
+                        ),
+                        child: Text(
+                          spec.kbd!,
+                          style: SrType.kbd.copyWith(color: pal.textTertiary),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            )
+          : SizedBox(
+              width: roundWidth,
+              height: widget.height,
+              child: Align(
+                alignment: iconAlign,
+                child: Icon(
+                  spec.icon,
+                  size: _footerIcon,
+                  color: pal.textSecondary,
+                ),
+              ),
+            ),
+    );
+
+    final body = MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: SrMotion.fast,
-          // 8px horizontal: the preview footer's three capsules must fit
-          // beside the anchor reserve inside the 420px panel footprint.
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          decoration: BoxDecoration(
-            color: _hover ? pal.surfaceOverlay : pal.surfaceRaised,
-            // Capsule: the footer buttons live in the corner band — pill
-            // ends echo the concentric corner arc.
-            borderRadius: BorderRadius.circular(SrRadius.capsule),
-            border: Border.all(color: pal.hairline),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(widget.icon, size: 14, color: pal.textSecondary),
-              const SizedBox(width: 6),
-              Text(
-                widget.label,
-                style: SrType.caption.copyWith(color: pal.textSecondary),
-              ),
-              if (widget.kbd != null) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 5,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: pal.surfaceOverlay,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: pal.hairline),
-                  ),
-                  child: Text(
-                    widget.kbd!,
-                    style: SrType.kbd.copyWith(color: pal.textTertiary),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
+      child: GestureDetector(onTap: spec.onTap, child: button),
+    );
+
+    if (t > _tRoundDone) return body;
+    // 圆钮态 tooltip 补全名 (03 号票): the label (and its key hint) live
+    // only here once the capsule has folded away.
+    return Tooltip(
+      message: spec.kbd != null ? '${spec.label}（${spec.kbd}）' : spec.label,
+      waitDuration: SrMotion.tooltipWait,
+      child: body,
     );
   }
 }

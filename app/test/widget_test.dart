@@ -616,13 +616,12 @@ void main() {
   );
 
   testWidgets(
-    'the preview footer clips at the resize floor — no overflow stripe',
+    'the footer folds to circles at the resize floor — no overflow stripe',
     (tester) async {
-      // Ticket 01 pinned the default 420-wide footprint. Reshape can shrink
-      // the shared footprint to panelMinSize (360×440); the three preview
-      // capsules no longer fit, and the debug stripe comes back unless the
-      // row clips instead of overflowing. Icon-only shrinking is a later
-      // change — this only kills the RenderFlex report.
+      // 13 号票: 小修 10's permanent hard clip is retired — at the floor
+      // the group crosses the guard line and morphs to icon-only circles
+      // instead. The buttons stay mounted and tappable; the labels fold
+      // away (they live on in the circle state's tooltip).
       tester.view.physicalSize = SrGeometry.panelMinSize;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -631,11 +630,27 @@ void main() {
       final gateway = FakeGateway();
       final controller = await pumpController(tester, gateway);
       await pumpToPreview(tester, controller, gateway);
+      // The preview entry swaps the recording set for the wide three —
+      // the flip starts at that frame's end and lands on [SrMotion
+      // .emphasize]; a frame to arm the ticker, then the flight.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(tester.takeException(), isNull);
-      expect(find.byKey(const Key('session-raw-toggle')), findsOneWidget);
-      expect(find.byKey(const Key('session-reroll')), findsOneWidget);
-      expect(find.byKey(const Key('session-cancel')), findsOneWidget);
+      // The resting state is the circle: every button as wide as it is
+      // tall (the height ≈29 is the diameter), labels unmounted.
+      expect(find.text('对照原文'), findsNothing);
+      expect(find.text('重新生成'), findsNothing);
+      expect(find.text('取消'), findsNothing);
+      for (final key in [
+        const Key('session-raw-toggle'),
+        const Key('session-reroll'),
+        const Key('session-cancel'),
+      ]) {
+        expect(find.byKey(key), findsOneWidget);
+        final size = tester.getSize(find.byKey(key));
+        expect(size.width, closeTo(size.height, 0.5));
+      }
       await windDown(tester, controller);
     },
   );
@@ -2414,6 +2429,69 @@ void main() {
       await windDown(tester, controller);
     });
 
+    testWidgets(
+      'the footer flips at the guard line both ways, holding the busy lock',
+      (tester) async {
+        // 13 号票: one flip per crossing, one line in both directions.
+        // The busy lock means a re-cross mid-flight waits for the flight
+        // to land — the down-flip runs to its circle end even after the
+        // width has grown back past the line, and only the completion
+        // re-check launches the up-flip.
+        final window = RecordingStageWindow();
+        final dir = scratch();
+        final gateway = FakeGateway();
+        final controller = await pumpGeometry(
+          tester,
+          window: window,
+          dir: dir,
+          gateway: gateway,
+        );
+        controller.panelFootprint = const Size(560, 560);
+        await pumpToPreview(tester, controller, gateway);
+        // Wide band: full capsules, labels mounted at their natural size.
+        expect(find.text('对照原文'), findsOneWidget);
+        final labelSize = tester.getSize(find.text('对照原文'));
+
+        // Shrink past the guard in one move (the free vertical edge is
+        // the LEFT one at the default bottom-right anchor): the
+        // down-flip starts. A post-frame-started ticker latches on the
+        // NEXT frame — pump in that rhythm (one to arm, then advance).
+        final edge = tester.getCenter(find.byKey(const Key('panel-resize-v')));
+        final g = await tester.startGesture(edge);
+        await tester.pump();
+        await g.moveBy(const Offset(180, 0)); // 560 → 380: below the line
+        await tester.pump(); // the crossing frame; the flip starts at its end
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.takeException(), isNull);
+        // The label's LAYOUT has not moved — text is faded out, never
+        // clipped.
+        final fading = find.text('对照原文');
+        if (fading.evaluate().isNotEmpty) {
+          expect(tester.getSize(fading), labelSize);
+        }
+
+        // Grow back past the line while the down-flight is still in the
+        // air: the busy lock holds — no mid-air reversal, the flight
+        // keeps folding toward the circle.
+        await g.moveBy(const Offset(-180, 0)); // back to 560
+        await tester.pump(); // the re-crossing frame: busy, ignored
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(tester.takeException(), isNull);
+        expect(find.text('对照原文'), findsNothing);
+
+        // The flight lands; the completion re-check sees the wide band
+        // and launches the up-flip, which restores the capsules.
+        await tester.pump(const Duration(milliseconds: 150));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.text('对照原文'), findsOneWidget);
+        await g.up();
+        await tester.pump();
+        expect(controller.panelFootprint, const Size(560, 540));
+        await windDown(tester, controller);
+      },
+    );
+
     testWidgets('the expand direction follows the anchor\'s quadrant', (
       tester,
     ) async {
@@ -3006,6 +3084,58 @@ void main() {
           expect(raw.left, closeTo(rowStart, 1), reason: 'row-start aligned');
         }
         await windDown(tester, controller);
+      });
+
+      testWidgets('circle footers keep both alignments and clear the orb', (
+        tester,
+      ) async {
+        // 13 号票: below the guard the circles inherit the capsule
+        // group's obligations — 仅左下右对齐 elsewhere row-start, and the
+        // orb-side reserve still buys clearance from the ball.
+        for (final dir in [
+          stage.GrowthDirection.upLeft,
+          stage.GrowthDirection.upRight,
+        ]) {
+          final gateway = FakeGateway();
+          final controller = await pumpAtQuadrant(
+            tester,
+            dir: dir,
+            gateway: gateway,
+          );
+          controller.panelFootprint = const Size(380, 540);
+          await pumpToPreview(tester, controller, gateway);
+          // The preview entry swaps in the wide three — let the flip
+          // land (arm the ticker, then fly it out).
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+
+          // Below the guard: circles, labels folded away.
+          expect(find.text('对照原文'), findsNothing);
+          final orb = orbCoreInView(tester);
+          final raw = tester.getRect(
+            find.byKey(const Key('session-raw-toggle')),
+          );
+          final cancel = tester.getRect(
+            find.byKey(const Key('session-cancel')),
+          );
+          expect(raw.intersect(orb).isEmpty, isTrue, reason: 'raw vs orb');
+          expect(
+            cancel.intersect(orb).isEmpty,
+            isTrue,
+            reason: 'cancel vs orb',
+          );
+          final slot = tester.getRect(find.byType(SessionPanel));
+          final rowStart =
+              slot.left + SrGeometry.cardMargin + SrSpace.cornerInset;
+          final rowEnd =
+              slot.right - SrGeometry.cardMargin - SrSpace.cornerInset;
+          if (dir == stage.GrowthDirection.upRight) {
+            expect(cancel.right, closeTo(rowEnd, 1), reason: '左下右对齐');
+          } else {
+            expect(raw.left, closeTo(rowStart, 1), reason: 'row-start');
+          }
+          await windDown(tester, controller);
+        }
       });
 
       testWidgets('quick panel chrome clears the orb (${dir.name})', (
