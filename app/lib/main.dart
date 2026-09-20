@@ -2,8 +2,8 @@
 ///
 /// Everything platform-touching lives here; the UI tree in app_root.dart
 /// stays pure and testable. Window bounds after startup belong to the
-/// stage choreography (src/shell/window_stage.dart) — this file only
-/// sets the orb footprint once at launch.
+/// stage choreography (src/shell/window_stage.dart) — this file seats
+/// the permanent work-area window once at launch, hidden (ADR-0022).
 ///
 /// Two entry modes in one executable: desktop_multi_window re-runs this
 /// main() for the settings window's engine, passing entrypoint arguments
@@ -44,7 +44,8 @@ import 'src/settings/settings_window.dart';
 import 'src/settings/system_store.dart';
 import 'src/settings/terms_store.dart';
 import 'src/shell/window_stage.dart' show StageWindow, WindowManagerStageWindow;
-import 'src/shell/window_geometry.dart' show anchorRestorable, orbFootprintAt;
+import 'src/shell/window_geometry.dart'
+    show anchorRestorable, areaHolding, defaultAnchor;
 import 'hotkey_binding.dart';
 import 'ui_prefs.dart';
 
@@ -100,17 +101,25 @@ Future<void> main(List<String> args) async {
   final savedAnchor = geo.orbPosition;
   final anchorRestored =
       savedAnchor != null && anchorRestorable(savedAnchor, workAreas);
+  // The permanent work-area window (16 号票 / ADR-0022): the anchor is
+  // decided HERE — restored, or the default that parks the orb 24px
+  // inside the primary work area's bottom-right corner (the old
+  // setAlignment flow's spot) — so the one footprint→work-area resize
+  // lands while the window is still HIDDEN. A visible size change
+  // races the engine's present (ADR-0017's stale-surface ghost); a
+  // hidden one cannot compose at all. Null only in the degenerate
+  // no-displays launch, which keeps the legacy alignment fallback.
+  final anchor = anchorRestored
+      ? savedAnchor
+      : workAreas.isNotEmpty
+      ? defaultAnchor(workAreas.first)
+      : null;
 
   await windowManager.waitUntilReadyToShow(options, () async {
-    if (anchorRestored) {
-      // Back where it was parked: one atomic bounds call, same shape as
-      // every later choreography jump.
-      await windowManager.setBounds(orbFootprintAt(savedAnchor));
+    if (anchor != null) {
+      await windowManager.setBounds(areaHolding(anchor, workAreas));
     } else {
       await windowManager.setAlignment(Alignment.bottomRight);
-      // Pull the orb 24px inside the work area so it does not hug edges.
-      final pos = await windowManager.getPosition();
-      await windowManager.setPosition(pos.translate(-24, -24));
     }
     await windowManager.show();
   });
@@ -153,10 +162,10 @@ Future<void> main(List<String> args) async {
     controller.reportStartupError(startupError);
   }
   // The geometry restore decided above: seed what the gestures persist.
-  // A discarded position leaves the anchor unknown (the first drag or
-  // header move establishes it); a size intent always seeds, clamped
-  // per-open.
-  if (anchorRestored) controller.orbAnchor = savedAnchor;
+  // The anchor is ALWAYS seeded now (ADR-0022 — the window is the work
+  // area and no longer implies where the ball sits); a size intent
+  // always seeds too, clamped per-open.
+  if (anchor != null) controller.orbAnchor = anchor;
   if (geo.panelSize != null) controller.panelFootprint = geo.panelSize!;
   // Paint the scenario pickers from the library file (empty library =
   // pickers hidden; selection always starts on the default register).

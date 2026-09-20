@@ -230,9 +230,12 @@ class SpeechController extends ChangeNotifier {
   Size panelFootprint = SrGeometry.panelSize;
 
   /// Last known anchor — the orb's ball center in logical screen
-  /// coordinates (ticket 20). Updated by every geometry gesture, seeded
-  /// at startup when a restorable `orb_position` exists; null until
-  /// either happens (saves then write only the panel key).
+  /// coordinates (ticket 20). Updated by every geometry gesture; the
+  /// bootstrap ALWAYS seeds it at startup (restored position or the
+  /// computed default, 16 号票/ADR-0022 — the window is the whole work
+  /// area and no longer implies where the ball sits). Null only in the
+  /// degenerate no-displays launch (saves then write only the panel
+  /// key).
   Offset? orbAnchor;
 
   /// Whether the floating orb is visible at all. Seeded at startup from

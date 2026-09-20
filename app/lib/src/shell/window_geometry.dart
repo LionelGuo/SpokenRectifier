@@ -259,3 +259,25 @@ bool anchorRestorable(Offset anchor, List<Rect> workAreas) {
   final size = clampPanelSize(panelIntent, anchor, dir, workArea);
   return (dir: dir, size: size, window: panelRectFor(anchor, size, dir));
 }
+
+/// The work area holding [point]; the first (primary) when none does —
+/// an anchor caught between display-topology changes still has to land
+/// somewhere. An empty list is the caller's to guard (see the stage's
+/// prime heal).
+Rect areaHolding(Offset point, List<Rect> areas) {
+  for (final area in areas) {
+    if (point.dx >= area.left &&
+        point.dx <= area.right &&
+        point.dy >= area.top &&
+        point.dy <= area.bottom) {
+      return area;
+    }
+  }
+  return areas.first;
+}
+
+/// The fallback anchor when nothing restores: 24px of daylight between
+/// the orb footprint and the primary work area's bottom-right corner
+/// (the footprint is 96 wide, so the anchor sits 24 + 48 inward).
+Offset defaultAnchor(Rect primaryWorkArea) =>
+    primaryWorkArea.bottomRight - const Offset(72, 72);
