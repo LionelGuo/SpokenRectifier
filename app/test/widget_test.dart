@@ -2700,6 +2700,81 @@ void main() {
       await windDown(tester, controller);
     });
 
+    testWidgets('a fast narrow tucks the racing tail under the ball', (
+      tester,
+    ) async {
+      // 20 号票: a narrowing fast enough to beat the flight leaves the
+      // folding capsules wider than the band for a few frames — the
+      // guard cannot be made infinitely wide, so the race is structural.
+      // The old straight clip on the group's box cut that tail
+      // mid-panel, a vertical container edge that read as a UI artifact.
+      // The group now overflows freely toward the anchor ball and the
+      // band's one boundary is the ball's own silhouette.
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final gateway = FakeGateway();
+      final controller = await pumpGeometry(
+        tester,
+        window: window,
+        dir: dir,
+        gateway: gateway,
+      );
+      controller.panelFootprint = const Size(560, 560);
+      await pumpToPreview(tester, controller, gateway);
+
+      final edge = tester.getCenter(find.byKey(const Key('panel-resize-v')));
+      final g = await tester.startGesture(edge);
+      await tester.pump();
+      await g.moveBy(const Offset(180, 0)); // 560 → 380: racing the flight
+      await tester.pump(); // the crossing frame; the flip starts at its end
+      await tester.pump(const Duration(milliseconds: 100)); // mid-flight
+      expect(tester.takeException(), isNull);
+
+      // No straight clip anywhere in the band — the group rides an
+      // overflow box and paints toward the ball.
+      final band = find.byKey(const Key('panel-chrome-footer'));
+      expect(
+        find.descendant(of: band, matching: find.byType(UnconstrainedBox)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: band, matching: find.byType(OverflowBox)),
+        findsOneWidget,
+      );
+
+      // The one boundary is the ball's silhouette (default upLeft: the
+      // ball owns the band's right end, 40 in from the card's corner).
+      final occlusion = find.byKey(const Key('footer-ball-occlusion'));
+      final size = tester.getSize(occlusion);
+      final path = tester.widget<ClipPath>(occlusion).clipper!.getClip(size);
+      final ballC = Offset(size.width - 40, size.height - 40);
+      expect(
+        path.contains(const Offset(10, 20)),
+        isTrue,
+        reason: "the row's start stays paintable",
+      );
+      expect(
+        path.contains(ballC),
+        isFalse,
+        reason: 'the disc zone belongs to the ball',
+      );
+      // THE ruling: nothing emerges past the ball — the sliver between
+      // the arc and the card's edge is removed too.
+      expect(path.contains(Offset(size.width - 5, ballC.dy)), isFalse);
+      // Content room extends into the old reserve, up to the arc (the
+      // disc spans [cx−30, cx+30] at the equator: 75 from the band's
+      // right edge is 5 clear of it).
+      expect(path.contains(Offset(size.width - 75, ballC.dy)), isTrue);
+
+      // The flight still lands a circle group despite the race.
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('重新生成'), findsNothing);
+      await g.up();
+      await tester.pump();
+      expect(controller.panelFootprint, const Size(380, 540));
+      await windDown(tester, controller);
+    });
+
     testWidgets('the expand direction follows the anchor\'s quadrant', (
       tester,
     ) async {

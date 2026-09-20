@@ -504,45 +504,57 @@ class _SessionPanelState extends State<SessionPanel> {
       // row as the form changes sides (整组横滑换对齐), passing under the
       // ball where the paths cross — never unmounted, ORDER frozen.
       animation: widget.form,
-      builder: (context, _) => Padding(
-        // Corner-band row (bottom-left arc): cornerInset horizontal; the
-        // vertical 20 keeps the buttons' visual bottom inside the capsule.
-        padding: const EdgeInsets.fromLTRB(
-          SrSpace.cornerInset,
-          SrSpace.xs,
-          SrSpace.cornerInset,
-          20,
+      builder: (context, _) => ClipPath(
+        // 20 号票: the band's ONE clip is the anchor ball's own
+        // silhouette — a racing tail disappears into the ball's arc
+        // (藏进球下), never sliced by a container edge. The clipper's
+        // doc tells the full story.
+        key: const Key('footer-ball-occlusion'),
+        clipper: _BallOcclusionClipper(
+          ballRight: widget.form.gl > 0.5,
+          weight: widget.form.gu,
         ),
-        child: Row(
-          children: [
-            // 左下 (upRight) full weight: the orb owns this row's start —
-            // one anchorInset, not two: the ball's right edge sits
-            // anchorInset + orbBall/2 = 76 from the window's left edge,
-            // while this row's content starts cardMargin + hairline +
-            // cornerInset = 33 from it — the true overlap is 43, and 48
-            // keeps a 5px gap. The header's twin keeps 56 instead (the
-            // recording ring's reach; the footer band never carries one).
-            SizedBox(width: widget.form.footerReserve(leading: true)),
-            // Capsules while the band fits them, icon-only circles once
-            // the guard line is crossed — ONE shared morph (13 号票) that
-            // retires 小修 10's permanent hard clip. 左下 alone
-            // right-aligns the group (仅左下底栏钮组右对齐: the orb holds
-            // the row's start, the buttons yield to the far side — their
-            // ORDER stays frozen, 对照 → 重新生成 → 取消).
-            Expanded(
-              child: _FooterGroup(
-                pal: pal,
-                form: widget.form,
-                specs: _isPreview ? _previewFooter : _recordingFooter,
+        child: Padding(
+          // Corner-band row (bottom-left arc): cornerInset horizontal;
+          // the vertical 20 keeps the buttons' visual bottom inside the
+          // capsule.
+          padding: const EdgeInsets.fromLTRB(
+            SrSpace.cornerInset,
+            SrSpace.xs,
+            SrSpace.cornerInset,
+            20,
+          ),
+          child: Row(
+            children: [
+              // 左下 (upRight) full weight: the orb owns this row's start —
+              // one anchorInset, not two: the ball's right edge sits
+              // anchorInset + orbBall/2 = 76 from the window's left edge,
+              // while this row's content starts cardMargin + hairline +
+              // cornerInset = 33 from it — the true overlap is 43, and 48
+              // keeps a 5px gap. The header's twin keeps 56 instead (the
+              // recording ring's reach; the footer band never carries one).
+              SizedBox(width: widget.form.footerReserve(leading: true)),
+              // Capsules while the band fits them, icon-only circles once
+              // the guard line is crossed — ONE shared morph (13 号票) that
+              // retires 小修 10's permanent hard clip. 左下 alone
+              // right-aligns the group (仅左下底栏钮组右对齐: the orb holds
+              // the row's start, the buttons yield to the far side — their
+              // ORDER stays frozen, 对照 → 重新生成 → 取消).
+              Expanded(
+                child: _FooterGroup(
+                  pal: pal,
+                  form: widget.form,
+                  specs: _isPreview ? _previewFooter : _recordingFooter,
+                ),
               ),
-            ),
-            // 右下 (upLeft) full weight: the orb button lives here, above
-            // this row's end. Top-anchored orbs (右上/左上) carry no
-            // reserve in the footer at all — the ball shares the HEADER's
-            // row there, and obligations follow the anchor's edge only
-            // (义务随锚点角走).
-            SizedBox(width: widget.form.footerReserve(leading: false)),
-          ],
+              // 右下 (upLeft) full weight: the orb button lives here, above
+              // this row's end. Top-anchored orbs (右上/左上) carry no
+              // reserve in the footer at all — the ball shares the HEADER's
+              // row there, and obligations follow the anchor's edge only
+              // (义务随锚点角走).
+              SizedBox(width: widget.form.footerReserve(leading: false)),
+            ],
+          ),
         ),
       ),
     );
@@ -927,29 +939,36 @@ class _FooterGroupState extends State<_FooterGroup>
               _gapCapsule,
               _seg(t, _tRoundDone, _tTextGone),
             );
-            return UnconstrainedBox(
-              alignment: Alignment(widget.form.footerAlignX, 0),
-              constrainedAxis: Axis.vertical,
-              // The last-ditch clip: only a degenerate window too narrow
-              // for even the circles reaches it (小修 10's PERMANENT hard
-              // clip is retired — the guard keeps every normal state
-              // clear of the edge).
-              clipBehavior: Clip.hardEdge,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (var i = 0; i < widget.specs.length; i++) ...[
-                    if (i > 0) SizedBox(width: gap),
-                    _GhostButton(
-                      key: widget.specs[i].key,
-                      pal: widget.pal,
-                      spec: widget.specs[i],
-                      t: t,
-                      naturalWidth: _metrics.buttonWidths[i],
-                      height: _metrics.height,
-                    ),
+            return IntrinsicHeight(
+              child: OverflowBox(
+                alignment: Alignment(widget.form.footerAlignX, 0),
+                minWidth: 0,
+                maxWidth: double.infinity,
+                // 20 号票: no straight clip on the group's own box — a
+                // narrowing fast enough to beat the flight left the
+                // folding tail hitting this edge mid-panel, a vertical
+                // cut that read as a UI container slicing the capsule.
+                // The tail now overflows freely toward the anchor ball;
+                // the band's ball-occlusion clip (on the footer itself)
+                // is the one boundary it can meet — the ball's own arc.
+                // (IntrinsicHeight: the band's height is unbounded up
+                // here, and an OverflowBox fills whatever it is given.)
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < widget.specs.length; i++) ...[
+                      if (i > 0) SizedBox(width: gap),
+                      _GhostButton(
+                        key: widget.specs[i].key,
+                        pal: widget.pal,
+                        spec: widget.specs[i],
+                        t: t,
+                        naturalWidth: _metrics.buttonWidths[i],
+                        height: _metrics.height,
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             );
           },
@@ -957,6 +976,56 @@ class _FooterGroupState extends State<_FooterGroup>
       },
     );
   }
+}
+
+/// The footer band's occlusion boundary (20 号票): a narrowing fast
+/// enough to outrun the morph's flight leaves the folding group wider
+/// than the band for a few frames — and the ONE clip that tail may meet
+/// is the anchor ball's own silhouette, so it reads as tucking UNDER
+/// the ball instead of being sliced by a container edge. The clip
+/// removes the ball's disc (core radius + 2 of seam slop, hidden under
+/// the disc's edge) AND everything beyond it on that side — nothing can
+/// emerge on the ball's far side. Top-anchored forms carry no ball on
+/// this row: the weight (gu, the same weight the footer reserve scales
+/// by) fades the notch out with the form, and the card's own rounded
+/// clip is the honest stop there.
+class _BallOcclusionClipper extends CustomClipper<Path> {
+  const _BallOcclusionClipper({required this.ballRight, required this.weight});
+
+  /// The anchor ball owns this row's far end (upLeft: the band's right;
+  /// upRight mirrors to the left).
+  final bool ballRight;
+
+  /// How much the ball sits on this row at all (0–1).
+  final double weight;
+
+  @override
+  Path getClip(Size size) {
+    final paintable = Path()..addRect(Offset.zero & size);
+    final r = (SrGeometry.orbBall / 2 + 2) * weight;
+    if (r < 1) return paintable;
+    // The ball's center is anchorInset − cardMargin in from the card's
+    // corner — the band is bottom-pinned at the card's edge and as wide
+    // as the card (the mid-growth width floor can fatten it, but the
+    // morph never races then). The cut is the far half-plane from the
+    // ball's center PLUS the disc itself, so the exposed boundary is
+    // the disc's arc facing the group at every height the buttons span.
+    final inset = SrGeometry.anchorInset - SrGeometry.cardMargin;
+    final cx = ballRight ? size.width - inset : inset;
+    final cy = size.height - inset;
+    final cut = Path()
+      ..addRect(
+        ballRight
+            ? Rect.fromLTWH(cx, 0, size.width - cx, size.height)
+            : Rect.fromLTWH(0, 0, cx, size.height),
+      )
+      ..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+    return Path.combine(PathOperation.difference, paintable, cut);
+  }
+
+  @override
+  bool shouldReclip(_BallOcclusionClipper old) =>
+      old.ballRight != ballRight || (old.weight - weight).abs() > 0.001;
 }
 
 /// Ghost (secondary) button — the capsule↔circle morph's rider (13 号
