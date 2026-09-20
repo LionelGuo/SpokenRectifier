@@ -611,9 +611,9 @@ class _PhaseDotState extends State<_PhaseDot>
 // ---- footer morph: capsule ⇄ circle (13 号票 / 03 prototype) --------------
 
 /// The morph's geometry constants — deliberately NOT SrMotion tokens (03
-/// 号票: they only ever participate in this one dance). The parameter t
-/// runs 1 (capsule) → 0 (circle) along one 320ms emphasized tween; the
-/// ladder it walks:
+/// 号票: they only ever participate in this one dance). The ladder
+/// parameter t runs 1 (capsule) → 0.30 (circle); everything below 0.30
+/// is geometrically dead, so the flight never goes there:
 ///
 /// 1 → 0.9        gaps tighten (button padding 8→5, button gap 8→4)
 /// 0.85 → 0.45    the label and the Esc chip fade out
@@ -634,11 +634,52 @@ const _gapCapsule = 8.0;
 const _gapRound = 4.0;
 const _footerIcon = 14.0;
 
+// The stage shares of the flight parameter s (19 号票 pacing): 35% of
+// the timeline rides the width collapse, 45% the text fade, 20% the gap
+// tightening. Driving t directly left the whole dance crammed into a
+// sliver of the curve — everything below t = 0.30 is dead, and the
+// emphasized curve's violent middle blew the live stages through in a
+// couple of frames (真机读作先跳变后长段静止).
+const _sWidthDone = 0.35;
+const _sFadeDone = 0.80;
+
 /// The fraction of [t] inside the band [lo, hi], clamped to 0–1.
 double _seg(double t, double lo, double hi) =>
     ((t - lo) / (hi - lo)).clamp(0.0, 1.0);
 
 double _lerp(double a, double b, double u) => a + (b - a) * u;
+
+/// Stage space (s: 0 = circle, 1 = capsule) → the ladder's t, piecewise
+/// linear through the stage boundaries — one symmetric curve then
+/// spreads all three stages across the whole flight.
+double _tOfStage(double s) {
+  if (s < _sWidthDone) {
+    return _lerp(_tRoundDone, _tTextGone, s / _sWidthDone);
+  }
+  if (s < _sFadeDone) {
+    return _lerp(
+      _tTextGone,
+      _tGapsTight,
+      (s - _sWidthDone) / (_sFadeDone - _sWidthDone),
+    );
+  }
+  return _lerp(_tGapsTight, 1.0, (s - _sFadeDone) / (1 - _sFadeDone));
+}
+
+/// The inverse — a fresh flight continues from the current t's own
+/// stage position, never snapped to an endpoint.
+double _sOfT(double t) {
+  if (t < _tTextGone) {
+    return _sWidthDone * (t - _tRoundDone) / (_tTextGone - _tRoundDone);
+  }
+  if (t < _tGapsTight) {
+    return _sWidthDone +
+        (_sFadeDone - _sWidthDone) *
+            (t - _tTextGone) /
+            (_tGapsTight - _tTextGone);
+  }
+  return _sFadeDone + (1 - _sFadeDone) * (t - _tGapsTight) / (1 - _tGapsTight);
+}
 
 /// One footer button's capsule-state spec. The group owns the specs so it
 /// can measure the group's natural width analytically — the guard line
@@ -750,10 +791,11 @@ class _FooterGroupState extends State<_FooterGroup>
     duration: SrMotion.emphasize,
   );
 
-  /// The one-shot ladder for the CURRENT flight (t: 1 = capsule … 0 =
-  /// circle). At rest the controller parks at 0 and the tween's begin IS
-  /// the resting state; a fresh flip rebuilds the tween from the current
-  /// t so an interrupted state continues instead of jumping.
+  /// The one-shot flight in STAGE space (s: 1 = capsule, 0 = circle —
+  /// 19 号票 pacing; the ladder's t derives through [_tOfStage]). At
+  /// rest the controller parks and the tween's begin IS the resting
+  /// state; a fresh flip rebuilds the tween from the current position so
+  /// nothing ever jumps.
   Animatable<double> _ladder = Tween<double>(begin: 1, end: 1);
 
   /// The available width the guard last saw. The completion re-check
@@ -794,17 +836,20 @@ class _FooterGroupState extends State<_FooterGroup>
     super.dispose();
   }
 
-  double get _t => _ladder.transform(_morph.value);
+  double get _t => _tOfStage(_ladder.transform(_morph.value));
 
   void _evaluate(double available) {
     _lastA = available;
     if (_morph.isAnimating) return; // 忙锁: in flight, no re-flip
     final fits = available >= _metrics.guard;
     if (fits == (_t > 0.5)) return;
+    // curveFade, not curveEmphasized (19 号票): the emphasized curve's
+    // violent middle blows a staged ladder through in a couple of frames
+    // — the symmetric fade curve keeps every stage legible.
     _ladder = Tween<double>(
-      begin: _t,
+      begin: _sOfT(_t),
       end: fits ? 1.0 : 0.0,
-    ).chain(CurveTween(curve: SrMotion.curveEmphasized));
+    ).chain(CurveTween(curve: SrMotion.curveFade));
     _morph.forward(from: 0);
   }
 
@@ -1014,10 +1059,11 @@ class _GhostButtonState extends State<_GhostButton> {
     );
 
     if (t > _tRoundDone) return body;
-    // 圆钮态 tooltip 补全名 (03 号票): the label (and its key hint) live
-    // only here once the capsule has folded away.
+    // 圆钮态 tooltip 补全名 (03 号票; 19 号票: the plain label, no key
+    // suffix — the （Esc） tail was ruled off on device check): the words
+    // live only here once the capsule has folded away.
     return Tooltip(
-      message: spec.kbd != null ? '${spec.label}（${spec.kbd}）' : spec.label,
+      message: spec.label,
       waitDuration: SrMotion.tooltipWait,
       child: body,
     );
