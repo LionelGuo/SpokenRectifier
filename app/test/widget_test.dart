@@ -2586,6 +2586,11 @@ void main() {
         (w) =>
             w is Opacity && w.child is Text && (w.child as Text).data == '重新生成',
       );
+      final reroll = find.byKey(const Key('session-reroll'));
+      final rerollIcon = find.descendant(
+        of: reroll,
+        matching: find.byType(Icon),
+      );
       double? lastWidth;
       double? lastOpacity;
       var deadRun = 0;
@@ -2594,9 +2599,17 @@ void main() {
       // the parked capsule); frames 1..20 walk the flight, 16ms a frame.
       for (var i = 0; i <= 20; i++) {
         await tester.pump(const Duration(milliseconds: 16));
-        final width = tester
-            .getSize(find.byKey(const Key('session-reroll')))
-            .width;
+        final width = tester.getSize(reroll).width;
+        // 三轮 ruling: the icon's inset from the capsule's left border
+        // is CONSTANT through the entire morph, both branches — the
+        // collapse eats the right side only. The constant is the pad
+        // (8) plus the hairline border (1), which insets the content
+        // origin equally in both branches.
+        expect(
+          tester.getTopLeft(rerollIcon).dx - tester.getTopLeft(reroll).dx,
+          closeTo(9, 0.5),
+          reason: 'icon inset at frame $i',
+        );
         final hasLabel = labelOpacity.evaluate().isNotEmpty;
         final opacity = hasLabel
             ? tester.widget<Opacity>(labelOpacity).opacity

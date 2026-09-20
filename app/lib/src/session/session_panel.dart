@@ -616,14 +616,16 @@ class _PhaseDotState extends State<_PhaseDot>
 /// is geometrically dead, so the flight never goes there:
 ///
 /// 1 → 0.45        the bloom / gather: the label and the Esc chip fade
-///                 (band 0.9 → 0.45) WHILE tucking 6px toward the icon
-///                 and while the padding 5→8 / inter-button gap 4→8
-///                 loosen over the whole band (19 号票 二轮: one stage,
-///                 three concurrent channels — a fade-only stage read
-///                 as a second animation spliced on)
+///                 (band 0.9 → 0.45) WHILE tucking 6px toward the icon,
+///                 and the inter-button gaps 8→4 tighten over the whole
+///                 band — the button's own width never moves here (19
+///                 号票 二轮: concurrent channels, not a fade-only
+///                 stretch)
 /// 0.45 → 0.30     the width collapses to the circle (diameter = the
-///                 button's own height, ≈29) and the icon slides to its
-///                 center
+///                 button's own height, ≈29), eating the RIGHT side
+///                 only — the icon's inset from the left border is
+///                 CONSTANT at the capsule pad through the entire morph
+///                 (三轮真机裁定)
 ///
 /// Layout only shrinks AFTER the text's opacity has reached zero — text
 /// is faded out, never clipped. The tuck rides a Transform (layout
@@ -633,7 +635,6 @@ const _tTextShown = 0.9;
 const _tTextGone = 0.45;
 const _tRoundDone = 0.3;
 const _padCapsule = 8.0;
-const _padRound = 5.0;
 const _gapCapsule = 8.0;
 const _gapRound = 4.0;
 const _footerIcon = 14.0;
@@ -651,9 +652,9 @@ double _lerp(double a, double b, double u) => a + (b - a) * u;
 
 /// The expand flight's map u → t (19 号票 二轮): the width pops open on
 /// [curveEnter] over the first 40%, then the content blooms on
-/// [curveFade] for the remaining 60% — fade + tuck + pads loosening
-/// together. Both curves arrive at the handoff at ZERO velocity, so the
-/// phase change is a soft hinge, not a splice.
+/// [curveFade] for the remaining 60% — fade + tuck + the group's gaps
+/// loosening together. Both curves arrive at the handoff at ZERO
+/// velocity, so the phase change is a soft hinge, not a splice.
 double _tExpand(double u) {
   if (u < 0.40) {
     return _lerp(
@@ -670,8 +671,9 @@ double _tExpand(double u) {
 }
 
 /// The collapse flight's map: the mirror — gather on [curveFade] over
-/// the first 60% (fade + tuck + pads tightening together), then the
-/// width falls into the circle on [curveFade], landing at rest.
+/// the first 60% (fade + tuck + the group's gaps tightening together),
+/// then the width falls into the circle on [curveFade], landing at
+/// rest.
 double _tCollapse(double u) {
   if (u < 0.60) {
     return _lerp(1.0, _tTextGone, SrMotion.curveFade.transform(u / 0.60));
@@ -938,8 +940,8 @@ class _FooterGroupState extends State<_FooterGroup>
 
 /// Ghost (secondary) button — the capsule↔circle morph's rider (13 号
 /// 票). The group hands down the shared parameter [t]; the button walks
-/// its end of the ladder (gaps → text fade → width collapse) and keeps
-/// its tap target mounted through all of it.
+/// its end of the ladder (bloom → width collapse, icon pinned) and
+/// keeps its tap target mounted through all of it.
 class _GhostButton extends StatefulWidget {
   const _GhostButton({
     super.key,
@@ -957,7 +959,7 @@ class _GhostButton extends StatefulWidget {
   final double t;
 
   /// The capsule's natural width (padding 8) — the collapse lerps from
-  /// its tight-padding twin (t = 0.45) down to the circle.
+  /// it (t = 0.45) down to the circle, eating the right side only.
   final double naturalWidth;
 
   /// The constant button height — also the circle's diameter.
@@ -975,29 +977,22 @@ class _GhostButtonState extends State<_GhostButton> {
     final pal = widget.pal;
     final spec = widget.spec;
     final t = widget.t;
-    // The pads/gaps loosen across the WHOLE bloom band (19 号票 二轮):
-    // while the text fades, the button keeps breathing wider — the
-    // fade-only stretch read as a dead second animation.
-    final pad = _lerp(_padRound, _padCapsule, _seg(t, _tTextGone, 1));
     final textOpacity = _seg(t, _tTextGone, _tTextShown);
     // The content tucks 6px toward the icon as it fades (a Transform —
     // layout untouched, nothing to clip): the bloom keeps a direction,
     // continuous with the width move that hands off to it.
     final tuck = Offset(-_tuckSlide * (1 - textOpacity), 0);
     // The width collapse runs only once the text is fully gone (t ≤ 0.45)
-    // and finishes at t = 0.30 — layout never squeezes visible ink.
+    // and finishes at t = 0.30 — layout never squeezes visible ink. It
+    // eats the RIGHT side only, from the full natural width down to the
+    // circle: the icon's inset from the left border is CONSTANT through
+    // the whole morph, pinned at the capsule's own pad (三轮真机裁定 —
+    // an icon that drifts from its border mid-flight reads as the
+    // capsule deforming, not folding).
     final collapse = 1 - _seg(t, _tRoundDone, _tTextGone);
-    final tight = widget.naturalWidth - (_padCapsule - _padRound) * 2;
-    final roundWidth = _lerp(tight, widget.height, collapse);
-    // The icon slides from its capsule resting spot (pad) to the circle's
-    // center as the width collapses.
-    final iconLeft = _lerp(
-      _padRound,
-      (widget.height - _footerIcon) / 2,
-      collapse,
-    );
+    final roundWidth = _lerp(widget.naturalWidth, widget.height, collapse);
     final iconAlign = Alignment(
-      -1 + 2 * iconLeft / (roundWidth - _footerIcon),
+      2 * _padCapsule / (roundWidth - _footerIcon) - 1,
       0,
     );
 
@@ -1016,7 +1011,10 @@ class _GhostButtonState extends State<_GhostButton> {
       ),
       child: textOpacity > 0
           ? Padding(
-              padding: EdgeInsets.symmetric(horizontal: pad, vertical: 6),
+              padding: const EdgeInsets.symmetric(
+                horizontal: _padCapsule,
+                vertical: 6,
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
