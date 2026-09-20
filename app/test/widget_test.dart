@@ -1806,6 +1806,63 @@ void main() {
       expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
     });
 
+    testWidgets('a collapse that lands mid-drag never re-clips the orb', (
+      tester,
+    ) async {
+      // 小修 12: the collapse's tail region push used to fire
+      // unconditionally — a press inside the 670 ms exit window unclips
+      // the region for the drag, and the tail then pinned the 96×96
+      // footprint at wherever the ball happened to be that instant. The
+      // drag carried the orb out of that rect and the OS region clipped
+      // it away mid-gesture (the truncated-ball device symptom: grab the
+      // ball right after collapsing a panel, drag, the ball disappears
+      // past a modest rectangle). The gesture owns the region while
+      // armed; the release's prime lands the footprint at wherever the
+      // ball actually rests.
+      final window = RecordingStageWindow();
+      var screen = const Offset(1048, 548);
+      window.screenPointer = () => screen;
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+
+      // Open the quick panel, close it, and grab the ball while the exit
+      // choreography is still playing (inside the 670 ms window).
+      controller.orbSecondary();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 700));
+      await controller.closeQuick();
+      await tester.pump(const Duration(milliseconds: 350));
+      final center = tester.getCenter(find.byType(OrbButton));
+      final g = await tester.startGesture(center);
+      screen = const Offset(1148, 548);
+      await g.moveBy(const Offset(100, 0));
+      await tester.pump();
+
+      // The collapse's tail lands mid-gesture — it must NOT re-pin a
+      // footprint the drag is about to carry the orb out of.
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(window.regions.last, isNull);
+
+      // Still dragging, far past where that stale footprint sat: the
+      // region stays unclipped, the orb follows, the window never moves.
+      screen = const Offset(1348, 548);
+      await g.moveBy(const Offset(200, 0));
+      await tester.pump();
+      expect(window.regions.last, isNull);
+      expect(
+        tester.getRect(find.byType(OrbButton)).center,
+        const Offset(1348, 548),
+      );
+      expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
+
+      // Release: the prime lands the footprint on the resting anchor and
+      // the anchor is what persists.
+      await g.up();
+      await tester.pump();
+      expect(window.regions.last, const Rect.fromLTRB(1300, 500, 1396, 596));
+      expect(controller.orbAnchor, const Offset(1348, 548));
+    });
+
     testWidgets('a mixed-dpi monitor hop seats in physical pixels', (
       tester,
     ) async {
@@ -2472,10 +2529,12 @@ void main() {
 
         // Grow back past the line while the down-flight is still in the
         // air: the busy lock holds — no mid-air reversal, the flight
-        // keeps folding toward the circle.
+        // keeps folding toward the circle. (The flight needs its full
+        // 320ms to land — 19 号票 pacing spread the stages across the
+        // whole timeline.)
         await g.moveBy(const Offset(-180, 0)); // back to 560
         await tester.pump(); // the re-crossing frame: busy, ignored
-        await tester.pump(const Duration(milliseconds: 250));
+        await tester.pump(const Duration(milliseconds: 400));
         expect(tester.takeException(), isNull);
         expect(find.text('对照原文'), findsNothing);
 
@@ -2491,6 +2550,76 @@ void main() {
         await windDown(tester, controller);
       },
     );
+
+    testWidgets('the morph rides one continuous flight — no whips', (
+      tester,
+    ) async {
+      // 19 号票: the ladder's stages each get their slice of the 320ms
+      // flight (width → fade → gaps, staged in s-space on curveFade).
+      // The first landing drove t straight through an emphasized curve:
+      // the fade and the width collapse each blew through in 1–2 frames
+      // (跳变) and the tail below t = 0.30 sat dead for most of the
+      // flight (间断). Sample every 16ms frame and pin both failure
+      // modes: no frame carries a whole stage, no stretch sits still.
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final gateway = FakeGateway();
+      final controller = await pumpGeometry(
+        tester,
+        window: window,
+        dir: dir,
+        gateway: gateway,
+      );
+      controller.panelFootprint = const Size(560, 560);
+      await pumpToPreview(tester, controller, gateway);
+
+      final edge = tester.getCenter(find.byKey(const Key('panel-resize-v')));
+      final g = await tester.startGesture(edge);
+      await tester.pump();
+      await g.moveBy(const Offset(180, 0)); // 560 → 380: below the line
+      await tester.pump(); // the crossing frame; the flip starts at its end
+
+      final labelOpacity = find.byWidgetPredicate(
+        (w) =>
+            w is Opacity && w.child is Text && (w.child as Text).data == '重新生成',
+      );
+      double? lastWidth;
+      double? lastOpacity;
+      var deadRun = 0;
+      var worstDeadRun = 0;
+      // Frame 0 latches the post-frame-started ticker (its own delta is
+      // the parked capsule); frames 1..20 walk the flight, 16ms a frame.
+      for (var i = 0; i <= 20; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final width = tester
+            .getSize(find.byKey(const Key('session-reroll')))
+            .width;
+        final hasLabel = labelOpacity.evaluate().isNotEmpty;
+        final opacity = hasLabel
+            ? tester.widget<Opacity>(labelOpacity).opacity
+            : null;
+        if (lastWidth != null) {
+          final dw = (width - lastWidth).abs();
+          final dOp = (opacity != null && lastOpacity != null)
+              ? (opacity - lastOpacity).abs()
+              : 0.0;
+          expect(dw, lessThan(20), reason: 'width jump at frame $i');
+          expect(dOp, lessThan(0.25), reason: 'opacity jump at frame $i');
+          deadRun = (dw <= 0.1 && dOp <= 0.02) ? deadRun + 1 : 0;
+          if (deadRun > worstDeadRun) worstDeadRun = deadRun;
+        }
+        lastWidth = width;
+        lastOpacity = opacity;
+      }
+      // The flight landed a circle with nothing ever sitting still for
+      // three frames.
+      expect(worstDeadRun, lessThan(3));
+      expect(find.text('重新生成'), findsNothing);
+      await g.up();
+      await tester.pump();
+      expect(controller.panelFootprint, const Size(380, 540));
+      await windDown(tester, controller);
+    });
 
     testWidgets('the expand direction follows the anchor\'s quadrant', (
       tester,

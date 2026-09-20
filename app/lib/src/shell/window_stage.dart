@@ -446,7 +446,14 @@ class _StageHostState extends State<StageHost>
     // first; the slot notifier stays until the panel unmounts below —
     // notifying null while the card is still in the tree would flash
     // it full-bleed for a frame.
-    if (widget.stageWindow != null) {
+    // Skipped while a gesture holds the region (小修 12): a press inside
+    // the exit window unclipped it for the drag, and this push would pin
+    // the footprint at wherever the ball happens to be THIS instant —
+    // the drag then carries it out of that rect and the OS clips the orb
+    // away mid-gesture. The release's prime lands the footprint at
+    // wherever the ball rests (the same `!_grabArmed` gate the idle
+    // prime already carries).
+    if (widget.stageWindow != null && !_grabArmed) {
       unawaited(_pushCardRegion(orbFootprintAt(_anchor).shift(-_rect.topLeft)));
     }
     if (!mounted || seq != _seq) return;
@@ -1042,41 +1049,53 @@ class _StageHostState extends State<StageHost>
           // by layout inside the frozen window. Only one panel is
           // mounted at a time; each animates its own entrance on mount
           // and exit via [PanelBody.exiting].
+          // Keyed both (小修 12): the slot's unmount shifts the Stack's
+          // positional matching — without keys the orb subtree's elements
+          // are torn down and reinflated at every collapse completion (and
+          // clobbered at every expand), killing a live gesture's release
+          // (the defunct state's setState assertion swallows onDragEnd in
+          // debug builds: region stuck unclipped, anchor never persisted).
+          // The keys keep the orb's element identity across the swap —
+          // the 编舞铁律 (the ball never leaves the tree) made true at the
+          // element level, not just the widget level.
           if (_displayed != StageKind.orb)
-            _panelSlot(
-              child: Stack(
-                children: [
-                  // The panel stage's toast layer (ui-copy toast spec):
-                  // bottom-center IN the card, fixed — never flipped by
-                  // the growth direction. The scope wraps the panel at
-                  // the slot, so the slot edge is the card's outer
-                  // bounds (the card paints its 8px margin inside) and
-                  // 72 parks the capsule above the session footer band
-                  // and the quick panel's bottom content — the value
-                  // the verdict was judged on in the prototype.
-                  Positioned.fill(
-                    child: SrToastScope(
-                      anchor: SrToastAnchor.bottom,
-                      clearance: 72,
-                      child: _displayed == StageKind.session
-                          ? SessionPanel(
-                              controller: c,
-                              exiting: _exiting,
-                              form: _form,
-                            )
-                          : QuickPanel(
-                              controller: c,
-                              exiting: _exiting,
-                              onOpenSettings: widget.onOpenSettings,
-                              form: _form,
-                            ),
+            KeyedSubtree(
+              key: const Key('stage-panel-slot'),
+              child: _panelSlot(
+                child: Stack(
+                  children: [
+                    // The panel stage's toast layer (ui-copy toast spec):
+                    // bottom-center IN the card, fixed — never flipped by
+                    // the growth direction. The scope wraps the panel at
+                    // the slot, so the slot edge is the card's outer
+                    // bounds (the card paints its 8px margin inside) and
+                    // 72 parks the capsule above the session footer band
+                    // and the quick panel's bottom content — the value
+                    // the verdict was judged on in the prototype.
+                    Positioned.fill(
+                      child: SrToastScope(
+                        anchor: SrToastAnchor.bottom,
+                        clearance: 72,
+                        child: _displayed == StageKind.session
+                            ? SessionPanel(
+                                controller: c,
+                                exiting: _exiting,
+                                form: _form,
+                              )
+                            : QuickPanel(
+                                controller: c,
+                                exiting: _exiting,
+                                onOpenSettings: widget.onOpenSettings,
+                                form: _form,
+                              ),
+                      ),
                     ),
-                  ),
-                  // The resize affordances ride above the panel, flush to
-                  // the slot's free edges (the shared footprint resizes
-                  // as one — 一调俱调).
-                  if (_gesturesLive) ..._resizeHandles(),
-                ],
+                    // The resize affordances ride above the panel, flush to
+                    // the slot's free edges (the shared footprint resizes
+                    // as one — 一调俱调).
+                    if (_gesturesLive) ..._resizeHandles(),
+                  ],
+                ),
               ),
             ),
           // The one continuous element: orb in orb stage, anchor button
@@ -1088,33 +1107,36 @@ class _StageHostState extends State<StageHost>
           // center lands exactly on the anchor and stays concentric with
           // the card's corner arc (an inset would push the ball off the
           // arc center — third preview round).
-          LayoutBuilder(
-            builder: (context, constraints) {
-              return ValueListenableBuilder<Offset>(
-                valueListenable: _anchorLocalN,
-                child: OrbButton(
-                  controller: c,
-                  onDragStart: _gesturesLive ? _anchorDragStart : null,
-                  onDragUpdate: _gesturesLive ? _anchorDragUpdate : null,
-                  onDragEnd: _gesturesLive ? _anchorDragEnd : null,
-                ),
-                builder: (context, _, orb) {
-                  final view = constraints.biggest;
-                  final anchor = _rectKnown
-                      ? _anchorInView(view)
-                      : anchorOf(Offset.zero & view, _dir);
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Positioned.fromRect(
-                        rect: orbFootprintAt(anchor),
-                        child: orb!,
-                      ),
-                    ],
-                  );
-                },
-              );
-            },
+          KeyedSubtree(
+            key: const Key('stage-orb'),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return ValueListenableBuilder<Offset>(
+                  valueListenable: _anchorLocalN,
+                  child: OrbButton(
+                    controller: c,
+                    onDragStart: _gesturesLive ? _anchorDragStart : null,
+                    onDragUpdate: _gesturesLive ? _anchorDragUpdate : null,
+                    onDragEnd: _gesturesLive ? _anchorDragEnd : null,
+                  ),
+                  builder: (context, _, orb) {
+                    final view = constraints.biggest;
+                    final anchor = _rectKnown
+                        ? _anchorInView(view)
+                        : anchorOf(Offset.zero & view, _dir);
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Positioned.fromRect(
+                          rect: orbFootprintAt(anchor),
+                          child: orb!,
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
