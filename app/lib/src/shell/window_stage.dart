@@ -1360,9 +1360,17 @@ class _PinnedChromeLayout extends MultiChildLayoutDelegate {
 
   @override
   void performLayout(Size size) {
-    final width = size.width < SrGeometry.panelMinSize.width
-        ? SrGeometry.panelMinSize.width
-        : size.width;
+    // The overflow floor is the PAINTED card's own minimum (18 号票):
+    // the resize floor applies to the SLOT (panelMinSize), and the
+    // painted card is the slot minus the card margin twice — flooring
+    // the bands at the slot's minimum instead pushed them 16px past the
+    // painted card's right edge at the narrowest resize, eating the
+    // content inset. Mid-growth the card is far narrower than either
+    // floor; the bands still get a lay-out-able width and the card's
+    // rounded clip does the visual work, exactly as before.
+    final minInterior =
+        SrGeometry.panelMinSize.width - SrGeometry.cardMargin * 2;
+    final width = size.width < minInterior ? minInterior : size.width;
     final headerH = layoutChild(
       _header,
       BoxConstraints.tightFor(width: width),

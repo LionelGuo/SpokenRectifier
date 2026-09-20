@@ -1908,6 +1908,34 @@ void main() {
       expect(window.regions.last, const Rect.fromLTRB(232, 444, 328, 540));
     });
 
+    testWidgets('content at the resize floor keeps its right inset', (
+      tester,
+    ) async {
+      // 18 号票: the pinned-chrome overflow floor must be the PAINTED
+      // card's minimum, not the slot's — the resize floor (360) applies
+      // to the slot, and the painted card is 16 narrower. Flooring the
+      // bands at 360 pushed the content column past the card's right
+      // edge at the narrowest resize: the content bottomed out early
+      // and the right inset was eaten (device check caught it). At the
+      // floor the bands now match the interior exactly.
+      final window = RecordingStageWindow();
+      final dir = scratch();
+      final controller = await pumpGeometry(tester, window: window, dir: dir);
+      controller.panelFootprint = SrGeometry.panelMinSize;
+      await pumpQuickOpen(tester, controller);
+      expect(tester.takeException(), isNull);
+
+      // Slot (360 wide) at the upLeft anchor (1048,548) lands at
+      // x 736..1096; the painted card is 744..1088, and the list's
+      // content inset is 16 — so a full-width row's right edge must sit
+      // at ≤ 1072. The old floor laid the band 360 wide: the row ran to
+      // 1088, flush with (and clipped at) the card edge.
+      final rowRight = tester
+          .getTopRight(find.byKey(const Key('quick-open-settings:scenarios')))
+          .dx;
+      expect(rowRight, lessThanOrEqualTo(1072.5));
+    });
+
     testWidgets('an idle drag clamps the anchor and persists it', (
       tester,
     ) async {
