@@ -26,6 +26,15 @@ pub trait InputOs: Send + Sync + 'static {
     /// instead of pasting into ourselves.
     fn foreground_is_own_process(&self) -> bool;
 
+    /// Whether the foreground is the app's MAIN window — the shell
+    /// surface whose keyboard the panel borrows and hands back. Narrower
+    /// than [Self::foreground_is_own_process] on purpose: a sub-window
+    /// of ours (the settings window) in the foreground is the user's
+    /// latest choice, not something we hold — a focus restore must
+    /// leave it alone instead of pushing it behind the remembered
+    /// target.
+    fn foreground_is_main_window(&self) -> bool;
+
     /// Send a Ctrl+V paste keystroke to the foreground window.
     fn send_paste(&self) -> Result<(), String>;
 
@@ -105,6 +114,10 @@ impl InputOs for UnsupportedOs {
     }
 
     fn foreground_is_own_process(&self) -> bool {
+        false
+    }
+
+    fn foreground_is_main_window(&self) -> bool {
         false
     }
 

@@ -534,10 +534,16 @@ class SpeechController extends ChangeNotifier {
   /// style path in the panel widget).
   Future<void> enterAction() => dispatchInput(SessionInput.enter);
 
-  Future<void> closeQuick() async {
+  /// Closes the quick panel. [handBackFocus] false collapses QUIETLY:
+  /// the foreground stays where it is because the click's destination
+  /// is about to claim it — the settings window the entry row opens.
+  /// Restoring to the insertion target there would race the settings
+  /// window's own focus and could leave it behind (小修 17).
+  Future<void> closeQuick({bool handBackFocus = true}) async {
     if (!quickOpen) return;
     quickOpen = false;
     notifyListeners();
+    if (!handBackFocus) return;
     // The panel borrowed the foreground while it was open; hand it back
     // the way a cancelled session does. Self-guarded on the inserter
     // side (a foreign foreground is left alone); a failed restore is

@@ -19,7 +19,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, EVENT_SYSTEM_FOREGROUND, GetForegroundWindow, GetMessageW,
+    DispatchMessageW, EVENT_SYSTEM_FOREGROUND, GetClassNameW, GetForegroundWindow, GetMessageW,
     GetWindowThreadProcessId, IsWindow, MSG, OBJID_WINDOW, SetForegroundWindow, SetTimer,
     TranslateMessage, WINEVENT_OUTOFCONTEXT, WM_TIMER,
 };
@@ -133,6 +133,11 @@ impl InputOs for Win32Os {
         !hwnd.is_invalid() && window_belongs_to_us(hwnd)
     }
 
+    fn foreground_is_main_window(&self) -> bool {
+        let hwnd = unsafe { GetForegroundWindow() };
+        !hwnd.is_invalid() && window_belongs_to_us(hwnd) && window_class_is(hwnd, MAIN_WINDOW_CLASS)
+    }
+
     fn send_paste(&self) -> Result<(), String> {
         // Paced per the script's batches: the modifier must land before the
         // key it modifies goes out, or the target can see a bare 'v'
@@ -181,6 +186,24 @@ impl InputOs for Win32Os {
 }
 
 // -- window plumbing ----------------------------------------------------------
+
+/// The runner-registered window class of the app's MAIN window — the
+/// morphing orb/panel surface. The settings window (desktop_multi_window)
+/// registers its OWN class while living in the same process, so the PID
+/// check below cannot tell a shell surface we borrowed the keyboard from
+/// a sub-window the user chose to sit in; the class can.
+const MAIN_WINDOW_CLASS: &str = "FLUTTER_RUNNER_WIN32_WINDOW";
+
+/// Whether `hwnd`'s window class is `name` (an ASCII/UTF-16-safe compare).
+fn window_class_is(hwnd: HWND, name: &str) -> bool {
+    let mut buffer = [0u16; 64];
+    let copied = unsafe { GetClassNameW(hwnd, &mut buffer) };
+    if copied <= 0 {
+        return false;
+    }
+    let actual = String::from_utf16_lossy(&buffer[..copied as usize]);
+    actual == name
+}
 
 /// Whether `hwnd` belongs to this process.
 fn window_belongs_to_us(hwnd: HWND) -> bool {

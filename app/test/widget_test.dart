@@ -1190,7 +1190,7 @@ void main() {
     expect(controller.phase, BridgeSessionState.idle);
   });
 
-  testWidgets('the management entries open the settings window on domain', (
+  testWidgets('the management entries collapse the panel into the settings window', (
     tester,
   ) async {
     final gateway = FakeGateway()
@@ -1204,16 +1204,34 @@ void main() {
       onOpenSettings: opened.add,
     );
 
-    // Right click the idle orb, then walk the three entry rows.
+    // 小修 17: every entry row OPENS the settings window AND collapses
+    // the panel — the click's destination is the settings window, so the
+    // collapse is quiet: no foreground hand-back to the insertion target
+    // racing the window the user just asked for.
+    Future<void> openPanelAndTap(Finder entry) async {
+      await tester.tap(
+        find.byIcon(Icons.mic_none_rounded),
+        buttons: kSecondaryButton,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.tap(entry);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(controller.stage, StageKind.orb, reason: 'the panel collapsed');
+    }
+
+    await openPanelAndTap(find.byKey(const Key('quick-open-settings:scenarios')));
+    await openPanelAndTap(find.byKey(const Key('quick-open-settings:history')));
+
+    // The 设置入口 row sits below the fold of the grown list; scroll it
+    // into view before the tap.
     await tester.tap(
       find.byIcon(Icons.mic_none_rounded),
       buttons: kSecondaryButton,
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 700));
-    await tester.tap(find.byKey(const Key('quick-open-settings:scenarios')));
-    await tester.tap(find.byKey(const Key('quick-open-settings:history')));
-    // The 设置入口 section sits below the fold of the grown list now.
     await tester.dragUntilVisible(
       find.byKey(const Key('quick-open-settings:general')),
       panelScrollable(),
@@ -1222,6 +1240,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('quick-open-settings:general')));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(controller.stage, StageKind.orb, reason: 'the panel collapsed');
 
     // 打开设置 lands on 通用, the sidebar's first domain — the same
     // target unknown domain names fall back to.
@@ -1230,8 +1250,9 @@ void main() {
       SettingsDomain.history,
       SettingsDomain.general,
     ]);
-    // Opening settings leaves the quick panel open (its own window).
-    expect(controller.stage, StageKind.quick);
+    // The settings-open collapse restores the foreground to NOTHING:
+    // the settings window claims it, never the remembered insertion
+    // target.
     expect(gateway.commands, isNot(contains('restoreFocus')));
   });
 
@@ -1361,7 +1382,12 @@ void main() {
 
     await tester.tap(find.byKey(const Key('quick-global-open')));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
     expect(opened, [SettingsDomain.scenarios]);
+    // 小修 17: the jump's destination is the settings window — the
+    // panel collapses behind it (quietly; no restoreFocus fires).
+    expect(controller.stage, StageKind.orb);
+    expect(gateway.commands, isNot(contains('restoreFocus')));
   });
 
   testWidgets(
@@ -1871,9 +1897,28 @@ void main() {
         find.byKey(const Key('quick-rectify-quick-preview')),
         findsOneWidget,
       );
-      await tester.tap(find.byKey(const Key('quick-rectify-light-open')));
-      await tester.tap(find.byKey(const Key('quick-rectify-quick-open')));
-      await tester.pump();
+      // Each jump opens the rectify domain AND collapses the panel
+      // (小修 17) — so the rows are tapped one panel-life at a time.
+      Future<void> jump(Finder button) async {
+        await tester.tap(button);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+        expect(opened, contains(SettingsDomain.rectify));
+        expect(controller.stage, StageKind.orb);
+      }
+
+      await jump(find.byKey(const Key('quick-rectify-light-open')));
+
+      // Reopen, scroll back to the quick row, clear the anchor zone.
+      await pumpQuickOpen(tester, controller);
+      await tester.dragUntilVisible(
+        find.byKey(const Key('quick-rectify-quick-preview')),
+        panelScrollable(),
+        const Offset(0, -40),
+      );
+      await tester.drag(panelScrollable(), const Offset(0, -120));
+      await tester.pumpAndSettle();
+      await jump(find.byKey(const Key('quick-rectify-quick-open')));
       expect(opened, [SettingsDomain.rectify, SettingsDomain.rectify]);
 
       // Unset = hidden entirely (a fresh store, no directives).

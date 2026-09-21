@@ -500,6 +500,12 @@ class _QuickPanelState extends State<QuickPanel> {
   }
 
   void _openSettings(SettingsDomain domain) {
+    // The click's destination IS the settings window: collapse the
+    // panel quietly (no foreground hand-back to the insertion target,
+    // which would race the settings window's own focus and could leave
+    // it behind). The panel and the settings window stay independent —
+    // 小修 17.
+    c.closeQuick(handBackFocus: false);
     widget.onOpenSettings?.call(domain);
   }
 

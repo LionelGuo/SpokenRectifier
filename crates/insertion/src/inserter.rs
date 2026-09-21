@@ -71,12 +71,13 @@ impl TargetInserter {
     }
 
     /// Give the keyboard back on a cancelled session — but only what we
-    /// are holding: when our own window is the foreground, hand it to
-    /// the remembered target; when someone else has it (the target
-    /// itself on a hotkey session, or a window the user moved to
-    /// mid-session), leave it exactly where it is.
+    /// are holding: when the MAIN window is the foreground (the panel
+    /// borrowed it), hand it to the remembered target; anything else —
+    /// the target itself on a hotkey session, a foreign window the user
+    /// moved to mid-session, or our own SETTINGS window (same process,
+    /// the user's latest choice) — is left exactly where it is.
     pub fn restore_focus(&self) {
-        if self.os.foreground_is_own_process() {
+        if self.os.foreground_is_main_window() {
             self.os.activate_target();
         }
     }
@@ -193,12 +194,13 @@ mod tests {
         Wait(u64),
     }
 
-    /// Records every call; programmable own-foreground/activate results
-    /// and one-shot failures per operation name.
+    /// Records every call; programmable own/main foreground and activate
+    /// results, and one-shot failures per operation name.
     struct FakeOs {
         calls: std::sync::Mutex<Vec<OsCall>>,
         activate_result: AtomicBool,
         own_foreground: AtomicBool,
+        main_foreground: AtomicBool,
         failures: std::sync::Mutex<VecDeque<(&'static str, String)>>,
     }
 
@@ -208,6 +210,7 @@ mod tests {
                 calls: std::sync::Mutex::new(Vec::new()),
                 activate_result: AtomicBool::new(true),
                 own_foreground: AtomicBool::new(false),
+                main_foreground: AtomicBool::new(false),
                 failures: std::sync::Mutex::new(VecDeque::new()),
             }
         }
@@ -257,6 +260,10 @@ mod tests {
         fn foreground_is_own_process(&self) -> bool {
             // A query, not an action: never recorded in the call log.
             self.own_foreground.load(Ordering::SeqCst)
+        }
+
+        fn foreground_is_main_window(&self) -> bool {
+            self.main_foreground.load(Ordering::SeqCst)
         }
 
         fn send_paste(&self) -> Result<(), String> {
@@ -504,7 +511,7 @@ mod tests {
     #[test]
     fn restore_focus_hands_the_keyboard_back_when_we_hold_it() {
         let fake = Arc::new(FakeOs::new());
-        fake.own_foreground.store(true, Ordering::SeqCst);
+        fake.main_foreground.store(true, Ordering::SeqCst);
         inserter(&fake, InsertionMode::Paste).restore_focus();
         assert_eq!(fake.calls(), vec![OsCall::Activate(true)]);
     }
@@ -512,10 +519,21 @@ mod tests {
     #[test]
     fn restore_focus_leaves_a_foreign_foreground_alone() {
         let fake = Arc::new(FakeOs::new());
-        fake.own_foreground.store(false, Ordering::SeqCst);
         inserter(&fake, InsertionMode::Paste).restore_focus();
         // The user (or the target itself) holds the keyboard: nothing to
         // return, nothing touched.
+        assert!(fake.calls().is_empty());
+    }
+
+    #[test]
+    fn restore_focus_leaves_a_subwindow_foreground_alone() {
+        // The settings window: OUR process, but not the window that
+        // borrowed the keyboard. Restoring over it is how a quick-panel
+        // collapse used to push the settings window to the background —
+        // the panel and the settings window are independent.
+        let fake = Arc::new(FakeOs::new());
+        fake.own_foreground.store(true, Ordering::SeqCst);
+        inserter(&fake, InsertionMode::Paste).restore_focus();
         assert!(fake.calls().is_empty());
     }
 }
