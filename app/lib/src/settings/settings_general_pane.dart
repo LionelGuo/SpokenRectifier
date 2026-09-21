@@ -13,7 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../hotkey_binding.dart';
-import '../design/controls.dart' show SrCard, SrHoverTintIcon;
+import '../design/controls.dart' show SrCard, SrHoverTintIcon, SrPressFill;
 import '../design/hover.dart';
 import '../design/tokens.dart';
 
@@ -345,8 +345,8 @@ class _HotkeyRow extends StatelessWidget {
                       child: Text(
                         capturing ? '按下组合键录制' : binding.label,
                         key: ValueKey(capturing),
-                        style:
-                            (capturing ? SrType.caption : SrType.kbd).copyWith(
+                        style: (capturing ? SrType.caption : SrType.kbd)
+                            .copyWith(
                               color: capturing
                                   ? pal.accentText
                                   : pal.textSecondary,
@@ -401,10 +401,8 @@ class _RowAction extends StatelessWidget {
             ),
             duration: SrMotion.fast,
             curve: SrMotion.curveMicro,
-            builder: (context, color, _) => Text(
-              label,
-              style: SrType.micro.copyWith(color: color),
-            ),
+            builder: (context, color, _) =>
+                Text(label, style: SrType.micro.copyWith(color: color)),
           ),
         ),
       ),
@@ -433,48 +431,56 @@ class _ThemeSeg extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          // Selection = discrete switch → the surface fade (26 号票).
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected
-                ? pal.accentSoft
-                : (hover ? pal.surfaceOverlay : pal.surfaceRaised),
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(
-              color: selected
-                  ? pal.accent.withValues(alpha: 0.55)
-                  : pal.hairline,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // The tint micro-recipe rides the selection, not the
-              // pointer: selected IS the "hovered" tone here.
-              SrHoverTintIcon(
-                icon: icon,
-                size: 14,
-                hover: selected,
-                resting: pal.textSecondary,
-                hovered: pal.accentText,
-              ),
-              const SizedBox(width: 5),
-              AnimatedDefaultTextStyle(
-                duration: SrMotion.fade,
-                curve: SrMotion.curveFade,
-                style: SrType.caption.copyWith(
-                  color: selected ? pal.accentText : pal.textSecondary,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+      builder: (hover) => SrPress(
+        builder: (pressed) => GestureDetector(
+          onTap: onTap,
+          child: SrPressFill(
+            // Press darkens at pointer-down; the blue highlight follows
+            // the selection state (26 号票 真机 round).
+            pressed: pressed,
+            radius: BorderRadius.circular(SrRadius.control),
+            child: AnimatedContainer(
+              // Selection = discrete switch → the surface fade (26 号票).
+              duration: SrMotion.fade,
+              curve: SrMotion.curveFade,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: selected
+                    ? pal.accentSoft
+                    : (hover ? pal.surfaceOverlay : pal.surfaceRaised),
+                borderRadius: BorderRadius.circular(SrRadius.control),
+                border: Border.all(
+                  color: selected
+                      ? pal.accent.withValues(alpha: 0.55)
+                      : pal.hairline,
                 ),
-                child: Text(label),
               ),
-            ],
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // The tint micro-recipe rides the selection, not the
+                  // pointer: selected IS the "hovered" tone here.
+                  SrHoverTintIcon(
+                    icon: icon,
+                    size: 14,
+                    hover: selected,
+                    resting: pal.textSecondary,
+                    hovered: pal.accentText,
+                  ),
+                  const SizedBox(width: 5),
+                  AnimatedDefaultTextStyle(
+                    duration: SrMotion.fade,
+                    curve: SrMotion.curveFade,
+                    style: SrType.caption.copyWith(
+                      color: selected ? pal.accentText : pal.textSecondary,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                    child: Text(label),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

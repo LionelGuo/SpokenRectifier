@@ -672,19 +672,20 @@ class _EntryRow extends StatelessWidget {
       builder: (hover) => SrPress(
         builder: (pressed) => GestureDetector(
           onTap: () => onOpen(domain),
-          child: AnimatedContainer(
-            duration: SrMotion.fade,
-            curve: SrMotion.curveFade,
-            height: _termRowHeight,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
-              borderRadius: BorderRadius.circular(SrRadius.control),
-              border: Border.all(color: pal.hairline),
-            ),
-            child: SrPressFill(
-              pressed: pressed,
-              radius: BorderRadius.circular(SrRadius.control),
+          child: SrPressFill(
+            // Around the padded box — full-bleed scrim (26 号票 真机).
+            pressed: pressed,
+            radius: BorderRadius.circular(SrRadius.control),
+            child: AnimatedContainer(
+              duration: SrMotion.fade,
+              curve: SrMotion.curveFade,
+              height: _termRowHeight,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
+                borderRadius: BorderRadius.circular(SrRadius.control),
+                border: Border.all(color: pal.hairline),
+              ),
               child: Row(
                 children: [
                   Text(
@@ -736,21 +737,33 @@ class _SelectableChip extends StatelessWidget {
         curve: SrMotion.curveFade,
         opacity: enabled ? 1 : 0.45,
         child: SrHover(
-          builder: (hover) => GestureDetector(
-            onTap: onTap,
-            child: AnimatedContainer(
-              // The selection is a discrete switch: it rides the surface
-              // fade (hover's fill shares the container, so it eases on
-              // the same window — 26 号票's two-tier rule).
-              duration: SrMotion.fade,
-              curve: SrMotion.curveFade,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: _chipBox(pal, selected: selected, hover: hover),
-              child: AnimatedDefaultTextStyle(
-                duration: SrMotion.fade,
-                curve: SrMotion.curveFade,
-                style: _chipText(pal, selected: selected),
-                child: Text(label),
+          builder: (hover) => SrPress(
+            builder: (pressed) => GestureDetector(
+              onTap: onTap,
+              child: SrPressFill(
+                // Press darkens at pointer-down (fast, full-bleed);
+                // the blue highlight stays with the selection state
+                // (26 号票 真机 round).
+                pressed: pressed,
+                radius: BorderRadius.circular(SrRadius.control),
+                child: AnimatedContainer(
+                  // The selection is a discrete switch: it rides the surface
+                  // fade (hover's fill shares the container, so it eases on
+                  // the same window — 26 号票's two-tier rule).
+                  duration: SrMotion.fade,
+                  curve: SrMotion.curveFade,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: _chipBox(pal, selected: selected, hover: hover),
+                  child: AnimatedDefaultTextStyle(
+                    duration: SrMotion.fade,
+                    curve: SrMotion.curveFade,
+                    style: _chipText(pal, selected: selected),
+                    child: Text(label),
+                  ),
+                ),
               ),
             ),
           ),
@@ -780,35 +793,43 @@ class _ThemeSeg extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          // Selection = discrete switch → the surface fade (26 号票).
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: _chipBox(pal, selected: selected, hover: hover),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // The tint micro-recipe rides the selection, not the
-              // pointer: selected IS the "hovered" tone here.
-              SrHoverTintIcon(
-                icon: icon,
-                size: 14,
-                hover: selected,
-                resting: pal.textSecondary,
-                hovered: pal.accentText,
+      builder: (hover) => SrPress(
+        builder: (pressed) => GestureDetector(
+          onTap: onTap,
+          child: SrPressFill(
+            // Press darkens at pointer-down; the highlight follows the
+            // selection state (26 号票 真机 round).
+            pressed: pressed,
+            radius: BorderRadius.circular(SrRadius.control),
+            child: AnimatedContainer(
+              // Selection = discrete switch → the surface fade (26 号票).
+              duration: SrMotion.fade,
+              curve: SrMotion.curveFade,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: _chipBox(pal, selected: selected, hover: hover),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // The tint micro-recipe rides the selection, not the
+                  // pointer: selected IS the "hovered" tone here.
+                  SrHoverTintIcon(
+                    icon: icon,
+                    size: 14,
+                    hover: selected,
+                    resting: pal.textSecondary,
+                    hovered: pal.accentText,
+                  ),
+                  const SizedBox(width: 5),
+                  AnimatedDefaultTextStyle(
+                    duration: SrMotion.fade,
+                    curve: SrMotion.curveFade,
+                    style: _chipText(pal, selected: selected),
+                    child: Text(label),
+                  ),
+                ],
               ),
-              const SizedBox(width: 5),
-              AnimatedDefaultTextStyle(
-                duration: SrMotion.fade,
-                curve: SrMotion.curveFade,
-                style: _chipText(pal, selected: selected),
-                child: Text(label),
-              ),
-            ],
+            ),
           ),
         ),
       ),

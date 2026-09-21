@@ -13,7 +13,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
-import '../design/controls.dart' show SrButton, SrCard;
+import '../design/controls.dart' show SrButton, SrCard, SrPressFill;
 import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
@@ -301,39 +301,47 @@ class _RetentionChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: enabled ? onTap : null,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          key: Key('settings-history-retention:$days'),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: selected
-                ? pal.accentSoft
-                : pal.surfaceOverlay.withValues(
-                    alpha: hover && enabled ? 1 : 0,
-                  ),
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(
-              color: selected
-                  ? pal.accent.withValues(alpha: 0.6)
-                  : pal.hairline,
+      builder: (hover) => SrPress(
+        builder: (pressed) => GestureDetector(
+          onTap: enabled ? onTap : null,
+          behavior: HitTestBehavior.opaque,
+          child: SrPressFill(
+            // Press darkens at pointer-down; the highlight follows the
+            // selection state (26 号票 真机 round).
+            pressed: pressed && enabled,
+            radius: BorderRadius.circular(SrRadius.control),
+            child: AnimatedContainer(
+              duration: SrMotion.fade,
+              curve: SrMotion.curveFade,
+              key: Key('settings-history-retention:$days'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: selected
+                    ? pal.accentSoft
+                    : pal.surfaceOverlay.withValues(
+                        alpha: hover && enabled ? 1 : 0,
+                      ),
+                borderRadius: BorderRadius.circular(SrRadius.control),
+                border: Border.all(
+                  color: selected
+                      ? pal.accent.withValues(alpha: 0.6)
+                      : pal.hairline,
+                ),
+              ),
+              child: AnimatedDefaultTextStyle(
+                // The selection is a discrete switch: the label rides the
+                // same fade window as its box (26 号票).
+                duration: SrMotion.fade,
+                curve: SrMotion.curveFade,
+                style: SrType.caption.copyWith(
+                  color: !enabled
+                      ? pal.textTertiary
+                      : (selected ? pal.accentText : pal.textSecondary),
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
+                child: Text(_retentionLabel(days)),
+              ),
             ),
-          ),
-          child: AnimatedDefaultTextStyle(
-            // The selection is a discrete switch: the label rides the
-            // same fade window as its box (26 号票).
-            duration: SrMotion.fade,
-            curve: SrMotion.curveFade,
-            style: SrType.caption.copyWith(
-              color: !enabled
-                  ? pal.textTertiary
-                  : (selected ? pal.accentText : pal.textSecondary),
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            ),
-            child: Text(_retentionLabel(days)),
           ),
         ),
       ),

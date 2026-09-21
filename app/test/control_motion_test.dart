@@ -129,11 +129,20 @@ double scrimAlpha(WidgetTester tester, Finder from) {
   return (render.decoration as BoxDecoration).color!.a;
 }
 
-/// The current (animated) fill color of a control's box.
+/// The current (animated) fill color of a control's box — the bordered
+/// box (a DecoratedBox does not distinguish foreground from background,
+/// so the borderless press-scrim layer is excluded by its border).
 Color boxColor(WidgetTester tester, Finder from) =>
     (tester
             .renderObject<RenderDecoratedBox>(
-              find.descendant(of: from, matching: find.byType(DecoratedBox)),
+              find.descendant(
+                of: from,
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is DecoratedBox &&
+                      (widget.decoration as BoxDecoration?)?.border != null,
+                ),
+              ),
             )
             .decoration as BoxDecoration)
         .color!;
@@ -343,5 +352,50 @@ void main() {
     expect(scrimAlpha(tester, toggle), 0.0);
 
     await windDown(tester, controller);
+  });
+
+  testWidgets('a theme segment darkens on press and turns blue only once picked', (
+    tester,
+  ) async {
+    // 真机 round: the darken is the press's own transient — it must be
+    // in at pointer-down, while the fill still rests — and the blue
+    // highlight belongs to the selection state, which flips on release.
+    var mode = ThemeMode.dark;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => SettingsGeneralPane(
+              themeMode: mode,
+              orbVisible: true,
+              primary: HotkeyBinding.primaryDefault,
+              pin: HotkeyBinding.pinDefault,
+              onThemePicked: (picked) => setState(() => mode = picked),
+              onOrbVisible: (_) {},
+              onCapture: (_) {},
+              onCommit: (_, _) async {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final light = find.byKey(const Key('settings-theme-light'));
+    Color boxOf() => boxColor(tester, light);
+    final restBox = boxOf();
+
+    final gesture = await tester.startGesture(tester.getCenter(light));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    // Held down: the scrim is fully in, the fill is still resting.
+    expect(scrimAlpha(tester, light), closeTo(0.10, 0.001));
+    expect(boxOf(), restBox);
+
+    await gesture.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    // Released into the pick: scrim lifted, the blue fill arrived.
+    expect(scrimAlpha(tester, light), 0.0);
+    expect(boxOf(), isNot(restBox));
   });
 }

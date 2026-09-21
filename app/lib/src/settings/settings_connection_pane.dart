@@ -41,7 +41,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../design/controls.dart' show SrButton, SrCard, SrField;
+import '../design/controls.dart' show SrButton, SrCard, SrField, SrPressFill;
 import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
@@ -682,42 +682,50 @@ class _ChipRow extends StatelessWidget {
       children: [
         for (final chip in chips)
           SrHover(
-            builder: (hover) => GestureDetector(
-              onTap: () => onSelect(chip),
-              behavior: HitTestBehavior.opaque,
-              child: AnimatedContainer(
-                key: Key('$testKey:$chip'),
-                duration: SrMotion.fade,
-                curve: SrMotion.curveFade,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: chip == selected
-                      ? pal.accentSoft
-                      : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
-                  borderRadius: BorderRadius.circular(SrRadius.control),
-                  border: Border.all(
-                    color: chip == selected
-                        ? pal.accent.withValues(alpha: 0.6)
-                        : pal.hairline,
+            builder: (hover) => SrPress(
+              builder: (pressed) => GestureDetector(
+                onTap: () => onSelect(chip),
+                behavior: HitTestBehavior.opaque,
+                child: SrPressFill(
+                  // Press darkens at pointer-down; the highlight follows
+                  // the selection state (26 号票 真机 round).
+                  pressed: pressed,
+                  radius: BorderRadius.circular(SrRadius.control),
+                  child: AnimatedContainer(
+                    key: Key('$testKey:$chip'),
+                    duration: SrMotion.fade,
+                    curve: SrMotion.curveFade,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: chip == selected
+                          ? pal.accentSoft
+                          : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+                      borderRadius: BorderRadius.circular(SrRadius.control),
+                      border: Border.all(
+                        color: chip == selected
+                            ? pal.accent.withValues(alpha: 0.6)
+                            : pal.hairline,
+                      ),
+                    ),
+                    child: AnimatedDefaultTextStyle(
+                      // The selection is a discrete switch: the label rides
+                      // the same fade window as its box (26 号票).
+                      duration: SrMotion.fade,
+                      curve: SrMotion.curveFade,
+                      style: SrType.caption.copyWith(
+                        color: chip == selected
+                            ? pal.accentText
+                            : pal.textSecondary,
+                        fontWeight: chip == selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                      child: Text(labels[chip] ?? chip),
+                    ),
                   ),
-                ),
-                child: AnimatedDefaultTextStyle(
-                  // The selection is a discrete switch: the label rides
-                  // the same fade window as its box (26 号票).
-                  duration: SrMotion.fade,
-                  curve: SrMotion.curveFade,
-                  style: SrType.caption.copyWith(
-                    color: chip == selected
-                        ? pal.accentText
-                        : pal.textSecondary,
-                    fontWeight: chip == selected
-                        ? FontWeight.w600
-                        : FontWeight.w400,
-                  ),
-                  child: Text(labels[chip] ?? chip),
                 ),
               ),
             ),

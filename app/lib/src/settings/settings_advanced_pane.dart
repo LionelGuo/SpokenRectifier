@@ -21,7 +21,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../design/controls.dart' show SrButton, SrCard, SrField;
+import '../design/controls.dart' show SrButton, SrCard, SrField, SrPressFill;
 import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
@@ -368,42 +368,50 @@ class _ModeChips extends StatelessWidget {
       children: [
         for (final (value, label) in _insertionModes)
           SrHover(
-            builder: (hover) => GestureDetector(
-              onTap: () => onSelect(value),
-              behavior: HitTestBehavior.opaque,
-              child: AnimatedContainer(
-                key: Key('settings-advanced-insertion-mode:$value'),
-                duration: SrMotion.fade,
-                curve: SrMotion.curveFade,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: value == selected
-                      ? pal.accentSoft
-                      : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
-                  borderRadius: BorderRadius.circular(SrRadius.control),
-                  border: Border.all(
-                    color: value == selected
-                        ? pal.accent.withValues(alpha: 0.6)
-                        : pal.hairline,
+            builder: (hover) => SrPress(
+              builder: (pressed) => GestureDetector(
+                onTap: () => onSelect(value),
+                behavior: HitTestBehavior.opaque,
+                child: SrPressFill(
+                  // Press darkens at pointer-down; the highlight follows
+                  // the selection state (26 号票 真机 round).
+                  pressed: pressed,
+                  radius: BorderRadius.circular(SrRadius.control),
+                  child: AnimatedContainer(
+                    key: Key('settings-advanced-insertion-mode:$value'),
+                    duration: SrMotion.fade,
+                    curve: SrMotion.curveFade,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: value == selected
+                          ? pal.accentSoft
+                          : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+                      borderRadius: BorderRadius.circular(SrRadius.control),
+                      border: Border.all(
+                        color: value == selected
+                            ? pal.accent.withValues(alpha: 0.6)
+                            : pal.hairline,
+                      ),
+                    ),
+                    child: AnimatedDefaultTextStyle(
+                      // The selection is a discrete switch: the label rides
+                      // the same fade window as its box (26 号票).
+                      duration: SrMotion.fade,
+                      curve: SrMotion.curveFade,
+                      style: SrType.caption.copyWith(
+                        color: value == selected
+                            ? pal.accentText
+                            : pal.textSecondary,
+                        fontWeight: value == selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                      child: Text(label),
+                    ),
                   ),
-                ),
-                child: AnimatedDefaultTextStyle(
-                  // The selection is a discrete switch: the label rides
-                  // the same fade window as its box (26 号票).
-                  duration: SrMotion.fade,
-                  curve: SrMotion.curveFade,
-                  style: SrType.caption.copyWith(
-                    color: value == selected
-                        ? pal.accentText
-                        : pal.textSecondary,
-                    fontWeight: value == selected
-                        ? FontWeight.w600
-                        : FontWeight.w400,
-                  ),
-                  child: Text(label),
                 ),
               ),
             ),

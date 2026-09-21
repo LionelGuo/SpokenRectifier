@@ -15,6 +15,11 @@ import 'tokens.dart';
 /// (feedback must track the finger). It composites over ANY fill —
 /// accent, overlay, hover — so every pressable control shares one
 /// recipe and one depth, and no palette step is invented for it.
+///
+/// Position it AROUND the padded box (outside the container that draws
+/// the fill), not around the content inside it: the scrim must span the
+/// full card — padding and border included — or it reads narrower than
+/// the control (26 号票 真机 round).
 class SrPressFill extends StatelessWidget {
   const SrPressFill({
     super.key,
@@ -71,26 +76,29 @@ class SrButton extends StatelessWidget {
         builder: (pressed) => GestureDetector(
           onTap: onTap,
           behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            duration: SrMotion.fade,
-            curve: SrMotion.curveFade,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            decoration: BoxDecoration(
-              // One hover treatment per shape: the fill's own alpha eases,
-              // never a lerp toward transparent (the cross-dissolve rule).
-              color: primary
-                  ? (hover && enabled
-                        ? pal.accent.withValues(alpha: 0.88)
-                        : pal.accent)
-                  : pal.surfaceOverlay.withValues(
-                      alpha: hover && enabled ? 1 : 0,
-                    ),
-              borderRadius: BorderRadius.circular(SrRadius.control),
-              border: primary ? null : Border.all(color: pal.hairline),
-            ),
-            child: SrPressFill(
-              pressed: pressed && enabled,
-              radius: BorderRadius.circular(SrRadius.control),
+          child: SrPressFill(
+            // The scrim wraps the padded box, not the content inside it —
+            // inside, it would only cover the inner content and read
+            // narrower than the button card (26 号票 真机 round).
+            pressed: pressed && enabled,
+            radius: BorderRadius.circular(SrRadius.control),
+            child: AnimatedContainer(
+              duration: SrMotion.fade,
+              curve: SrMotion.curveFade,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                // One hover treatment per shape: the fill's own alpha eases,
+                // never a lerp toward transparent (the cross-dissolve rule).
+                color: primary
+                    ? (hover && enabled
+                          ? pal.accent.withValues(alpha: 0.88)
+                          : pal.accent)
+                    : pal.surfaceOverlay.withValues(
+                        alpha: hover && enabled ? 1 : 0,
+                      ),
+                borderRadius: BorderRadius.circular(SrRadius.control),
+                border: primary ? null : Border.all(color: pal.hairline),
+              ),
               child: Text(
                 label,
                 style: SrType.caption.copyWith(

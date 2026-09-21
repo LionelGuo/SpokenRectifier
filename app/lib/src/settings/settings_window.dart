@@ -19,7 +19,7 @@ import 'package:flutter/material.dart';
 
 import '../../hotkey_binding.dart';
 import '../../ui_prefs.dart';
-import '../design/controls.dart' show SrButton;
+import '../design/controls.dart' show SrButton, SrPressFill;
 import '../design/hover.dart';
 import '../design/theme.dart' show srTheme;
 import '../design/toast.dart';
@@ -792,101 +792,113 @@ class _ScenarioCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => Padding(
-        // Hover hit area = the painted card (row gap outside).
-        padding: const EdgeInsets.only(bottom: 10),
-        child: GestureDetector(
-          onTap: onTap,
-          behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            key: Key('settings-scenario-card:${scenario.name}'),
-            duration: SrMotion.fade,
-            curve: SrMotion.curveFade,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: pal.surfaceRaised,
-              borderRadius: BorderRadius.circular(SrRadius.control + 4),
-              border: Border.all(
-                color: selected
-                    ? pal.accent.withValues(alpha: 0.6)
-                    : (hover
-                          ? pal.accent.withValues(alpha: 0.45)
-                          : pal.hairline),
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // The glyph swap cross-dissolves instead of snapping
-                // (26 号票): check and ring fade through each other on
-                // the surface-fade window.
-                AnimatedSwitcher(
-                  duration: SrMotion.fade,
-                  switchInCurve: SrMotion.curveFade,
-                  switchOutCurve: SrMotion.curveFade,
-                  child: Icon(
-                    selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-                    key: ValueKey(selected),
-                    size: 16,
-                    color: selected ? pal.accentText : pal.textTertiary,
+      builder: (hover) => SrPress(
+        builder: (pressed) => Padding(
+          // Hover hit area = the painted card (row gap outside).
+          padding: const EdgeInsets.only(bottom: 10),
+          child: GestureDetector(
+            onTap: onTap,
+            behavior: HitTestBehavior.opaque,
+            child: SrPressFill(
+              // Press darkens at pointer-down; the border highlight
+              // follows the selection state (26 号票 真机 round).
+              pressed: pressed,
+              radius: BorderRadius.circular(SrRadius.control + 4),
+              child: AnimatedContainer(
+                key: Key('settings-scenario-card:${scenario.name}'),
+                duration: SrMotion.fade,
+                curve: SrMotion.curveFade,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: pal.surfaceRaised,
+                  borderRadius: BorderRadius.circular(SrRadius.control + 4),
+                  border: Border.all(
+                    color: selected
+                        ? pal.accent.withValues(alpha: 0.6)
+                        : (hover
+                              ? pal.accent.withValues(alpha: 0.45)
+                              : pal.hairline),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      AnimatedDefaultTextStyle(
-                        // The selection is a discrete switch: the title
-                        // rides the same fade window as the border
-                        // (26 号票).
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // The glyph swap cross-dissolves instead of snapping
+                    // (26 号票): check and ring fade through each other on
+                    // the surface-fade window.
+                    AnimatedSwitcher(
+                      duration: SrMotion.fade,
+                      switchInCurve: SrMotion.curveFade,
+                      switchOutCurve: SrMotion.curveFade,
+                      child: Icon(
+                        selected
+                            ? Icons.check_circle_rounded
+                            : Icons.circle_outlined,
+                        key: ValueKey(selected),
+                        size: 16,
+                        color: selected ? pal.accentText : pal.textTertiary,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          AnimatedDefaultTextStyle(
+                            // The selection is a discrete switch: the title
+                            // rides the same fade window as the border
+                            // (26 号票).
+                            duration: SrMotion.fade,
+                            curve: SrMotion.curveFade,
+                            style: SrType.body.copyWith(
+                              color: selected
+                                  ? pal.accentText
+                                  : pal.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            child: Text(scenario.name),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            scenario.directive,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: SrType.caption.copyWith(
+                              color: pal.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Hover actions mirror the quick panel's history rows:
+                    // resident layout, cross-dissolved on the fade token.
+                    IgnorePointer(
+                      ignoring: !hover,
+                      child: AnimatedOpacity(
                         duration: SrMotion.fade,
                         curve: SrMotion.curveFade,
-                        style: SrType.body.copyWith(
-                          color: selected ? pal.accentText : pal.textPrimary,
-                          fontWeight: FontWeight.w600,
+                        opacity: hover ? 1 : 0,
+                        child: Row(
+                          children: [
+                            _CardAction(
+                              icon: Icons.edit_outlined,
+                              tooltip: '编辑',
+                              onTap: onEdit,
+                            ),
+                            const SizedBox(width: 10),
+                            _CardAction(
+                              icon: Icons.delete_outline_rounded,
+                              tooltip: '删除',
+                              onTap: onDelete,
+                            ),
+                          ],
                         ),
-                        child: Text(scenario.name),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        scenario.directive,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: SrType.caption.copyWith(
-                          color: pal.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // Hover actions mirror the quick panel's history rows:
-                // resident layout, cross-dissolved on the fade token.
-                IgnorePointer(
-                  ignoring: !hover,
-                  child: AnimatedOpacity(
-                    duration: SrMotion.fade,
-                    curve: SrMotion.curveFade,
-                    opacity: hover ? 1 : 0,
-                    child: Row(
-                      children: [
-                        _CardAction(
-                          icon: Icons.edit_outlined,
-                          tooltip: '编辑',
-                          onTap: onEdit,
-                        ),
-                        const SizedBox(width: 10),
-                        _CardAction(
-                          icon: Icons.delete_outline_rounded,
-                          tooltip: '删除',
-                          onTap: onDelete,
-                        ),
-                      ],
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
