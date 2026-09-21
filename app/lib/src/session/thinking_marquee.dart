@@ -49,7 +49,6 @@ class ThinkingMarquee {
   static const double shimmerFrac = 0.75;
   static const int sweepPassMs = 1600;
   static const int sweepPauseMs = 900;
-  static const Color textColor = Color(0xFF757F90); // one step under tertiary
 
   // -- geometry (set at layout) --------------------------------------
   double? _textW;
@@ -409,6 +408,7 @@ class _ThinkingMarqueeOverlayState extends State<ThinkingMarqueeOverlay>
                 machine: widget.machine,
                 cache: _cache,
                 frame: _frame,
+                palette: srPalette(context),
               ),
             ),
           );
@@ -419,19 +419,20 @@ class _ThinkingMarqueeOverlayState extends State<ThinkingMarqueeOverlay>
 }
 
 /// Per-session TextPainter cache: folded lines are immutable, and the
-/// painter re-runs every frame.
+/// painter re-runs every frame. Keyed with the color so a theme flip
+/// mid-attempt lays out fresh painters instead of serving stale ones.
 class TextPainterCache {
-  final Map<String, TextPainter> _painters = {};
+  final Map<(String, Color), TextPainter> _painters = {};
 
-  TextPainter painterFor(String text) {
-    return _painters.putIfAbsent(text, () {
+  TextPainter painterFor(String text, Color color) {
+    return _painters.putIfAbsent((text, color), () {
       final painter = TextPainter(
         text: TextSpan(
           text: text,
           style: TextStyle(
             fontSize: 15,
             height: ThinkingMarquee.lineH / 15,
-            color: ThinkingMarquee.textColor,
+            color: color,
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -481,11 +482,13 @@ class _MarqueePainter extends CustomPainter {
     required this.machine,
     required this.cache,
     required this.frame,
+    required this.palette,
   });
 
   final ThinkingMarquee machine;
   final TextPainterCache cache;
   final int frame;
+  final SrPalette palette;
 
   /// The shimmer's edge-fade ramps: 44px horizontally (sub-stops at
   /// 11/22/33), 20% of the band vertically (09 终值).
@@ -494,6 +497,15 @@ class _MarqueePainter extends CustomPainter {
     _shimHRamp * 0.25,
     _shimHRamp * 0.5,
     _shimHRamp * 0.75,
+  ];
+
+  /// The sweep's α ramp in 255ths (09 终值, mirrored) — applied to the
+  /// palette's sweep base (23 号票: white light on the dark card, black
+  /// shade on the light card — a white sweep on the white surface is
+  /// physically invisible).
+  static const _sweepAlphas = [
+    0x00, 0x03, 0x06, 0x0B, 0x0D, //
+    0x0D, 0x0B, 0x06, 0x03, 0x00,
   ];
 
   @override
@@ -531,20 +543,12 @@ class _MarqueePainter extends CustomPainter {
     final band = Rect.fromLTWH(wrap.left + x, wrap.top, bandW, wrap.height);
     // No base tint (09 round 8 终判: α0 — presence is all in the sweep).
     final sweep = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         // 09's 100deg ≈ left-to-right with a slight tilt; at peak α.05
         // the tilt is imperceptible — straight horizontal.
         colors: [
-          Color(0x00000000),
-          Color(0x03FFFFFF),
-          Color(0x06FFFFFF),
-          Color(0x0BFFFFFF),
-          Color(0x0DFFFFFF),
-          Color(0x0DFFFFFF),
-          Color(0x0BFFFFFF),
-          Color(0x06FFFFFF),
-          Color(0x03FFFFFF),
-          Color(0x00000000),
+          for (final a in _sweepAlphas)
+            palette.marqueeSweep.withValues(alpha: a / 255),
         ],
         stops: [0.0, 0.11, 0.22, 0.34, 0.45, 0.55, 0.66, 0.78, 0.89, 1.0],
       ).createShader(band);
@@ -616,7 +620,7 @@ class _MarqueePainter extends CustomPainter {
       final y = line.slot * ThinkingMarquee.lineH - tapeTop;
       if (y + ThinkingMarquee.lineH <= 0 || y >= h) continue;
       cache
-          .painterFor(line.text)
+          .painterFor(line.text, palette.marqueeText)
           .paint(canvas, Offset(band.left, band.top + y));
     }
     // The band's own top/bottom fade (text-only — it never notches the
@@ -662,5 +666,6 @@ class _MarqueePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_MarqueePainter old) => old.frame != frame;
+  bool shouldRepaint(_MarqueePainter old) =>
+      old.frame != frame || old.palette != palette;
 }

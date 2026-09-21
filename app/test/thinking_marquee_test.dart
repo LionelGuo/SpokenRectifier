@@ -3,7 +3,11 @@
 /// textW 372, startH 168 (startVis 6), maxH 336, fold at 24 CJK chars.
 library;
 
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/session/thinking_marquee.dart';
 
 ThinkingMarquee machine() => ThinkingMarquee()..setGeometry(420, 560);
@@ -355,5 +359,49 @@ void main() {
     }
     expect(stops.first, 0.0);
     expect(stops.last, 1.0);
+  });
+
+  test('the marquee text pair anchors equal ΔL* — same grey-distance in '
+      'both themes (23 号票)', () {
+    // WCAG relative luminance → CIELAB L* (perceptually uniform
+    // lightness). The pairing's fixed value is ΔL* = text L* − surface
+    // L*, equal across modes (≈39, the device-validated dark value).
+    // The light mode's lower WCAG ratio (3.1 vs 3.9) is deliberate:
+    // light text on a dark card reads harder at equal numeric contrast
+    // (polarity asymmetry), so it keeps the higher numeric anchor.
+    double channel(double s) => s <= 0.03928
+        ? s / 12.92
+        : math.pow((s + 0.055) / 1.055, 2.4).toDouble();
+
+    double lum(Color c) =>
+        0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
+
+    double lStar(Color c) => 116 * math.pow(lum(c), 1 / 3) - 16;
+
+    double dL(Color text, Color surface) =>
+        (lStar(text) - lStar(surface)).abs();
+    final dark = dL(SrPalette.dark.marqueeText, SrPalette.dark.surface);
+    final light = dL(SrPalette.light.marqueeText, SrPalette.light.surface);
+    expect(
+      (dark - light).abs(),
+      lessThan(1.0),
+      reason: 'ΔL* drifted across themes: dark $dark vs light $light — '
+          'the pair must hold one grey-distance value',
+    );
+    expect(dark, greaterThan(35));
+    expect(dark, lessThan(43));
+  });
+
+  test('the sweep is neutral modulation — white light on dark, black '
+      'shade on light (23 号票)', () {
+    // A white sweep over the white light-mode surface is physically
+    // invisible; the light mode shades instead of lighting.
+    expect(SrPalette.dark.marqueeSweep, const Color(0xFFFFFFFF));
+    expect(SrPalette.light.marqueeSweep, const Color(0xFF000000));
+    expect(
+      SrPalette.dark.marqueeText,
+      isNot(SrPalette.light.marqueeText),
+      reason: 'the text pair is theme-split (ΔL* anchor above), not shared',
+    );
   });
 }

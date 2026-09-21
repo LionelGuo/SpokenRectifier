@@ -35,6 +35,8 @@ class SrPalette {
     required this.success,
     required this.successSoft,
     required this.scrim,
+    required this.marqueeText,
+    required this.marqueeSweep,
   });
 
   /// Panel background.
@@ -75,6 +77,20 @@ class SrPalette {
   /// Shadow color (alpha applied per shadow layer).
   final Color scrim;
 
+  /// The thinking marquee's scrolling text (09). PAIRED BY ΔL* ≈ 39
+  /// from each mode's surface (dark #757F90: L* 52.9 over 13.7; light
+  /// #8A94A6: L* 61.1 over 100) — equal perceptual grey-distance, the
+  /// polarity-asymmetry-aware pairing (23 号票): light text on a dark
+  /// card reads harder at equal numeric contrast, so the light mode
+  /// deliberately takes the lower WCAG ratio (3.1 vs 3.9).
+  final Color marqueeText;
+
+  /// The marquee sweep's base — neutral modulation (23 号票): white
+  /// light over the dark card, black shade over the white card (a
+  /// white sweep on the white surface is invisible). The painter
+  /// applies the fixed α ramp (09 终值).
+  final Color marqueeSweep;
+
   static const dark = SrPalette(
     surface: Color(0xFF1F232C),
     surfaceRaised: Color(0xFF272C38),
@@ -92,6 +108,8 @@ class SrPalette {
     success: Color(0xFF4ADE80),
     successSoft: Color(0x1F4ADE80),
     scrim: Color(0xFF000000),
+    marqueeText: Color(0xFF757F90),
+    marqueeSweep: Color(0xFFFFFFFF),
   );
 
   static const light = SrPalette(
@@ -111,6 +129,8 @@ class SrPalette {
     success: Color(0xFF12805C),
     successSoft: Color(0x1A12805C),
     scrim: Color(0xFF0B1020),
+    marqueeText: Color(0xFF8A94A6),
+    marqueeSweep: Color(0xFF000000),
   );
 }
 
