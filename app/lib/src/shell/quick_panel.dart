@@ -537,19 +537,27 @@ String formatHistoryStamp({required DateTime at, required DateTime now}) {
 /// segments paint identically, differing only in layout density. Chips
 /// keep the plain control radius: the capsule is a corner-band
 /// privilege (spec §3).
-BoxDecoration _chipBox(
-  SrPalette pal, {
-  required bool selected,
-  required bool hover,
-}) => BoxDecoration(
-  color: selected
-      ? pal.accentSoft
-      : (hover ? pal.surfaceOverlay : pal.surfaceRaised),
+BoxDecoration _chipBox(SrPalette pal, {required bool hover}) => BoxDecoration(
+  color: hover ? pal.surfaceOverlay : pal.surfaceRaised,
   borderRadius: BorderRadius.circular(SrRadius.control),
-  border: Border.all(
-    color: selected ? pal.accent.withValues(alpha: 0.55) : pal.hairline,
-  ),
+  border: Border.all(color: pal.hairline),
 );
+
+/// The selection's blue, drawn OVER the base as its own layer so the
+/// crossfade only ever animates its own alpha: lerping the selected fill
+/// straight into the neutral one sweeps through a heavier, darker fill
+/// mid-flight — on the chip being DEselected that read as an unpressed
+/// darken, which belongs to the press alone (26 号票 真机 round).
+BoxDecoration _chipWash(SrPalette pal, {required bool selected}) =>
+    BoxDecoration(
+      color: selected ? pal.accentSoft : pal.accentSoft.withValues(alpha: 0),
+      borderRadius: BorderRadius.circular(SrRadius.control),
+      border: Border.all(
+        color: selected
+            ? pal.accent.withValues(alpha: 0.55)
+            : pal.accent.withValues(alpha: 0),
+      ),
+    );
 
 TextStyle _chipText(SrPalette pal, {required bool selected}) =>
     SrType.caption.copyWith(
@@ -756,7 +764,8 @@ class _SelectableChip extends StatelessWidget {
                     horizontal: 10,
                     vertical: 5,
                   ),
-                  decoration: _chipBox(pal, selected: selected, hover: hover),
+                  decoration: _chipBox(pal, hover: hover),
+                  foregroundDecoration: _chipWash(pal, selected: selected),
                   child: AnimatedDefaultTextStyle(
                     duration: SrMotion.fade,
                     curve: SrMotion.curveFade,
@@ -807,7 +816,8 @@ class _ThemeSeg extends StatelessWidget {
               curve: SrMotion.curveFade,
               height: 34,
               alignment: Alignment.center,
-              decoration: _chipBox(pal, selected: selected, hover: hover),
+              decoration: _chipBox(pal, hover: hover),
+              foregroundDecoration: _chipWash(pal, selected: selected),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [

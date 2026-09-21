@@ -321,14 +321,23 @@ class _HotkeyRow extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     alignment: Alignment.centerLeft,
                     decoration: BoxDecoration(
+                      color: hover ? pal.surfaceOverlay : pal.surfaceRaised,
+                      borderRadius: BorderRadius.circular(SrRadius.control),
+                      border: Border.all(color: pal.hairline),
+                    ),
+                    // The capture state's blue is its own layer over the
+                    // base, animating its alpha alone — lerping it into
+                    // the neutral fill swept a dark wash across the row
+                    // as capture ended (26 号票 真机 round).
+                    foregroundDecoration: BoxDecoration(
                       color: capturing
                           ? pal.accentSoft
-                          : (hover ? pal.surfaceOverlay : pal.surfaceRaised),
+                          : pal.accentSoft.withValues(alpha: 0),
                       borderRadius: BorderRadius.circular(SrRadius.control),
                       border: Border.all(
                         color: capturing
                             ? pal.accent.withValues(alpha: 0.55)
-                            : pal.hairline,
+                            : pal.accent.withValues(alpha: 0),
                       ),
                     ),
                     child: AnimatedSwitcher(
@@ -446,14 +455,22 @@ class _ThemeSeg extends StatelessWidget {
               height: 34,
               alignment: Alignment.center,
               decoration: BoxDecoration(
+                color: hover ? pal.surfaceOverlay : pal.surfaceRaised,
+                borderRadius: BorderRadius.circular(SrRadius.control),
+                border: Border.all(color: pal.hairline),
+              ),
+              // The selection's blue rides its own alpha-only layer — a
+              // straight lerp into the neutral fill darkened the chip
+              // being deselected (26 号票 真机 round).
+              foregroundDecoration: BoxDecoration(
                 color: selected
                     ? pal.accentSoft
-                    : (hover ? pal.surfaceOverlay : pal.surfaceRaised),
+                    : pal.accentSoft.withValues(alpha: 0),
                 borderRadius: BorderRadius.circular(SrRadius.control),
                 border: Border.all(
                   color: selected
                       ? pal.accent.withValues(alpha: 0.55)
-                      : pal.hairline,
+                      : pal.accent.withValues(alpha: 0),
                 ),
               ),
               child: Row(

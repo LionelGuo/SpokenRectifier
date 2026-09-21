@@ -48,10 +48,10 @@ class FakeStageWindow implements stage.StageWindow {
 
   @override
   Future<stage.WorkAreas> workAreas() async => stage.WorkAreas(
-        logical: const [Rect.fromLTWH(0, 0, 1920, 1080)],
-        physical: const [Rect.fromLTWH(0, 0, 1920, 1080)],
-        factors: const [1.0],
-      );
+    logical: const [Rect.fromLTWH(0, 0, 1920, 1080)],
+    physical: const [Rect.fromLTWH(0, 0, 1920, 1080)],
+    factors: const [1.0],
+  );
 
   @override
   Offset? pointerOnScreen() => null;
@@ -129,23 +129,46 @@ double scrimAlpha(WidgetTester tester, Finder from) {
   return (render.decoration as BoxDecoration).color!.a;
 }
 
-/// The current (animated) fill color of a control's box — the bordered
-/// box (a DecoratedBox does not distinguish foreground from background,
-/// so the borderless press-scrim layer is excluded by its border).
+/// The current (animated) fill color of a control's base box — the
+/// bordered BACKGROUND DecoratedBox (the selection wash layered above
+/// it is bordered too, but foreground; the borderless foreground one is
+/// the press scrim).
 Color boxColor(WidgetTester tester, Finder from) =>
     (tester
-            .renderObject<RenderDecoratedBox>(
-              find.descendant(
-                of: from,
-                matching: find.byWidgetPredicate(
-                  (widget) =>
-                      widget is DecoratedBox &&
-                      (widget.decoration as BoxDecoration?)?.border != null,
-                ),
-              ),
-            )
-            .decoration as BoxDecoration)
+                .renderObject<RenderDecoratedBox>(
+                  find.descendant(
+                    of: from,
+                    matching: find.byWidgetPredicate(
+                      (widget) =>
+                          widget is DecoratedBox &&
+                          widget.position == DecorationPosition.background &&
+                          (widget.decoration as BoxDecoration?)?.border != null,
+                    ),
+                  ),
+                )
+                .decoration
+            as BoxDecoration)
         .color!;
+
+/// The current (animated) alpha of a control's blue selection wash —
+/// the bordered FOREGROUND box riding the same AnimatedContainer.
+double washAlpha(WidgetTester tester, Finder from) =>
+    (tester
+                .renderObject<RenderDecoratedBox>(
+                  find.descendant(
+                    of: from,
+                    matching: find.byWidgetPredicate(
+                      (widget) =>
+                          widget is DecoratedBox &&
+                          widget.position == DecorationPosition.foreground &&
+                          (widget.decoration as BoxDecoration?)?.border != null,
+                    ),
+                  ),
+                )
+                .decoration
+            as BoxDecoration)
+        .color!
+        .a;
 
 void main() {
   testWidgets('SrButton press fill eases in on press and out on release', (
@@ -154,14 +177,18 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: Center(child: SrButton(label: '保存', onTap: () {})),
+          body: Center(
+            child: SrButton(label: '保存', onTap: () {}),
+          ),
         ),
       ),
     );
     final button = find.byType(SrButton);
     expect(scrimAlpha(tester, button), 0.0);
 
-    final gesture = await tester.startGesture(tester.getCenter(find.text('保存')));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('保存')),
+    );
     await tester.pump();
     // Birth frame: the ease has just been aimed at the scrim.
     expect(scrimAlpha(tester, button), closeTo(0.0, 0.001));
@@ -179,18 +206,22 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(body: Center(child: SrButton(label: '保存'))),
+        home: Scaffold(
+          body: Center(child: SrButton(label: '保存')),
+        ),
       ),
     );
     final button = find.byType(SrButton);
-    final gesture = await tester.startGesture(tester.getCenter(find.text('保存')));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('保存')),
+    );
     await tester.pump(const Duration(milliseconds: 120));
     expect(scrimAlpha(tester, button), 0.0);
     await gesture.up();
     await tester.pump();
   });
 
-  testWidgets('a quick scenario chip pick crossfades box and label', (
+  testWidgets('a quick scenario chip pick crossfades wash and label', (
     tester,
   ) async {
     final gateway = FakeGateway()
@@ -210,29 +241,28 @@ void main() {
     expect(find.text('论文'), findsOneWidget);
 
     final chip = find.byKey(const Key('quick-scenario:论文'));
-    Color boxOf() => boxColor(tester, chip);
+    double washOf() => washAlpha(tester, chip);
     Color labelColor() => tester
         .renderObject<RenderParagraph>(find.text('论文'))
         .text
         .style!
         .color!;
 
-    final restBox = boxOf();
     final restLabel = labelColor();
 
     await tester.tap(chip);
     await tester.pump();
     // Birth frame: nothing has moved yet.
-    expect(boxOf(), restBox);
+    expect(washOf(), 0.0);
     expect(labelColor(), restLabel);
 
     await tester.pump(const Duration(milliseconds: 90));
-    // Mid-flight: both the box and the label are between their ends.
-    expect(boxOf(), isNot(restBox));
+    // Mid-flight: both the wash and the label are between their ends.
+    expect(washOf(), greaterThan(0.0));
     expect(labelColor(), isNot(restLabel));
     await tester.pump(const Duration(milliseconds: 90));
-    // Settled: the picked chip sits on the selected fill.
-    expect(boxOf(), isNot(restBox));
+    // Settled: the picked chip sits at the selected wash's full ink.
+    expect(washOf(), closeTo(srPalette(tester.element(chip)).accentSoft.a, 0.001));
     expect(controller.selectedScenario, '论文');
 
     await windDown(tester, controller);
@@ -259,7 +289,7 @@ void main() {
     );
     await tester.pump();
     final row = find.byKey(const Key('settings-hotkey-primary'));
-    Color boxOf() => boxColor(tester, row);
+    double washOf() => washAlpha(tester, row);
     // The box's own label Text (its render object is the paragraph).
     Color labelColor() => tester
         .renderObject<RenderParagraph>(
@@ -269,23 +299,22 @@ void main() {
         .style!
         .color!;
 
-    final restBox = boxOf();
     final restLabel = labelColor();
 
     await tester.tap(row);
     await tester.pump();
     // Birth frame: the render still holds the resting fill; the
     // capture label is mounted at once, its ink just arriving.
-    expect(boxOf(), restBox);
+    expect(washOf(), 0.0);
     expect(find.text('按下组合键录制'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 90));
-    // Mid-crossfade: the capture fill is arriving.
-    expect(boxOf(), isNot(restBox));
+    // Mid-crossfade: the capture wash is arriving.
+    expect(washOf(), greaterThan(0.0));
     await tester.pump(const Duration(milliseconds: 90));
-    // Settled: capture fill at full ink, the resting label retired —
+    // Settled: capture wash at full ink, the resting label retired —
     // the switcher's outgoing child unmounts a frame past the window.
     await tester.pump(const Duration(milliseconds: 240));
-    expect(boxOf(), isNot(restBox));
+    expect(washOf(), closeTo(srPalette(tester.element(row)).accentSoft.a, 0.001));
     expect(find.text('Ctrl+Alt+V'), findsNothing);
 
     // Handing capture to the other row crossfades this one back — and
@@ -308,7 +337,7 @@ void main() {
       findsOneWidget,
     );
     expect(labelColor(), restLabel);
-    expect(boxOf(), restBox);
+    expect(washOf(), 0.0);
   });
 
   testWidgets('a footer ghost button rides the fast press fill', (
@@ -354,48 +383,62 @@ void main() {
     await windDown(tester, controller);
   });
 
-  testWidgets('a theme segment darkens on press and turns blue only once picked', (
-    tester,
-  ) async {
-    // 真机 round: the darken is the press's own transient — it must be
-    // in at pointer-down, while the fill still rests — and the blue
-    // highlight belongs to the selection state, which flips on release.
-    var mode = ThemeMode.dark;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: StatefulBuilder(
-            builder: (context, setState) => SettingsGeneralPane(
-              themeMode: mode,
-              orbVisible: true,
-              primary: HotkeyBinding.primaryDefault,
-              pin: HotkeyBinding.pinDefault,
-              onThemePicked: (picked) => setState(() => mode = picked),
-              onOrbVisible: (_) {},
-              onCapture: (_) {},
-              onCommit: (_, _) async {},
+  testWidgets(
+    'a theme segment darkens on press and turns blue only once picked',
+    (tester) async {
+      // 真机 round: the darken is the press's own transient — it must be
+      // in at pointer-down, while the fill still rests — and the blue
+      // highlight belongs to the selection state, which flips on release.
+      var mode = ThemeMode.dark;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => SettingsGeneralPane(
+                themeMode: mode,
+                orbVisible: true,
+                primary: HotkeyBinding.primaryDefault,
+                pin: HotkeyBinding.pinDefault,
+                onThemePicked: (picked) => setState(() => mode = picked),
+                onOrbVisible: (_) {},
+                onCapture: (_) {},
+                onCommit: (_, _) async {},
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
-    final light = find.byKey(const Key('settings-theme-light'));
-    Color boxOf() => boxColor(tester, light);
-    final restBox = boxOf();
+      );
+      await tester.pump();
+      final light = find.byKey(const Key('settings-theme-light'));
+      final restBox = boxColor(tester, light);
 
-    final gesture = await tester.startGesture(tester.getCenter(light));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 120));
-    // Held down: the scrim is fully in, the fill is still resting.
-    expect(scrimAlpha(tester, light), closeTo(0.10, 0.001));
-    expect(boxOf(), restBox);
+      final gesture = await tester.startGesture(tester.getCenter(light));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      // Held down: the scrim is fully in, the fill is still resting —
+      // and no blue: the highlight waits for the pick.
+      expect(scrimAlpha(tester, light), closeTo(0.10, 0.001));
+      expect(washAlpha(tester, light), 0.0);
 
-    await gesture.up();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 180));
-    // Released into the pick: scrim lifted, the blue fill arrived.
-    expect(scrimAlpha(tester, light), 0.0);
-    expect(boxOf(), isNot(restBox));
-  });
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 180));
+      // Released into the pick: scrim lifted, the blue wash arrived.
+      expect(scrimAlpha(tester, light), 0.0);
+      expect(
+        washAlpha(tester, light),
+        closeTo(srPalette(tester.element(light)).accentSoft.a, 0.001),
+      );
+
+      // 真机 round 2: picking another segment retires this one — its blue
+      // fades out ALONE on the alpha-only wash while the base box holds
+      // still, so the exit sweeps no darker fill across the old chip.
+      final dark = find.byKey(const Key('settings-theme-dark'));
+      await tester.tap(dark);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 180));
+      expect(washAlpha(tester, light), 0.0);
+      expect(boxColor(tester, light), restBox);
+    },
+  );
 }

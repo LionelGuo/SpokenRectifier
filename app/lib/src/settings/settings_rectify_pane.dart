@@ -864,14 +864,22 @@ class _PolicyChips extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
+                    color: pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+                    borderRadius: BorderRadius.circular(SrRadius.control),
+                    border: Border.all(color: pal.hairline),
+                  ),
+                  // The selection's blue rides its own alpha-only layer —
+                  // a straight lerp into the neutral fill darkened the
+                  // chip being deselected (26 号票 真机 round).
+                  foregroundDecoration: BoxDecoration(
                     color: policy == selected
                         ? pal.accentSoft
-                        : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+                        : pal.accentSoft.withValues(alpha: 0),
                     borderRadius: BorderRadius.circular(SrRadius.control),
                     border: Border.all(
                       color: policy == selected
                           ? pal.accent.withValues(alpha: 0.6)
-                          : pal.hairline,
+                          : pal.accent.withValues(alpha: 0),
                     ),
                   ),
                   child: Text(

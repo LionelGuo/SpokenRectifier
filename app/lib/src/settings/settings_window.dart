@@ -502,9 +502,19 @@ class _SidebarItem extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 2),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
+            color: pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+            borderRadius: const BorderRadius.horizontal(
+              left: Radius.circular(SrRadius.control),
+              right: Radius.circular(4),
+            ),
+          ),
+          // The active domain's blue rides its own alpha-only layer — a
+          // straight lerp into the neutral fill darkened the item being
+          // deselected (26 号票 真机 round).
+          foregroundDecoration: BoxDecoration(
             color: active
                 ? pal.accentSoft
-                : pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+                : pal.accentSoft.withValues(alpha: 0),
             borderRadius: const BorderRadius.horizontal(
               left: Radius.circular(SrRadius.control),
               right: Radius.circular(4),
