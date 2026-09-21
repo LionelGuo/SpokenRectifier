@@ -72,12 +72,14 @@ impl TargetInserter {
 
     /// Give the keyboard back on a cancelled session — but only what we
     /// are holding: when the MAIN window is the foreground (the panel
-    /// borrowed it), hand it to the remembered target; anything else —
-    /// the target itself on a hotkey session, a foreign window the user
-    /// moved to mid-session, or our own SETTINGS window (same process,
-    /// the user's latest choice) — is left exactly where it is.
+    /// borrowed it) AND no sub-window of ours is on screen, hand it to
+    /// the remembered target. Anything else — the target itself on a
+    /// hotkey session, a foreign window the user moved to mid-session,
+    /// our SETTINGS window in the foreground, or the settings window
+    /// merely open behind the panel (Esc-cancel used to push it behind
+    /// the insertion target) — is left exactly where it is.
     pub fn restore_focus(&self) {
-        if self.os.foreground_is_main_window() {
+        if self.os.foreground_is_main_window() && !self.os.own_subwindow_visible() {
             self.os.activate_target();
         }
     }
@@ -194,13 +196,15 @@ mod tests {
         Wait(u64),
     }
 
-    /// Records every call; programmable own/main foreground and activate
-    /// results, and one-shot failures per operation name.
+    /// Records every call; programmable own/main foreground, sub-window
+    /// visibility, and activate results, and one-shot failures per
+    /// operation name.
     struct FakeOs {
         calls: std::sync::Mutex<Vec<OsCall>>,
         activate_result: AtomicBool,
         own_foreground: AtomicBool,
         main_foreground: AtomicBool,
+        subwindow_visible: AtomicBool,
         failures: std::sync::Mutex<VecDeque<(&'static str, String)>>,
     }
 
@@ -211,6 +215,7 @@ mod tests {
                 activate_result: AtomicBool::new(true),
                 own_foreground: AtomicBool::new(false),
                 main_foreground: AtomicBool::new(false),
+                subwindow_visible: AtomicBool::new(false),
                 failures: std::sync::Mutex::new(VecDeque::new()),
             }
         }
@@ -264,6 +269,10 @@ mod tests {
 
         fn foreground_is_main_window(&self) -> bool {
             self.main_foreground.load(Ordering::SeqCst)
+        }
+
+        fn own_subwindow_visible(&self) -> bool {
+            self.subwindow_visible.load(Ordering::SeqCst)
         }
 
         fn send_paste(&self) -> Result<(), String> {
@@ -533,6 +542,20 @@ mod tests {
         // the panel and the settings window are independent.
         let fake = Arc::new(FakeOs::new());
         fake.own_foreground.store(true, Ordering::SeqCst);
+        inserter(&fake, InsertionMode::Paste).restore_focus();
+        assert!(fake.calls().is_empty());
+    }
+
+    #[test]
+    fn restore_focus_leaves_an_open_subwindow_alone_even_when_we_hold_the_keyboard() {
+        // Esc-cancel during a session: the MAIN window holds the
+        // foreground (the session panel borrowed it) AND the settings
+        // window is open. Restoring the insertion target would push
+        // the settings window behind it — the two surfaces are
+        // independent, so we leave the keyboard where it is.
+        let fake = Arc::new(FakeOs::new());
+        fake.main_foreground.store(true, Ordering::SeqCst);
+        fake.subwindow_visible.store(true, Ordering::SeqCst);
         inserter(&fake, InsertionMode::Paste).restore_focus();
         assert!(fake.calls().is_empty());
     }

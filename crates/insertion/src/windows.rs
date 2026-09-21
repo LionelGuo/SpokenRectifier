@@ -7,7 +7,7 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
+use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND, LPARAM};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
@@ -19,9 +19,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, EVENT_SYSTEM_FOREGROUND, GetClassNameW, GetForegroundWindow, GetMessageW,
-    GetWindowThreadProcessId, IsWindow, MSG, OBJID_WINDOW, SetForegroundWindow, SetTimer,
-    TranslateMessage, WINEVENT_OUTOFCONTEXT, WM_TIMER,
+    DispatchMessageW, EVENT_SYSTEM_FOREGROUND, EnumWindows, GetClassNameW, GetForegroundWindow,
+    GetMessageW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, MSG, OBJID_WINDOW,
+    SetForegroundWindow, SetTimer, TranslateMessage, WINEVENT_OUTOFCONTEXT, WM_TIMER,
 };
 
 use crate::os::{InjectedKey, InputOs, paced_paste_script};
@@ -138,6 +138,10 @@ impl InputOs for Win32Os {
         !hwnd.is_invalid() && window_belongs_to_us(hwnd) && window_class_is(hwnd, MAIN_WINDOW_CLASS)
     }
 
+    fn own_subwindow_visible(&self) -> bool {
+        a_visible_subwindow_exists()
+    }
+
     fn send_paste(&self) -> Result<(), String> {
         // Paced per the script's batches: the modifier must land before the
         // key it modifies goes out, or the target can see a bare 'v'
@@ -194,6 +198,11 @@ impl InputOs for Win32Os {
 /// a sub-window the user chose to sit in; the class can.
 const MAIN_WINDOW_CLASS: &str = "FLUTTER_RUNNER_WIN32_WINDOW";
 
+/// desktop_multi_window's window class. Any visible, non-minimized
+/// window of this class in our process is a sub-window the user has
+/// open (today: the settings window).
+const SUBWINDOW_CLASS: &str = "FLUTTER_MULTI_WINDOW_WIN32_WINDOW";
+
 /// Whether `hwnd`'s window class is `name` (an ASCII/UTF-16-safe compare).
 fn window_class_is(hwnd: HWND, name: &str) -> bool {
     let mut buffer = [0u16; 64];
@@ -210,6 +219,31 @@ fn window_belongs_to_us(hwnd: HWND) -> bool {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     pid == std::process::id()
+}
+
+/// Walk top-level windows looking for one of ours that is a visible,
+/// non-minimized sub-window (the settings window). Stops at the first
+/// hit. `EnumWindows` is process-wide but cheap at our window count.
+fn a_visible_subwindow_exists() -> bool {
+    let mut found = false;
+    let _ = unsafe { EnumWindows(Some(enum_visible_subwindow), LPARAM(&mut found as *mut bool as isize)) };
+    found
+}
+
+unsafe extern "system" fn enum_visible_subwindow(
+    hwnd: HWND,
+    lparam: LPARAM,
+) -> windows::core::BOOL {
+    let found = unsafe { &mut *(lparam.0 as *mut bool) };
+    if window_belongs_to_us(hwnd)
+        && window_class_is(hwnd, SUBWINDOW_CLASS)
+        && unsafe { IsWindowVisible(hwnd) }.as_bool()
+        && !unsafe { IsIconic(hwnd) }.as_bool()
+    {
+        *found = true;
+        return windows::core::BOOL(0); // stop
+    }
+    windows::core::BOOL(1) // keep walking
 }
 
 /// The last foreground window that was NOT ours. Process-wide because the

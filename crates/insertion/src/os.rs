@@ -35,6 +35,14 @@ pub trait InputOs: Send + Sync + 'static {
     /// target.
     fn foreground_is_main_window(&self) -> bool;
 
+    /// Whether a visible sub-window of ours is on screen (the settings
+    /// window, which lives in-process under a different window class).
+    /// Restoring the insertion target while it is up would push it
+    /// behind that target — Esc-cancel during a session used to do
+    /// exactly that, intermittently, whenever the main window held
+    /// the foreground. Restore no-ops while this is true.
+    fn own_subwindow_visible(&self) -> bool;
+
     /// Send a Ctrl+V paste keystroke to the foreground window.
     fn send_paste(&self) -> Result<(), String>;
 
@@ -118,6 +126,10 @@ impl InputOs for UnsupportedOs {
     }
 
     fn foreground_is_main_window(&self) -> bool {
+        false
+    }
+
+    fn own_subwindow_visible(&self) -> bool {
         false
     }
 
