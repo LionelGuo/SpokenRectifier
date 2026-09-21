@@ -374,105 +374,131 @@ class _SessionPanelState extends State<SessionPanel> {
     final recording = c.phase == BridgeSessionState.recording;
     final editor = _editor;
     final previewing = _isPreview && editor != null;
-    // The measuring surface subtree stays STABLE while the form
-    // animates — only the padding and the fade wrap re-build per tick
-    // (the H3 re-measure tax).
-    final content = Stack(
-      children: [
-        if (recording && c.liveText.isEmpty)
-          Text(
-            '开始说话…',
-            style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
-          ),
-        // 16 号票: the scroll surfaces span the body's FULL width —
-        // the auto scrollbar (the desktop ScrollBehavior wrapper)
-        // hangs on the window's edge, never on the widest text line.
-        // A Stack's loose fit shrink-wraps a scrollable to its
-        // paragraph; the infinity SizedBox pins the cross axis, so
-        // the thumb stays put wherever the text happens to end.
-        if (previewing)
-          // The editable preview (ticket 22): the self-drawn fill
-          // capsule surface over the slot document. Each round
-          // bumps the reset token; edits adopt their substituted
-          // text at once.
-          SizedBox(
-            width: double.infinity,
-            child: SingleChildScrollView(
-              controller: _scroll,
+    // 小修 13 修订 (device round): the vertical padding rides INSIDE
+    // the scroll views (in-scroll padding — the quick panel's ListView
+    // pattern), so the viewport is the body slot's FULL height and
+    // scrolling text actually CROSSES the edge fades. The first
+    // landing wrapped the scroll views in an outer Padding: the
+    // padding's edge was the clip line, the fades painted entirely
+    // over clipped-out dead space, and no dissolve ever showed on
+    // device. The horizontal inset stays outside (the width story is
+    // the scrollbar's, 16 号票).
+    //
+    // This inner builder re-runs the padding parameters per form tick
+    // only; the SlotSurface states survive the config-level rebuild
+    // (their didUpdateWidget is field-gated), and the scroll views
+    // relayout no more than the old outer Padding forced anyway.
+    final content = AnimatedBuilder(
+      animation: widget.form,
+      builder: (context, _) => Stack(
+        children: [
+          if (recording && c.liveText.isEmpty)
+            Padding(
+              // Parks where the first line will land: at the top
+              // fade's far edge, never inside it.
+              padding: EdgeInsets.only(top: widget.form.sessionTopPad),
+              child: Text(
+                '开始说话…',
+                style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
+              ),
+            ),
+          // 16 号票: the scroll surfaces span the body's FULL width —
+          // the auto scrollbar (the desktop ScrollBehavior wrapper)
+          // hangs on the window's edge, never on the widest text line.
+          // A Stack's loose fit shrink-wraps a scrollable to its
+          // paragraph; the infinity SizedBox pins the cross axis, so
+          // the thumb stays put wherever the text happens to end.
+          if (previewing)
+            // The editable preview (ticket 22): the self-drawn fill
+            // capsule surface over the slot document. Each round
+            // bumps the reset token; edits adopt their substituted
+            // text at once.
+            SizedBox(
+              width: double.infinity,
+              child: SingleChildScrollView(
+                controller: _scroll,
+                // In-scroll pair with the fades (the no-wash
+                // contract): at rest the first (last) line sits
+                // exactly at its fade's far edge.
+                padding: EdgeInsets.only(
+                  top: widget.form.sessionTopPad,
+                  bottom: SrSpace.xl,
+                ),
+                child: SlotSurface(
+                  key: const Key('session-text'),
+                  mode: SlotSurfaceMode.preview,
+                  editor: editor,
+                  focusNode: _focus,
+                  scrollController: _scroll,
+                  resetToken: _round,
+                  onChanged: _onSlotChanged,
+                ),
+              ),
+            )
+          else
+            // The read-only stream surface (listening / rectifying):
+            // sentinels render as capsules — the bare `‡N‡` never
+            // shows on the main surface (ticket 21). Rectifying
+            // reads the same projection, so sentinels appearing
+            // mid-stream collapse into capsules the moment their
+            // shape completes.
+            SizedBox(
+              width: double.infinity,
               child: SlotSurface(
-                key: const Key('session-text'),
-                mode: SlotSurfaceMode.preview,
-                editor: editor,
-                focusNode: _focus,
+                key: const Key('session-stream'),
+                mode: SlotSurfaceMode.stream,
+                text: recording ? c.liveText : c.previewText,
+                streamStyle: SrType.bodyLarge.copyWith(
+                  color: recording ? pal.textSecondary : pal.textPrimary,
+                ),
                 scrollController: _scroll,
-                resetToken: _round,
-                onChanged: _onSlotChanged,
+                scrollPadding: EdgeInsets.only(
+                  top: widget.form.sessionTopPad,
+                  bottom: SrSpace.xl,
+                ),
               ),
             ),
-          )
-        else
-          // The read-only stream surface (listening / rectifying):
-          // sentinels render as capsules — the bare `‡N‡` never
-          // shows on the main surface (ticket 21). Rectifying
-          // reads the same projection, so sentinels appearing
-          // mid-stream collapse into capsules the moment their
-          // shape completes.
-          SizedBox(
-            width: double.infinity,
-            child: SlotSurface(
-              key: const Key('session-stream'),
-              mode: SlotSurfaceMode.stream,
-              text: recording ? c.liveText : c.previewText,
-              streamStyle: SrType.bodyLarge.copyWith(
-                color: recording ? pal.textSecondary : pal.textPrimary,
-              ),
-              scrollController: _scroll,
-            ),
-          ),
-      ],
+        ],
+      ),
     );
     // Both edges carry a fade in every quadrant (小修 13): the top band
     // hands over by HEIGHT — the 48 anchor dissolve while the orb
     // shares the header row (右上/左上: the ball's lower half rides
     // over this region; the stage stack paints the ball above the fade,
-    // so it stays crisp), shrinking to the md soft cut (12) once the
-    // orb sits on the footer's edge — always paired with bodyTopPad, so
-    // scrolled to top the first line rests exactly at the fade's lower
-    // edge, never inside it. The bottom band is the constant md soft
-    // cut: the raw fold / footer band — never the orb — owns the body's
-    // bottom edge in every quadrant, so streaming text dissolves into
-    // the surface there instead of slicing hard against the band above.
-    // Surface over surface, both are invisible over empty regions.
+    // so it stays crisp), shrinking to the xl soft cut (24) once the
+    // orb sits on the footer's edge — always paired with the in-scroll
+    // top padding, so scrolled to top the first line rests exactly at
+    // the fade's lower edge, never inside it. The bottom band is the
+    // constant xl soft cut: the raw fold / footer band — never the orb
+    // — owns the body's bottom edge in every quadrant, so streaming
+    // text dissolves into the surface there instead of slicing hard
+    // against the band above. Surface over surface, both are invisible
+    // over empty regions.
     return AnimatedBuilder(
       animation: widget.form,
-      child: content,
+      child: Padding(
+        // Straight-edge body content: contentInset (below the corner
+        // band), horizontal only — the vertical pads live inside the
+        // scroll views now.
+        padding: const EdgeInsets.symmetric(
+          horizontal: SrSpace.contentInset,
+        ),
+        child: content,
+      ),
       builder: (context, inner) => Stack(
         children: [
-          Positioned.fill(
-            child: Padding(
-              // Straight-edge body content: contentInset (below the
-              // corner band); the top rides the form (12 ↔ 48), the
-              // bottom pairs with the soft cut (md).
-              padding: EdgeInsets.fromLTRB(
-                SrSpace.contentInset,
-                widget.form.bodyTopPad,
-                SrSpace.contentInset,
-                SrSpace.md,
-              ),
-              child: inner!,
-            ),
-          ),
+          Positioned.fill(child: inner!),
           // Full-width, flush under the header row: opaque surface at
           // the top dissolving to transparent at the height's far edge
-          // (height = bodyTopPad: 48 anchored, 12 at the far form). The
-          // orb (stage layer) paints above it and stays crisp; content
-          // under the fade is inert to the pointer.
+          // (height = sessionTopPad: 48 anchored, 24 at the far form).
+          // The orb (stage layer) paints above it and stays crisp;
+          // content under the fade is inert to the pointer.
           Positioned(
             key: const Key('session-top-fade'),
             left: 0,
             right: 0,
             top: 0,
-            height: widget.form.bodyTopPad,
+            height: widget.form.sessionTopPad,
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -490,14 +516,15 @@ class _SessionPanelState extends State<SessionPanel> {
               ),
             ),
           ),
-          // Its mirror at the body's bottom seam: the same md budget as
-          // the bottom padding, opaque at the seam dissolving upward.
+          // Its mirror at the body's bottom seam: the same xl budget
+          // as the in-scroll bottom padding, opaque at the seam
+          // dissolving upward.
           Positioned(
             key: const Key('session-bottom-fade'),
             left: 0,
             right: 0,
             bottom: 0,
-            height: SrSpace.md,
+            height: SrSpace.xl,
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(

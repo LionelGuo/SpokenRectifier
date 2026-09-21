@@ -1306,6 +1306,16 @@ class PanelForm extends ChangeNotifier {
     final band = SrGeometry.anchorInset * 2 * gu;
     return band < SrSpace.md ? SrSpace.md : band;
   }
+
+  /// The SESSION body's top padding (小修 13 修订, device round): the
+  /// shared [bodyTopPad] floored at the xl soft-cut budget — the
+  /// session's standing fades pair with their padding, and a 12px
+  /// dissolve proved invisible on device (the quick panel keeps the
+  /// lean 12 head: its far edge carries a tail buffer, not a fade).
+  double get sessionTopPad {
+    final pad = bodyTopPad;
+    return pad < SrSpace.xl ? SrSpace.xl : pad;
+  }
 }
 
 /// One axis's flight: the running simulation, its target, and the time

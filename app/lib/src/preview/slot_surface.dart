@@ -138,6 +138,7 @@ class SlotSurface extends StatefulWidget {
     this.editor,
     this.focusNode,
     this.scrollController,
+    this.scrollPadding,
     this.resetToken = 0,
     this.onChanged,
   });
@@ -164,6 +165,15 @@ class SlotSurface extends StatefulWidget {
   /// to bottom on updates), the preview branch scrolls to keep the caret
   /// revealed.
   final ScrollController? scrollController;
+
+  /// The stream branch's in-scroll vertical padding (小修 13 修订):
+  /// parks content at rest clear of the body's edge fades while the
+  /// viewport itself spans the body slot, so scrolling text crosses —
+  /// dissolves into — them (an outer Padding would pin the clip line
+  /// at its own edge and leave the fades over dead space). Stream mode
+  /// only: the preview branch's scroll view is the panel's own and
+  /// carries its padding there.
+  final EdgeInsets? scrollPadding;
 
   /// Fired after every model change (preview mode), carrying the
   /// substituted confirm text — what the panel adopts as the on-screen
@@ -594,6 +604,7 @@ class SlotSurfaceState extends State<SlotSurface>
     final strut = StrutStyle.fromTextStyle(style, forceStrutHeight: true);
     return SingleChildScrollView(
       controller: widget.scrollController,
+      padding: widget.scrollPadding,
       child: CustomPaint(
         painter: _StreamPillPainter(this, pal),
         foregroundPainter: _StreamCapsulesPainter(this, pal),

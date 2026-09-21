@@ -907,11 +907,16 @@ void main() {
     );
     await tester.pump();
 
-    // The stream viewport reaches down to the footer's band (the md
-    // gutter inside the text area — paired with the bottom soft cut,
-    // 小修 13), not to the card's midline.
+    // The stream viewport spans the body slot's FULL height (小修 13
+    // 修订: the vertical padding rides INSIDE the scroll, so scrolling
+    // text actually crosses the edge fades — an outer Padding would
+    // pin the clip line at the padding's edge and leave the fades
+    // painting over clipped-out dead space), down to the footer's band.
     final footerTop = tester
         .getTopLeft(find.byKey(const Key('panel-chrome-footer')))
+        .dy;
+    final headerBottom = tester
+        .getBottomRight(find.byKey(const Key('panel-chrome-header')))
         .dy;
     final streamViewport = tester.getRect(
       find
@@ -922,8 +927,14 @@ void main() {
           .first,
     );
     expect(
+      streamViewport.top,
+      closeTo(headerBottom, 1),
+      reason: 'the viewport tops out at the header band — the top pad '
+          'is in-scroll, not a clip inset',
+    );
+    expect(
       streamViewport.bottom,
-      closeTo(footerTop - SrSpace.md, 1),
+      closeTo(footerTop, 1),
       reason: 'the body is the true remainder above the footer',
     );
     expect(streamViewport.height, greaterThan(350));
@@ -3394,7 +3405,7 @@ void main() {
         );
         await pumpToPreview(tester, controller, gateway);
 
-        // Bottom-anchored at rest: the top fade is the resident md soft
+        // Bottom-anchored at rest: the top fade is the resident xl soft
         // cut already (小修 13 — it never unmounts; only its height
         // rides the form).
         expect(find.byKey(const Key('session-top-fade')), findsOneWidget);
@@ -3402,7 +3413,7 @@ void main() {
           tester.widget<Positioned>(
             find.byKey(const Key('session-top-fade')),
           ).height,
-          SrSpace.md,
+          SrSpace.xl,
         );
 
         // A pure VERTICAL flip (the x threshold is never crossed).
@@ -3416,7 +3427,7 @@ void main() {
 
         // Mid-switch everything stays MOUNTED: the header cluster, all
         // three footer capsules, the footer band — and the top fade
-        // rides the same window, its height handing over 12 → 48 (小修
+        // rides the same window, its height handing over 24 → 48 (小修
         // 13: the height is the handoff now; controls never unmount,
         // and neither does the fade).
         expect(find.text('预览'), findsOneWidget);
@@ -3728,22 +3739,22 @@ void main() {
         // The body's fade + padding pair rides the anchor's edge only
         // (义务随锚点角走) — now as a HEIGHT handover (小修 13: both
         // edges always carry a fade): the 48 anchor band exactly while
-        // the orb shares the header row, the md soft cut (12) while it
+        // the orb shares the header row, the xl soft cut (24) while it
         // sits on the footer's edge.
         expect(
           tester.widget<Positioned>(
             find.byKey(const Key('session-top-fade')),
           ).height,
-          dir.growUp ? SrSpace.md : SrGeometry.anchorInset,
+          dir.growUp ? SrSpace.xl : SrGeometry.anchorInset,
         );
-        // The bottom soft cut is the md constant in every quadrant: the
+        // The bottom soft cut is the xl constant in every quadrant: the
         // raw fold / footer band — never the orb — owns the body's
         // bottom edge, so the bottom fade carries no anchor semantics.
         expect(
           tester.widget<Positioned>(
             find.byKey(const Key('session-bottom-fade')),
           ).height,
-          SrSpace.md,
+          SrSpace.xl,
         );
         if (!dir.growUp) {
           // At rest the first body line (the placeholder paints while
