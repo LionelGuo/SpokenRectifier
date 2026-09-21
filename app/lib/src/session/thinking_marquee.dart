@@ -526,11 +526,12 @@ class _MarqueePainter extends CustomPainter {
     0x0D, 0x0B, 0x06, 0x03, 0x00,
   ];
 
-  /// The sweep's tilt: iso-brightness edges lean "/" at 30° off
-  /// vertical — the gradient axis rides 30° below horizontal
-  /// (2026-09-21 device ruling; 09's original 100deg ≈10° read as
-  /// straight, and the port had flattened it to 0°).
-  static const _sweepTilt = math.pi / 6;
+  /// The sweep's tilt: iso-brightness edges lean "/" at 15° off
+  /// vertical — the gradient axis rides 15° below horizontal
+  /// (2026-09-21 device ruling: 30° tried first, settled at 15°; 09's
+  /// original 100deg ≈10° read as straight, and the port had
+  /// flattened it to 0°).
+  static const _sweepTilt = math.pi / 12;
 
   /// The sweep's width as a fraction of the wrap (70%: the side fades
   /// ride 45% of the band each — widened from 60% on device ask,

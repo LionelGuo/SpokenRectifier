@@ -408,15 +408,15 @@ void main() {
 
   test('the sweep window stays a valid gradient at every travel position '
       '(23 号票)', () {
-    // The sweep is a ramp window moving along the 30°-tilted axis
+    // The sweep is a ramp window moving along the 15°-tilted axis
     // (geometry: the real card's wrap ≈ 396×393). The 22 号票 lesson —
     // an unsorted stop list shades undefined — generalized: at every
     // travel stop the window's stops must ascend and sit within
     // (0, 1], with the parked extremes exactly outside the visible
     // projection.
     const w = 396.0, h = 393.0;
-    const ax = 0.8660254037844387; // cos 30°
-    const ay = 0.5; // sin 30°
+    const ax = 0.9659258262890683; // cos 15°
+    const ay = 0.25881904552052095; // sin 15°
     final travel = w * ax + h * ay;
     final bandW = w * 0.70;
     final span = travel + 2 * bandW;
