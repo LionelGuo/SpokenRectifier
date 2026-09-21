@@ -13,7 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../hotkey_binding.dart';
-import '../design/controls.dart' show SrCard;
+import '../design/controls.dart' show SrCard, SrHoverTintIcon;
 import '../design/hover.dart';
 import '../design/tokens.dart';
 
@@ -312,7 +312,11 @@ class _HotkeyRow extends StatelessWidget {
                   key: Key('settings-hotkey-$keyName'),
                   onTap: onTap,
                   child: AnimatedContainer(
-                    duration: SrMotion.fast,
+                    // The capture state is a discrete switch → the
+                    // surface fade (26 号票); the label cross-dissolves
+                    // on the same window.
+                    duration: SrMotion.fade,
+                    curve: SrMotion.curveFade,
                     height: 34,
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     alignment: Alignment.centerLeft,
@@ -327,10 +331,26 @@ class _HotkeyRow extends StatelessWidget {
                             : pal.hairline,
                       ),
                     ),
-                    child: Text(
-                      capturing ? '按下组合键录制' : binding.label,
-                      style: (capturing ? SrType.caption : SrType.kbd).copyWith(
-                        color: capturing ? pal.accentText : pal.textSecondary,
+                    child: AnimatedSwitcher(
+                      duration: SrMotion.fade,
+                      switchInCurve: SrMotion.curveFade,
+                      switchOutCurve: SrMotion.curveFade,
+                      layoutBuilder: (currentChild, previousChildren) =>
+                          // Left-anchored crossfade: the incoming label
+                          // reads from the same edge the resting one does.
+                          Stack(
+                            alignment: Alignment.centerLeft,
+                            children: [...previousChildren, ?currentChild],
+                          ),
+                      child: Text(
+                        capturing ? '按下组合键录制' : binding.label,
+                        key: ValueKey(capturing),
+                        style:
+                            (capturing ? SrType.caption : SrType.kbd).copyWith(
+                              color: capturing
+                                  ? pal.accentText
+                                  : pal.textSecondary,
+                            ),
                       ),
                     ),
                   ),
@@ -372,10 +392,18 @@ class _RowAction extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: Text(
-            label,
-            style: SrType.micro.copyWith(
-              color: hover ? pal.textPrimary : pal.textTertiary,
+          // The tint eases on the micro window (26 号票 全扫): no text
+          // color snaps beside the box fades around it.
+          child: TweenAnimationBuilder<Color?>(
+            tween: ColorTween(
+              begin: pal.textTertiary,
+              end: hover ? pal.textPrimary : pal.textTertiary,
+            ),
+            duration: SrMotion.fast,
+            curve: SrMotion.curveMicro,
+            builder: (context, color, _) => Text(
+              label,
+              style: SrType.micro.copyWith(color: color),
             ),
           ),
         ),
@@ -408,7 +436,9 @@ class _ThemeSeg extends StatelessWidget {
       builder: (hover) => GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
-          duration: SrMotion.fast,
+          // Selection = discrete switch → the surface fade (26 号票).
+          duration: SrMotion.fade,
+          curve: SrMotion.curveFade,
           height: 34,
           alignment: Alignment.center,
           decoration: BoxDecoration(
@@ -425,18 +455,24 @@ class _ThemeSeg extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
+              // The tint micro-recipe rides the selection, not the
+              // pointer: selected IS the "hovered" tone here.
+              SrHoverTintIcon(
+                icon: icon,
                 size: 14,
-                color: selected ? pal.accentText : pal.textSecondary,
+                hover: selected,
+                resting: pal.textSecondary,
+                hovered: pal.accentText,
               ),
               const SizedBox(width: 5),
-              Text(
-                label,
+              AnimatedDefaultTextStyle(
+                duration: SrMotion.fade,
+                curve: SrMotion.curveFade,
                 style: SrType.caption.copyWith(
                   color: selected ? pal.accentText : pal.textSecondary,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
+                child: Text(label),
               ),
             ],
           ),

@@ -11,9 +11,11 @@ import 'dart:async';
 
 // GrowthDirection hidden: the framework exports its own (a sliver
 // token); this panel's is the orb-geometry one via window_stage.
+import 'package:flutter/gestures.dart' show kPrimaryButton;
 import 'package:flutter/material.dart' hide GrowthDirection;
 
 import '../../app_state.dart';
+import '../design/controls.dart' show SrPressFill;
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../preview/slot_document.dart';
@@ -1147,6 +1149,7 @@ class _GhostButton extends StatefulWidget {
 
 class _GhostButtonState extends State<_GhostButton> {
   bool _hover = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -1174,7 +1177,8 @@ class _GhostButtonState extends State<_GhostButton> {
 
     // Only the decoration rides an implicit transition (the hover fill);
     // every morphing value — padding, width, content — is driven
-    // explicitly by t, tick for tick.
+    // explicitly by t, tick for tick. The press scrim is a layer ON the
+    // shape (26 号票: press fills ride `fast`), not part of the morph.
     final button = AnimatedContainer(
       duration: SrMotion.fast,
       decoration: BoxDecoration(
@@ -1185,90 +1189,106 @@ class _GhostButtonState extends State<_GhostButton> {
         borderRadius: BorderRadius.circular(SrRadius.capsule),
         border: Border.all(color: pal.hairline),
       ),
-      child: textOpacity > 0
-          ? SizedBox(
-              // 四轮真机: pin the capsule arm to the SAME constant height
-              // the circle arm pins. Its intrinsic height was the row's
-              // tallest line box (the kbd chip's 17.2 over the caption's
-              // 16.8) — a hair above the measured 28.8 — so the branch
-              // swap stepped the band's height mid-flight, and the raster
-              // snapped the sub-pixel twitch into view. Identical boxes
-              // in both arms move nothing vertically, by construction.
-              height: widget.height,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: _padCapsule,
-                  vertical: 6,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      spec.icon,
-                      size: _footerIcon,
-                      color: pal.textSecondary,
-                    ),
-                    const SizedBox(width: 6),
-                    Transform.translate(
-                      offset: tuck,
-                      child: Opacity(
-                        opacity: textOpacity,
-                        child: Text(
-                          spec.label,
-                          style: SrType.caption.copyWith(
-                            color: pal.textSecondary,
-                          ),
-                        ),
+      child: SrPressFill(
+        pressed: _pressed,
+        radius: BorderRadius.circular(SrRadius.capsule),
+        child: textOpacity > 0
+            ? SizedBox(
+                // 四轮真机: pin the capsule arm to the SAME constant height
+                // the circle arm pins. Its intrinsic height was the row's
+                // tallest line box (the kbd chip's 17.2 over the caption's
+                // 16.8) — a hair above the measured 28.8 — so the branch
+                // swap stepped the band's height mid-flight, and the raster
+                // snapped the sub-pixel twitch into view. Identical boxes
+                // in both arms move nothing vertically, by construction.
+                height: widget.height,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: _padCapsule,
+                    vertical: 6,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        spec.icon,
+                        size: _footerIcon,
+                        color: pal.textSecondary,
                       ),
-                    ),
-                    if (spec.kbd != null) ...[
                       const SizedBox(width: 6),
                       Transform.translate(
                         offset: tuck,
                         child: Opacity(
                           opacity: textOpacity,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: pal.surfaceOverlay,
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: pal.hairline),
-                            ),
-                            child: Text(
-                              spec.kbd!,
-                              style: SrType.kbd.copyWith(
-                                color: pal.textTertiary,
-                              ),
+                          child: Text(
+                            spec.label,
+                            style: SrType.caption.copyWith(
+                              color: pal.textSecondary,
                             ),
                           ),
                         ),
                       ),
+                      if (spec.kbd != null) ...[
+                        const SizedBox(width: 6),
+                        Transform.translate(
+                          offset: tuck,
+                          child: Opacity(
+                            opacity: textOpacity,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: pal.surfaceOverlay,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: pal.hairline),
+                              ),
+                              child: Text(
+                                spec.kbd!,
+                                style: SrType.kbd.copyWith(
+                                  color: pal.textTertiary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
+                ),
+              )
+            : SizedBox(
+                width: roundWidth,
+                height: widget.height,
+                child: Align(
+                  alignment: iconAlign,
+                  child: Icon(
+                    spec.icon,
+                    size: _footerIcon,
+                    color: pal.textSecondary,
+                  ),
                 ),
               ),
-            )
-          : SizedBox(
-              width: roundWidth,
-              height: widget.height,
-              child: Align(
-                alignment: iconAlign,
-                child: Icon(
-                  spec.icon,
-                  size: _footerIcon,
-                  color: pal.textSecondary,
-                ),
-              ),
-            ),
+      ),
     );
 
     final body = MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(onTap: spec.onTap, child: button),
+      child: Listener(
+        // Press feedback must not wait for the tap's disambiguation —
+        // Listener, not the arena (the same contract SrPress wraps for
+        // the stateless recipes).
+        onPointerDown: (event) {
+          if (event.buttons == kPrimaryButton) {
+            setState(() => _pressed = true);
+          }
+        },
+        onPointerUp: (_) => setState(() => _pressed = false),
+        onPointerCancel: (_) => setState(() => _pressed = false),
+        child: GestureDetector(onTap: spec.onTap, child: button),
+      ),
     );
 
     if (t > _tRoundDone) return body;

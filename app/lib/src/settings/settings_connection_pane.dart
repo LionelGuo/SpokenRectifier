@@ -703,8 +703,11 @@ class _ChipRow extends StatelessWidget {
                         : pal.hairline,
                   ),
                 ),
-                child: Text(
-                  labels[chip] ?? chip,
+                child: AnimatedDefaultTextStyle(
+                  // The selection is a discrete switch: the label rides
+                  // the same fade window as its box (26 号票).
+                  duration: SrMotion.fade,
+                  curve: SrMotion.curveFade,
                   style: SrType.caption.copyWith(
                     color: chip == selected
                         ? pal.accentText
@@ -713,6 +716,7 @@ class _ChipRow extends StatelessWidget {
                         ? FontWeight.w600
                         : FontWeight.w400,
                   ),
+                  child: Text(labels[chip] ?? chip),
                 ),
               ),
             ),

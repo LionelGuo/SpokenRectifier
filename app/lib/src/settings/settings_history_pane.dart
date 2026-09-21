@@ -322,14 +322,18 @@ class _RetentionChip extends StatelessWidget {
                   : pal.hairline,
             ),
           ),
-          child: Text(
-            _retentionLabel(days),
+          child: AnimatedDefaultTextStyle(
+            // The selection is a discrete switch: the label rides the
+            // same fade window as its box (26 号票).
+            duration: SrMotion.fade,
+            curve: SrMotion.curveFade,
             style: SrType.caption.copyWith(
               color: !enabled
                   ? pal.textTertiary
                   : (selected ? pal.accentText : pal.textSecondary),
               fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
             ),
+            child: Text(_retentionLabel(days)),
           ),
         ),
       ),

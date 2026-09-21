@@ -10,6 +10,43 @@ import 'package:flutter/material.dart';
 import 'hover.dart';
 import 'tokens.dart';
 
+/// The press fill (26 号票): a scrim layer pressed onto the control's
+/// own shape while the pointer is down, easing in and out over `fast`
+/// (feedback must track the finger). It composites over ANY fill —
+/// accent, overlay, hover — so every pressable control shares one
+/// recipe and one depth, and no palette step is invented for it.
+class SrPressFill extends StatelessWidget {
+  const SrPressFill({
+    super.key,
+    required this.pressed,
+    required this.radius,
+    required this.child,
+  });
+
+  final bool pressed;
+  final BorderRadius radius;
+  final Widget child;
+
+  /// The scrim's pressed alpha. A tenth of the palette scrim reads on
+  /// both themes' fills (dark overlay, light overlay, accent) without
+  /// turning any of them into a selection tint.
+  static const _alpha = 0.10;
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = srPalette(context);
+    return AnimatedContainer(
+      duration: SrMotion.fast,
+      curve: SrMotion.curveMicro,
+      foregroundDecoration: BoxDecoration(
+        color: pal.scrim.withValues(alpha: pressed ? _alpha : 0.0),
+        borderRadius: radius,
+      ),
+      child: child,
+    );
+  }
+}
+
 /// The settings panes' button. Primary = the accent fill; ghost = the
 /// hairline outline. A null [onTap] paints the ghost shape inert — the
 /// disabled state is visual only, callers decide when an action exists.
@@ -30,33 +67,39 @@ class SrButton extends StatelessWidget {
     final pal = srPalette(context);
     final enabled = onTap != null;
     return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            // One hover treatment per shape: the fill's own alpha eases,
-            // never a lerp toward transparent (the cross-dissolve rule).
-            color: primary
-                ? (hover && enabled
-                      ? pal.accent.withValues(alpha: 0.88)
-                      : pal.accent)
-                : pal.surfaceOverlay.withValues(
-                    alpha: hover && enabled ? 1 : 0,
-                  ),
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: primary ? null : Border.all(color: pal.hairline),
-          ),
-          child: Text(
-            label,
-            style: SrType.caption.copyWith(
+      builder: (hover) => SrPress(
+        builder: (pressed) => GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedContainer(
+            duration: SrMotion.fade,
+            curve: SrMotion.curveFade,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              // One hover treatment per shape: the fill's own alpha eases,
+              // never a lerp toward transparent (the cross-dissolve rule).
               color: primary
-                  ? pal.onAccent
-                  : (enabled ? pal.textSecondary : pal.textTertiary),
-              fontWeight: primary ? FontWeight.w600 : FontWeight.w400,
+                  ? (hover && enabled
+                        ? pal.accent.withValues(alpha: 0.88)
+                        : pal.accent)
+                  : pal.surfaceOverlay.withValues(
+                      alpha: hover && enabled ? 1 : 0,
+                    ),
+              borderRadius: BorderRadius.circular(SrRadius.control),
+              border: primary ? null : Border.all(color: pal.hairline),
+            ),
+            child: SrPressFill(
+              pressed: pressed && enabled,
+              radius: BorderRadius.circular(SrRadius.control),
+              child: Text(
+                label,
+                style: SrType.caption.copyWith(
+                  color: primary
+                      ? pal.onAccent
+                      : (enabled ? pal.textSecondary : pal.textTertiary),
+                  fontWeight: primary ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
             ),
           ),
         ),
@@ -85,6 +128,37 @@ class SrCard extends StatelessWidget {
         border: Border.all(color: pal.hairline),
       ),
       child: child,
+    );
+  }
+}
+
+/// An icon whose color eases between two tones over the shared
+/// micro-feedback window, so no icon color snaps beside the box fades
+/// around it. The flag need not be hover — the theme segments feed it
+/// `selected`, riding the same easing on the discrete switch (26 号票).
+class SrHoverTintIcon extends StatelessWidget {
+  const SrHoverTintIcon({
+    super.key,
+    required this.icon,
+    required this.size,
+    required this.hover,
+    required this.resting,
+    required this.hovered,
+  });
+
+  final IconData icon;
+  final double size;
+  final bool hover;
+  final Color resting;
+  final Color hovered;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(begin: resting, end: hover ? hovered : resting),
+      duration: SrMotion.fast,
+      curve: SrMotion.curveMicro,
+      builder: (context, color, _) => Icon(icon, size: size, color: color),
     );
   }
 }

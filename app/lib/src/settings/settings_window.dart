@@ -817,22 +817,36 @@ class _ScenarioCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-                  size: 16,
-                  color: selected ? pal.accentText : pal.textTertiary,
+                // The glyph swap cross-dissolves instead of snapping
+                // (26 号票): check and ring fade through each other on
+                // the surface-fade window.
+                AnimatedSwitcher(
+                  duration: SrMotion.fade,
+                  switchInCurve: SrMotion.curveFade,
+                  switchOutCurve: SrMotion.curveFade,
+                  child: Icon(
+                    selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                    key: ValueKey(selected),
+                    size: 16,
+                    color: selected ? pal.accentText : pal.textTertiary,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        scenario.name,
+                      AnimatedDefaultTextStyle(
+                        // The selection is a discrete switch: the title
+                        // rides the same fade window as the border
+                        // (26 号票).
+                        duration: SrMotion.fade,
+                        curve: SrMotion.curveFade,
                         style: SrType.body.copyWith(
                           color: selected ? pal.accentText : pal.textPrimary,
                           fontWeight: FontWeight.w600,
                         ),
+                        child: Text(scenario.name),
                       ),
                       const SizedBox(height: 4),
                       Text(

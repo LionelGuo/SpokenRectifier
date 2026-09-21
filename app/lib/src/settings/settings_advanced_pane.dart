@@ -390,8 +390,11 @@ class _ModeChips extends StatelessWidget {
                         : pal.hairline,
                   ),
                 ),
-                child: Text(
-                  label,
+                child: AnimatedDefaultTextStyle(
+                  // The selection is a discrete switch: the label rides
+                  // the same fade window as its box (26 号票).
+                  duration: SrMotion.fade,
+                  curve: SrMotion.curveFade,
                   style: SrType.caption.copyWith(
                     color: value == selected
                         ? pal.accentText
@@ -400,6 +403,7 @@ class _ModeChips extends StatelessWidget {
                         ? FontWeight.w600
                         : FontWeight.w400,
                   ),
+                  child: Text(label),
                 ),
               ),
             ),

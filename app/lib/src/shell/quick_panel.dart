@@ -31,6 +31,7 @@ import 'package:flutter/material.dart' hide GrowthDirection;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../app_state.dart';
+import '../design/controls.dart' show SrHoverTintIcon, SrPressFill;
 import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
@@ -530,36 +531,6 @@ String formatHistoryStamp({required DateTime at, required DateTime now}) {
 // Rows & controls
 // ---------------------------------------------------------------------------
 
-/// An icon whose color eases between its resting and hover tones over
-/// the shared micro-feedback window, so no color snaps beside the box
-/// fades happening around it.
-class _HoverTintIcon extends StatelessWidget {
-  const _HoverTintIcon({
-    super.key,
-    required this.icon,
-    required this.size,
-    required this.hover,
-    required this.resting,
-    required this.hovered,
-  });
-
-  final IconData icon;
-  final double size;
-  final bool hover;
-  final Color resting;
-  final Color hovered;
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<Color?>(
-      tween: ColorTween(begin: resting, end: hover ? hovered : resting),
-      duration: SrMotion.fast,
-      curve: SrMotion.curveMicro,
-      builder: (context, color, _) => Icon(icon, size: size, color: color),
-    );
-  }
-}
-
 /// The shared chip cascade: the scenario quick-picks and the theme
 /// segments paint identically, differing only in layout density. Chips
 /// keep the plain control radius: the capsule is a corner-band
@@ -658,7 +629,7 @@ class _DirectivePreviewRow extends StatelessWidget {
                   child: Tooltip(
                     message: '编辑$tooltip',
                     waitDuration: SrMotion.tooltipWait,
-                    child: _HoverTintIcon(
+                    child: SrHoverTintIcon(
                       icon: Icons.settings_outlined,
                       size: 15,
                       hover: hover,
@@ -696,33 +667,39 @@ class _EntryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: () => onOpen(domain),
-        child: AnimatedContainer(
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          height: _termRowHeight,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(color: pal.hairline),
-          ),
-          child: Row(
-            children: [
-              Text(
-                label,
-                style: SrType.caption.copyWith(color: pal.textSecondary),
+      builder: (hover) => SrPress(
+        builder: (pressed) => GestureDetector(
+          onTap: () => onOpen(domain),
+          child: AnimatedContainer(
+            duration: SrMotion.fade,
+            curve: SrMotion.curveFade,
+            height: _termRowHeight,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: pal.surfaceRaised.withValues(alpha: hover ? 1 : 0),
+              borderRadius: BorderRadius.circular(SrRadius.control),
+              border: Border.all(color: pal.hairline),
+            ),
+            child: SrPressFill(
+              pressed: pressed,
+              radius: BorderRadius.circular(SrRadius.control),
+              child: Row(
+                children: [
+                  Text(
+                    label,
+                    style: SrType.caption.copyWith(color: pal.textSecondary),
+                  ),
+                  const Spacer(),
+                  SrHoverTintIcon(
+                    icon: Icons.chevron_right_rounded,
+                    size: 16,
+                    hover: hover,
+                    resting: pal.textTertiary,
+                    hovered: pal.textSecondary,
+                  ),
+                ],
               ),
-              const Spacer(),
-              _HoverTintIcon(
-                icon: Icons.chevron_right_rounded,
-                size: 16,
-                hover: hover,
-                resting: pal.textTertiary,
-                hovered: pal.textSecondary,
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -760,10 +737,19 @@ class _SelectableChip extends StatelessWidget {
           builder: (hover) => GestureDetector(
             onTap: onTap,
             child: AnimatedContainer(
-              duration: SrMotion.fast,
+              // The selection is a discrete switch: it rides the surface
+              // fade (hover's fill shares the container, so it eases on
+              // the same window — 26 号票's two-tier rule).
+              duration: SrMotion.fade,
+              curve: SrMotion.curveFade,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: _chipBox(pal, selected: selected, hover: hover),
-              child: Text(label, style: _chipText(pal, selected: selected)),
+              child: AnimatedDefaultTextStyle(
+                duration: SrMotion.fade,
+                curve: SrMotion.curveFade,
+                style: _chipText(pal, selected: selected),
+                child: Text(label),
+              ),
             ),
           ),
         ),
@@ -795,20 +781,31 @@ class _ThemeSeg extends StatelessWidget {
       builder: (hover) => GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
-          duration: SrMotion.fast,
+          // Selection = discrete switch → the surface fade (26 号票).
+          duration: SrMotion.fade,
+          curve: SrMotion.curveFade,
           height: 34,
           alignment: Alignment.center,
           decoration: _chipBox(pal, selected: selected, hover: hover),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
+              // The tint micro-recipe rides the selection, not the
+              // pointer: selected IS the "hovered" tone here.
+              SrHoverTintIcon(
+                icon: icon,
                 size: 14,
-                color: selected ? pal.accentText : pal.textSecondary,
+                hover: selected,
+                resting: pal.textSecondary,
+                hovered: pal.accentText,
               ),
               const SizedBox(width: 5),
-              Text(label, style: _chipText(pal, selected: selected)),
+              AnimatedDefaultTextStyle(
+                duration: SrMotion.fade,
+                curve: SrMotion.curveFade,
+                style: _chipText(pal, selected: selected),
+                child: Text(label),
+              ),
             ],
           ),
         ),
@@ -918,30 +915,36 @@ class _AddButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        // Rest = outlined, the input's own visual family: a solid
-        // accent-tinted block next the low-contrast input reads taller
-        // than it is (round-3 feedback) — equal geometry, unequal
-        // optical weight. Hover brings the solid accent, cross-faded by
-        // the accent's own alpha (no transparent-lerp dark dip).
-        child: AnimatedContainer(
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          width: _termRowHeight,
-          height: _termRowHeight,
-          decoration: BoxDecoration(
-            color: pal.accent.withValues(alpha: hover ? 1 : 0),
-            borderRadius: BorderRadius.circular(SrRadius.control),
-            border: Border.all(color: hover ? pal.accent : pal.hairline),
-          ),
-          child: _HoverTintIcon(
-            key: const Key('quick-term-add'),
-            icon: Icons.add_rounded,
-            size: 18,
-            hover: hover,
-            resting: pal.accentText,
-            hovered: pal.onAccent,
+      builder: (hover) => SrPress(
+        builder: (pressed) => GestureDetector(
+          onTap: onTap,
+          // Rest = outlined, the input's own visual family: a solid
+          // accent-tinted block next the low-contrast input reads taller
+          // than it is (round-3 feedback) — equal geometry, unequal
+          // optical weight. Hover brings the solid accent, cross-faded by
+          // the accent's own alpha (no transparent-lerp dark dip).
+          child: AnimatedContainer(
+            duration: SrMotion.fade,
+            curve: SrMotion.curveFade,
+            width: _termRowHeight,
+            height: _termRowHeight,
+            decoration: BoxDecoration(
+              color: pal.accent.withValues(alpha: hover ? 1 : 0),
+              borderRadius: BorderRadius.circular(SrRadius.control),
+              border: Border.all(color: hover ? pal.accent : pal.hairline),
+            ),
+            child: SrPressFill(
+              pressed: pressed,
+              radius: BorderRadius.circular(SrRadius.control),
+              child: SrHoverTintIcon(
+                key: const Key('quick-term-add'),
+                icon: Icons.add_rounded,
+                size: 18,
+                hover: hover,
+                resting: pal.accentText,
+                hovered: pal.onAccent,
+              ),
+            ),
           ),
         ),
       ),
@@ -978,7 +981,7 @@ class _TermChip extends StatelessWidget {
             GestureDetector(
               key: Key('quick-term-remove:$label'),
               onTap: onRemoved,
-              child: _HoverTintIcon(
+              child: SrHoverTintIcon(
                 icon: Icons.close,
                 size: 12,
                 hover: hover,
@@ -1125,7 +1128,7 @@ class _HistoryAction extends StatelessWidget {
         waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: onTap,
-          child: _HoverTintIcon(
+          child: SrHoverTintIcon(
             icon: icon,
             size: 15,
             hover: hover,
@@ -1176,7 +1179,7 @@ class _HistoryScenarioAction extends StatelessWidget {
         waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: () => _open(context),
-          child: _HoverTintIcon(
+          child: SrHoverTintIcon(
             icon: Icons.style_rounded,
             size: 15,
             hover: hover,

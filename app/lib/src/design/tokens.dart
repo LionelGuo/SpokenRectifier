@@ -227,9 +227,12 @@ abstract final class SrMotion {
   /// Hover / press micro-feedback.
   static const fast = Duration(milliseconds: 120);
 
-  /// Surface fades: row hover fills and reveal groups. Longer than
-  /// [fast], with the symmetric [curveFade] — the micro curve's fast
-  /// start reads as a snap, not a gradient.
+  /// Surface fades: row hover fills and reveal groups — and every
+  /// discrete control switch (selection, enable, capture state), whose
+  /// labels and icons ride their container's window (26 号票's two-tier
+  /// rule: press fills on [fast], switches here). Longer than [fast],
+  /// with the symmetric [curveFade] — the micro curve's fast start
+  /// reads as a snap, not a gradient.
   static const fade = Duration(milliseconds: 180);
 
   /// Content entrance after a window jump.
