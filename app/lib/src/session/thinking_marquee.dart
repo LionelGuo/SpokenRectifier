@@ -477,6 +477,25 @@ List<double> shimmerVerticalMaskStops({double rampFrac = 0.20}) => [
   for (final s in _rampStops.reversed.skip(1)) 1.0 - s * rampFrac,
 ];
 
+/// The sweep's ramp ladder (09 终值): each α rung's position across
+/// the band, mirrored, plateau 45–55%.
+const _sweepLadder = [
+  0.0, 0.11, 0.22, 0.34, 0.45, //
+  0.55, 0.66, 0.78, 0.89, 1.0,
+];
+
+/// The moving ramp window's stop positions along the tilted axis:
+/// `bandCenter` is the window's center in px along the axis measured
+/// from the gradient's midpoint, `span` the gradient's full length.
+/// STRICTLY ASCENDING and within (0, 1] for every travel position —
+/// the 22 号票 lesson (an unsorted stop list shades undefined)
+/// generalized to a moving window.
+@visibleForTesting
+List<double> sweepWindowStops(double bandCenter, double bandW, double span) => [
+  for (final f in _sweepLadder)
+    (bandCenter - bandW / 2 + f * bandW + span / 2) / span,
+];
+
 class _MarqueePainter extends CustomPainter {
   _MarqueePainter({
     required this.machine,
@@ -500,13 +519,23 @@ class _MarqueePainter extends CustomPainter {
   ];
 
   /// The sweep's α ramp in 255ths (09 终值, mirrored) — applied to the
-  /// palette's sweep base (23 号票: white light on the dark card, black
-  /// shade on the light card — a white sweep on the white surface is
-  /// physically invisible).
+  /// palette's sweep base (23 号票: white light on the dark card, the
+  /// brand accent as a cool wash on the light card).
   static const _sweepAlphas = [
     0x00, 0x03, 0x06, 0x0B, 0x0D, //
     0x0D, 0x0B, 0x06, 0x03, 0x00,
   ];
+
+  /// The sweep's tilt: iso-brightness edges lean "/" at 30° off
+  /// vertical — the gradient axis rides 30° below horizontal
+  /// (2026-09-21 device ruling; 09's original 100deg ≈10° read as
+  /// straight, and the port had flattened it to 0°).
+  static const _sweepTilt = math.pi / 6;
+
+  /// The sweep's width as a fraction of the wrap (70%: the side fades
+  /// ride 45% of the band each — widened from 60% on device ask,
+  /// 2026-09-21).
+  static const _sweepWidthFrac = 0.70;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -529,30 +558,39 @@ class _MarqueePainter extends CustomPainter {
       Paint()..color = Colors.white.withValues(alpha: alpha),
     );
 
-    // The sweep: 60% of the wrap wide, parked fully outside during the
-    // pause; both turnarounds happen outside the band (faded tails), so
-    // no visible jump or cut (09 round 6).
-    final bandW = wrap.width * 0.6;
+    // The sweep: a ramp window traveling along the tilted axis, parked
+    // fully outside during the pause; both turnarounds happen outside
+    // the band (faded tails), so no visible jump or cut (09 round 6).
+    // The axis leans 30° below horizontal ("/" iso-brightness edges);
+    // the travel is the wrap's projection onto it. Inking the WHOLE
+    // wrap (not a moving rect) keeps every hard edge under the edge
+    // masks below (09 trap ④).
+    final bandW = wrap.width * _sweepWidthFrac;
     final cycleMs = ThinkingMarquee.sweepPassMs + ThinkingMarquee.sweepPauseMs;
     final thinkClock = machine.simT - machine.firstThinkT;
     final e = thinkClock % cycleMs;
     final p = _quinticEaseInOut(
       (e / ThinkingMarquee.sweepPassMs).clamp(0.0, 1.0),
     );
-    final x = -bandW + p * (wrap.width + bandW);
-    final band = Rect.fromLTWH(wrap.left + x, wrap.top, bandW, wrap.height);
+    final ax = math.cos(_sweepTilt), ay = math.sin(_sweepTilt);
+    final travel = wrap.width * ax + wrap.height * ay;
+    final span = travel + 2 * bandW;
+    final bandCenter = -(travel + bandW) / 2 + p * (travel + bandW);
     // No base tint (09 round 8 终判: α0 — presence is all in the sweep).
     final sweep = Paint()
       ..shader = LinearGradient(
-        // 09's 100deg ≈ left-to-right with a slight tilt; at peak α.05
-        // the tilt is imperceptible — straight horizontal.
+        // begin/end resolve as Alignment over `wrap` — convert the
+        // tilted axis endpoints (± axis·span/2 from the center) into
+        // Alignment units (÷ w/2, ÷ h/2) for an exact pixel angle.
+        begin: Alignment(-ax * span / wrap.width, -ay * span / wrap.height),
+        end: Alignment(ax * span / wrap.width, ay * span / wrap.height),
         colors: [
           for (final a in _sweepAlphas)
             palette.marqueeSweep.withValues(alpha: a / 255),
         ],
-        stops: [0.0, 0.11, 0.22, 0.34, 0.45, 0.55, 0.66, 0.78, 0.89, 1.0],
-      ).createShader(band);
-    canvas.drawRect(band, sweep);
+        stops: sweepWindowStops(bandCenter, bandW, span),
+      ).createShader(wrap);
+    canvas.drawRect(wrap, sweep);
 
     // Vertical falloff (20% multi-stop) then horizontal (44px
     // multi-stop) — two dstIn passes, the CSS nested-mask port (09

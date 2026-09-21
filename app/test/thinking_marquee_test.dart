@@ -405,4 +405,34 @@ void main() {
       reason: 'the text pair is theme-split (ΔL* anchor above), not shared',
     );
   });
+
+  test('the sweep window stays a valid gradient at every travel position '
+      '(23 号票)', () {
+    // The sweep is a ramp window moving along the 30°-tilted axis
+    // (geometry: the real card's wrap ≈ 396×393). The 22 号票 lesson —
+    // an unsorted stop list shades undefined — generalized: at every
+    // travel stop the window's stops must ascend and sit within
+    // (0, 1], with the parked extremes exactly outside the visible
+    // projection.
+    const w = 396.0, h = 393.0;
+    const ax = 0.8660254037844387; // cos 30°
+    const ay = 0.5; // sin 30°
+    final travel = w * ax + h * ay;
+    final bandW = w * 0.70;
+    final span = travel + 2 * bandW;
+    for (final p in [0.0, 0.13, 0.5, 0.87, 1.0]) {
+      final center = -(travel + bandW) / 2 + p * (travel + bandW);
+      final stops = sweepWindowStops(center, bandW, span);
+      expect(stops.length, 10, reason: 'p=$p');
+      for (var i = 1; i < stops.length; i++) {
+        expect(stops[i], greaterThan(stops[i - 1]), reason: 'p=$p stop $i');
+      }
+      expect(stops.first, greaterThan(-1e-9), reason: 'p=$p');
+      expect(stops.last, lessThanOrEqualTo(1.0 + 1e-9), reason: 'p=$p');
+    }
+    // Mid travel the window centers on the gradient (mirror-symmetric
+    // about 0.5).
+    final mid = sweepWindowStops(0, bandW, span);
+    expect(mid.first + mid.last, closeTo(1.0, 1e-9));
+  });
 }
