@@ -856,13 +856,6 @@ String fieldText(WidgetTester tester, Key key) => tester
     .controller!
     .text;
 
-/// The global directive card's field text (the key sits on the TextField
-/// itself there, not on an ancestor wrapper).
-String globalFieldText(WidgetTester tester) => tester
-    .widget<TextField>(find.byKey(const Key('settings-global-field')))
-    .controller!
-    .text;
-
 /// A Text widget's painted data, by its key.
 String textOf(WidgetTester tester, Key key) =>
     tester.widget<Text>(find.byKey(key)).data!;
@@ -4056,7 +4049,10 @@ void main() {
 
       // The card is resident at the top of the pane, seeded from the file.
       expect(find.byKey(const Key('settings-global-card')), findsOneWidget);
-      expect(globalFieldText(tester), '全部输出用简体中文书写');
+      expect(
+        fieldText(tester, const Key('settings-global-field')),
+        '全部输出用简体中文书写',
+      );
 
       // No change, no save: the explicit button is the only write path.
       await tester.tap(find.byKey(const Key('settings-global-save')));
@@ -4123,7 +4119,7 @@ void main() {
     expect(textOf(tester, const Key('sr-toast')), '保存失败');
     expect(channel.globalChanged, 0);
     expect(store.directive, '旧的全局指令');
-    expect(globalFieldText(tester), '新的全局指令');
+    expect(fieldText(tester, const Key('settings-global-field')), '新的全局指令');
   });
 
   testWidgets('the global card stays with an empty library', (tester) async {

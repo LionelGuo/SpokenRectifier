@@ -293,7 +293,7 @@ class _EmptyDictionary extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// The rename dialog — the scenario editor's single-field recipe
+// The rename dialog — one SrField, same chrome as every other box
 // ---------------------------------------------------------------------------
 
 class _TermEditorDialog extends StatefulWidget {
@@ -356,25 +356,11 @@ class _TermEditorDialogState extends State<_TermEditorDialog> {
                 style: SrType.title.copyWith(color: pal.textPrimary),
               ),
               const SizedBox(height: 16),
-              TextField(
+              SrField(
                 key: const Key('settings-terms-rename-field'),
                 controller: _term,
                 autofocus: true,
                 onSubmitted: (_) => _save(),
-                style: SrType.body.copyWith(color: pal.textPrimary),
-                cursorColor: pal.accent,
-                decoration: InputDecoration(
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  filled: true,
-                  fillColor: pal.surfaceOverlay,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 9,
-                  ),
-                ),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 8),

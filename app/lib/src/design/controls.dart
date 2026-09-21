@@ -171,12 +171,13 @@ class SrHoverTintIcon extends StatelessWidget {
   }
 }
 
-/// The settings panes' text field — the quick panel's term-row recipe:
-/// the box is drawn by the container (paint = layout), the TextField
-/// inside is undecorated. Extracted when the third pane copied it
-/// (ticket 19), like [SrButton] and [SrCard] before it. A null [label]
-/// paints the box alone (the inline-row shape); a label paints above it
-/// (the form shape).
+/// The settings panes' text field — overlay fill, hairline, control
+/// radius; the TextField inside is undecorated (paint = layout).
+/// Extracted when the third pane copied the recipe (ticket 19); 27 号票
+/// folded every remaining bare box into it. A null [label] paints the
+/// box alone (the inline-row shape); a label paints above it (the form
+/// shape). The quick panel's term row is the one exception: it keeps
+/// its own equal-height container so the add button shares a painter.
 class SrField extends StatelessWidget {
   const SrField({
     super.key,
@@ -187,6 +188,8 @@ class SrField extends StatelessWidget {
     this.monospace = false,
     this.onSubmitted,
     this.maxLines,
+    this.minLines,
+    this.autofocus = false,
   });
 
   final TextEditingController controller;
@@ -196,9 +199,17 @@ class SrField extends StatelessWidget {
   final bool monospace;
   final ValueChanged<String>? onSubmitted;
 
-  /// A multiline field (the request-body JSON box): grows with content
-  /// from three lines up to the cap instead of the fixed one-line box.
+  /// A multiline field (the request-body JSON box, extra directives):
+  /// grows with content from [minLines] up to [maxLines] instead of
+  /// the fixed one-line box. Null [maxLines] keeps the 34px single
+  /// line. When [maxLines] is set and [minLines] is omitted, the
+  /// floor is three lines (the JSON box's original height).
   final int? maxLines;
+  final int? minLines;
+
+  /// Dialogs that open onto a name field pass this so the caret is
+  /// waiting; the rest of the form never autofocuses.
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) {
@@ -226,9 +237,10 @@ class SrField extends StatelessWidget {
           child: TextField(
             controller: controller,
             obscureText: obscure,
+            autofocus: autofocus,
             onSubmitted: onSubmitted,
             maxLines: maxLines ?? 1,
-            minLines: multiline ? 3 : null,
+            minLines: multiline ? (minLines ?? 3) : null,
             style: SrType.body.copyWith(
               color: pal.textPrimary,
               fontFamily: monospace ? 'monospace' : null,

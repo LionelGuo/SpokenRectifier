@@ -567,31 +567,12 @@ class _LightCard extends StatelessWidget {
                     style: SrType.micro.copyWith(color: pal.textTertiary),
                   ),
                   const SizedBox(height: 6),
-                  KeyedSubtree(
+                  SrField(
                     key: const Key('settings-rectify-light-extra'),
-                    child: TextField(
-                      controller: extra,
-                      minLines: 2,
-                      maxLines: 5,
-                      style: SrType.body.copyWith(color: pal.textPrimary),
-                      cursorColor: pal.accent,
-                      decoration: InputDecoration(
-                        isCollapsed: true,
-                        border: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        filled: true,
-                        fillColor: pal.surfaceOverlay,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 9,
-                        ),
-                        hintText: '例：保留技术术语原文',
-                        hintStyle: SrType.body.copyWith(
-                          color: pal.textTertiary,
-                        ),
-                      ),
-                    ),
+                    controller: extra,
+                    hint: '例：保留技术术语原文',
+                    minLines: 2,
+                    maxLines: 5,
                   ),
                   const SizedBox(height: 14),
                   // One button for both inputs (the advanced domain's
@@ -729,33 +710,12 @@ class _QuickCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          KeyedSubtree(
+                          SrField(
                             key: const Key('settings-rectify-quick-extra'),
-                            child: TextField(
-                              controller: extra,
-                              minLines: 2,
-                              maxLines: 5,
-                              style: SrType.body.copyWith(
-                                color: pal.textPrimary,
-                              ),
-                              cursorColor: pal.accent,
-                              decoration: InputDecoration(
-                                isCollapsed: true,
-                                border: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                filled: true,
-                                fillColor: pal.surfaceOverlay,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 9,
-                                ),
-                                hintText: '例：保留技术术语原文',
-                                hintStyle: SrType.body.copyWith(
-                                  color: pal.textTertiary,
-                                ),
-                              ),
-                            ),
+                            controller: extra,
+                            hint: '例：保留技术术语原文',
+                            minLines: 2,
+                            maxLines: 5,
                           ),
                           const SizedBox(height: 14),
                           SrButton(

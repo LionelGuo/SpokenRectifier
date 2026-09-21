@@ -19,7 +19,7 @@ import 'package:flutter/material.dart';
 
 import '../../hotkey_binding.dart';
 import '../../ui_prefs.dart';
-import '../design/controls.dart' show SrButton, SrPressFill;
+import '../design/controls.dart' show SrButton, SrField, SrPressFill;
 import '../design/hover.dart';
 import '../design/theme.dart' show srTheme;
 import '../design/toast.dart';
@@ -664,6 +664,14 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
   );
 
   @override
+  void initState() {
+    super.initState();
+    // The dirty check re-runs on every keystroke (the save button's
+    // enable follows), without threading onChanged through SrField.
+    _field.addListener(_onInput);
+  }
+
+  @override
   void didUpdateWidget(_GlobalDirectiveCard old) {
     super.didUpdateWidget(old);
     // A save landed (the parent's state moved): re-seed the field to the
@@ -676,8 +684,13 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
 
   @override
   void dispose() {
+    _field.removeListener(_onInput);
     _field.dispose();
     super.dispose();
+  }
+
+  void _onInput() {
+    if (mounted) setState(() {});
   }
 
   bool get _dirty => _field.text.trim() != (widget.directive ?? '');
@@ -722,31 +735,12 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
             ],
           ),
           const SizedBox(height: 10),
-          TextField(
+          SrField(
             key: const Key('settings-global-field'),
             controller: _field,
+            hint: '例：全部输出以简体中文书写，语气克制',
             minLines: 2,
             maxLines: 5,
-            // The card's own change detection replaces a controller
-            // listener: every keystroke rebuilds this widget and the
-            // button's enable state follows.
-            onChanged: (_) => setState(() {}),
-            style: SrType.body.copyWith(color: pal.textPrimary),
-            cursorColor: pal.accent,
-            decoration: InputDecoration(
-              isCollapsed: true,
-              border: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              filled: true,
-              fillColor: pal.surfaceOverlay,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 9,
-              ),
-              hintText: '例：全部输出以简体中文书写，语气克制',
-              hintStyle: SrType.body.copyWith(color: pal.textTertiary),
-            ),
           ),
           const SizedBox(height: 10),
           Row(
@@ -1033,18 +1027,15 @@ class _ScenarioEditorDialogState extends State<_ScenarioEditorDialog> {
                 style: SrType.title.copyWith(color: pal.textPrimary),
               ),
               const SizedBox(height: 16),
-              // The name field borrows the quick panel's term-row recipe:
-              // the box is drawn by the container (paint = layout), the
-              // TextField inside is undecorated.
-              _DialogField(
-                fieldKey: const Key('settings-scenario-name-field'),
+              SrField(
+                key: const Key('settings-scenario-name-field'),
                 controller: _name,
                 label: '名称',
-                autoFocus: true,
+                autofocus: true,
               ),
               const SizedBox(height: 12),
-              _DialogField(
-                fieldKey: const Key('settings-scenario-directive-field'),
+              SrField(
+                key: const Key('settings-scenario-directive-field'),
                 controller: _directive,
                 label: '风格指令',
                 minLines: 3,
@@ -1080,57 +1071,6 @@ class _ScenarioEditorDialogState extends State<_ScenarioEditorDialog> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _DialogField extends StatelessWidget {
-  const _DialogField({
-    required this.fieldKey,
-    required this.controller,
-    required this.label,
-    this.autoFocus = false,
-    this.minLines = 1,
-    this.maxLines = 1,
-  });
-
-  final Key fieldKey;
-  final TextEditingController controller;
-  final String label;
-  final bool autoFocus;
-  final int minLines;
-  final int maxLines;
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = srPalette(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: SrType.micro.copyWith(color: pal.textTertiary)),
-        const SizedBox(height: 4),
-        TextField(
-          key: fieldKey,
-          controller: controller,
-          autofocus: autoFocus,
-          minLines: minLines,
-          maxLines: maxLines,
-          style: SrType.body.copyWith(color: pal.textPrimary),
-          cursorColor: pal.accent,
-          decoration: InputDecoration(
-            isCollapsed: true,
-            border: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            filled: true,
-            fillColor: pal.surfaceOverlay,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 9,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
