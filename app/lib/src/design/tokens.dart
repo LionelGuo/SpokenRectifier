@@ -85,10 +85,12 @@ class SrPalette {
   /// deliberately takes the lower WCAG ratio (3.1 vs 3.9).
   final Color marqueeText;
 
-  /// The marquee sweep's base — neutral modulation (23 号票): white
-  /// light over the dark card, black shade over the white card (a
-  /// white sweep on the white surface is invisible). The painter
-  /// applies the fixed α ramp (09 终值).
+  /// The marquee sweep's base (23 号票): white light over the dark
+  /// card; the brand accent as a cool wash over the white card (a
+  /// white sweep on the white surface is invisible; a black shade was
+  /// tried first and read on device as a stain rolling through — the
+  /// accent tint reads as sheen). The painter applies the fixed α
+  /// ramp (09 终值).
   final Color marqueeSweep;
 
   static const dark = SrPalette(
@@ -130,7 +132,7 @@ class SrPalette {
     successSoft: Color(0x1A12805C),
     scrim: Color(0xFF0B1020),
     marqueeText: Color(0xFF8A94A6),
-    marqueeSweep: Color(0xFF000000),
+    marqueeSweep: Color(0xFF0B6BDB),
   );
 }
 

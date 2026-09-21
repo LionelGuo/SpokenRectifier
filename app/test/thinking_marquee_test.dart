@@ -392,12 +392,13 @@ void main() {
     expect(dark, lessThan(43));
   });
 
-  test('the sweep is neutral modulation — white light on dark, black '
-      'shade on light (23 号票)', () {
+  test('the sweep rides each mode signal base — white light on dark, '
+      'accent wash on light (23 号票)', () {
     // A white sweep over the white light-mode surface is physically
-    // invisible; the light mode shades instead of lighting.
+    // invisible. Black shade was tried first and read on device as a
+    // stain rolling through; the accent tint reads as sheen.
     expect(SrPalette.dark.marqueeSweep, const Color(0xFFFFFFFF));
-    expect(SrPalette.light.marqueeSweep, const Color(0xFF000000));
+    expect(SrPalette.light.marqueeSweep, SrPalette.light.accent);
     expect(
       SrPalette.dark.marqueeText,
       isNot(SrPalette.light.marqueeText),
