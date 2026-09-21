@@ -148,6 +148,24 @@ SrPalette srPalette(BuildContext context) =>
 
 /// Type scale. CJK-first: generous line height, zero letter spacing.
 class SrType {
+  /// The font fallback chain, single source: [Text] widgets merge with
+  /// the ambient [DefaultTextStyle] and inherit this via the theme, but
+  /// bare [TextPainter]s never see the theme — they MUST carry it
+  /// explicitly or their CJK falls to the engine default (SimSun on
+  /// Windows), which reads as a different typeface on the same screen
+  /// (28 号票's 异体字 root cause).
+  static const familyFallback = [
+    'Segoe UI Variable',
+    'Segoe UI',
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+  ];
+
+  /// Real monospace family for code-ish fields. The name must be a font
+  /// Windows actually resolves — 'monospace' is not, and silently falls
+  /// back to the default proportional face.
+  static const monoFamily = 'Consolas';
+
   static const title = TextStyle(
     fontSize: 16,
     height: 1.4,
@@ -161,6 +179,13 @@ class SrType {
 
   /// Default UI body.
   static const body = TextStyle(fontSize: 14, height: 1.5);
+
+  /// Settings pane section heads: [body] at the emphasized weight.
+  static const section = TextStyle(
+    fontSize: 14,
+    height: 1.5,
+    fontWeight: FontWeight.w600,
+  );
 
   static const caption = TextStyle(fontSize: 12, height: 1.4);
 

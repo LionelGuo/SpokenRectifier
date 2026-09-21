@@ -807,10 +807,7 @@ class _LlmCard extends StatelessWidget {
         children: [
           Text(
             '修正模型',
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+            style: SrType.section.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 4),
           Text(
@@ -1010,10 +1007,7 @@ class _AsrCard extends StatelessWidget {
         children: [
           Text(
             '语音识别',
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+            style: SrType.section.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 4),
           Text(

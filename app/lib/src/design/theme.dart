@@ -28,12 +28,7 @@ ThemeData srTheme(Brightness brightness) {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: Colors.transparent,
-    fontFamilyFallback: const [
-      'Segoe UI Variable',
-      'Segoe UI',
-      'Microsoft YaHei UI',
-      'Microsoft YaHei',
-    ],
+    fontFamilyFallback: SrType.familyFallback,
     splashFactory: NoSplash.splashFactory,
     hoverColor: pal.surfaceOverlay,
     highlightColor: Colors.transparent,
@@ -50,6 +45,17 @@ ThemeData srTheme(Brightness brightness) {
       ),
       trackOutlineColor: WidgetStatePropertyAll(pal.hairline),
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    ),
+    // Tooltips off the Material default (14px bodyMedium): the token
+    // table's micro type on a raised card, like every other transient
+    // surface (28 号票改法⑤).
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: pal.surfaceRaised,
+        borderRadius: BorderRadius.circular(SrRadius.control),
+        border: Border.all(color: pal.hairline),
+      ),
+      textStyle: SrType.micro.copyWith(color: pal.textPrimary),
     ),
   );
 }

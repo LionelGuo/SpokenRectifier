@@ -426,13 +426,19 @@ class TextPainterCache {
 
   TextPainter painterFor(String text, Color color) {
     return _painters.putIfAbsent((text, color), () {
+      // 09 号票终值 (lineH=30, font 15) derived from the bodyLarge token
+      // so the marquee band rides the type scale — and it carries the
+      // family fallback explicitly: a TextPainter never sees the theme,
+      // and a bare style's CJK falls to the engine default face (28 号
+      // 票's 异体字 root cause).
+      final base = SrType.bodyLarge;
       final painter = TextPainter(
         text: TextSpan(
           text: text,
-          style: TextStyle(
-            fontSize: 15,
-            height: ThinkingMarquee.lineH / 15,
+          style: base.copyWith(
+            height: ThinkingMarquee.lineH / base.fontSize!,
             color: color,
+            fontFamilyFallback: SrType.familyFallback,
           ),
         ),
         textDirection: TextDirection.ltr,

@@ -219,10 +219,7 @@ class _ConfigCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   '不留存输入历史',
-                  style: SrType.body.copyWith(
-                    color: pal.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: SrType.section.copyWith(color: pal.textPrimary),
                 ),
               ),
               Switch(
@@ -235,10 +232,7 @@ class _ConfigCard extends StatelessWidget {
           Divider(height: 28, color: pal.hairline),
           Text(
             '历史保留时长',
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+            style: SrType.section.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 4),
           Text(

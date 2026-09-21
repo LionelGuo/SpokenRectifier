@@ -102,10 +102,7 @@ class _RunningCard extends StatelessWidget {
               Text(
                 key: const Key('settings-eval-progress'),
                 total == 0 ? '评测准备中' : '$done / $total',
-                style: SrType.body.copyWith(
-                  color: pal.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: SrType.section.copyWith(color: pal.textPrimary),
               ),
               const SizedBox(width: 10),
               if (controller.currentCase case final id?)
@@ -163,10 +160,7 @@ class _FailedCard extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 '评测未能完成',
-                style: SrType.body.copyWith(
-                  color: pal.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: SrType.section.copyWith(color: pal.textPrimary),
               ),
             ],
           ),
@@ -228,6 +222,9 @@ class _SummaryCard extends StatelessWidget {
                   Text(
                     key: const Key('settings-eval-rate'),
                     '${summary.ratePercent.toStringAsFixed(1)}%',
+                    // One-off display number (the eval pass rate), like
+                    // the toast constants: stays local, deliberately not
+                    // a SrType token (28 号票改法⑥).
                     style: SrType.title.copyWith(
                       color: pal.textPrimary,
                       fontSize: 34,
@@ -350,10 +347,7 @@ class _FailedCaseCard extends StatelessWidget {
         children: [
           Text(
             failed.id,
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+            style: SrType.section.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 6),
           // An execution failure is classified into a bucket; the raw

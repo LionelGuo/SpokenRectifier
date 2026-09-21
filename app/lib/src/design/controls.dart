@@ -243,7 +243,7 @@ class SrField extends StatelessWidget {
             minLines: multiline ? (minLines ?? 3) : null,
             style: SrType.body.copyWith(
               color: pal.textPrimary,
-              fontFamily: monospace ? 'monospace' : null,
+              fontFamily: monospace ? SrType.monoFamily : null,
             ),
             cursorColor: pal.accent,
             decoration: InputDecoration(

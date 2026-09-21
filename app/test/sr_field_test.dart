@@ -133,4 +133,22 @@ void main() {
       );
     },
   );
+
+  testWidgets('a monospace SrField pins a real Windows family (28 号票: '
+      "'monospace' is not one — it silently fell back)", (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      host(
+        child: SrField(
+          key: const Key('field'),
+          controller: controller,
+          monospace: true,
+        ),
+      ),
+    );
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.style?.fontFamily, SrType.monoFamily);
+  });
 }

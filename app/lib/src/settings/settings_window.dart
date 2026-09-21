@@ -720,10 +720,7 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
             children: [
               Text(
                 '全局指令',
-                style: SrType.body.copyWith(
-                  color: pal.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: SrType.section.copyWith(color: pal.textPrimary),
               ),
               const SizedBox(width: 10),
               Expanded(

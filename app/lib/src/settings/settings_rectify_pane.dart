@@ -385,10 +385,7 @@ class _FullCard extends StatelessWidget {
         children: [
           Text(
             '全量模式',
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+            style: SrType.section.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 4),
           Text(
@@ -473,10 +470,7 @@ class _LightCard extends StatelessWidget {
         children: [
           Text(
             '轻修模式',
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+            style: SrType.section.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 4),
           Text(
@@ -628,10 +622,7 @@ class _QuickCard extends StatelessWidget {
         children: [
           Text(
             '快速模式',
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+            style: SrType.section.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 4),
           Text(

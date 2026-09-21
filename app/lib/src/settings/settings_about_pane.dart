@@ -98,10 +98,7 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
               children: [
                 Text(
                   '开源信息',
-                  style: SrType.body.copyWith(
-                    color: pal.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: SrType.section.copyWith(color: pal.textPrimary),
                 ),
                 const SizedBox(height: 8),
                 _AboutRow(label: '许可证', value: about.license),
@@ -116,10 +113,7 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
               children: [
                 Text(
                   '配置文件',
-                  style: SrType.body.copyWith(
-                    color: pal.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: SrType.section.copyWith(color: pal.textPrimary),
                 ),
                 const SizedBox(height: 4),
                 Text(

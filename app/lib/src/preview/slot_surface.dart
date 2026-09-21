@@ -2922,6 +2922,8 @@ class _StreamCapsulesPainter extends CustomPainter {
               alpha: pal.accentText.a * alpha,
             ),
             height: 1,
+            // Painters don't see the theme — carry the chain (28 号票).
+            fontFamilyFallback: SrType.familyFallback,
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -2946,6 +2948,8 @@ class _StreamCapsulesPainter extends CustomPainter {
               alpha: pal.accentText.a * alpha,
             ),
             height: 1,
+            // Painters don't see the theme — carry the chain (28 号票).
+            fontFamilyFallback: SrType.familyFallback,
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -3151,7 +3155,12 @@ class _ForegroundPainter extends CustomPainter {
       final digits = TextPainter(
         text: TextSpan(
           text: '${entry.key}',
-          style: SrType.micro.copyWith(color: pal.accentText, height: 1),
+          style: SrType.micro.copyWith(
+            color: pal.accentText,
+            height: 1,
+            // Painters don't see the theme — carry the chain (28 号票).
+            fontFamilyFallback: SrType.familyFallback,
+          ),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
@@ -3173,7 +3182,11 @@ class _ForegroundPainter extends CustomPainter {
         final tp = TextPainter(
           text: TextSpan(
             text: '编辑占位内容',
-            style: SrType.micro.copyWith(color: pal.textSecondary),
+            style: SrType.micro.copyWith(
+              color: pal.textSecondary,
+              // Painters don't see the theme — carry the chain (28 号票).
+              fontFamilyFallback: SrType.familyFallback,
+            ),
           ),
           textDirection: TextDirection.ltr,
         )..layout();

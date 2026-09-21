@@ -199,10 +199,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
               children: [
                 Text(
                   '会话参数',
-                  style: SrType.body.copyWith(
-                    color: pal.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: SrType.section.copyWith(color: pal.textPrimary),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -276,10 +273,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
               children: [
                 Text(
                   '文本插入',
-                  style: SrType.body.copyWith(
-                    color: pal.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: SrType.section.copyWith(color: pal.textPrimary),
                 ),
                 const SizedBox(height: 4),
                 Text(

@@ -5,7 +5,7 @@ library;
 
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart' show Color;
+import 'package:flutter/material.dart' show Color, TextSpan;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/session/thinking_marquee.dart';
@@ -434,5 +434,16 @@ void main() {
     // about 0.5).
     final mid = sweepWindowStops(0, bandW, span);
     expect(mid.first + mid.last, closeTo(1.0, 1e-9));
+  });
+
+  test('the marquee painter rides bodyLarge and carries the family '
+      'fallback (28 号票: painters never see the theme)', () {
+    final cache = TextPainterCache();
+    addTearDown(cache.dispose);
+    final painter = cache.painterFor('思考中', const Color(0xFF8A94A6));
+    final style = (painter.text as TextSpan).style!;
+    expect(style.fontFamilyFallback, SrType.familyFallback);
+    expect(style.fontSize, SrType.bodyLarge.fontSize);
+    expect(style.height, ThinkingMarquee.lineH / SrType.bodyLarge.fontSize!);
   });
 }

@@ -76,10 +76,7 @@ class SettingsGeneralPane extends StatelessWidget {
             children: [
               Text(
                 '主题',
-                style: SrType.body.copyWith(
-                  color: pal.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: SrType.section.copyWith(color: pal.textPrimary),
               ),
               const SizedBox(height: 12),
               Row(
@@ -240,10 +237,7 @@ class _HotkeyCardState extends State<_HotkeyCard> {
         children: [
           Text(
             '热键',
-            style: SrType.body.copyWith(
-              color: pal.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+            style: SrType.section.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 12),
           _HotkeyRow(

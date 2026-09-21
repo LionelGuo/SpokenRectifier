@@ -900,7 +900,13 @@ class _FooterMetrics {
 _FooterMetrics _measureFooter(BuildContext context, List<_FooterSpec> specs) {
   double textWidth(String text, TextStyle style) {
     final painter = TextPainter(
-      text: TextSpan(text: text, style: style),
+      // The measuring painter must dress the label exactly as the real
+      // Text will render it — including the family fallback — or the
+      // G1 guard line drifts off the real glyph widths (28 号票).
+      text: TextSpan(
+        text: text,
+        style: style.copyWith(fontFamilyFallback: SrType.familyFallback),
+      ),
       textScaler: MediaQuery.textScalerOf(context),
       // The labels are CJK-first with latin key hints; the footer row
       // reads left-to-right in both locales.
