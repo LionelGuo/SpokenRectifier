@@ -266,7 +266,11 @@ void main() {
       // so the engine resolves the click onto the reservation's own flat
       // offset — which used to become the capsule's inside-end dock
       // (点击后方进了胶囊). The surface maps it out: the dock past the
-      // capsule.
+      // capsule. (小修 16: the surface now spans the body's full width,
+      // so a click this far past the pill actually REACHES the paragraph
+      // instead of falling off its shrink-wrapped edge — before that the
+      // tap missed outright and the pinned dock passed vacuously on the
+      // untouched initial caret.)
       final h = await pumpSlotPreview(tester, body: '‡1‡', prefill: '');
       final base = tester.getRect(find.byKey(const Key('session-text')));
       final pill = h.surface.capsuleSegmentsForTest()[1]!.first;
@@ -275,7 +279,7 @@ void main() {
       );
       await tester.pump();
       expect(h.surface.activeSlotId, isNull);
-      expect(h.surface.editor.caret, const SlotCursor.outside(0));
+      expect(h.surface.editor.caret, const SlotCursor.outside(3));
       await windDown(tester, h.controller);
     },
   );

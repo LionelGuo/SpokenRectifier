@@ -3907,6 +3907,90 @@ void main() {
       });
     }
   });
+
+  group('body scrollbar hangs on the window edge (小修 16)', () {
+    /// The auto scrollbar exists only on desktop platforms — the
+    /// MaterialScrollBehavior attaches one around every scrollable — so
+    /// the guards run as a windows-only variant (the framework resets
+    /// the platform override around the body properly). Whatever the
+    /// widest text line does, the bar's box must reach the body's
+    /// CONTENT edge (the fade spans the body stack; the content rides
+    /// inset by contentInset on both sides), never hug the paragraph.
+
+    /// Narrow lines, many of them: the body must scroll while the widest
+    /// line stays far short of the body's width.
+    const narrowLines = '短句一\n短句二\n短句三\n短句四\n短句五\n短句六\n'
+        '短句七\n短句八\n短句九\n短句十\n短句十一\n短句十二\n'
+        '短句十三\n短句十四\n短句十五\n短句十六\n短句十七\n短句十八\n'
+        '短句十九\n短句二十\n短句廿一\n短句廿二\n短句廿三\n短句廿四';
+
+    Finder sessionScrollbar() => find.descendant(
+      of: find.byType(SessionPanel),
+      matching: find.byType(Scrollbar),
+    );
+
+    Finder sessionScrollable() => find.descendant(
+      of: find.byType(SessionPanel),
+      matching: find.byType(Scrollable),
+    );
+
+    testWidgets('the stream face scrollbar rides the body edge', (
+      tester,
+    ) async {
+      final gateway = FakeGateway();
+      final window = RecordingStageWindow();
+      final controller = await pumpController(
+        tester,
+        gateway,
+        stageWindow: window,
+      );
+      await pumpToRecording(tester, controller);
+      gateway.emit(
+        const BridgeEvent.liveTranscriptUpdated(text: narrowLines),
+      );
+      await tester.pump();
+
+      // The premise: the scroll is actually engaged.
+      final scroll = tester.state<ScrollableState>(sessionScrollable());
+      expect(scroll.position.maxScrollExtent, greaterThan(0));
+
+      final body = tester.getRect(find.byKey(const Key('session-top-fade')));
+      final bar = tester.getRect(sessionScrollbar());
+      expect(
+        bar.right,
+        closeTo(body.right - SrSpace.contentInset, 0.5),
+        reason: 'the thumb hangs on the window edge, not the text',
+      );
+      await windDown(tester, controller);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+    testWidgets('the preview scrollbar rides the body edge', (tester) async {
+      final gateway = FakeGateway();
+      final window = RecordingStageWindow();
+      final controller = await pumpController(
+        tester,
+        gateway,
+        stageWindow: window,
+      );
+      await pumpToPreview(tester, controller, gateway, chunks: const [
+        narrowLines,
+      ]);
+
+      // The premise: the scroll is actually engaged.
+      final scroll = tester.state<ScrollableState>(sessionScrollable());
+      expect(scroll.position.maxScrollExtent, greaterThan(0));
+
+      final body = tester.getRect(find.byKey(const Key('session-top-fade')));
+      final bar = tester.getRect(sessionScrollbar());
+      expect(
+        bar.right,
+        closeTo(body.right - SrSpace.contentInset, 0.5),
+        reason: 'the thumb hangs on the window edge, not the text',
+      );
+      await windDown(tester, controller);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  });
+
   testWidgets('the thinking stream drives the 思考中 three-piece and the '
       'marquee, then hands over once', (tester) async {
     final gateway = FakeGateway();

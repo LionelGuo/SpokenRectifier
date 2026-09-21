@@ -384,21 +384,30 @@ class _SessionPanelState extends State<SessionPanel> {
             '开始说话…',
             style: SrType.bodyLarge.copyWith(color: pal.textTertiary),
           ),
+        // 16 号票: the scroll surfaces span the body's FULL width —
+        // the auto scrollbar (the desktop ScrollBehavior wrapper)
+        // hangs on the window's edge, never on the widest text line.
+        // A Stack's loose fit shrink-wraps a scrollable to its
+        // paragraph; the infinity SizedBox pins the cross axis, so
+        // the thumb stays put wherever the text happens to end.
         if (previewing)
           // The editable preview (ticket 22): the self-drawn fill
           // capsule surface over the slot document. Each round
           // bumps the reset token; edits adopt their substituted
           // text at once.
-          SingleChildScrollView(
-            controller: _scroll,
-            child: SlotSurface(
-              key: const Key('session-text'),
-              mode: SlotSurfaceMode.preview,
-              editor: editor,
-              focusNode: _focus,
-              scrollController: _scroll,
-              resetToken: _round,
-              onChanged: _onSlotChanged,
+          SizedBox(
+            width: double.infinity,
+            child: SingleChildScrollView(
+              controller: _scroll,
+              child: SlotSurface(
+                key: const Key('session-text'),
+                mode: SlotSurfaceMode.preview,
+                editor: editor,
+                focusNode: _focus,
+                scrollController: _scroll,
+                resetToken: _round,
+                onChanged: _onSlotChanged,
+              ),
             ),
           )
         else
@@ -408,14 +417,17 @@ class _SessionPanelState extends State<SessionPanel> {
           // reads the same projection, so sentinels appearing
           // mid-stream collapse into capsules the moment their
           // shape completes.
-          SlotSurface(
-            key: const Key('session-stream'),
-            mode: SlotSurfaceMode.stream,
-            text: recording ? c.liveText : c.previewText,
-            streamStyle: SrType.bodyLarge.copyWith(
-              color: recording ? pal.textSecondary : pal.textPrimary,
+          SizedBox(
+            width: double.infinity,
+            child: SlotSurface(
+              key: const Key('session-stream'),
+              mode: SlotSurfaceMode.stream,
+              text: recording ? c.liveText : c.previewText,
+              streamStyle: SrType.bodyLarge.copyWith(
+                color: recording ? pal.textSecondary : pal.textPrimary,
+              ),
+              scrollController: _scroll,
             ),
-            scrollController: _scroll,
           ),
       ],
     );
