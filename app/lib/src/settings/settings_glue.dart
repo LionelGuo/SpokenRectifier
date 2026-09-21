@@ -7,8 +7,10 @@
 /// Window lifetime: the controller handle is dropped when the native
 /// window goes away (watched via desktop_multi_window's windows-changed
 /// stream), whether the user closed it via its title bar or it died
-/// otherwise; a send into a dead window throws and the next open()
-/// recreates it.
+/// otherwise. Death is confirmed against the window list, never
+/// presumed from a failed send — a send into a just-created window
+/// fails while its sub-engine is still booting, and replacing that
+/// window was the overlapping-settings-windows bug.
 
 library;
 
@@ -40,6 +42,13 @@ class DesktopSettingsWindow {
   String? _lastSelection;
   bool? _lastOrbVisible;
 
+  /// Opens run one at a time, in click order. A create takes a whole
+  /// sub-engine (hundreds of milliseconds), so concurrent opens would
+  /// each see no window yet and each spawn one; a queued open runs
+  /// after the create it waited on and takes the navigate-an-existing-
+  /// window path instead.
+  Future<void> _openQueue = Future<void>.value();
+
   /// Open the settings window on [domain] — creating it hidden, with the
   /// current theme and selection riding its arguments (a push cannot beat
   /// the sub-engine's handler registration). The sub-engine owns the
@@ -48,16 +57,18 @@ class DesktopSettingsWindow {
   /// would reveal the window at dmw's native default origin (10,10,
   /// 800×600) and it would visibly jump once the sub-engine's geometry
   /// lands. An already-open window is navigated and brought back instead.
-  Future<void> open(SettingsDomain domain) async {
+  Future<void> open(SettingsDomain domain) {
+    final opened = _openQueue.then((_) => _open(domain));
+    // A failed open must not poison the queue for the next click.
+    _openQueue = opened.then<void>((_) {}, onError: (Object _) {});
+    return opened;
+  }
+
+  Future<void> _open(SettingsDomain domain) async {
     final existing = _window;
     if (existing != null) {
-      try {
-        await existing.invokeMethod('navigate', domain.name);
-        await existing.show();
-        return;
-      } catch (_) {
-        _window = null; // died since we last looked; recreate below
-      }
+      if (await _navigateExisting(existing, domain)) return;
+      _window = null; // confirmed gone from the window list
     }
     final controller = await WindowController.create(
       WindowConfiguration(
@@ -77,6 +88,43 @@ class DesktopSettingsWindow {
     _lastTheme = _controller.themeMode;
     _lastSelection = _controller.selectedScenario;
     _lastOrbVisible = _controller.orbVisible;
+  }
+
+  /// Navigate the open window to [domain] and bring it back. False
+  /// only when the window is confirmed gone from the native window
+  /// list: a send that fails while the window is still listed is a
+  /// sub-engine created a moment ago whose channel handler has not
+  /// attached yet (booting, not dead — its first show and domain rode
+  /// the launch arguments), which the bounded retry rides out.
+  Future<bool> _navigateExisting(
+    WindowController window,
+    SettingsDomain domain,
+  ) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        await window.invokeMethod('navigate', domain.name);
+        await window.show();
+        return true;
+      } catch (_) {
+        if (!await _isListed(window)) return false;
+        // Still alive but wedged past the bound: drop this click — the
+        // one-window invariant outranks the navigation.
+        if (attempt >= 50) return true;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  }
+
+  /// The authoritative aliveness check (the windows-changed stream's
+  /// pull form). An unreadable list errs on the side of alive: a
+  /// window is never replaced on doubt.
+  Future<bool> _isListed(WindowController window) async {
+    try {
+      final alive = await WindowController.getAll();
+      return alive.any((candidate) => candidate.windowId == window.windowId);
+    } catch (_) {
+      return true;
+    }
   }
 
   /// Push the theme to the settings window (no-op while closed).
@@ -189,17 +237,15 @@ class DesktopSettingsWindow {
   Future<void> _pruneWindow() async {
     final window = _window;
     if (window == null) return;
-    final alive = await WindowController.getAll();
-    if (!alive.any((candidate) => candidate.windowId == window.windowId)) {
-      _window = null;
-      _lastTheme = null;
-      _lastSelection = null;
-      _lastOrbVisible = null;
-      // A capture left running (title-bar X, a dying isolate) must not
-      // leave the product chords unregistered — map 06: closing the
-      // settings window ends capture and re-hangs from the file.
-      unawaited(_controller.setHotkeysPaused(false));
-    }
+    if (await _isListed(window)) return;
+    _window = null;
+    _lastTheme = null;
+    _lastSelection = null;
+    _lastOrbVisible = null;
+    // A capture left running (title-bar X, a dying isolate) must not
+    // leave the product chords unregistered — map 06: closing the
+    // settings window ends capture and re-hangs from the file.
+    unawaited(_controller.setHotkeysPaused(false));
   }
 
   /// Close the settings window through the proper chain, ahead of the
@@ -212,6 +258,10 @@ class DesktopSettingsWindow {
   /// window falls through after the bounded wait rather than blocking
   /// exit forever.
   Future<void> close() async {
+    // Wait out an in-flight open first: a create resolving after this
+    // returns would leave a live window riding into process exit (the
+    // frozen-linger family, small-fix 08).
+    await _openQueue;
     final window = _window;
     if (window == null) return;
     unawaited(window.invokeMethod('close', null).catchError((Object _) {}));
