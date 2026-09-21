@@ -48,7 +48,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../design/controls.dart' show SrButton, SrCard, SrField;
+import '../design/controls.dart' show SrButton, SrCard, SrField, SrPressFill;
 import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
@@ -852,45 +852,61 @@ class _PolicyChips extends StatelessWidget {
         children: [
           for (final policy in rectifyPolicies)
             SrHover(
-              builder: (hover) => GestureDetector(
-                onTap: enabled ? () => onSelect(policy) : null,
-                behavior: HitTestBehavior.opaque,
-                child: AnimatedContainer(
-                  key: Key('$testKey:$policy'),
-                  duration: SrMotion.fade,
-                  curve: SrMotion.curveFade,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
-                    borderRadius: BorderRadius.circular(SrRadius.control),
-                    border: Border.all(color: pal.hairline),
-                  ),
-                  // The selection's blue rides its own alpha-only layer —
-                  // a straight lerp into the neutral fill darkened the
-                  // chip being deselected (26 号票 真机 round).
-                  foregroundDecoration: BoxDecoration(
-                    color: policy == selected
-                        ? pal.accentSoft
-                        : pal.accentSoft.withValues(alpha: 0),
-                    borderRadius: BorderRadius.circular(SrRadius.control),
-                    border: Border.all(
-                      color: policy == selected
-                          ? pal.accent.withValues(alpha: 0.6)
-                          : pal.accent.withValues(alpha: 0),
-                    ),
-                  ),
-                  child: Text(
-                    _policyLabels[policy] ?? policy,
-                    style: SrType.caption.copyWith(
-                      color: policy == selected
-                          ? pal.accentText
-                          : pal.textSecondary,
-                      fontWeight: policy == selected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+              builder: (hover) => SrPress(
+                builder: (pressed) => GestureDetector(
+                  onTap: enabled ? () => onSelect(policy) : null,
+                  behavior: HitTestBehavior.opaque,
+                  child: SrPressFill(
+                    // Press darkens at pointer-down; the blue highlight
+                    // follows the selection state. The scrim stays off
+                    // while the row is inert — dim already says so.
+                    pressed: pressed && enabled,
+                    radius: BorderRadius.circular(SrRadius.control),
+                    child: AnimatedContainer(
+                      key: Key('$testKey:$policy'),
+                      duration: SrMotion.fade,
+                      curve: SrMotion.curveFade,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: pal.surfaceOverlay.withValues(
+                          alpha: hover ? 1 : 0,
+                        ),
+                        borderRadius: BorderRadius.circular(SrRadius.control),
+                        border: Border.all(color: pal.hairline),
+                      ),
+                      // The selection's blue rides its own alpha-only
+                      // layer — a straight lerp into the neutral fill
+                      // darkened the chip being deselected (26 号票 真机
+                      // round).
+                      foregroundDecoration: BoxDecoration(
+                        color: policy == selected
+                            ? pal.accentSoft
+                            : pal.accentSoft.withValues(alpha: 0),
+                        borderRadius: BorderRadius.circular(SrRadius.control),
+                        border: Border.all(
+                          color: policy == selected
+                              ? pal.accent.withValues(alpha: 0.6)
+                              : pal.accent.withValues(alpha: 0),
+                        ),
+                      ),
+                      child: AnimatedDefaultTextStyle(
+                        // The selection is a discrete switch: the label
+                        // rides the same fade window as its box (26 号票).
+                        duration: SrMotion.fade,
+                        curve: SrMotion.curveFade,
+                        style: SrType.caption.copyWith(
+                          color: policy == selected
+                              ? pal.accentText
+                              : pal.textSecondary,
+                          fontWeight: policy == selected
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                        child: Text(_policyLabels[policy] ?? policy),
+                      ),
                     ),
                   ),
                 ),

@@ -490,52 +490,63 @@ class _SidebarItem extends StatelessWidget {
     final pal = srPalette(context);
     final active = selected;
     return SrHover(
-      builder: (hover) => GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          // Surface-fade feel (the quick panel's hover rule): fill eases
-          // in and out on the symmetric fade token, tinted by the target
-          // color's own alpha.
-          duration: SrMotion.fade,
-          curve: SrMotion.curveFade,
-          margin: const EdgeInsets.only(bottom: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
-            borderRadius: const BorderRadius.horizontal(
+      builder: (hover) => SrPress(
+        builder: (pressed) => GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: SrPressFill(
+            // Press darkens at pointer-down; the active domain's blue
+            // below follows the selection (26 号票).
+            pressed: pressed,
+            radius: const BorderRadius.horizontal(
               left: Radius.circular(SrRadius.control),
               right: Radius.circular(4),
             ),
-          ),
-          // The active domain's blue rides its own alpha-only layer — a
-          // straight lerp into the neutral fill darkened the item being
-          // deselected (26 号票 真机 round).
-          foregroundDecoration: BoxDecoration(
-            color: active
-                ? pal.accentSoft
-                : pal.accentSoft.withValues(alpha: 0),
-            borderRadius: const BorderRadius.horizontal(
-              left: Radius.circular(SrRadius.control),
-              right: Radius.circular(4),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                domain.icon,
-                size: 16,
-                color: active ? pal.accentText : pal.textSecondary,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                domain.label,
-                style: SrType.body.copyWith(
-                  color: active ? pal.accentText : pal.textSecondary,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+            child: AnimatedContainer(
+              // Surface-fade feel (the quick panel's hover rule): fill
+              // eases in and out on the symmetric fade token, tinted by
+              // the target color's own alpha.
+              duration: SrMotion.fade,
+              curve: SrMotion.curveFade,
+              margin: const EdgeInsets.only(bottom: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: pal.surfaceOverlay.withValues(alpha: hover ? 1 : 0),
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(SrRadius.control),
+                  right: Radius.circular(4),
                 ),
               ),
-            ],
+              // The active domain's blue rides its own alpha-only layer —
+              // a straight lerp into the neutral fill darkened the item
+              // being deselected (26 号票 真机 round).
+              foregroundDecoration: BoxDecoration(
+                color: active
+                    ? pal.accentSoft
+                    : pal.accentSoft.withValues(alpha: 0),
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(SrRadius.control),
+                  right: Radius.circular(4),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    domain.icon,
+                    size: 16,
+                    color: active ? pal.accentText : pal.textSecondary,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    domain.label,
+                    style: SrType.body.copyWith(
+                      color: active ? pal.accentText : pal.textSecondary,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

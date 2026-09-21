@@ -308,58 +308,66 @@ class _HotkeyRow extends StatelessWidget {
           children: [
             Expanded(
               child: SrHover(
-                builder: (hover) => GestureDetector(
-                  key: Key('settings-hotkey-$keyName'),
-                  onTap: onTap,
-                  child: AnimatedContainer(
-                    // The capture state is a discrete switch → the
-                    // surface fade (26 号票); the label cross-dissolves
-                    // on the same window.
-                    duration: SrMotion.fade,
-                    curve: SrMotion.curveFade,
-                    height: 34,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    alignment: Alignment.centerLeft,
-                    decoration: BoxDecoration(
-                      color: hover ? pal.surfaceOverlay : pal.surfaceRaised,
-                      borderRadius: BorderRadius.circular(SrRadius.control),
-                      border: Border.all(color: pal.hairline),
-                    ),
-                    // The capture state's blue is its own layer over the
-                    // base, animating its alpha alone — lerping it into
-                    // the neutral fill swept a dark wash across the row
-                    // as capture ended (26 号票 真机 round).
-                    foregroundDecoration: BoxDecoration(
-                      color: capturing
-                          ? pal.accentSoft
-                          : pal.accentSoft.withValues(alpha: 0),
-                      borderRadius: BorderRadius.circular(SrRadius.control),
-                      border: Border.all(
-                        color: capturing
-                            ? pal.accent.withValues(alpha: 0.55)
-                            : pal.accent.withValues(alpha: 0),
-                      ),
-                    ),
-                    child: AnimatedSwitcher(
-                      duration: SrMotion.fade,
-                      switchInCurve: SrMotion.curveFade,
-                      switchOutCurve: SrMotion.curveFade,
-                      layoutBuilder: (currentChild, previousChildren) =>
-                          // Left-anchored crossfade: the incoming label
-                          // reads from the same edge the resting one does.
-                          Stack(
-                            alignment: Alignment.centerLeft,
-                            children: [...previousChildren, ?currentChild],
+                builder: (hover) => SrPress(
+                  builder: (pressed) => GestureDetector(
+                    key: Key('settings-hotkey-$keyName'),
+                    onTap: onTap,
+                    child: SrPressFill(
+                      // Press darkens at pointer-down; the capture
+                      // state's blue below follows the switch (26 号票).
+                      pressed: pressed,
+                      radius: BorderRadius.circular(SrRadius.control),
+                      child: AnimatedContainer(
+                        // The capture state is a discrete switch → the
+                        // surface fade (26 号票); the label cross-dissolves
+                        // on the same window.
+                        duration: SrMotion.fade,
+                        curve: SrMotion.curveFade,
+                        height: 34,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        alignment: Alignment.centerLeft,
+                        decoration: BoxDecoration(
+                          color: hover ? pal.surfaceOverlay : pal.surfaceRaised,
+                          borderRadius: BorderRadius.circular(SrRadius.control),
+                          border: Border.all(color: pal.hairline),
+                        ),
+                        // The capture state's blue is its own layer over
+                        // the base, animating its alpha alone — lerping it
+                        // into the neutral fill swept a dark wash across
+                        // the row as capture ended (26 号票 真机 round).
+                        foregroundDecoration: BoxDecoration(
+                          color: capturing
+                              ? pal.accentSoft
+                              : pal.accentSoft.withValues(alpha: 0),
+                          borderRadius: BorderRadius.circular(SrRadius.control),
+                          border: Border.all(
+                            color: capturing
+                                ? pal.accent.withValues(alpha: 0.55)
+                                : pal.accent.withValues(alpha: 0),
                           ),
-                      child: Text(
-                        capturing ? '按下组合键录制' : binding.label,
-                        key: ValueKey(capturing),
-                        style: (capturing ? SrType.caption : SrType.kbd)
-                            .copyWith(
-                              color: capturing
-                                  ? pal.accentText
-                                  : pal.textSecondary,
-                            ),
+                        ),
+                        child: AnimatedSwitcher(
+                          duration: SrMotion.fade,
+                          switchInCurve: SrMotion.curveFade,
+                          switchOutCurve: SrMotion.curveFade,
+                          layoutBuilder: (currentChild, previousChildren) =>
+                              // Left-anchored crossfade: the incoming label
+                              // reads from the same edge the resting one does.
+                              Stack(
+                                alignment: Alignment.centerLeft,
+                                children: [...previousChildren, ?currentChild],
+                              ),
+                          child: Text(
+                            capturing ? '按下组合键录制' : binding.label,
+                            key: ValueKey(capturing),
+                            style: (capturing ? SrType.caption : SrType.kbd)
+                                .copyWith(
+                                  color: capturing
+                                      ? pal.accentText
+                                      : pal.textSecondary,
+                                ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
