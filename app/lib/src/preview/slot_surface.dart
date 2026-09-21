@@ -110,6 +110,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
     show RenderAbstractViewport, RenderParagraph;
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 
 import '../design/tokens.dart';
@@ -264,6 +265,13 @@ class SlotSurfaceState extends State<SlotSurface>
   /// RenderParagraph.
   BuildContext? _streamParagraph;
 
+  /// The stream face's fading segments and their shared clock (25 号
+  /// 票): each new suffix of the stream text fades in as one block; the
+  /// ticker runs only while a segment is still maturing.
+  List<StreamFadeSegment> _streamFades = const [];
+  Ticker? _streamFadeTicker;
+  Duration _fadeNow = Duration.zero;
+
   bool get _isPreview => widget.mode == SlotSurfaceMode.preview;
 
   /// The view the connection targets. The engine rejects setClient
@@ -298,14 +306,27 @@ class SlotSurfaceState extends State<SlotSurface>
   void didUpdateWidget(SlotSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_isPreview) {
-      // The stream keeps itself pinned to the newest line.
-      if (widget.text != oldWidget.text && widget.scrollController != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final scroll = widget.scrollController;
-          if (scroll != null && scroll.hasClients && mounted) {
-            scroll.jumpTo(scroll.position.maxScrollExtent);
-          }
+      if (widget.text != oldWidget.text) {
+        // The new suffix fades in as one block (25 号票); the diff runs
+        // on the flat projections — the text the paragraph lays out.
+        setState(() {
+          _streamFades = advanceStreamFades(
+            projectStream(oldWidget.text ?? '').flat,
+            projectStream(widget.text ?? '').flat,
+            _streamFades,
+            _fadeClockNow,
+          );
         });
+        _ensureStreamFadeTicker();
+        // The stream keeps itself pinned to the newest line.
+        if (widget.scrollController != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final scroll = widget.scrollController;
+            if (scroll != null && scroll.hasClients && mounted) {
+              scroll.jumpTo(scroll.position.maxScrollExtent);
+            }
+          });
+        }
       }
       return;
     }
@@ -332,9 +353,51 @@ class SlotSurfaceState extends State<SlotSurface>
       widget.focusNode?.removeListener(_onFocusChanged);
       _connection?.close();
     }
+    _streamFadeTicker?.dispose();
     _blink.dispose();
     _activeFade.dispose();
     super.dispose();
+  }
+
+  // -- stream fade (25 号票) -------------------------------------------------
+
+  /// The fade clock's current tick — zero when no fade epoch is running,
+  /// so the next new segment starts a fresh one (the ticker's elapsed
+  /// resets on every start; a matured burst's stale tick must not read
+  /// as an already-matured birth).
+  Duration get _fadeClockNow =>
+      (_streamFadeTicker?.isActive ?? false) ? _fadeNow : Duration.zero;
+
+  void _ensureStreamFadeTicker() {
+    if (_streamFades.isEmpty) return;
+    final ticker = _streamFadeTicker ??= createTicker(_onStreamFadeTick);
+    if (!ticker.isActive) {
+      _fadeNow = Duration.zero;
+      ticker.start();
+    }
+  }
+
+  void _onStreamFadeTick(Duration elapsed) {
+    _fadeNow = elapsed;
+    final alive = _streamFades
+        .where((s) => elapsed - s.birth < SrMotion.fade)
+        .toList();
+    setState(() => _streamFades = alive);
+    // All matured: the spans carry no special style any more and the
+    // clock stops until the next arrival (仅淡入期间驱动重绘,段成熟后
+    // 停表).
+    if (alive.isEmpty) _streamFadeTicker!.stop();
+  }
+
+  /// The fade alpha the flat offset [at] currently rides — 1.0 unless a
+  /// live segment claims it. The capsule chrome (pills, circles, digits)
+  /// reads its own marker offset, so a capsule arriving mid-stream fades
+  /// with its segment (整段淡入) without touching the capsule machinery.
+  double _streamFadeAlphaAt(int at) {
+    for (final s in _streamFades) {
+      if (at >= s.start && at < s.end) return streamFadeAlpha(s, _fadeNow);
+    }
+    return 1.0;
   }
 
   // -- model + projection access -------------------------------------------
@@ -519,6 +582,9 @@ class SlotSurfaceState extends State<SlotSurface>
     final text = widget.text ?? '';
     final pal = srPalette(context);
     final style = widget.streamStyle ?? SrType.bodyLarge;
+    // The fade tint's base — the panel's stream style always carries a
+    // color; the ambient default is the fallback.
+    final baseColor = style.color ?? DefaultTextStyle.of(context).style.color;
     final markers = projectStream(text);
     // The strut pins every line to the style's own metrics: line
     // heights never vary with what a line happens to contain (mixed
@@ -561,7 +627,12 @@ class SlotSurfaceState extends State<SlotSurface>
                   strutStyle: strut,
                   TextSpan(
                     style: style,
-                    children: _streamSpanTree(markers, widths),
+                    children: _streamSpanTree(
+                      markers,
+                      widths,
+                      fades: _streamFades,
+                      fadeColor: baseColor,
+                    ),
                   ),
                 );
               },
@@ -583,8 +654,10 @@ class SlotSurfaceState extends State<SlotSurface>
   /// whatever streams in after it keeps its breathing.
   List<InlineSpan> _streamSpanTree(
     StreamMarkers markers,
-    Map<int, double> reservationWidths,
-  ) {
+    Map<int, double> reservationWidths, {
+    List<StreamFadeSegment> fades = const [],
+    Color? fadeColor,
+  }) {
     final flat = markers.flat;
     final circleAt = {for (final circle in markers.circles) circle.at: circle};
     final chipAt = {for (final slot in markers.capsules) slot.chipAt: slot};
@@ -606,7 +679,7 @@ class SlotSurfaceState extends State<SlotSurface>
         continue; // a stray placeholder glyph inside a value: text
       }
       if (i > runStart) {
-        children.add(TextSpan(text: flat.substring(runStart, i)));
+        _addStreamRun(children, flat, runStart, i, fades, fadeColor);
       }
       if (circle != null) {
         children.add(
@@ -650,9 +723,58 @@ class SlotSurfaceState extends State<SlotSurface>
       runStart = i + 1;
     }
     if (runStart < flat.length) {
-      children.add(TextSpan(text: flat.substring(runStart)));
+      _addStreamRun(children, flat, runStart, flat.length, fades, fadeColor);
     }
     return children;
+  }
+
+  /// One plain text run of the stream tree, split at the fade segments'
+  /// edges (25 号票): a part inside a live segment carries that
+  /// segment's current alpha over the run's own colour; matured — or
+  /// never-faded — parts stay plain (no style override). The
+  /// measurement tree passes no fades: alphas never move layout, and
+  /// its WidgetSpan children must stay bare boxes for the measure's
+  /// own cast.
+  void _addStreamRun(
+    List<InlineSpan> children,
+    String flat,
+    int from,
+    int to,
+    List<StreamFadeSegment> fades,
+    Color? fadeColor,
+  ) {
+    if (to <= from) return;
+    if (fades.isEmpty || fadeColor == null) {
+      children.add(TextSpan(text: flat.substring(from, to)));
+      return;
+    }
+    var i = from;
+    while (i < to) {
+      StreamFadeSegment? held;
+      var boundary = to;
+      for (final s in fades) {
+        if (s.start <= i && i < s.end) {
+          held = s;
+          boundary = math.min(boundary, s.end);
+        } else if (s.start > i) {
+          boundary = math.min(boundary, s.start);
+        }
+      }
+      if (held == null) {
+        children.add(TextSpan(text: flat.substring(i, boundary)));
+      } else {
+        final a = streamFadeAlpha(held, _fadeNow);
+        children.add(
+          TextSpan(
+            text: flat.substring(i, boundary),
+            style: TextStyle(
+              color: fadeColor.withValues(alpha: fadeColor.a * a),
+            ),
+          ),
+        );
+      }
+      i = boundary;
+    }
   }
 
   // -- stream capsule geometry ----------------------------------------------
@@ -1981,6 +2103,82 @@ class SlotSurfaceState extends State<SlotSurface>
   /// The stream capsules' circle rectangles per identity — the stream
   /// face's geometry seam.
   Map<int, Rect> streamCircleRectsForTest() => _streamCircleRects();
+
+  /// The live fade segments (25 号票) — the tests' stream-fade seam.
+  List<StreamFadeSegment> get streamFadesForTest => _streamFades;
+}
+
+// ---------------------------------------------------------------------------
+// stream fade (25 号票)
+// ---------------------------------------------------------------------------
+
+/// One fading region of the stream face: the flat range [start, end) is
+/// new text that arrived at [birth] — a tick of the surface's fade
+/// clock — and paints as ONE block at a shared alpha until it matures
+/// (整段 α 0→1,各段独立计时). Pure data: the machine tests exercise
+/// the model directly.
+class StreamFadeSegment {
+  const StreamFadeSegment(this.start, this.end, this.birth);
+
+  final int start;
+  final int end;
+
+  /// The fade-clock tick the segment was born at.
+  final Duration birth;
+
+  @override
+  bool operator ==(Object other) =>
+      other is StreamFadeSegment &&
+      other.start == start &&
+      other.end == end &&
+      other.birth == birth;
+
+  @override
+  int get hashCode => Object.hash(start, end, birth);
+}
+
+/// The alpha [segment] paints with at fade-clock tick [now]: the curve
+/// over the elapsed fraction of [period], clamped to [0, 1].
+double streamFadeAlpha(
+  StreamFadeSegment segment,
+  Duration now, {
+  Duration period = SrMotion.fade,
+  Curve curve = SrMotion.curveFade,
+}) {
+  final t = ((now - segment.birth).inMicroseconds / period.inMicroseconds)
+      .clamp(0.0, 1.0);
+  return curve.transform(t);
+}
+
+/// The fade segments after a stream text update: the common prefix of
+/// the two flat texts keeps whatever fades it already carries (its own
+/// clocks, truncated at the diff point when a rewrite cuts into a
+/// still-fading segment); everything from the FIRST differing code unit
+/// on is one new segment born at [now] — a rewrite's whole tail re-fades
+/// (首异后缀整段,改写段同律淡入). A shrink or a clear keeps only what
+/// survives below the diff point.
+List<StreamFadeSegment> advanceStreamFades(
+  String oldFlat,
+  String newFlat,
+  List<StreamFadeSegment> existing,
+  Duration now,
+) {
+  var p = 0;
+  while (p < oldFlat.length &&
+      p < newFlat.length &&
+      oldFlat.codeUnitAt(p) == newFlat.codeUnitAt(p)) {
+    p++;
+  }
+  final limit = math.min(p, newFlat.length);
+  final kept = [
+    for (final s in existing)
+      if (math.min(s.end, limit) > s.start)
+        StreamFadeSegment(s.start, math.min(s.end, limit), s.birth),
+  ];
+  if (p < newFlat.length) {
+    kept.add(StreamFadeSegment(p, newFlat.length, now));
+  }
+  return kept;
 }
 
 // ---------------------------------------------------------------------------
@@ -2687,18 +2885,33 @@ class _StreamCapsulesPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final circleAt = {
+      for (final circle in state._streamMarkers().circles) circle.id: circle.at,
+    };
+    final chipAt = {
+      for (final slot in state._streamMarkers().capsules) slot.id: slot.chipAt,
+    };
     for (final entry in state._streamCircleRects().entries) {
       final rect = entry.value;
+      // A capsule arriving mid-stream fades with its segment (25 号
+      // 票): fill and digits ride the alpha at the marker's own offset.
+      final alpha = state._streamFadeAlphaAt(circleAt[entry.key] ?? -1);
       // The flat family: fill only — no border, no shadow; one digit a
       // true circle, wider numbers a capsule.
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
-        Paint()..color = pal.accentSoft,
+        Paint()
+          ..color = pal.accentSoft.withValues(alpha: pal.accentSoft.a * alpha),
       );
       final digits = TextPainter(
         text: TextSpan(
           text: '${entry.key}',
-          style: SrType.micro.copyWith(color: pal.accentText, height: 1),
+          style: SrType.micro.copyWith(
+            color: pal.accentText.withValues(
+              alpha: pal.accentText.a * alpha,
+            ),
+            height: 1,
+          ),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
@@ -2713,10 +2926,16 @@ class _StreamCapsulesPainter extends CustomPainter {
     // 端切圆圆心,08 号票; the chip widget itself is a bare spacer).
     for (final entry in state._streamCapsuleBands().entries) {
       final first = entry.value.first;
+      final alpha = state._streamFadeAlphaAt(chipAt[entry.key] ?? -1);
       final digits = TextPainter(
         text: TextSpan(
           text: '${entry.key}',
-          style: SrType.micro.copyWith(color: pal.accentText, height: 1),
+          style: SrType.micro.copyWith(
+            color: pal.accentText.withValues(
+              alpha: pal.accentText.a * alpha,
+            ),
+            height: 1,
+          ),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
@@ -2751,13 +2970,23 @@ class _StreamPillPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final pillRadius = Radius.circular(SlotSurfaceState.capsuleHeight / 2);
+    final chipAt = {
+      for (final slot in state._streamMarkers().capsules) slot.id: slot.chipAt,
+    };
     for (final entry in state._streamCapsuleBands().entries) {
+      // The pill rides the alpha at its own chip offset — it fades in
+      // only when the capsule itself is new (25 号票); appended text
+      // after a matured capsule never pulses the pill.
+      final alpha = state._streamFadeAlphaAt(chipAt[entry.key] ?? -1);
       for (final band in entry.value) {
         paintFadedBand(
           canvas,
           band,
           band.shape(pillRadius),
-          Paint()..color = pal.accentSoft,
+          Paint()
+            ..color = pal.accentSoft.withValues(
+              alpha: pal.accentSoft.a * alpha,
+            ),
         );
       }
     }
