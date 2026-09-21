@@ -12,6 +12,11 @@
 ///   keeps the error duty).
 /// - Timing: success 2000ms / error 3000ms dwell, click-to-dismiss,
 ///   new replaces old (each restarts the clock).
+/// - Tone contract (14 号票's audit rule): the leading icon wears the
+///   tone, so the message must lean the same way — never an
+///   affirmative-only text on the error tone, never a negative one on
+///   success. A state that is both (saved-but-not-adopted) names both
+///   in the text.
 /// - Motion: fade + 8px slide on the shared enter/exit tokens — a
 ///   bottom-anchored toast rises in, a top-anchored one settles down.
 ///

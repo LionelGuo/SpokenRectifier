@@ -1908,7 +1908,8 @@ void main() {
     expect(pick.fullPrefill, isTrue); // untouched picks ride
     expect(pick.lightTouchMaxChars, 40); // the committed input rides
     expect(store.applyCalls, 1);
-    expect(textOf(tester, const Key('sr-toast')), '已保存');
+    // A pick never toasts (14 号票): its own paint is the confirmation.
+    expect(find.byKey(const Key('sr-toast')), findsNothing);
 
     // The dirty-state warning lights with the pick itself (off ×
     // prefill-on), and dies when the switch flips it off.
@@ -2187,6 +2188,9 @@ void main() {
       expect(save.lightTouchExtraDirective, '保持短句');
       expect(save.fullThinkingPolicy, 'always'); // untouched picks ride
       expect(store.applyCalls, 1);
+      // The explicit save confirms over the toast (14 号票) — the one
+      // path that still does.
+      expect(textOf(tester, const Key('sr-toast')), '已保存');
 
       // The save re-baselined the fields: the drafts became the
       // committed truth and the button is quiet again.
@@ -2266,7 +2270,7 @@ void main() {
   });
 
   testWidgets(
-    'a failed save keeps the picks; a refused adoption keeps the banner contract',
+    'a failed save keeps the picks; toasts split picks from save buttons',
     (tester) async {
       tallRectifySurface(tester);
       final store = FakeRectifyBehaviorStore()
@@ -2294,15 +2298,41 @@ void main() {
       await tester.pump();
       expect(store.saves.single.fullThinkingPolicy, 'off');
       expect(store.applyCalls, 1);
+      // The pick stayed silent: the 「保存失败」 capsule ages out on
+      // its own, nothing replaces it (14 号票).
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byKey(const Key('sr-toast')), findsNothing);
 
-      // Saved but not adopted: two states, never one masquerading as
-      // the other — the connection domain's banner, verbatim.
+      // A refused adoption on a pick is silent too — the files stay
+      // saved, the engine keeps the previous config, and only the
+      // log hears the raw reason.
       store.failNextApply = 'no adapter yet';
       await tester.tap(find.byKey(const Key('settings-rectify-full-prefill')));
       await tester.pump();
       expect(store.saves.last.fullPrefill, isFalse);
-      expect(textOf(tester, const Key('sr-toast')), '已保存');
+      expect(find.byKey(const Key('sr-toast')), findsNothing);
       expect(store.applyCalls, 1); // the refusal was not an adoption
+
+      // The save button is the one path that speaks: a clean save
+      // confirms 「已保存」, a refused adoption replaces it with the
+      // both-states copy in the error tone — icon and text lean the
+      // same way (14 号票).
+      await scrollRectifyTo(
+        tester,
+        const Key('settings-rectify-light-threshold'),
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('settings-rectify-light-threshold')),
+        '60',
+      );
+      await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
+      await tester.pump();
+      store.failNextApply = 'no adapter yet';
+      await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
+      await tester.pump();
+      expect(textOf(tester, const Key('sr-toast')), '已保存，引擎沿用上一配置');
+      expect(store.applyCalls, 1); // still not an adoption
     },
   );
 
@@ -3658,10 +3688,10 @@ void main() {
       // without masquerading as a save failure — the previous providers
       // keep running (ADR-0010's failure-keeps-old).
       expect(store.asrSaves, hasLength(1));
-      // Saved-but-not-adopted is the same 「已保存」 in the error tone;
-      // the refusal's raw text goes to the log, never the screen.
-      expect(textOf(tester, const Key('sr-toast')), '已保存');
-      expect(find.textContaining('沿用上一配置'), findsNothing);
+      // Saved-but-not-adopted names both states so the error tone has
+      // a text that leans with it (14 号票); the refusal's raw text
+      // goes to the log, never the screen.
+      expect(textOf(tester, const Key('sr-toast')), '已保存，引擎沿用上一配置');
       expect(find.textContaining('no adapter yet'), findsNothing);
     },
   );

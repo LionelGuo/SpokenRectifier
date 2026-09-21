@@ -147,8 +147,9 @@ class _QuickPanelState extends State<QuickPanel> {
   /// edit to a whole-model overwrite; the receipt repaints from the
   /// files' truth. A refused write leaves the pick painted (a re-tap
   /// is the retry — the 修正 pane's own contract), and the post-save
-  /// engine adoption follows the pane's: saved-but-not-adopted keeps
-  /// the files and says which of the two it is.
+  /// engine adoption follows the pane's minus the toast: a pick never
+  /// toasts (14 号票), so a refused adoption keeps the files silently —
+  /// the raw reason rides the log.
   Future<void> _pickRectify(RectifyPick pick) async {
     final painted = _rectify;
     if (painted == null) return;
@@ -175,9 +176,10 @@ class _QuickPanelState extends State<QuickPanel> {
     try {
       await widget.rectifyStore.applyConnections();
     } catch (e) {
-      if (!mounted) return;
+      // Saved but not adopted — silent here (a pick never toasts,
+      // 14 号票): the engine keeps the previous config, the raw
+      // reason goes to the log.
       logRawError('note_quick_rectify_engine_kept', e);
-      SrToast.of(context).show('已保存', tone: SrToastTone.error);
     }
   }
 

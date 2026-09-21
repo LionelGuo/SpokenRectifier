@@ -418,14 +418,15 @@ class _SettingsConnectionPaneState extends State<SettingsConnectionPane> {
   /// Hand the just-saved files to the live engine (ADR-0010). A refusal
   /// keeps everything saved and painted but flags that the engine still
   /// runs the previous providers — the next session keeps working with
-  /// them either way.
+  /// them either way. The toast names both states so the error tone
+  /// carries a text that leans with it (14 号票).
   Future<void> _applyConnections() async {
     try {
       await widget.store.applyConnections();
     } catch (e) {
       if (!mounted) return;
       logRawError('note_conn_engine_kept', e);
-      SrToast.of(context).show('已保存', tone: SrToastTone.error);
+      SrToast.of(context).show('已保存，引擎沿用上一配置', tone: SrToastTone.error);
     }
   }
 
@@ -827,10 +828,7 @@ class _LlmCard extends StatelessWidget {
             monospace: true,
           ),
           const SizedBox(height: 12),
-          Text(
-            '接口格式',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
-          ),
+          Text('接口格式', style: SrType.micro.copyWith(color: pal.textTertiary)),
           const SizedBox(height: 6),
           _ChipRow(
             testKey: 'settings-conn-llm-format',
@@ -1005,10 +1003,7 @@ class _AsrCard extends StatelessWidget {
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
-          Text(
-            '服务商',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
-          ),
+          Text('服务商', style: SrType.micro.copyWith(color: pal.textTertiary)),
           const SizedBox(height: 6),
           _ChipRow(
             testKey: 'settings-conn-asr-providers',

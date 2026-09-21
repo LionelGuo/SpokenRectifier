@@ -35,9 +35,14 @@
 /// adoption the connection domain's saves take (ADR-0010, scope
 /// extended to `[rectify]`): the NEXT attempt — first stop, reroll, a
 /// history re-rectify — runs the new behavior; an in-flight attempt is
-/// untouched. A refused adoption keeps the files saved and says so in
-/// the banner. Hand-edited files still need a restart — or the next
+/// untouched. Hand-edited files still need a restart — or the next
 /// save from ANY domain, which re-reads the files wholesale.
+///
+/// Toast policy (14 号票): a pick's own paint is its confirmation —
+/// picks never toast, not for success nor a refused adoption. Only
+/// the explicit save buttons confirm (「已保存」), and a refused
+/// adoption replaces that with 「已保存，引擎沿用上一配置」 in the
+/// error tone — icon and text must lean the same way.
 
 library;
 
@@ -215,6 +220,7 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
         lightTouchExtraDirective: extra.isEmpty ? null : extra,
       ),
       reseedLightInputs: true,
+      announce: true,
     );
   }
 
@@ -226,17 +232,21 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     await _save(
       _liveModel.copyWith(quickExtraDirective: extra.isEmpty ? null : extra),
       reseedQuickExtra: true,
+      announce: true,
     );
   }
 
   /// Commit the whole model, adopt the re-read truth, then hand the
   /// files to the live engine (ADR-0010). Each reseed flag re-baselines
   /// only that card's input fields — a pick never reseeds, and one
-  /// card's save never consumes the other's draft.
+  /// card's save never consumes the other's draft. [announce] is the
+  /// save buttons' flag: picks stay silent (their paint is the
+  /// feedback), explicit saves confirm over the toast (14 号票).
   Future<void> _save(
     RectifyBehavior next, {
     bool reseedLightInputs = false,
     bool reseedQuickExtra = false,
+    bool announce = false,
   }) async {
     try {
       final saved = await widget.store.save(next);
@@ -264,7 +274,9 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
           _quickExtra.addListener(_onInput);
         }
       });
-      SrToast.of(context).show('已保存', tone: SrToastTone.success);
+      if (announce) {
+        SrToast.of(context).show('已保存', tone: SrToastTone.success);
+      }
     } catch (e) {
       if (!mounted) return;
       // The file refused the write: the picks keep painting what the
@@ -278,9 +290,13 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     } catch (e) {
       if (!mounted) return;
       // Saved but not adopted: the engine keeps the previous config
-      // (the connection domain's banner contract, ADR-0010).
+      // (ADR-0010). Only the save buttons say so — the copy names both
+      // states so the error tone has a text that leans with it; a
+      // pick stays silent (14 号票).
       logRawError('note_rectify_engine_kept', e);
-      SrToast.of(context).show('已保存', tone: SrToastTone.error);
+      if (announce) {
+        SrToast.of(context).show('已保存，引擎沿用上一配置', tone: SrToastTone.error);
+      }
     }
   }
 
