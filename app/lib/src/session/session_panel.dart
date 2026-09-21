@@ -635,7 +635,18 @@ String _formatElapsed(Duration d) {
   return '$m:${s.toString().padLeft(2, '0')}';
 }
 
-/// Pulsing state dot in the header.
+/// The breath's amplitude (24 号票): the dot's alpha swings between
+/// [phaseDotValleyAlpha] and 1.0, and the glow rides the same cycle up
+/// to [phaseDotGlowPeakAlpha] — the valley was deepened 0.5 → 0.3 and
+/// the glow peak raised 0.4 → 0.6 in step, so the deeper trough still
+/// reads as breathing (an unchanged glow under a deeper valley reads as
+/// blinking). The period stays `SrMotion.breathe` — 「缓慢」 is half
+/// the ask.
+const double phaseDotValleyAlpha = 0.3;
+const double phaseDotGlowPeakAlpha = 0.6;
+
+/// Pulsing state dot in the header. `live` phases (聆听 incl. 「快速」,
+/// and 思考中) breathe; every other phase paints steady at full alpha.
 class _PhaseDot extends StatefulWidget {
   const _PhaseDot({required this.color, required this.live});
 
@@ -663,6 +674,7 @@ class _PhaseDotState extends State<_PhaseDot>
   Widget build(BuildContext context) {
     if (!widget.live) {
       return Container(
+        key: const Key('session-phase-dot'),
         width: 8,
         height: 8,
         decoration: BoxDecoration(shape: BoxShape.circle, color: widget.color),
@@ -671,14 +683,20 @@ class _PhaseDotState extends State<_PhaseDot>
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (context, _) => Container(
+        key: const Key('session-phase-dot'),
         width: 8,
         height: 8,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: widget.color.withValues(alpha: 0.5 + _ctrl.value * 0.5),
+          color: widget.color.withValues(
+            alpha: phaseDotValleyAlpha +
+                _ctrl.value * (1.0 - phaseDotValleyAlpha),
+          ),
           boxShadow: [
             BoxShadow(
-              color: widget.color.withValues(alpha: 0.4 * _ctrl.value),
+              color: widget.color.withValues(
+                alpha: phaseDotGlowPeakAlpha * _ctrl.value,
+              ),
               blurRadius: 6,
             ),
           ],
