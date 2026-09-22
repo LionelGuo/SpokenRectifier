@@ -6,6 +6,7 @@
 library;
 
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart' show kSecondaryButton, PointerDeviceKind;
 import 'package:flutter/material.dart';
@@ -3552,7 +3553,9 @@ void main() {
       final controller = await pumpGrowing(tester, window);
       final card = find.byKey(const Key('panel-card'));
       // 小修 18: the fade is DIRECT alpha on the card's own paints —
-      // the fill's alpha IS the ramp (the surface token is opaque).
+      // the fill's alpha is the √ramp (E9: the boundary composites the
+      // contribution as α², so the paint is pre-compensated with √;
+      // the surface token is opaque).
       double ink() =>
           (tester.widget<DecoratedBox>(card).decoration as BoxDecoration)
               .color!
@@ -3564,10 +3567,11 @@ void main() {
       expect(tester.getSize(card), const Size(80, 80));
       expect(ink(), 0);
 
-      // Early on (u = 0.2) the fade is still riding v / 0.8.
+      // Early on (u = 0.2) the fade is still riding v / 0.8 — painted
+      // at its √ (E9 double-premultiply compensation).
       await tester.pump(const Duration(milliseconds: 128));
       expectCardSize(tester.getSize(card), cardAt(curveAt(0.2)));
-      expect(ink(), closeTo(curveAt(0.2) / 0.8, 0.001));
+      expect(ink(), closeTo(math.sqrt(curveAt(0.2) / 0.8), 0.001));
 
       // Halfway through the clock the size sits at the curve's v; the
       // ring is already solid (v > 0.8).
@@ -3610,7 +3614,8 @@ void main() {
       expect(offenders, isEmpty, reason: 'nothing may carry the card fade');
 
       // And the ramp is where the device-proven path needs it: the
-      // card's own fill.
+      // card's own fill, at the √-compensated value (E9: the boundary
+      // composites α², so the paint carries √α).
       final ink =
           (tester
                       .widget<DecoratedBox>(find.byKey(const Key('panel-card')))
@@ -3618,7 +3623,7 @@ void main() {
                   as BoxDecoration)
               .color!
               .a;
-      expect(ink, closeTo(curveAt(0.2) / 0.8, 0.001));
+      expect(ink, closeTo(math.sqrt(curveAt(0.2) / 0.8), 0.001));
       await tester.pump(SrMotion.grow);
       await windDown(tester, controller);
     });

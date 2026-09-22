@@ -45,6 +45,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 // GrowthDirection hidden here: the framework exports its own (an
 // obscure sliver-layout token) and this library's is the orb-geometry
@@ -1557,17 +1558,30 @@ class _PanelBodyState extends State<PanelBody>
             // is solid by 80% of the size progress. Applied as DIRECT
             // alpha on the card's own paints — see the decoration note.
             final fade = (v / _ringSolidAt).clamp(0.0, 1.0);
+            // [小修 18, E9] √α pre-compensation: device-proven, this
+            // window's partial alpha at the transparency boundary
+            // composites DOUBLE-PREMULTIPLIED — the card's own
+            // contribution arrives as α² (chroma probe: red at α0.5
+            // read as α²≈0.25 on every backdrop; renderer- and
+            // accent-independent, E3–E5; α=0/1 are the fixed points
+            // that match every clean state ever observed). Painting √α
+            // makes the squared result the INTENDED value — the fade
+            // finally renders as designed, and the fixed points keep
+            // opaque and empty states untouched. The ink band is
+            // unaffected: it only ever rides the opaque card, and
+            // in-surface layers were never dirty.
+            final paintedFade = math.sqrt(fade);
             // The ink phase: content fades on the REMAINDER of the same
             // timeline — ((v − 0.8) / 0.2) tiles in right after the
             // card's own (v / 0.8) ramp, so a mid-flight retarget keeps
             // both continuous in either direction. The phase split is
             // the device quirk's containment: the ink's opacity layer
             // only ever exists while the card surface beneath is fully
-            // opaque (layers over the opaque interior are the proven
-            // clean path; layer output over the transparency boundary
-            // composites DARK — 小修 18, E1). True content fade, 真机
-            // 2026-09-22: full-alpha ink popping with the clip edge was
-            // rejected.
+            // opaque (in-surface layers are the clean path; layer
+            // output over the transparency boundary composites with
+            // the same α² dirt — 小修 18, E1–E2). True content fade,
+            // 真机 2026-09-22: full-alpha ink popping with the clip
+            // edge was rejected.
             final contentFade = ((v - _ringSolidAt) / (1.0 - _ringSolidAt))
                 .clamp(0.0, 1.0);
             // The full painted card = the slot rect minus the card
@@ -1612,13 +1626,15 @@ class _PanelBodyState extends State<PanelBody>
                       // never at partial alpha across the boundary.
                       color: fade == 1.0
                           ? pal.surface
-                          : pal.surface.withValues(alpha: pal.surface.a * fade),
+                          : pal.surface.withValues(
+                              alpha: pal.surface.a * paintedFade,
+                            ),
                       borderRadius: BorderRadius.circular(SrRadius.panel),
                       border: Border.all(
                         color: fade == 1.0
                             ? pal.hairline
                             : pal.hairline.withValues(
-                                alpha: pal.hairline.a * fade,
+                                alpha: pal.hairline.a * paintedFade,
                               ),
                       ),
                       // No drop shadow: the card sits inside the
