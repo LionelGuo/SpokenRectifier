@@ -805,6 +805,11 @@ class _LlmCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Card order (31 号票 item 5): head → format chips → vendor
+          // preset chips → base_url → model → key block → thinking
+          // switch + pair → resident JSON box → save. The format leads
+          // because it is the one behavioral axis; the save button
+          // closes the card.
           Text(
             '修正模型',
             style: SrType.section.copyWith(color: pal.textPrimary),
@@ -812,9 +817,18 @@ class _LlmCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '配置用于修正的模型API接口',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
+            style: SrType.caption.copyWith(color: pal.textSecondary),
           ),
           const SizedBox(height: 14),
+          Text('接口格式', style: SrType.micro.copyWith(color: pal.textTertiary)),
+          const SizedBox(height: 6),
+          _ChipRow(
+            testKey: 'settings-conn-llm-format',
+            chips: _formats,
+            selected: format,
+            onSelect: onFormat,
+          ),
+          const SizedBox(height: 12),
           Text(
             '服务商',
             key: const Key('settings-conn-llm-vendor-caption'),
@@ -843,29 +857,36 @@ class _LlmCard extends StatelessWidget {
             monospace: true,
           ),
           const SizedBox(height: 12),
-          Text('接口格式', style: SrType.micro.copyWith(color: pal.textTertiary)),
-          const SizedBox(height: 6),
-          _ChipRow(
-            testKey: 'settings-conn-llm-format',
-            chips: _formats,
-            selected: format,
-            onSelect: onFormat,
-          ),
+          _KeyBlock(id: 'llm', field: keyField),
           const SizedBox(height: 12),
-          SrField(
-            key: const Key('settings-conn-llm-body'),
-            controller: body,
-            label: '请求体JSON覆写',
-            monospace: true,
-            maxLines: 4,
-          ),
-          const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
-                child: Text(
-                  '设置思考字段',
-                  style: SrType.caption.copyWith(color: pal.textSecondary),
+                // The 显示悬浮球 family shape (31 号票): title and caption
+                // stack as one family left, the switch right. One static
+                // caption either way (copy.md conn-12..15): the broken
+                // branch only swaps the tone — the detail lives in the
+                // file the user is about to hand-fix, not on the card.
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '设置思考字段',
+                      style: SrType.body.copyWith(color: pal.textPrimary),
+                    ),
+                    if (broken)
+                      Text(
+                        '思考字段配置有误',
+                        key: const Key('settings-conn-llm-thinking-broken'),
+                        style: SrType.caption.copyWith(color: pal.live),
+                      )
+                    else
+                      Text(
+                        '编辑模型供应商的模型思考配置字段',
+                        key: const Key('settings-conn-llm-thinking-note'),
+                        style: SrType.micro.copyWith(color: pal.textTertiary),
+                      ),
+                  ],
                 ),
               ),
               Switch(
@@ -875,22 +896,6 @@ class _LlmCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          // One static caption either way (copy.md conn-12..15): the
-          // broken branch only swaps the tone — the detail lives in the
-          // file the user is about to hand-fix, not on the card.
-          if (broken)
-            Text(
-              '思考字段配置有误',
-              key: const Key('settings-conn-llm-thinking-broken'),
-              style: SrType.micro.copyWith(color: pal.live),
-            )
-          else
-            Text(
-              '编辑模型供应商的模型思考配置字段',
-              key: const Key('settings-conn-llm-thinking-note'),
-              style: SrType.micro.copyWith(color: pal.textTertiary),
-            ),
           const SizedBox(height: 10),
           // Disabled in place, never hidden: off is a stance, so both
           // shares stay painted and still ride the save.
@@ -927,7 +932,13 @@ class _LlmCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _KeyBlock(id: 'llm', field: keyField),
+          SrField(
+            key: const Key('settings-conn-llm-body'),
+            controller: body,
+            label: '请求体JSON覆写',
+            monospace: true,
+            maxLines: 4,
+          ),
           const SizedBox(height: 14),
           SrButton(
             key: const Key('settings-conn-llm-save'),
@@ -1012,7 +1023,7 @@ class _AsrCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '未配置凭据时不做云端转写，仅显示说话状态',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
+            style: SrType.caption.copyWith(color: pal.textSecondary),
           ),
           const SizedBox(height: 14),
           Text('服务商', style: SrType.micro.copyWith(color: pal.textTertiary)),
@@ -1062,15 +1073,19 @@ class _AsrCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           ..._subFields(context),
+          // The endpoint preview sits AFTER the key block, hugging the
+          // save button (31 号票 item 6): one position for every
+          // provider — the Bearer-family vendors' common key block no
+          // longer gets pushed above it.
+          const SizedBox(height: 12),
+          if (_asrBearerFamily.contains(provider))
+            _KeyBlock(id: 'asr', field: keyField),
           const SizedBox(height: 10),
           Text(
             '当前端点：${endpoint ?? '—'}',
             key: const Key('settings-conn-asr-endpoint'),
             style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
-          const SizedBox(height: 12),
-          if (_asrBearerFamily.contains(provider))
-            _KeyBlock(id: 'asr', field: keyField),
           const SizedBox(height: 14),
           SrButton(
             key: const Key('settings-conn-asr-save'),
@@ -1084,7 +1099,7 @@ class _AsrCard extends StatelessWidget {
   }
 
   /// The active provider's sub-section fields, between the common
-  /// fields and the endpoint preview.
+  /// fields and the key block / endpoint preview.
   List<Widget> _subFields(BuildContext context) {
     switch (provider) {
       case 'aliyun':

@@ -390,7 +390,7 @@ class _FullCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '对输入文本进行标准的语义过滤及篇章重组',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
+            style: SrType.caption.copyWith(color: pal.textSecondary),
           ),
           const SizedBox(height: 10),
           _PrefillRow(value: prefill, onChanged: onPrefill),
@@ -475,15 +475,24 @@ class _LightCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '仅去除口头语，保留句式结构与措辞',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
+            style: SrType.caption.copyWith(color: pal.textSecondary),
           ),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
-                child: Text(
-                  '启用轻修模式',
-                  style: SrType.caption.copyWith(color: pal.textSecondary),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '启用轻修模式',
+                      style: SrType.body.copyWith(color: pal.textPrimary),
+                    ),
+                    Text(
+                      '在字数低于阈值时允许启用轻修模式',
+                      style: SrType.micro.copyWith(color: pal.textTertiary),
+                    ),
+                  ],
                 ),
               ),
               Switch(
@@ -492,11 +501,6 @@ class _LightCard extends StatelessWidget {
                 onChanged: onEnabled,
               ),
             ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '在字数低于阈值时允许启用轻修模式',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 12),
           // Disabled in place, never hidden: the tail grays out under
@@ -627,15 +631,17 @@ class _QuickCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '开启后，按住主快捷键超过阈值松手即发送',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
+            style: SrType.caption.copyWith(color: pal.textSecondary),
           ),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
+                // No subtitle: the title alone rides the family's body
+                // tier (31 号票 item 2).
                 child: Text(
                   '启用快速模式',
-                  style: SrType.caption.copyWith(color: pal.textSecondary),
+                  style: SrType.body.copyWith(color: pal.textPrimary),
                 ),
               ),
               Switch(
@@ -658,11 +664,22 @@ class _QuickCard extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          '启用修正',
-                          style: SrType.caption.copyWith(
-                            color: pal.textSecondary,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '启用修正',
+                              style: SrType.body.copyWith(
+                                color: pal.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              '关闭后将直接发送原始语音转写',
+                              style: SrType.micro.copyWith(
+                                color: pal.textTertiary,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Switch(
@@ -671,11 +688,6 @@ class _QuickCard extends StatelessWidget {
                         onChanged: onRectify,
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '关闭后将直接发送原始语音转写',
-                    style: SrType.micro.copyWith(color: pal.textTertiary),
                   ),
                   const SizedBox(height: 12),
                   AnimatedOpacity(
@@ -729,8 +741,9 @@ class _QuickCard extends StatelessWidget {
   }
 }
 
-/// The 预填 row both cards share (the advanced domain's passage-switch
-/// recipe): the label and the switch on one line, the explanation under.
+/// The 预填 row both cards share: the 显示悬浮球 family shape (31 号票) —
+/// the title and its explanation stacked as one family on the left, the
+/// switch on the right.
 class _PrefillRow extends StatelessWidget {
   const _PrefillRow({
     required this.value,
@@ -747,25 +760,21 @@ class _PrefillRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = srPalette(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                '预填',
-                style: SrType.caption.copyWith(color: pal.textSecondary),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('预填', style: SrType.body.copyWith(color: pal.textPrimary)),
+              Text(
+                '启用后占位图钉可自动预填初始值',
+                style: SrType.micro.copyWith(color: pal.textTertiary),
               ),
-            ),
-            Switch(key: Key(testKey), value: value, onChanged: onChanged),
-          ],
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          '启用后占位图钉可自动预填初始值',
-          style: SrType.micro.copyWith(color: pal.textTertiary),
-        ),
+        Switch(key: Key(testKey), value: value, onChanged: onChanged),
       ],
     );
   }

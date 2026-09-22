@@ -1,12 +1,13 @@
-/// The 关于 domain: version, open-source info, and the open-config-file
-/// entry migrated from the tray (the tray keeps its own item; both ride
-/// the same bridge call — 同源, ticket 19).
+/// The 关于 domain: version and open-source info. The open-config-file
+/// entry lives in the advanced domain (and the tray) — the card here was
+/// a duplicate surface and is retired (31 号票 item 4), its 「密钥仅保存
+/// 在本机。」 caption going with it, not relocated.
 
 library;
 
 import 'package:flutter/material.dart';
 
-import '../design/controls.dart' show SrButton, SrCard;
+import '../design/controls.dart' show SrCard;
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
@@ -39,16 +40,6 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
       if (!mounted) return;
       logRawError('err_about_load', e);
       SrToast.of(context).show('信息读取失败', tone: SrToastTone.error);
-    }
-  }
-
-  Future<void> _openConfig() async {
-    try {
-      await widget.store.openConfigFile();
-    } catch (e) {
-      if (!mounted) return;
-      logRawError('err_about_config_open', e);
-      SrToast.of(context).show('打开失败', tone: SrToastTone.error);
     }
   }
 
@@ -103,30 +94,6 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
                 const SizedBox(height: 8),
                 _AboutRow(label: '许可证', value: about.license),
                 _AboutRow(label: '仓库', value: about.repoUrl ?? '随开源发布公布'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          SrCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '配置文件',
-                  style: SrType.section.copyWith(color: pal.textPrimary),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '密钥仅保存在本机。',
-                  style: SrType.micro.copyWith(color: pal.textTertiary),
-                ),
-                const SizedBox(height: 12),
-                SrButton(
-                  key: const Key('settings-about-open-config'),
-                  primary: true,
-                  label: '打开配置文件',
-                  onTap: _openConfig,
-                ),
               ],
             ),
           ),

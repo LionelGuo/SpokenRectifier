@@ -744,19 +744,16 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
             maxLines: 5,
           ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              // The save key lights up only when there is something to
-              // save: enabled (accent) while dirty, a quiet outlined
-              // button at rest — disabled means no-op, never hidden.
-              SrButton(
-                key: const Key('settings-global-save'),
-                primary: _dirty,
-                label: '保存',
-                onTap: _dirty ? _save : null,
-              ),
-            ],
+          // Left-aligned like the four in-page save buttons (31 号票);
+          // only the dialogs keep 取消+保存 on the right (modal habit).
+          // The save key lights up only when there is something to save:
+          // enabled (accent) while dirty, a quiet outlined button at
+          // rest — disabled means no-op, never hidden.
+          SrButton(
+            key: const Key('settings-global-save'),
+            primary: _dirty,
+            label: '保存',
+            onTap: _dirty ? _save : null,
           ),
         ],
       ),
@@ -836,31 +833,35 @@ class _ScenarioCard extends StatelessWidget {
                               : pal.hairline),
                   ),
                 ),
-                child: Row(
+                // The title row centers optically (31 号票): the body
+                // title's first line, the 16px glyph, and the 15px
+                // action icons share one horizontal line — the directive
+                // preview stays under it, indented to the title's edge.
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // The glyph swap cross-dissolves instead of snapping
-                    // (26 号票): check and ring fade through each other on
-                    // the surface-fade window.
-                    AnimatedSwitcher(
-                      duration: SrMotion.fade,
-                      switchInCurve: SrMotion.curveFade,
-                      switchOutCurve: SrMotion.curveFade,
-                      child: Icon(
-                        selected
-                            ? Icons.check_circle_rounded
-                            : Icons.circle_outlined,
-                        key: ValueKey(selected),
-                        size: 16,
-                        color: selected ? pal.accentText : pal.textTertiary,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          AnimatedDefaultTextStyle(
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // The glyph swap cross-dissolves instead of
+                        // snapping (26 号票): check and ring fade through
+                        // each other on the surface-fade window.
+                        AnimatedSwitcher(
+                          duration: SrMotion.fade,
+                          switchInCurve: SrMotion.curveFade,
+                          switchOutCurve: SrMotion.curveFade,
+                          child: Icon(
+                            selected
+                                ? Icons.check_circle_rounded
+                                : Icons.circle_outlined,
+                            key: ValueKey(selected),
+                            size: 16,
+                            color: selected ? pal.accentText : pal.textTertiary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: AnimatedDefaultTextStyle(
                             // The selection is a discrete switch: the title
                             // rides the same fade window as the border
                             // (26 号票).
@@ -874,41 +875,47 @@ class _ScenarioCard extends StatelessWidget {
                             ),
                             child: Text(scenario.name),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            scenario.directive,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: SrType.caption.copyWith(
-                              color: pal.textSecondary,
+                        ),
+                        const SizedBox(width: 12),
+                        // Hover actions mirror the quick panel's history
+                        // rows: resident layout, cross-dissolved on the
+                        // fade token.
+                        IgnorePointer(
+                          ignoring: !hover,
+                          child: AnimatedOpacity(
+                            duration: SrMotion.fade,
+                            curve: SrMotion.curveFade,
+                            opacity: hover ? 1 : 0,
+                            child: Row(
+                              children: [
+                                _CardAction(
+                                  icon: Icons.edit_outlined,
+                                  tooltip: '编辑',
+                                  onTap: onEdit,
+                                ),
+                                const SizedBox(width: 10),
+                                _CardAction(
+                                  icon: Icons.delete_outline_rounded,
+                                  tooltip: '删除',
+                                  onTap: onDelete,
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    // Hover actions mirror the quick panel's history rows:
-                    // resident layout, cross-dissolved on the fade token.
-                    IgnorePointer(
-                      ignoring: !hover,
-                      child: AnimatedOpacity(
-                        duration: SrMotion.fade,
-                        curve: SrMotion.curveFade,
-                        opacity: hover ? 1 : 0,
-                        child: Row(
-                          children: [
-                            _CardAction(
-                              icon: Icons.edit_outlined,
-                              tooltip: '编辑',
-                              onTap: onEdit,
-                            ),
-                            const SizedBox(width: 10),
-                            _CardAction(
-                              icon: Icons.delete_outline_rounded,
-                              tooltip: '删除',
-                              onTap: onDelete,
-                            ),
-                          ],
+                    const SizedBox(height: 4),
+                    Padding(
+                      // Icon (16) + its gap (10): the preview hangs under
+                      // the title, not under the glyph.
+                      padding: const EdgeInsets.only(left: 26),
+                      child: Text(
+                        scenario.directive,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: SrType.caption.copyWith(
+                          color: pal.textSecondary,
                         ),
                       ),
                     ),

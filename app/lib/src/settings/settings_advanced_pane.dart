@@ -205,11 +205,22 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        '篇章模式',
-                        style: SrType.caption.copyWith(
-                          color: pal.textSecondary,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '篇章模式',
+                            style: SrType.body.copyWith(
+                              color: pal.textPrimary,
+                            ),
+                          ),
+                          Text(
+                            '讲话停顿时不结束会话，仅进行分段',
+                            style: SrType.micro.copyWith(
+                              color: pal.textTertiary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     Switch(
@@ -218,11 +229,6 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                       onChanged: (on) => setState(() => _passageMode = on),
                     ),
                   ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '讲话停顿时不结束会话，仅进行分段',
-                  style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
                 const SizedBox(height: 12),
                 Row(

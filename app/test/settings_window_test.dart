@@ -29,7 +29,7 @@ import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/hotkey_binding.dart';
 import 'package:spokenrectifier_app/src/design/controls.dart' show SrButton;
 import 'package:spokenrectifier_app/src/design/tokens.dart'
-    show SrMotion, SrPalette;
+    show SrMotion, SrPalette, SrType;
 import 'package:spokenrectifier_app/src/settings/settings_fidelity_pane.dart'
     show SettingsFidelityPane;
 import 'package:spokenrectifier_app/src/rust/api.dart'
@@ -923,6 +923,59 @@ Future<void> scrollRectifyTo(WidgetTester tester, Key key) =>
       const Offset(0, 200),
     );
 
+/// 31 号票: the 显示悬浮球 family shape — the switch's own row carries
+/// the title (and its subtitle, when there is one) stacked in one column
+/// left of the switch, the title riding the body tier in textPrimary.
+void expectSwitchFamily(
+  WidgetTester tester,
+  Key switchKey, {
+  required String title,
+  String? subtitle,
+}) {
+  // The switch's own row = the DEEPEST Row ancestor (the scaffold's row
+  // and card-level rows sit above it in the chain).
+  final rows = find
+      .ancestor(of: find.byKey(switchKey), matching: find.byType(Row))
+      .evaluate();
+  var row = rows.first;
+  for (final candidate in rows) {
+    if (candidate.depth > row.depth) row = candidate;
+  }
+  final rowFinder = find.byElementPredicate(
+    (element) => identical(element, row),
+  );
+  final titleText = tester.widget<Text>(
+    find.descendant(of: rowFinder, matching: find.text(title)),
+  );
+  expect(titleText.style?.fontSize, SrType.body.fontSize);
+  expect(titleText.style?.color, SrPalette.light.textPrimary);
+  // The subtitle, when present, stacks INSIDE the same row's family
+  // column — under the title, never a second row below the switch.
+  if (subtitle != null) {
+    expect(
+      find.descendant(of: rowFinder, matching: find.text(subtitle)),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .getTopLeft(find.descendant(of: rowFinder, matching: find.text(subtitle)))
+          .dy,
+      greaterThan(
+        tester
+            .getTopLeft(find.descendant(of: rowFinder, matching: find.text(title)))
+            .dy,
+      ),
+    );
+  }
+}
+
+/// 31 号票 ladder: a painted line's tier — font size and color together.
+void expectLadder(WidgetTester tester, String text, TextStyle tier) {
+  final painted = tester.widget<Text>(find.text(text)).style!;
+  expect(painted.fontSize, tier.fontSize, reason: text);
+  expect(painted.color, tier.color, reason: text);
+}
+
 // ---------------------------------------------------------------------------
 // The shell
 // ---------------------------------------------------------------------------
@@ -1007,7 +1060,7 @@ void main() {
     await tester.tap(find.text('关于'));
     await tester.pump();
     await tester.pump(); // the about load lands
-    expect(find.byKey(const Key('settings-about-open-config')), findsOneWidget);
+    expect(find.byKey(const Key('settings-about-version')), findsOneWidget);
 
     // The inbound navigate push switches domains too (the entry rows).
     channel.navigateHandler?.call(SettingsDomain.scenarios);
@@ -3441,6 +3494,13 @@ void main() {
       textOf(tester, const Key('settings-conn-llm-thinking-broken')),
       '思考字段配置有误',
     );
+    // The warning rides caption + live (31 号票 ladder), inside the
+    // switch's family column.
+    final warning = tester.widget<Text>(
+      find.byKey(const Key('settings-conn-llm-thinking-broken')),
+    );
+    expect(warning.style?.fontSize, SrType.caption.fontSize);
+    expect(warning.style?.color, SrPalette.light.live);
     // The break's detail lives in the file the user is about to
     // hand-fix, never on the card (copy.md conn-12).
     expect(find.textContaining('must be a boolean'), findsNothing);
@@ -4050,6 +4110,242 @@ void main() {
   });
 
   // -----------------------------------------------------------------------
+  // 31 号票: the switch-row family shape, the type ladder, the card orders
+  // -----------------------------------------------------------------------
+
+  testWidgets('the six switch rows ride the family shape', (tester) async {
+    final store = FakeRectifyBehaviorStore();
+    await pumpSettings(
+      tester,
+      rectifyStore: store,
+      domain: SettingsDomain.rectify,
+    );
+    await tester.pump(); // the behavior load lands
+
+    // 修正 four rows, top to bottom (the lazy list needs the scroll for
+    // the tails).
+    expectSwitchFamily(
+      tester,
+      const Key('settings-rectify-full-prefill'),
+      title: '预填',
+      subtitle: '启用后占位图钉可自动预填初始值',
+    );
+    expectSwitchFamily(
+      tester,
+      const Key('settings-rectify-light-enabled'),
+      title: '启用轻修模式',
+      subtitle: '在字数低于阈值时允许启用轻修模式',
+    );
+    await scrollRectifyTo(
+      tester,
+      const Key('settings-rectify-light-prefill'),
+    );
+    await tester.pump();
+    expectSwitchFamily(
+      tester,
+      const Key('settings-rectify-light-prefill'),
+      title: '预填',
+      subtitle: '启用后占位图钉可自动预填初始值',
+    );
+    await scrollRectifyTo(
+      tester,
+      const Key('settings-rectify-quick-enabled'),
+    );
+    await tester.pump();
+    expectSwitchFamily(
+      tester,
+      const Key('settings-rectify-quick-enabled'),
+      title: '启用快速模式',
+    );
+    await scrollRectifyTo(
+      tester,
+      const Key('settings-rectify-quick-rectify'),
+    );
+    await tester.pump();
+    expectSwitchFamily(
+      tester,
+      const Key('settings-rectify-quick-rectify'),
+      title: '启用修正',
+      subtitle: '关闭后将直接发送原始语音转写',
+    );
+
+    // 高级: the passage switch.
+    await tester.tap(find.text('高级'));
+    await tester.pump();
+    await tester.pump(); // the timings load lands
+    expectSwitchFamily(
+      tester,
+      const Key('settings-advanced-passage'),
+      title: '篇章模式',
+      subtitle: '讲话停顿时不结束会话，仅进行分段',
+    );
+
+    // 连接: the thinking-fields switch (its subtitle is the static note;
+    // the broken variant swaps tone, same family).
+    await tester.tap(find.text('模型与连接'));
+    await tester.pump();
+    await tester.pump(); // the connection load lands
+    expectSwitchFamily(
+      tester,
+      const Key('settings-conn-llm-thinking-fields'),
+      title: '设置思考字段',
+      subtitle: '编辑模型供应商的模型思考配置字段',
+    );
+  });
+
+  testWidgets('card-head captions and warnings ride the ladder tiers', (
+    tester,
+  ) async {
+    final store = FakeRectifyBehaviorStore();
+    await pumpSettings(
+      tester,
+      rectifyStore: store,
+      domain: SettingsDomain.rectify,
+    );
+    await tester.pump();
+    // 修正三卡头说明 → caption + textSecondary.
+    expectLadder(
+      tester,
+      '对输入文本进行标准的语义过滤及篇章重组',
+      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+    );
+    expectLadder(
+      tester,
+      '仅去除口头语，保留句式结构与措辞',
+      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+    );
+    await scrollRectifyTo(tester, const Key('settings-rectify-quick-save'));
+    await tester.pump();
+    expectLadder(
+      tester,
+      '开启后，按住主快捷键超过阈值松手即发送',
+      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+    );
+
+    // 评测: the idle card's first line steps DOWN to caption (the second
+    // line keeps the finer tertiary note).
+    await tester.tap(find.text('评测'));
+    await tester.pump();
+    expectLadder(
+      tester,
+      '对内置样例进行一轮完整修正，检查是否忠实于原意。',
+      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+    );
+    expectLadder(
+      tester,
+      '约需 1 分钟，不会插入文本、不会写入历史，也不使用场景或全局指令。',
+      SrType.caption.copyWith(color: SrPalette.light.textTertiary),
+    );
+
+    // 连接: the two card heads step UP; the broken warning rides
+    // caption + live inside the switch's family column.
+    await tester.tap(find.text('模型与连接'));
+    await tester.pump();
+    await tester.pump(); // the connection load lands
+    expectLadder(
+      tester,
+      '配置用于修正的模型API接口',
+      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+    );
+    expectLadder(
+      tester,
+      '未配置凭据时不做云端转写，仅显示说话状态',
+      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+    );
+    // The broken variant's tone rides caption + live — asserted in its
+    // own test below (a same-test re-pump would keep the old state's
+    // domain, never painting the connection pane).
+  });
+
+  testWidgets('the llm card paints the new order; the asr endpoint hugs save', (
+    tester,
+  ) async {
+    await pumpSettings(tester, domain: SettingsDomain.connection);
+    // A taller surface than pumpSettings' 1000x1600: the order walk needs
+    // every row of BOTH cards alive at once.
+    tester.view.physicalSize = const Size(1000, 2400);
+    await tester.pump();
+
+    double top(Key key) => tester.getTopLeft(find.byKey(key)).dy;
+    // Head → format chips → vendor chips → base_url → model → key block
+    // → thinking switch → the pair → resident box → save (31 号票 5).
+    // (The 服务商 caption key is that chip row's own label, so it rides
+    // between the two chip rows.)
+    final order = [
+      const Key('settings-conn-llm-format'),
+      const Key('settings-conn-llm-vendor-caption'),
+      const Key('settings-conn-llm-vendors'),
+      const Key('settings-conn-llm-baseurl'),
+      const Key('settings-conn-llm-model'),
+      const Key('settings-conn-llm-key'),
+      const Key('settings-conn-llm-thinking-fields'),
+      const Key('settings-conn-llm-thinking-on'),
+      const Key('settings-conn-llm-body'),
+      const Key('settings-conn-llm-save'),
+    ];
+    for (var i = 1; i < order.length; i++) {
+      expect(
+        top(order[i]),
+        greaterThan(top(order[i - 1])),
+        reason: '${order[i]} must paint below ${order[i - 1]}',
+      );
+    }
+    // ASR (aliyun, the Bearer family): the endpoint preview sits AFTER
+    // the common key block, before the save (31 号票 6).
+    expect(
+      top(const Key('settings-conn-asr-endpoint')),
+      greaterThan(top(const Key('settings-conn-asr-key'))),
+    );
+    expect(
+      top(const Key('settings-conn-asr-save')),
+      greaterThan(top(const Key('settings-conn-asr-endpoint'))),
+    );
+  });
+
+  testWidgets('the scenario card centers its title line; global save left', (
+    tester,
+  ) async {
+    await pumpSettings(tester); // scenarios domain, the seeded library
+
+    final card = find.byKey(const Key('settings-scenario-card:论文'));
+    final title = find.descendant(of: card, matching: find.text('论文'));
+    final glyph = find.descendant(
+      of: card,
+      matching: find.byIcon(Icons.circle_outlined),
+    );
+    // The optical line: the body title's first line and the 16px glyph
+    // share a horizontal center (31 号票 3).
+    expect(
+      (tester.getCenter(title).dy - tester.getCenter(glyph).dy).abs(),
+      lessThan(1),
+    );
+    // The directive preview hangs BELOW the title row, indented to the
+    // title's own left edge (glyph 16 + gap 10).
+    final directive = find.descendant(
+      of: card,
+      matching: find.text('学术书面语:客观严谨'),
+    );
+    expect(
+      tester.getTopLeft(directive).dy,
+      greaterThan(tester.getTopLeft(title).dy),
+    );
+    expect(
+      tester.getTopLeft(directive).dx,
+      moreOrLessEquals(tester.getTopLeft(title).dx, epsilon: 0.5),
+    );
+
+    // The global card's save sits at the content's left edge like the
+    // four in-page save buttons (31 号票 1), not the card's right.
+    expect(
+      tester.getTopLeft(find.byKey(const Key('settings-global-save'))).dx,
+      moreOrLessEquals(
+        tester.getTopLeft(find.byKey(const Key('settings-global-field'))).dx,
+        epsilon: 0.5,
+      ),
+    );
+  });
+
+  // -----------------------------------------------------------------------
   // The advanced domain (高级) — editable form, ADR-0007 revised
   // -----------------------------------------------------------------------
 
@@ -4173,7 +4469,7 @@ void main() {
   // -----------------------------------------------------------------------
 
   testWidgets(
-    'about paints version and license; open-config rides the same seam',
+    'about paints version and license; the config card is retired',
     (tester) async {
       final store = FakeSystemStore();
       await pumpSettings(
@@ -4187,10 +4483,13 @@ void main() {
       expect(find.text('Apache-2.0'), findsOneWidget);
       expect(find.text('随开源发布公布'), findsOneWidget);
 
-      // The tray entry's own bridge call, same source.
-      await tester.tap(find.byKey(const Key('settings-about-open-config')));
-      await tester.pump();
-      expect(store.openConfigCalls, 1);
+      // The 配置文件 card retired (31 号票): the advanced domain and the
+      // tray keep the same-source entry, and the 「密钥仅保存在本机。」
+      // caption went with the card, not relocated.
+      expect(find.byKey(const Key('settings-about-open-config')), findsNothing);
+      expect(find.text('配置文件'), findsNothing);
+      expect(find.text('密钥仅保存在本机。'), findsNothing);
+      expect(store.openConfigCalls, 0);
     },
   );
 
