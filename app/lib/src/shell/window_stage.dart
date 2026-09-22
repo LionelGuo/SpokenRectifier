@@ -1557,6 +1557,19 @@ class _PanelBodyState extends State<PanelBody>
             // is solid by 80% of the size progress. Applied as DIRECT
             // alpha on the card's own paints — see the decoration note.
             final fade = (v / _ringSolidAt).clamp(0.0, 1.0);
+            // The ink phase: content fades on the REMAINDER of the same
+            // timeline — ((v − 0.8) / 0.2) tiles in right after the
+            // card's own (v / 0.8) ramp, so a mid-flight retarget keeps
+            // both continuous in either direction. The phase split is
+            // the device quirk's containment: the ink's opacity layer
+            // only ever exists while the card surface beneath is fully
+            // opaque (layers over the opaque interior are the proven
+            // clean path; layer output over the transparency boundary
+            // composites DARK — 小修 18, E1). True content fade, 真机
+            // 2026-09-22: full-alpha ink popping with the clip edge was
+            // rejected.
+            final contentFade = ((v - _ringSolidAt) / (1.0 - _ringSolidAt))
+                .clamp(0.0, 1.0);
             // The full painted card = the slot rect minus the card
             // margin on every side. The growth lerps from the disc
             // toward it PINNING THE ANCHOR CORNER: the socket arc
@@ -1594,8 +1607,9 @@ class _PanelBodyState extends State<PanelBody>
                       // E1 fade-off experiment killed it). Direct
                       // partial-alpha pixels are the device-proven
                       // path (the orb aura paints the same way). The
-                      // content subtree rides full alpha by ruling —
-                      // no layer may span the transparency boundary.
+                      // content ink fades on its own later phase (the
+                      // Opacity below) — always over the opaque card,
+                      // never at partial alpha across the boundary.
                       color: fade == 1.0
                           ? pal.surface
                           : pal.surface.withValues(alpha: pal.surface.a * fade),
@@ -1615,42 +1629,49 @@ class _PanelBodyState extends State<PanelBody>
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(SrRadius.panel),
-                      child: CustomMultiChildLayout(
-                        delegate: _PinnedChromeLayout(),
-                        children: [
-                          LayoutId(
-                            id: _PinnedChromeLayout._header,
-                            child: KeyedSubtree(
-                              key: const Key('panel-chrome-header'),
-                              child: widget.header,
-                            ),
-                          ),
-                          LayoutId(
-                            id: _PinnedChromeLayout._body,
-                            child: widget.body,
-                          ),
-                          if (widget.rawBlock != null)
+                      // The ink band. Zero while the surface is still
+                      // fading (paints nothing), 1 at rest (no layer at
+                      // all) — a layer exists only over the solid card.
+                      child: Opacity(
+                        key: const Key('panel-content-fade'),
+                        opacity: contentFade,
+                        child: CustomMultiChildLayout(
+                          delegate: _PinnedChromeLayout(),
+                          children: [
                             LayoutId(
-                              id: _PinnedChromeLayout._raw,
-                              child: widget.rawBlock!,
-                            ),
-                          if (widget.footer != null)
-                            LayoutId(
-                              id: _PinnedChromeLayout._footer,
+                              id: _PinnedChromeLayout._header,
                               child: KeyedSubtree(
-                                key: const Key('panel-chrome-footer'),
-                                child: widget.footer!,
+                                key: const Key('panel-chrome-header'),
+                                child: widget.header,
                               ),
                             ),
-                          // Last in the list = painted on top of every
-                          // band; the marquee's own subtree ignores the
-                          // pointer, so the chrome keeps its hits.
-                          if (widget.overlay != null)
                             LayoutId(
-                              id: _PinnedChromeLayout._overlay,
-                              child: widget.overlay!,
+                              id: _PinnedChromeLayout._body,
+                              child: widget.body,
                             ),
-                        ],
+                            if (widget.rawBlock != null)
+                              LayoutId(
+                                id: _PinnedChromeLayout._raw,
+                                child: widget.rawBlock!,
+                              ),
+                            if (widget.footer != null)
+                              LayoutId(
+                                id: _PinnedChromeLayout._footer,
+                                child: KeyedSubtree(
+                                  key: const Key('panel-chrome-footer'),
+                                  child: widget.footer!,
+                                ),
+                              ),
+                            // Last in the list = painted on top of every
+                            // band; the marquee's own subtree ignores the
+                            // pointer, so the chrome keeps its hits.
+                            if (widget.overlay != null)
+                              LayoutId(
+                                id: _PinnedChromeLayout._overlay,
+                                child: widget.overlay!,
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

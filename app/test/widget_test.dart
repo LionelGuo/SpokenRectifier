@@ -3597,16 +3597,16 @@ void main() {
 
       final slotEl = tester.element(find.byKey(const Key('stage-panel-slot')));
       final offenders = <String>[];
-      tester
-          .element(find.byKey(const Key('panel-card')))
-          .visitAncestorElements((el) {
-        if (identical(el, slotEl)) return false;
-        final w = el.widget;
-        if (w is Opacity || w is AnimatedOpacity || w is FadeTransition) {
-          offenders.add('$w');
-        }
-        return true;
-      });
+      tester.element(find.byKey(const Key('panel-card'))).visitAncestorElements(
+        (el) {
+          if (identical(el, slotEl)) return false;
+          final w = el.widget;
+          if (w is Opacity || w is AnimatedOpacity || w is FadeTransition) {
+            offenders.add('$w');
+          }
+          return true;
+        },
+      );
       expect(offenders, isEmpty, reason: 'nothing may carry the card fade');
 
       // And the ramp is where the device-proven path needs it: the
@@ -3620,6 +3620,57 @@ void main() {
               .a;
       expect(ink, closeTo(curveAt(0.2) / 0.8, 0.001));
       await tester.pump(SrMotion.grow);
+      await windDown(tester, controller);
+    });
+
+    testWidgets('the content ink fades only over the solid ring (小修 18)', (
+      tester,
+    ) async {
+      // 真机 2026-09-22: with only the surface fading, the full-alpha
+      // ink popped in and out with the clip edge. The ink now fades on
+      // the tail of the SAME timeline — but only over the opaque card:
+      // its opacity layer may never exist while the surface is still
+      // semi-transparent, because layer output that lands on the
+      // window transparency boundary at partial alpha composites DARK
+      // (the card ghost E1 killed). The phase split is the containment.
+      final window = RecordingStageWindow();
+      final controller = await pumpGrowing(tester, window);
+      final card = find.byKey(const Key('panel-card'));
+      final inkBand = find.byKey(const Key('panel-content-fade'));
+      double cardInk() =>
+          (tester.widget<DecoratedBox>(card).decoration as BoxDecoration)
+              .color!
+              .a;
+      double inkFade() => tester.widget<Opacity>(inkBand).opacity;
+
+      // Early (u = 0.2): the surface is mid-fade — the ink paints
+      // nothing at all.
+      await tester.pump(const Duration(milliseconds: 128));
+      expect(cardInk(), lessThan(1));
+      expect(inkFade(), 0);
+
+      // Halfway (u = 0.5): the surface is already solid and the ink is
+      // riding its own phase — a layer, but strictly over the opaque
+      // card.
+      await tester.pump(const Duration(milliseconds: 192));
+      expect(cardInk(), 1);
+      final mid = ((curveAt(0.5) - 0.8) / 0.2).clamp(0.0, 1.0);
+      expect(inkFade(), closeTo(mid, 0.001));
+      expect(
+        inkFade(),
+        inExclusiveRange(0, 1),
+        reason: 'the ink phase must not be over before the ring is solid',
+      );
+
+      // Collapse mirrors it: by u = 0.5 the ink is fully gone while the
+      // surface is still fading out.
+      await tester.pump(SrMotion.grow);
+      await controller.cancelSession();
+      await tester.pump(); // the grow-back starts, v stays at 1
+      await tester.pump(const Duration(milliseconds: 320)); // u = 0.5
+      expect(inkFade(), 0);
+      expect(cardInk(), lessThan(1));
+
       await windDown(tester, controller);
     });
 
