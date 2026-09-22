@@ -148,12 +148,18 @@ SrPalette srPalette(BuildContext context) =>
 
 /// Type scale. CJK-first: generous line height, zero letter spacing.
 class SrType {
-  /// The font fallback chain, single source: [Text] widgets merge with
-  /// the ambient [DefaultTextStyle] and inherit this via the theme, but
-  /// bare [TextPainter]s never see the theme — they MUST carry it
-  /// explicitly or their CJK falls to the engine default (SimSun on
-  /// Windows), which reads as a different typeface on the same screen
-  /// (28 号票's 异体字 root cause).
+  /// The font fallback chain, single source. Every token below carries
+  /// it NATIVELY (30 号返修): [Text] widgets merge with the ambient
+  /// [DefaultTextStyle] and would inherit it via the theme anyway — null
+  /// fields still yield to the ambient style there, so that path is
+  /// unchanged — but [AnimatedDefaultTextStyle] REPLACES the ambient
+  /// style instead of merging, so a token set as its style strips the
+  /// chain from every bare [Text] below it and the CJK falls to the
+  /// engine default (SimSun on Windows), which reads as a different
+  /// typeface on the same screen (28 号票's 异体字 root cause, residual
+  /// on the chip sites via the replace path). Bare [TextPainter]s never
+  /// see any ambient style and must still go through an [SrType] token
+  /// or carry the chain explicitly.
   static const familyFallback = [
     'Segoe UI Variable',
     'Segoe UI',
@@ -170,32 +176,51 @@ class SrType {
     fontSize: 16,
     height: 1.4,
     fontWeight: FontWeight.w600,
+    fontFamilyFallback: familyFallback,
   );
 
   /// Session text — the dictated / rectified body copy. The 1.7 line
   /// height (2026-09-09 验收定, was 1.6) gives the taller capsule family
   /// room per line so its optical asymmetry reads less contrasted.
-  static const bodyLarge = TextStyle(fontSize: 15, height: 1.7);
+  static const bodyLarge = TextStyle(
+    fontSize: 15,
+    height: 1.7,
+    fontFamilyFallback: familyFallback,
+  );
 
   /// Default UI body.
-  static const body = TextStyle(fontSize: 14, height: 1.5);
+  static const body = TextStyle(
+    fontSize: 14,
+    height: 1.5,
+    fontFamilyFallback: familyFallback,
+  );
 
   /// Settings pane section heads: [body] at the emphasized weight.
   static const section = TextStyle(
     fontSize: 14,
     height: 1.5,
     fontWeight: FontWeight.w600,
+    fontFamilyFallback: familyFallback,
   );
 
-  static const caption = TextStyle(fontSize: 12, height: 1.4);
+  static const caption = TextStyle(
+    fontSize: 12,
+    height: 1.4,
+    fontFamilyFallback: familyFallback,
+  );
 
   /// Timestamps, hints, kbd chips.
-  static const micro = TextStyle(fontSize: 11, height: 1.35);
+  static const micro = TextStyle(
+    fontSize: 11,
+    height: 1.35,
+    fontFamilyFallback: familyFallback,
+  );
 
   static const kbd = TextStyle(
     fontSize: 11,
     height: 1.2,
     fontWeight: FontWeight.w600,
+    fontFamilyFallback: familyFallback,
   );
 }
 
