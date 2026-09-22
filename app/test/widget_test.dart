@@ -929,7 +929,8 @@ void main() {
     expect(
       streamViewport.top,
       closeTo(headerBottom, 1),
-      reason: 'the viewport tops out at the header band — the top pad '
+      reason:
+          'the viewport tops out at the header band — the top pad '
           'is in-scroll, not a clip inset',
     );
     expect(
@@ -1190,71 +1191,76 @@ void main() {
     expect(controller.phase, BridgeSessionState.idle);
   });
 
-  testWidgets('the management entries collapse the panel into the settings window', (
-    tester,
-  ) async {
-    final gateway = FakeGateway()
-      ..scenarioLibrary.add(
-        const BridgeScenario(name: '论文', directive: '学术书面语'),
+  testWidgets(
+    'the management entries collapse the panel into the settings window',
+    (tester) async {
+      final gateway = FakeGateway()
+        ..scenarioLibrary.add(
+          const BridgeScenario(name: '论文', directive: '学术书面语'),
+        );
+      final opened = <SettingsDomain>[];
+      final controller = await pumpController(
+        tester,
+        gateway,
+        onOpenSettings: opened.add,
       );
-    final opened = <SettingsDomain>[];
-    final controller = await pumpController(
-      tester,
-      gateway,
-      onOpenSettings: opened.add,
-    );
 
-    // 小修 17: every entry row OPENS the settings window AND collapses
-    // the panel — the click's destination is the settings window, so the
-    // collapse is quiet: no foreground hand-back to the insertion target
-    // racing the window the user just asked for.
-    Future<void> openPanelAndTap(Finder entry) async {
+      // 小修 17: every entry row OPENS the settings window AND collapses
+      // the panel — the click's destination is the settings window, so the
+      // collapse is quiet: no foreground hand-back to the insertion target
+      // racing the window the user just asked for.
+      Future<void> openPanelAndTap(Finder entry) async {
+        await tester.tap(
+          find.byIcon(Icons.mic_none_rounded),
+          buttons: kSecondaryButton,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+        await tester.tap(entry);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+        expect(controller.stage, StageKind.orb, reason: 'the panel collapsed');
+      }
+
+      await openPanelAndTap(
+        find.byKey(const Key('quick-open-settings:scenarios')),
+      );
+      await openPanelAndTap(
+        find.byKey(const Key('quick-open-settings:history')),
+      );
+
+      // The 设置入口 row sits below the fold of the grown list; scroll it
+      // into view before the tap.
       await tester.tap(
         find.byIcon(Icons.mic_none_rounded),
         buttons: kSecondaryButton,
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 700));
-      await tester.tap(entry);
+      await tester.dragUntilVisible(
+        find.byKey(const Key('quick-open-settings:general')),
+        panelScrollable(),
+        const Offset(0, -40),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quick-open-settings:general')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 700));
       expect(controller.stage, StageKind.orb, reason: 'the panel collapsed');
-    }
 
-    await openPanelAndTap(find.byKey(const Key('quick-open-settings:scenarios')));
-    await openPanelAndTap(find.byKey(const Key('quick-open-settings:history')));
-
-    // The 设置入口 row sits below the fold of the grown list; scroll it
-    // into view before the tap.
-    await tester.tap(
-      find.byIcon(Icons.mic_none_rounded),
-      buttons: kSecondaryButton,
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 700));
-    await tester.dragUntilVisible(
-      find.byKey(const Key('quick-open-settings:general')),
-      panelScrollable(),
-      const Offset(0, -40),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('quick-open-settings:general')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 700));
-    expect(controller.stage, StageKind.orb, reason: 'the panel collapsed');
-
-    // 打开设置 lands on 通用, the sidebar's first domain — the same
-    // target unknown domain names fall back to.
-    expect(opened, [
-      SettingsDomain.scenarios,
-      SettingsDomain.history,
-      SettingsDomain.general,
-    ]);
-    // The settings-open collapse restores the foreground to NOTHING:
-    // the settings window claims it, never the remembered insertion
-    // target.
-    expect(gateway.commands, isNot(contains('restoreFocus')));
-  });
+      // 打开设置 lands on 通用, the sidebar's first domain — the same
+      // target unknown domain names fall back to.
+      expect(opened, [
+        SettingsDomain.scenarios,
+        SettingsDomain.history,
+        SettingsDomain.general,
+      ]);
+      // The settings-open collapse restores the foreground to NOTHING:
+      // the settings window claims it, never the remembered insertion
+      // target.
+      expect(gateway.commands, isNot(contains('restoreFocus')));
+    },
+  );
 
   testWidgets('a session start force-closes the quick panel', (tester) async {
     final gateway = FakeGateway();
@@ -3455,9 +3461,9 @@ void main() {
         // rides the form).
         expect(find.byKey(const Key('session-top-fade')), findsOneWidget);
         expect(
-          tester.widget<Positioned>(
-            find.byKey(const Key('session-top-fade')),
-          ).height,
+          tester
+              .widget<Positioned>(find.byKey(const Key('session-top-fade')))
+              .height,
           SrSpace.xl,
         );
 
@@ -3490,9 +3496,9 @@ void main() {
         await tester.pump(const Duration(milliseconds: 600));
         expect(find.byKey(const Key('session-top-fade')), findsOneWidget);
         expect(
-          tester.widget<Positioned>(
-            find.byKey(const Key('session-top-fade')),
-          ).height,
+          tester
+              .widget<Positioned>(find.byKey(const Key('session-top-fade')))
+              .height,
           SrGeometry.anchorInset,
         );
         await g.up();
@@ -3545,12 +3551,15 @@ void main() {
       final window = RecordingStageWindow();
       final controller = await pumpGrowing(tester, window);
       final card = find.byKey(const Key('panel-card'));
-      double ink() => tester
-          .widget<Opacity>(find.byKey(const Key('panel-card-ink')))
-          .opacity;
+      // 小修 18: the fade is DIRECT alpha on the card's own paints —
+      // the fill's alpha IS the ramp (the surface token is opaque).
+      double ink() =>
+          (tester.widget<DecoratedBox>(card).decoration as BoxDecoration)
+              .color!
+              .a;
 
       // The socket disc: side 2R (80), concentric with the ball — the
-      // degenerate start of the growth. Opacity rides the SAME
+      // degenerate start of the growth. The fade rides the SAME
       // timeline (环先实: solid by 80% of the size progress).
       expect(tester.getSize(card), const Size(80, 80));
       expect(ink(), 0);
@@ -3568,6 +3577,49 @@ void main() {
 
       await tester.pump(SrMotion.grow); // past the whole entrance
       expect(tester.getSize(card), const Size(404, 524));
+      await windDown(tester, controller);
+    });
+
+    testWidgets('the card never fades through an opacity layer (小修 18)', (
+      tester,
+    ) async {
+      // The device-quirk lock: a layer-composited partial-alpha card at
+      // the window transparency boundary composites DARK on device —
+      // the card-shaped ghost the E1 fade-off experiment killed. The
+      // ramp must live on the card's own paint colors; no opacity
+      // widget may sit on the card's ANCESTOR CHAIN mid-fade. (The
+      // footer's label channel keeps its own Opacity — it rides over
+      // the card's opaque interior, never across the transparency
+      // boundary, so it is out of this contract's scope.)
+      final window = RecordingStageWindow();
+      final controller = await pumpGrowing(tester, window);
+      await tester.pump(const Duration(milliseconds: 128)); // mid-fade
+
+      final slotEl = tester.element(find.byKey(const Key('stage-panel-slot')));
+      final offenders = <String>[];
+      tester
+          .element(find.byKey(const Key('panel-card')))
+          .visitAncestorElements((el) {
+        if (identical(el, slotEl)) return false;
+        final w = el.widget;
+        if (w is Opacity || w is AnimatedOpacity || w is FadeTransition) {
+          offenders.add('$w');
+        }
+        return true;
+      });
+      expect(offenders, isEmpty, reason: 'nothing may carry the card fade');
+
+      // And the ramp is where the device-proven path needs it: the
+      // card's own fill.
+      final ink =
+          (tester
+                      .widget<DecoratedBox>(find.byKey(const Key('panel-card')))
+                      .decoration
+                  as BoxDecoration)
+              .color!
+              .a;
+      expect(ink, closeTo(curveAt(0.2) / 0.8, 0.001));
+      await tester.pump(SrMotion.grow);
       await windDown(tester, controller);
     });
 
@@ -3787,18 +3839,18 @@ void main() {
         // the orb shares the header row, the xl soft cut (24) while it
         // sits on the footer's edge.
         expect(
-          tester.widget<Positioned>(
-            find.byKey(const Key('session-top-fade')),
-          ).height,
+          tester
+              .widget<Positioned>(find.byKey(const Key('session-top-fade')))
+              .height,
           dir.growUp ? SrSpace.xl : SrGeometry.anchorInset,
         );
         // The bottom soft cut is the xl constant in every quadrant: the
         // raw fold / footer band — never the orb — owns the body's
         // bottom edge, so the bottom fade carries no anchor semantics.
         expect(
-          tester.widget<Positioned>(
-            find.byKey(const Key('session-bottom-fade')),
-          ).height,
+          tester
+              .widget<Positioned>(find.byKey(const Key('session-bottom-fade')))
+              .height,
           SrSpace.xl,
         );
         if (!dir.growUp) {
@@ -3953,9 +4005,9 @@ void main() {
           const Offset(0, -60),
         );
         expect(
-          tester.widget<SizedBox>(
-            find.byKey(const Key('quick-tail-clearance')),
-          ).height,
+          tester
+              .widget<SizedBox>(find.byKey(const Key('quick-tail-clearance')))
+              .height,
           dir.growUp ? SrGeometry.anchorInset * 2 : SrSpace.md,
         );
         await controller.closeQuick();
@@ -3975,7 +4027,8 @@ void main() {
 
     /// Narrow lines, many of them: the body must scroll while the widest
     /// line stays far short of the body's width.
-    const narrowLines = '短句一\n短句二\n短句三\n短句四\n短句五\n短句六\n'
+    const narrowLines =
+        '短句一\n短句二\n短句三\n短句四\n短句五\n短句六\n'
         '短句七\n短句八\n短句九\n短句十\n短句十一\n短句十二\n'
         '短句十三\n短句十四\n短句十五\n短句十六\n短句十七\n短句十八\n'
         '短句十九\n短句二十\n短句廿一\n短句廿二\n短句廿三\n短句廿四';
@@ -4001,9 +4054,7 @@ void main() {
         stageWindow: window,
       );
       await pumpToRecording(tester, controller);
-      gateway.emit(
-        const BridgeEvent.liveTranscriptUpdated(text: narrowLines),
-      );
+      gateway.emit(const BridgeEvent.liveTranscriptUpdated(text: narrowLines));
       await tester.pump();
 
       // The premise: the scroll is actually engaged.
@@ -4028,9 +4079,12 @@ void main() {
         gateway,
         stageWindow: window,
       );
-      await pumpToPreview(tester, controller, gateway, chunks: const [
-        narrowLines,
-      ]);
+      await pumpToPreview(
+        tester,
+        controller,
+        gateway,
+        chunks: const [narrowLines],
+      );
 
       // The premise: the scroll is actually engaged.
       final scroll = tester.state<ScrollableState>(sessionScrollable());

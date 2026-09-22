@@ -1553,6 +1553,10 @@ class _PanelBodyState extends State<PanelBody>
           builder: (context, _) {
             // The size progress: 0 = socket disc, 1 = shared footprint.
             final v = _vTween.transform(_ctrl.value);
+            // The fade ramp rides the same timeline (环先实): the ring
+            // is solid by 80% of the size progress. Applied as DIRECT
+            // alpha on the card's own paints — see the decoration note.
+            final fade = (v / _ringSolidAt).clamp(0.0, 1.0);
             // The full painted card = the slot rect minus the card
             // margin on every side. The growth lerps from the disc
             // toward it PINNING THE ANCHOR CORNER: the socket arc
@@ -1573,65 +1577,80 @@ class _PanelBodyState extends State<PanelBody>
               children: [
                 Positioned.fromRect(
                   rect: Rect.fromLTWH(left, top, w, h),
-                  child: Opacity(
-                    key: const Key('panel-card-ink'),
-                    // The fade rides the growth's own timeline: the
-                    // ring around the ball is solid by 80% of the size
-                    // progress — never a fade-then-grow (环先实).
-                    opacity: (v / _ringSolidAt).clamp(0.0, 1.0),
-                    child: DecoratedBox(
-                      key: const Key('panel-card'),
-                      decoration: BoxDecoration(
-                        // Solid surfaces by design (materials spike: no
-                        // acrylic bet — spec §6).
-                        color: pal.surface,
-                        borderRadius: BorderRadius.circular(SrRadius.panel),
-                        border: Border.all(color: pal.hairline),
-                        // No drop shadow: the card sits inside the
-                        // window, so any blur is sliced by the window
-                        // rectangle and reads as a dark box fringe. The
-                        // window itself is the floating surface; the
-                        // hairline border carries the edge.
+                  child: DecoratedBox(
+                    key: const Key('panel-card'),
+                    decoration: BoxDecoration(
+                      // Solid surfaces by design (materials spike: no
+                      // acrylic bet — spec §6).
+                      //
+                      // The fade rides the growth's own timeline as
+                      // DIRECT ALPHA on the card's own paints (环先实:
+                      // solid by 80% of the size progress — never a
+                      // fade-then-grow). It must NOT ride an Opacity
+                      // layer: a layer-composited partial-alpha card at
+                      // the window transparency boundary composites
+                      // DARK on device — a card-shaped ghost exactly
+                      // while the card is semi-transparent (小修 18,
+                      // E1 fade-off experiment killed it). Direct
+                      // partial-alpha pixels are the device-proven
+                      // path (the orb aura paints the same way). The
+                      // content subtree rides full alpha by ruling —
+                      // no layer may span the transparency boundary.
+                      color: fade == 1.0
+                          ? pal.surface
+                          : pal.surface.withValues(alpha: pal.surface.a * fade),
+                      borderRadius: BorderRadius.circular(SrRadius.panel),
+                      border: Border.all(
+                        color: fade == 1.0
+                            ? pal.hairline
+                            : pal.hairline.withValues(
+                                alpha: pal.hairline.a * fade,
+                              ),
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(SrRadius.panel),
-                        child: CustomMultiChildLayout(
-                          delegate: _PinnedChromeLayout(),
-                          children: [
+                      // No drop shadow: the card sits inside the
+                      // window, so any blur is sliced by the window
+                      // rectangle and reads as a dark box fringe. The
+                      // window itself is the floating surface; the
+                      // hairline border carries the edge.
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(SrRadius.panel),
+                      child: CustomMultiChildLayout(
+                        delegate: _PinnedChromeLayout(),
+                        children: [
+                          LayoutId(
+                            id: _PinnedChromeLayout._header,
+                            child: KeyedSubtree(
+                              key: const Key('panel-chrome-header'),
+                              child: widget.header,
+                            ),
+                          ),
+                          LayoutId(
+                            id: _PinnedChromeLayout._body,
+                            child: widget.body,
+                          ),
+                          if (widget.rawBlock != null)
                             LayoutId(
-                              id: _PinnedChromeLayout._header,
+                              id: _PinnedChromeLayout._raw,
+                              child: widget.rawBlock!,
+                            ),
+                          if (widget.footer != null)
+                            LayoutId(
+                              id: _PinnedChromeLayout._footer,
                               child: KeyedSubtree(
-                                key: const Key('panel-chrome-header'),
-                                child: widget.header,
+                                key: const Key('panel-chrome-footer'),
+                                child: widget.footer!,
                               ),
                             ),
+                          // Last in the list = painted on top of every
+                          // band; the marquee's own subtree ignores the
+                          // pointer, so the chrome keeps its hits.
+                          if (widget.overlay != null)
                             LayoutId(
-                              id: _PinnedChromeLayout._body,
-                              child: widget.body,
+                              id: _PinnedChromeLayout._overlay,
+                              child: widget.overlay!,
                             ),
-                            if (widget.rawBlock != null)
-                              LayoutId(
-                                id: _PinnedChromeLayout._raw,
-                                child: widget.rawBlock!,
-                              ),
-                            if (widget.footer != null)
-                              LayoutId(
-                                id: _PinnedChromeLayout._footer,
-                                child: KeyedSubtree(
-                                  key: const Key('panel-chrome-footer'),
-                                  child: widget.footer!,
-                                ),
-                              ),
-                            // Last in the list = painted on top of every
-                            // band; the marquee's own subtree ignores the
-                            // pointer, so the chrome keeps its hits.
-                            if (widget.overlay != null)
-                              LayoutId(
-                                id: _PinnedChromeLayout._overlay,
-                                child: widget.overlay!,
-                              ),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
                   ),
