@@ -51,6 +51,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeEvalSummary dco_decode_box_autoadd_bridge_eval_summary(dynamic raw);
 
   @protected
+  BridgeHistoryFilter dco_decode_box_autoadd_bridge_history_filter(dynamic raw);
+
+  @protected
   BridgeLlmEdit dco_decode_box_autoadd_bridge_llm_edit(dynamic raw);
 
   @protected
@@ -132,6 +135,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BridgeHistoryEntry dco_decode_bridge_history_entry(dynamic raw);
+
+  @protected
+  BridgeHistoryFilter dco_decode_bridge_history_filter(dynamic raw);
 
   @protected
   BridgeInsertionTiming dco_decode_bridge_insertion_timing(dynamic raw);
@@ -273,6 +279,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BridgeHistoryFilter sse_decode_box_autoadd_bridge_history_filter(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BridgeLlmEdit sse_decode_box_autoadd_bridge_llm_edit(
     SseDeserializer deserializer,
   );
@@ -384,6 +395,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BridgeHistoryEntry sse_decode_bridge_history_entry(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BridgeHistoryFilter sse_decode_bridge_history_filter(
     SseDeserializer deserializer,
   );
 
@@ -562,6 +578,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_bridge_history_filter(
+    BridgeHistoryFilter self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_bridge_llm_edit(
     BridgeLlmEdit self,
     SseSerializer serializer,
@@ -708,6 +730,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_bridge_history_entry(
     BridgeHistoryEntry self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_bridge_history_filter(
+    BridgeHistoryFilter self,
     SseSerializer serializer,
   );
 

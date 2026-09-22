@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use spokenrectifier_engine::provider::history::{RecordedSession, SessionRecorder};
-use spokenrectifier_store::{HistoryConfig, NowMs, Store, resolve_store_path};
+use spokenrectifier_store::{HistoryConfig, NowMs, ScenarioFilter, Store, resolve_store_path};
 
 /// A settable wall clock: the test moves time by hand.
 fn settable_clock(start_ms: u64) -> (Arc<AtomicU64>, NowMs) {
@@ -55,7 +55,7 @@ fn recorded_sessions_list_newest_first_with_both_texts() {
     store.record(entry("第一句原话", "第一句成文"));
     store.record(entry("第二句原话", "第二句成文"));
 
-    let listed = store.list(10);
+    let listed = store.list(10, ScenarioFilter::All);
     assert_eq!(listed.len(), 2);
     assert_eq!(listed[0].raw_transcript, "第二句原话", "newest first");
     assert_eq!(listed[0].rectified_text, "第二句成文");
@@ -75,7 +75,7 @@ fn list_respects_the_limit() {
     for i in 0..5 {
         store.record(entry(&format!("原话{i}"), &format!("成文{i}")));
     }
-    let listed = store.list(3);
+    let listed = store.list(3, ScenarioFilter::All);
     assert_eq!(listed.len(), 3);
     assert_eq!(listed[0].raw_transcript, "原话4");
     assert_eq!(listed[2].raw_transcript, "原话2");
@@ -90,7 +90,7 @@ fn sessions_survive_reopening_the_database() {
     store.record(entry("要说的话", "写成的话"));
 
     let reopened = open(&dir, HistoryConfig::default(), now.clone());
-    let listed = reopened.list(10);
+    let listed = reopened.list(10, ScenarioFilter::All);
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].raw_transcript, "要说的话");
     std::fs::remove_dir_all(dir).unwrap();
@@ -108,7 +108,7 @@ fn recording_sweeps_rows_past_the_retention_period() {
     clock.store(1_000 + 31 * DAY_MS, Ordering::SeqCst);
     store.record(entry("今天的原话", "今天的成文"));
 
-    let listed = store.list(10);
+    let listed = store.list(10, ScenarioFilter::All);
     assert_eq!(listed.len(), 1, "expired row swept on record");
     assert_eq!(listed[0].raw_transcript, "今天的原话");
     std::fs::remove_dir_all(dir).unwrap();
@@ -124,7 +124,7 @@ fn reading_the_list_sweeps_expired_rows_too() {
     // No new record, no reopen: the bare read still hides — and sweeps —
     // the expired row, so a long-running panel never shows stale data.
     clock.store(1_000 + 31 * DAY_MS, Ordering::SeqCst);
-    assert!(store.list(10).is_empty());
+    assert!(store.list(10, ScenarioFilter::All).is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -138,7 +138,7 @@ fn opening_the_store_sweeps_expired_rows() {
     clock.store(1_000 + 31 * DAY_MS, Ordering::SeqCst);
     let reopened = open(&dir, HistoryConfig::default(), now.clone());
     assert!(
-        reopened.list(10).is_empty(),
+        reopened.list(10, ScenarioFilter::All).is_empty(),
         "expired row swept when the store reopened"
     );
     std::fs::remove_dir_all(dir).unwrap();
@@ -153,12 +153,12 @@ fn clear_removes_every_row_for_good() {
     store.record(entry("原话二", "成文二"));
 
     store.clear();
-    assert!(store.list(10).is_empty());
+    assert!(store.list(10, ScenarioFilter::All).is_empty());
 
     // Cleared means cleared: reopening the database finds nothing
     // either.
     let reopened = open(&dir, HistoryConfig::default(), now.clone());
-    assert!(reopened.list(10).is_empty());
+    assert!(reopened.list(10, ScenarioFilter::All).is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -179,7 +179,7 @@ fn keep_nothing_clears_and_holds_the_sessions_but_keeps_the_database() {
     .unwrap();
     store.record(entry("切换前的原话", "切换前的成文"));
     store.append_term("术语").unwrap();
-    assert!(!store.list(10).is_empty());
+    assert!(!store.list(10, ScenarioFilter::All).is_empty());
 
     // Switch to keep-nothing: the sessions rows must not linger, ready
     // to resurface if history ever comes back on — but the database
@@ -192,7 +192,7 @@ fn keep_nothing_clears_and_holds_the_sessions_but_keeps_the_database() {
         .unwrap();
 
     store.record(entry("不留存的原话", "不留存的成文"));
-    assert!(store.list(10).is_empty());
+    assert!(store.list(10, ScenarioFilter::All).is_empty());
     store.clear(); // a no-op, not an error
     assert!(db.is_file(), "keep-nothing cleared rows, not the file");
     assert_eq!(store.list_terms(), vec!["术语".to_string()]);
@@ -212,13 +212,13 @@ fn keep_nothing_from_the_start_holds_the_table_empty() {
         now.clone(),
     );
     store.record(entry("不留存的原话", "不留存的成文"));
-    assert!(store.list(10).is_empty());
+    assert!(store.list(10, ScenarioFilter::All).is_empty());
     assert!(dir.join("store.db").is_file());
 
     // And a pre-existing row from before the switch is gone on open.
     store.apply_config(HistoryConfig::default()).unwrap();
     store.record(entry("恢复后的原话", "恢复后的成文"));
-    let listed = store.list(10);
+    let listed = store.list(10, ScenarioFilter::All);
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].raw_transcript, "恢复后的原话");
     std::fs::remove_dir_all(dir).unwrap();
@@ -237,7 +237,7 @@ fn open_falls_back_to_an_in_memory_store_when_no_directory_is_writable() {
     // The ephemeral store still works for the run — it just keeps
     // nothing across launches.
     store.record(entry("原话", "成文"));
-    assert_eq!(store.list(10).len(), 1);
+    assert_eq!(store.list(10, ScenarioFilter::All).len(), 1);
     assert!(store.list_scenarios().is_empty());
 }
 
@@ -279,18 +279,91 @@ fn a_tightened_retention_applies_at_once() {
         })
         .unwrap();
     assert!(
-        store.list(10).is_empty(),
+        store.list(10, ScenarioFilter::All).is_empty(),
         "the tightened retention swept the old row immediately"
     );
 
     // Loosening back keeps what comes after.
     store.record(entry("新原话", "新成文"));
     store.apply_config(HistoryConfig::default()).unwrap();
-    assert_eq!(store.list(10).len(), 1);
+    assert_eq!(store.list(10, ScenarioFilter::All).len(), 1);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
 // -- scenario and source capture (the pass-throughs) --------------------------
+
+#[test]
+fn the_list_filters_by_scenario_scope_through_the_view() {
+    let dir = scratch("sr-store-scenario-filter");
+    let (_clock, now) = settable_clock(1_000);
+    let store = open(&dir, HistoryConfig::default(), now.clone());
+    store
+        .save_scenarios(&[
+            spokenrectifier_store::ScenarioInput {
+                id: None,
+                name: "论文".into(),
+                directive: "学术书面语".into(),
+            },
+            spokenrectifier_store::ScenarioInput {
+                id: None,
+                name: "聊天".into(),
+                directive: "轻松自然".into(),
+            },
+        ])
+        .unwrap();
+
+    let mut paper = entry("论文原话", "论文成文");
+    paper.scenario = Some("论文".into());
+    let mut chat = entry("聊天原话", "聊天成文");
+    chat.scenario = Some("聊天".into());
+    store.record(paper);
+    store.record(chat);
+    store.record(entry("无场景原话", "无场景成文"));
+
+    let all = store.list(10, ScenarioFilter::All);
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0].scenario_id, None, "rows carry their scenario id");
+
+    let default_register = store.list(10, ScenarioFilter::DefaultRegister);
+    assert_eq!(default_register.len(), 1);
+    assert_eq!(default_register[0].raw_transcript, "无场景原话");
+
+    let scenarios = store.list_scenarios();
+    let paper_id = scenarios
+        .iter()
+        .find(|s| s.name == "论文")
+        .unwrap()
+        .id;
+    let paper_rows = store.list(10, ScenarioFilter::Scenario(paper_id));
+    assert_eq!(paper_rows.len(), 1);
+    assert_eq!(paper_rows[0].raw_transcript, "论文原话");
+
+    // Deleting the scenario (a save that keeps only the other one) folds
+    // its rows into the default register (SET NULL, the schema's own
+    // semantics) — no orphan bucket.
+    let chat_id = scenarios
+        .iter()
+        .find(|s| s.name == "聊天")
+        .unwrap()
+        .id;
+    store
+        .save_scenarios(&[spokenrectifier_store::ScenarioInput {
+            id: Some(chat_id),
+            name: "聊天".into(),
+            directive: "轻松自然".into(),
+        }])
+        .unwrap();
+    let after_delete = store.list(10, ScenarioFilter::DefaultRegister);
+    assert_eq!(after_delete.len(), 2);
+    assert!(after_delete.iter().any(|row| row.raw_transcript == "论文原话"));
+    assert!(
+        store
+            .list(10, ScenarioFilter::Scenario(paper_id))
+            .is_empty(),
+        "the deleted scenario's own scope is empty"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
 
 #[test]
 fn a_recorded_session_resolves_its_scenario_name_into_an_id() {
@@ -367,7 +440,7 @@ fn a_rerun_session_names_its_source_row() {
     let (_clock, now) = settable_clock(1_000);
     let store = open(&dir, HistoryConfig::default(), now.clone());
     store.record(entry("第一场原话", "第一场成文"));
-    let source_id = store.list(10)[0].id;
+    let source_id = store.list(10, ScenarioFilter::All)[0].id;
 
     let mut rerun = entry("第一场原话", "重跑后的成文");
     rerun.source_session_id = Some(source_id);

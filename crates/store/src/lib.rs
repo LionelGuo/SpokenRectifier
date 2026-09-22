@@ -29,6 +29,7 @@ pub mod terms;
 pub use config::{HistoryConfig, HistoryConfigError, load_history_config, save_history_config};
 pub use scenarios::{Scenario, ScenarioInput};
 pub use store::{
-    HistoryEntry, NowMs, STORE_DB_FILE, Store, StoreError, resolve_store_path, wall_clock,
+    HistoryEntry, NowMs, ScenarioFilter, STORE_DB_FILE, Store, StoreError, resolve_store_path,
+    wall_clock,
 };
 pub use terms::peek_terms;

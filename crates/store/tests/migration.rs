@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use spokenrectifier_store::{HistoryConfig, NowMs, STORE_DB_FILE, Store};
+use spokenrectifier_store::{HistoryConfig, NowMs, STORE_DB_FILE, ScenarioFilter, Store};
 
 fn settable_clock(start_ms: u64) -> (Arc<AtomicU64>, NowMs) {
     let cell = Arc::new(AtomicU64::new(start_ms));
@@ -79,7 +79,7 @@ fn the_legacy_trio_migrates_in_and_the_files_go() {
     .unwrap();
 
     // Sessions came over whole, ids and all, newest first.
-    let listed = store.list(10);
+    let listed = store.list(10, ScenarioFilter::All);
     assert_eq!(listed.len(), 2);
     assert_eq!(listed[0].raw_transcript, "后来的原话");
     assert_eq!(listed[0].id, 2, "legacy ids are preserved");
@@ -134,7 +134,7 @@ fn rows_the_new_guards_would_refuse_are_skipped_not_fatal() {
     )
     .unwrap();
 
-    let listed = store.list(10);
+    let listed = store.list(10, ScenarioFilter::All);
     assert_eq!(listed.len(), 1, "the guardable rows are dropped");
     assert_eq!(listed[0].raw_transcript, "好原话");
     assert_eq!(listed[0].id, 1, "the kept row keeps its id");
@@ -162,7 +162,7 @@ fn an_unreadable_legacy_history_db_does_not_hostage_the_rest() {
     )
     .unwrap();
 
-    assert!(store.list(10).is_empty());
+    assert!(store.list(10, ScenarioFilter::All).is_empty());
     assert_eq!(store.list_terms(), vec!["术语".to_string()]);
     assert_eq!(store.list_scenarios().len(), 1);
     // The corrupt file left with the rest.
@@ -261,7 +261,7 @@ fn keep_nothing_migrates_the_library_but_holds_no_sessions() {
 
     // The user chose 不留存: the sessions that came over are cleared
     // with the mode, the scenarios and terms are not sessions and stay.
-    assert!(store.list(10).is_empty());
+    assert!(store.list(10, ScenarioFilter::All).is_empty());
     assert_eq!(store.list_terms().len(), 3);
     assert_eq!(store.list_scenarios().len(), 2);
     assert!(!dir.join("spokenrectifier-terms.txt").exists());
@@ -279,7 +279,7 @@ fn a_fresh_install_creates_the_schema_with_nothing_to_migrate() {
     )
     .unwrap();
 
-    assert!(store.list(10).is_empty());
+    assert!(store.list(10, ScenarioFilter::All).is_empty());
     assert!(store.list_terms().is_empty());
     assert!(store.list_scenarios().is_empty());
     let conn = rusqlite::Connection::open(dir.join(STORE_DB_FILE)).unwrap();

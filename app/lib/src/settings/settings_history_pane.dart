@@ -3,7 +3,11 @@
 /// 指定场景重新修正 routed to the main window through the cross-window
 /// channel — the same controller path the quick panel's rows take, with
 /// the picked style, a scenario or the built-in 默认, pinned for that
-/// one session), the `[history]` settings (保留期 chips, the 不留存
+/// one session), the list-level scenario filter (按场景筛历史: a chip
+/// row between the config card and the list — 全部 the opening
+/// selection, 默认 the same word and meaning as the rerectify menu's
+/// built-in, then each scenario; hidden over an empty library, never
+/// persisted), the `[history]` settings (保留期 chips, the 不留存
 /// switch whose enable clears what exists), and the one-click clear
 /// (the same bridge call the tray makes). File is truth: every
 /// mutation re-reads the store.
@@ -18,7 +22,8 @@ import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
-import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
+import '../rust/api.dart'
+    show BridgeHistoryEntry, BridgeHistoryFilter, BridgeScenario;
 import '../shell/history_retrieval.dart'
     show HistoryRerectify, showScenarioRerectifyMenu;
 import '../shell/quick_panel.dart' show formatHistoryStamp;
@@ -60,6 +65,10 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
   HistorySettings? _config;
   List<BridgeHistoryEntry> _entries = const [];
 
+  /// The list-level scenario scope the chip row selects. Not persisted:
+  /// every opening of the pane starts at 全部.
+  BridgeHistoryFilter _filter = const BridgeHistoryFilter.all();
+
   @override
   void initState() {
     super.initState();
@@ -69,7 +78,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
   Future<void> _reload() async {
     try {
       final config = await widget.store.loadConfig();
-      final entries = await widget.store.list();
+      final entries = await widget.store.list(_filter);
       if (!mounted) return;
       setState(() {
         _config = config;
@@ -116,6 +125,14 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
     await _reload();
   }
 
+  /// A chip tap re-reads the list through the seam under the new scope —
+  /// file is truth, same as every other mutation here.
+  Future<void> _setFilter(BridgeHistoryFilter next) async {
+    if (next == _filter) return;
+    setState(() => _filter = next);
+    await _reload();
+  }
+
   Future<void> _clear() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -142,6 +159,15 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     final config = _config;
+    // The chip row lists the library's id-bearing entries (production
+    // rows always carry one; a null id is an editor draft nothing can
+    // filter by). An empty library hides the whole row — everything is
+    // 默认 then, the filter carries no information — and so does the
+    // keep-nothing mode, which shows no list to filter.
+    final filterable = [
+      for (final scenario in widget.scenarios)
+        if (scenario.id != null) scenario,
+    ];
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
@@ -157,6 +183,14 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
                 _saveConfig(config.copyWith(retentionDays: days)),
             onClear: _entries.isEmpty || !config.enabled ? null : _clear,
           ),
+          if (config.enabled && filterable.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _FilterRow(
+              filter: _filter,
+              scenarios: filterable,
+              onSelect: _setFilter,
+            ),
+          ],
           const SizedBox(height: 20),
           if (!config.enabled)
             _EmptyNote(
@@ -246,8 +280,9 @@ class _ConfigCard extends StatelessWidget {
             runSpacing: 8,
             children: [
               for (final preset in days)
-                _RetentionChip(
-                  days: preset,
+                _SrChip(
+                  key: Key('settings-history-retention:$preset'),
+                  label: _retentionLabel(preset),
                   selected: preset == config.retentionDays,
                   enabled: config.enabled,
                   onTap: () => onRetention(preset),
@@ -278,15 +313,20 @@ String _retentionLabel(int days) => switch (days) {
   _ => '$days 天',
 };
 
-class _RetentionChip extends StatelessWidget {
-  const _RetentionChip({
-    required this.days,
+/// One chip of the pane's two single-select rows (保留期 presets, the
+/// scenario filter): the shared visual language — selected accentSoft
+/// fill + accent border, `SrRadius.control` corners, hover surface,
+/// press darkening, the label fading with its box (26 号票 真机 round).
+class _SrChip extends StatelessWidget {
+  const _SrChip({
+    super.key,
+    required this.label,
     required this.selected,
     required this.enabled,
     required this.onTap,
   });
 
-  final int days;
+  final String label;
   final bool selected;
   final bool enabled;
   final VoidCallback onTap;
@@ -307,7 +347,6 @@ class _RetentionChip extends StatelessWidget {
             child: AnimatedContainer(
               duration: SrMotion.fade,
               curve: SrMotion.curveFade,
-              key: Key('settings-history-retention:$days'),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: pal.surfaceOverlay.withValues(
@@ -341,12 +380,70 @@ class _RetentionChip extends StatelessWidget {
                       : (selected ? pal.accentText : pal.textSecondary),
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
-                child: Text(_retentionLabel(days)),
+                child: Text(label),
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The scenario filter chip row (按场景筛历史)
+// ---------------------------------------------------------------------------
+
+/// The list-level scenario scope: 全部 (the opening selection) / 默认 /
+/// each scenario — single-select, list-level, deliberately not in the
+/// same row as the per-entry retrieval keys. 「默认」 is the same word
+/// and the same meaning as the rerectify menu's built-in item: 未选场景,
+/// `scenario_id IS NULL`, which deleted scenarios' rows fold into (SET
+/// NULL, the schema's own semantics). [scenarios] carries only
+/// id-bearing entries — the pane filters the library first, an unsaved
+/// editor draft has nothing to filter by.
+class _FilterRow extends StatelessWidget {
+  const _FilterRow({
+    required this.filter,
+    required this.scenarios,
+    required this.onSelect,
+  });
+
+  final BridgeHistoryFilter filter;
+  final List<BridgeScenario> scenarios;
+  final ValueChanged<BridgeHistoryFilter> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      key: const Key('settings-history-filter'),
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _SrChip(
+          key: const Key('settings-history-filter:all'),
+          label: '全部',
+          selected: filter == const BridgeHistoryFilter.all(),
+          enabled: true,
+          onTap: () => onSelect(const BridgeHistoryFilter.all()),
+        ),
+        _SrChip(
+          key: const Key('settings-history-filter:default'),
+          label: '默认',
+          selected: filter == const BridgeHistoryFilter.defaultRegister(),
+          enabled: true,
+          onTap: () => onSelect(const BridgeHistoryFilter.defaultRegister()),
+        ),
+        for (final scenario in scenarios)
+          _SrChip(
+            key: Key('settings-history-filter:scenario:${scenario.name}'),
+            label: scenario.name,
+            selected: filter == BridgeHistoryFilter.scenario(scenario.id!),
+            enabled: true,
+            onTap: () =>
+                onSelect(BridgeHistoryFilter.scenario(scenario.id!)),
+          ),
+      ],
     );
   }
 }

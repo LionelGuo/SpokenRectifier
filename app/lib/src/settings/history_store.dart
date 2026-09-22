@@ -14,7 +14,7 @@ import '../rust/api.dart'
         historyConfig,
         historyList,
         setHistoryConfig;
-import '../rust/api.dart' show BridgeHistoryEntry;
+import '../rust/api.dart' show BridgeHistoryEntry, BridgeHistoryFilter;
 
 /// The `[history]` settings as the pane paints them — plain Dart ints
 /// (the wire's u64 arrives as BigInt; the seam converts).
@@ -49,8 +49,9 @@ abstract class HistorySettingsStore {
   /// re-read effective config (the file's truth, not the ask).
   Future<HistorySettings> saveConfig(HistorySettings settings);
 
-  /// The most recent stored sessions, newest first.
-  Future<List<BridgeHistoryEntry>> list();
+  /// The most recent stored sessions, newest first, under the scenario
+  /// scope the pane's chip row selects.
+  Future<List<BridgeHistoryEntry>> list(BridgeHistoryFilter filter);
 
   /// Remove every stored session (the tray's one-click clear, same
   /// bridge call).
@@ -75,7 +76,8 @@ class RustHistorySettingsStore implements HistorySettingsStore {
       );
 
   @override
-  Future<List<BridgeHistoryEntry>> list() => rust.historyList();
+  Future<List<BridgeHistoryEntry>> list(BridgeHistoryFilter filter) =>
+      rust.historyList(filter: filter);
 
   @override
   Future<void> clear() => rust.historyClear();

@@ -116,7 +116,9 @@ abstract class RustLibApi extends BaseApi {
 
   Future<BridgeHistoryConfig> crateApiHistoryConfig();
 
-  Future<List<BridgeHistoryEntry>> crateApiHistoryList();
+  Future<List<BridgeHistoryEntry>> crateApiHistoryList({
+    required BridgeHistoryFilter filter,
+  });
 
   Future<List<String>> crateApiInsertedTexts();
 
@@ -633,11 +635,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "history_config", argNames: []);
 
   @override
-  Future<List<BridgeHistoryEntry>> crateApiHistoryList() {
+  Future<List<BridgeHistoryEntry>> crateApiHistoryList({
+    required BridgeHistoryFilter filter,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_bridge_history_filter(filter, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -650,14 +655,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiHistoryListConstMeta,
-        argValues: [],
+        argValues: [filter],
         apiImpl: this,
       ),
     );
   }
 
   TaskConstMeta get kCrateApiHistoryListConstMeta =>
-      const TaskConstMeta(debugName: "history_list", argNames: []);
+      const TaskConstMeta(debugName: "history_list", argNames: ["filter"]);
 
   @override
   Future<List<String>> crateApiInsertedTexts() {
@@ -1409,6 +1414,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BridgeHistoryFilter dco_decode_box_autoadd_bridge_history_filter(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_bridge_history_filter(raw);
+  }
+
+  @protected
   BridgeLlmEdit dco_decode_box_autoadd_bridge_llm_edit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_bridge_llm_edit(raw);
@@ -1817,14 +1830,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BridgeHistoryEntry dco_decode_bridge_history_entry(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return BridgeHistoryEntry(
       id: dco_decode_i_64(arr[0]),
       createdAtMs: dco_decode_u_64(arr[1]),
       rawTranscript: dco_decode_String(arr[2]),
       rectifiedText: dco_decode_String(arr[3]),
+      scenarioId: dco_decode_opt_box_autoadd_i_64(arr[4]),
     );
+  }
+
+  @protected
+  BridgeHistoryFilter dco_decode_bridge_history_filter(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return BridgeHistoryFilter_All();
+      case 1:
+        return BridgeHistoryFilter_DefaultRegister();
+      case 2:
+        return BridgeHistoryFilter_Scenario(dco_decode_i_64(raw[1]));
+      default:
+        throw Exception("unreachable");
+    }
   }
 
   @protected
@@ -2218,6 +2247,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_bridge_eval_summary(deserializer));
+  }
+
+  @protected
+  BridgeHistoryFilter sse_decode_box_autoadd_bridge_history_filter(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_bridge_history_filter(deserializer));
   }
 
   @protected
@@ -2685,12 +2722,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_createdAtMs = sse_decode_u_64(deserializer);
     var var_rawTranscript = sse_decode_String(deserializer);
     var var_rectifiedText = sse_decode_String(deserializer);
+    var var_scenarioId = sse_decode_opt_box_autoadd_i_64(deserializer);
     return BridgeHistoryEntry(
       id: var_id,
       createdAtMs: var_createdAtMs,
       rawTranscript: var_rawTranscript,
       rectifiedText: var_rectifiedText,
+      scenarioId: var_scenarioId,
     );
+  }
+
+  @protected
+  BridgeHistoryFilter sse_decode_bridge_history_filter(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        return BridgeHistoryFilter_All();
+      case 1:
+        return BridgeHistoryFilter_DefaultRegister();
+      case 2:
+        var var_field0 = sse_decode_i_64(deserializer);
+        return BridgeHistoryFilter_Scenario(var_field0);
+      default:
+        throw UnimplementedError('');
+    }
   }
 
   @protected
@@ -3221,6 +3280,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_bridge_history_filter(
+    BridgeHistoryFilter self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bridge_history_filter(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_bridge_llm_edit(
     BridgeLlmEdit self,
     SseSerializer serializer,
@@ -3615,6 +3683,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_64(self.createdAtMs, serializer);
     sse_encode_String(self.rawTranscript, serializer);
     sse_encode_String(self.rectifiedText, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.scenarioId, serializer);
+  }
+
+  @protected
+  void sse_encode_bridge_history_filter(
+    BridgeHistoryFilter self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case BridgeHistoryFilter_All():
+        sse_encode_i_32(0, serializer);
+      case BridgeHistoryFilter_DefaultRegister():
+        sse_encode_i_32(1, serializer);
+      case BridgeHistoryFilter_Scenario(field0: final field0):
+        sse_encode_i_32(2, serializer);
+        sse_encode_i_64(field0, serializer);
+    }
   }
 
   @protected

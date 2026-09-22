@@ -11,7 +11,7 @@ part 'api.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `asr_view`, `bridge_key`, `global`, `history_config_err`, `launch_editor`, `llm_view`, `open_fake_feed`, `parse_policy`, `rectify_view`, `token_scripts`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Global`, `InserterSlot`, `SpeechSource`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Build the engine behind the bridge with the real default microphone
 /// and, when the `[asr]` config carries credentials, the configured
@@ -145,10 +145,13 @@ Future<List<String>> insertedTexts() =>
     RustLib.instance.api.crateApiInsertedTexts();
 
 /// The most recent stored sessions, newest first — the history panel's
-/// content, read through the sessions⋈scenarios view. Empty in the
+/// content, read through the sessions⋈scenarios view with the scenario
+/// scope the settings pane's chip row selects (the quick panel's slice
+/// always asks for [`BridgeHistoryFilter::All`]). Empty in the
 /// keep-nothing mode (and on the fake engine's ephemeral store).
-Future<List<BridgeHistoryEntry>> historyList() =>
-    RustLib.instance.api.crateApiHistoryList();
+Future<List<BridgeHistoryEntry>> historyList({
+  required BridgeHistoryFilter filter,
+}) => RustLib.instance.api.crateApiHistoryList(filter: filter);
 
 /// Remove every stored session — the tray's one-click clear (the
 /// placeholders go with them, by CASCADE). A no-op in the keep-nothing
@@ -1057,6 +1060,8 @@ class BridgeHistoryConfig {
 }
 
 /// Dart-side mirror of the history store's row: one stored session.
+/// `scenario_id` is the row's scenario (`None` = 未选场景, the default
+/// register).
 class BridgeHistoryEntry {
   final PlatformInt64 id;
 
@@ -1064,12 +1069,14 @@ class BridgeHistoryEntry {
   final BigInt createdAtMs;
   final String rawTranscript;
   final String rectifiedText;
+  final PlatformInt64? scenarioId;
 
   const BridgeHistoryEntry({
     required this.id,
     required this.createdAtMs,
     required this.rawTranscript,
     required this.rectifiedText,
+    this.scenarioId,
   });
 
   @override
@@ -1077,7 +1084,8 @@ class BridgeHistoryEntry {
       id.hashCode ^
       createdAtMs.hashCode ^
       rawTranscript.hashCode ^
-      rectifiedText.hashCode;
+      rectifiedText.hashCode ^
+      scenarioId.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1087,7 +1095,19 @@ class BridgeHistoryEntry {
           id == other.id &&
           createdAtMs == other.createdAtMs &&
           rawTranscript == other.rawTranscript &&
-          rectifiedText == other.rectifiedText;
+          rectifiedText == other.rectifiedText &&
+          scenarioId == other.scenarioId;
+}
+
+@freezed
+sealed class BridgeHistoryFilter with _$BridgeHistoryFilter {
+  const BridgeHistoryFilter._();
+
+  const factory BridgeHistoryFilter.all() = BridgeHistoryFilter_All;
+  const factory BridgeHistoryFilter.defaultRegister() =
+      BridgeHistoryFilter_DefaultRegister;
+  const factory BridgeHistoryFilter.scenario(PlatformInt64 field0) =
+      BridgeHistoryFilter_Scenario;
 }
 
 /// The effective `[insertion]` timings as the advanced pane paints them.

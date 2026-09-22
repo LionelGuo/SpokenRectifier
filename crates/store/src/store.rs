@@ -43,13 +43,26 @@ pub fn wall_clock() -> NowMs {
 /// The database file name inside the resolved directory.
 pub const STORE_DB_FILE: &str = "spokenrectifier-store.db";
 
-/// One stored session, as the history panel sees it.
+/// One stored session, as the history panel sees it. `scenario_id` is
+/// the row's scenario (`None` = 未选场景, the default register) — the
+/// panel's scenario filter selects on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryEntry {
     pub id: i64,
     pub created_at_ms: u64,
     pub raw_transcript: String,
     pub rectified_text: String,
+    pub scenario_id: Option<i64>,
+}
+
+/// The history list's scenario scope, as the settings pane's chip row
+/// selects it: every session, only the default register's rows (未选
+/// 场景), or one scenario's rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScenarioFilter {
+    All,
+    DefaultRegister,
+    Scenario(i64),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -197,23 +210,35 @@ impl Store {
     }
 
     /// The most recent sessions, newest first, read through the
-    /// sessions⋈scenarios view. Sweeps first: the panel must never show
+    /// sessions⋈scenarios view — the scenario scope riding the same
+    /// view's `WHERE scenario_id IS NULL / = ?` (the filter the settings
+    /// pane's chip row selects). Sweeps first: the panel must never show
     /// a row past its retention, however long the process has run.
-    pub fn list(&self, limit: usize) -> Vec<HistoryEntry> {
+    pub fn list(&self, limit: usize, scenario: ScenarioFilter) -> Vec<HistoryEntry> {
         let _ = self.sweep();
+        let (filter_sql, filter_param) = match scenario {
+            ScenarioFilter::All => ("", None),
+            ScenarioFilter::DefaultRegister => ("WHERE scenario_id IS NULL", None),
+            ScenarioFilter::Scenario(id) => ("WHERE scenario_id = ?", Some(id)),
+        };
         let conn = self.conn.lock().unwrap();
-        let Ok(mut stmt) = conn.prepare(
-            "SELECT id, created_at_ms, raw_transcript, rectified_text
-             FROM sessions_with_scenario ORDER BY id DESC LIMIT ?",
-        ) else {
+        let Ok(mut stmt) = conn.prepare(&format!(
+            "SELECT id, created_at_ms, raw_transcript, rectified_text, scenario_id
+             FROM sessions_with_scenario {filter_sql} ORDER BY id DESC LIMIT ?"
+        )) else {
             return Vec::new();
         };
-        let rows = stmt.query_map([limit as i64], |row| {
+        let params = match filter_param {
+            Some(id) => vec![id, limit as i64],
+            None => vec![limit as i64],
+        };
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
             Ok(HistoryEntry {
                 id: row.get(0)?,
                 created_at_ms: row.get::<_, i64>(1)?.max(0) as u64,
                 raw_transcript: row.get(2)?,
                 rectified_text: row.get(3)?,
+                scenario_id: row.get(4)?,
             })
         });
         match rows {

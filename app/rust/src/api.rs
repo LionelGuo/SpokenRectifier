@@ -37,7 +37,7 @@ use spokenrectifier_engine::{
     Command, Engine, EngineConfig, EngineDeps, EngineEvent, EventEnvelope, RectifyLlm,
     SessionState, SessionStyle, TokioClock,
 };
-use spokenrectifier_store::{HistoryConfig, HistoryEntry, Store};
+use spokenrectifier_store::{HistoryConfig, HistoryEntry, ScenarioFilter, Store};
 
 use crate::engine_factory::{llm_choice, production_inserter, LlmChoice};
 
@@ -250,6 +250,8 @@ pub struct BridgeEventEnvelope {
 }
 
 /// Dart-side mirror of the history store's row: one stored session.
+/// `scenario_id` is the row's scenario (`None` = 未选场景, the default
+/// register).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BridgeHistoryEntry {
     pub id: i64,
@@ -257,6 +259,7 @@ pub struct BridgeHistoryEntry {
     pub created_at_ms: u64,
     pub raw_transcript: String,
     pub rectified_text: String,
+    pub scenario_id: Option<i64>,
 }
 
 impl From<HistoryEntry> for BridgeHistoryEntry {
@@ -266,6 +269,27 @@ impl From<HistoryEntry> for BridgeHistoryEntry {
             created_at_ms: value.created_at_ms,
             raw_transcript: value.raw_transcript,
             rectified_text: value.rectified_text,
+            scenario_id: value.scenario_id,
+        }
+    }
+}
+
+/// Dart-side mirror of [`ScenarioFilter`]: the settings pane's history
+/// chip row — all sessions, the default register's (未选场景), or one
+/// scenario's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BridgeHistoryFilter {
+    All,
+    DefaultRegister,
+    Scenario(i64),
+}
+
+impl From<BridgeHistoryFilter> for ScenarioFilter {
+    fn from(value: BridgeHistoryFilter) -> Self {
+        match value {
+            BridgeHistoryFilter::All => ScenarioFilter::All,
+            BridgeHistoryFilter::DefaultRegister => ScenarioFilter::DefaultRegister,
+            BridgeHistoryFilter::Scenario(id) => ScenarioFilter::Scenario(id),
         }
     }
 }
@@ -771,12 +795,14 @@ pub fn inserted_texts() -> anyhow::Result<Vec<String>> {
 const HISTORY_PANEL_LIMIT: usize = 200;
 
 /// The most recent stored sessions, newest first — the history panel's
-/// content, read through the sessions⋈scenarios view. Empty in the
+/// content, read through the sessions⋈scenarios view with the scenario
+/// scope the settings pane's chip row selects (the quick panel's slice
+/// always asks for [`BridgeHistoryFilter::All`]). Empty in the
 /// keep-nothing mode (and on the fake engine's ephemeral store).
-pub fn history_list() -> anyhow::Result<Vec<BridgeHistoryEntry>> {
+pub fn history_list(filter: BridgeHistoryFilter) -> anyhow::Result<Vec<BridgeHistoryEntry>> {
     Ok(global()?
         .store
-        .list(HISTORY_PANEL_LIMIT)
+        .list(HISTORY_PANEL_LIMIT, filter.into())
         .into_iter()
         .map(BridgeHistoryEntry::from)
         .collect())
@@ -2380,9 +2406,9 @@ mod tests {
     fn the_fake_engine_keeps_no_history() {
         let _guard = TEST_LOCK.lock().unwrap();
         setup();
-        assert!(history_list().unwrap().is_empty());
+        assert!(history_list(BridgeHistoryFilter::All).unwrap().is_empty());
         history_clear().unwrap();
-        assert!(history_list().unwrap().is_empty());
+        assert!(history_list(BridgeHistoryFilter::All).unwrap().is_empty());
     }
 
     #[test]

@@ -90,7 +90,10 @@ class RustSpeechEngineGateway implements SpeechEngineGateway {
   Future<void> openConfigFile() => rust.openConfigFile();
 
   @override
-  Future<List<rust.BridgeHistoryEntry>> historyList() => rust.historyList();
+  Future<List<rust.BridgeHistoryEntry>> historyList() =>
+      // The quick panel's slice is unfiltered: the whole list, newest
+      // first, of which it keeps three.
+      rust.historyList(filter: const rust.BridgeHistoryFilter.all());
 
   @override
   Future<void> historyClear() => rust.historyClear();

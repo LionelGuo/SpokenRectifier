@@ -596,11 +596,12 @@ fn wire__crate__api__history_list_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_filter = <crate::api::BridgeHistoryFilter>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::history_list()?;
+                        let output_ok = crate::api::history_list(api_filter)?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -1961,12 +1962,36 @@ impl SseDecode for crate::api::BridgeHistoryEntry {
         let mut var_createdAtMs = <u64>::sse_decode(deserializer);
         let mut var_rawTranscript = <String>::sse_decode(deserializer);
         let mut var_rectifiedText = <String>::sse_decode(deserializer);
+        let mut var_scenarioId = <Option<i64>>::sse_decode(deserializer);
         return crate::api::BridgeHistoryEntry {
             id: var_id,
             created_at_ms: var_createdAtMs,
             raw_transcript: var_rawTranscript,
             rectified_text: var_rectifiedText,
+            scenario_id: var_scenarioId,
         };
+    }
+}
+
+impl SseDecode for crate::api::BridgeHistoryFilter {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                return crate::api::BridgeHistoryFilter::All;
+            }
+            1 => {
+                return crate::api::BridgeHistoryFilter::DefaultRegister;
+            }
+            2 => {
+                let mut var_field0 = <i64>::sse_decode(deserializer);
+                return crate::api::BridgeHistoryFilter::Scenario(var_field0);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 
@@ -3067,6 +3092,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::BridgeHistoryEntry {
             self.created_at_ms.into_into_dart().into_dart(),
             self.raw_transcript.into_into_dart().into_dart(),
             self.rectified_text.into_into_dart().into_dart(),
+            self.scenario_id.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3079,6 +3105,32 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeHistoryEntry>
     for crate::api::BridgeHistoryEntry
 {
     fn into_into_dart(self) -> crate::api::BridgeHistoryEntry {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::BridgeHistoryFilter {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            crate::api::BridgeHistoryFilter::All => [0.into_dart()].into_dart(),
+            crate::api::BridgeHistoryFilter::DefaultRegister => [1.into_dart()].into_dart(),
+            crate::api::BridgeHistoryFilter::Scenario(field0) => {
+                [2.into_dart(), field0.into_into_dart().into_dart()].into_dart()
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::BridgeHistoryFilter
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::BridgeHistoryFilter>
+    for crate::api::BridgeHistoryFilter
+{
+    fn into_into_dart(self) -> crate::api::BridgeHistoryFilter {
         self
     }
 }
@@ -3783,6 +3835,28 @@ impl SseEncode for crate::api::BridgeHistoryEntry {
         <u64>::sse_encode(self.created_at_ms, serializer);
         <String>::sse_encode(self.raw_transcript, serializer);
         <String>::sse_encode(self.rectified_text, serializer);
+        <Option<i64>>::sse_encode(self.scenario_id, serializer);
+    }
+}
+
+impl SseEncode for crate::api::BridgeHistoryFilter {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            crate::api::BridgeHistoryFilter::All => {
+                <i32>::sse_encode(0, serializer);
+            }
+            crate::api::BridgeHistoryFilter::DefaultRegister => {
+                <i32>::sse_encode(1, serializer);
+            }
+            crate::api::BridgeHistoryFilter::Scenario(field0) => {
+                <i32>::sse_encode(2, serializer);
+                <i64>::sse_encode(field0, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 

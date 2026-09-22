@@ -39,6 +39,10 @@ import 'package:spokenrectifier_app/src/rust/api.dart'
         BridgeEvalEvent,
         BridgeEvalSummary,
         BridgeHistoryEntry,
+        BridgeHistoryFilter,
+        BridgeHistoryFilter_All,
+        BridgeHistoryFilter_DefaultRegister,
+        BridgeHistoryFilter_Scenario,
         BridgeScenario;
 import 'package:spokenrectifier_app/src/settings/connection_store.dart';
 import 'package:spokenrectifier_app/src/settings/fidelity_eval.dart';
@@ -153,8 +157,22 @@ class FakeHistorySettingsStore implements HistorySettingsStore {
     return settings;
   }
 
+  /// The filter the last `list` carried — the chip row's reach through
+  /// the seam.
+  BridgeHistoryFilter? lastFilter;
+
   @override
-  Future<List<BridgeHistoryEntry>> list() async => List.of(_entries);
+  Future<List<BridgeHistoryEntry>> list(BridgeHistoryFilter filter) async {
+    lastFilter = filter;
+    return List.of(
+      _entries.where((entry) => switch (filter) {
+        BridgeHistoryFilter_All() => true,
+        BridgeHistoryFilter_DefaultRegister() => entry.scenarioId == null,
+        BridgeHistoryFilter_Scenario(:final field0) =>
+          entry.scenarioId == field0,
+      }),
+    );
+  }
 
   @override
   Future<void> clear() async {
@@ -702,19 +720,30 @@ const _seeded = [
   BridgeScenario(name: '聊天', directive: '轻松自然:保留语气'),
 ];
 
-/// Two history rows the panes and tests share.
+/// The same library with row ids — the form production always loads
+/// (rows from the store), and the one the filter chip row needs: an
+/// id-less draft has nothing to filter by.
+const _seededWithIds = [
+  BridgeScenario(id: 11, name: '论文', directive: '学术书面语:客观严谨'),
+  BridgeScenario(id: 12, name: '聊天', directive: '轻松自然:保留语气'),
+];
+
+/// Two history rows the panes and tests share: the newer one under the
+/// default register (未选场景), the older under scenario row 11 (论文).
 final _historyEntries = [
   BridgeHistoryEntry(
     id: 2,
     createdAtMs: BigInt.from(1_758_900_000_000),
     rawTranscript: '第二句的原话',
     rectifiedText: '第二句的成文',
+    scenarioId: null,
   ),
   BridgeHistoryEntry(
     id: 1,
     createdAtMs: BigInt.from(1_758_800_000_000),
     rawTranscript: '第一句的原话',
     rectifiedText: '第一句的成文',
+    scenarioId: 11,
   ),
 ];
 
@@ -1634,6 +1663,152 @@ void main() {
     );
     expect(find.text('45 天'), findsOneWidget);
     expect(find.text('30 天'), findsOneWidget);
+  });
+
+  // -- the scenario filter chip row (按场景筛历史) ----------------------------
+
+  testWidgets('the filter chips scope the list through the seam', (
+    tester,
+  ) async {
+    final store = FakeHistorySettingsStore(entries: _historyEntries);
+    await pumpSettings(
+      tester,
+      store: FakeScenarioStore(_seededWithIds),
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+
+    // The row sits between the config card and the list: 全部 (the
+    // opening selection), 默认, then each scenario — the retention
+    // chips' own visual family.
+    expect(
+      find.byKey(const Key('settings-history-filter:all')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-filter:default')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-filter:scenario:论文')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-filter:scenario:聊天')),
+      findsOneWidget,
+    );
+
+    // 全部 opens with both rows.
+    expect(
+      find.byKey(const Key('settings-history-rectified:2')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-rectified:1')),
+      findsOneWidget,
+    );
+
+    // 默认 keeps only the 未选场景 row (scenario_id IS NULL).
+    await tester.tap(find.byKey(const Key('settings-history-filter:default')));
+    await tester.pump();
+    expect(store.lastFilter, const BridgeHistoryFilter.defaultRegister());
+    expect(
+      find.byKey(const Key('settings-history-rectified:2')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-rectified:1')),
+      findsNothing,
+    );
+
+    // One scenario keeps only its own rows.
+    await tester.tap(
+      find.byKey(const Key('settings-history-filter:scenario:论文')),
+    );
+    await tester.pump();
+    expect(store.lastFilter, const BridgeHistoryFilter.scenario(11));
+    expect(
+      find.byKey(const Key('settings-history-rectified:1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-rectified:2')),
+      findsNothing,
+    );
+
+    // And 全部 brings everything back.
+    await tester.tap(find.byKey(const Key('settings-history-filter:all')));
+    await tester.pump();
+    expect(store.lastFilter, const BridgeHistoryFilter.all());
+    expect(
+      find.byKey(const Key('settings-history-rectified:1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-rectified:2')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('an empty scenario library hides the filter row entirely', (
+    tester,
+  ) async {
+    // The default seeds carry no row ids — editor drafts, nothing the
+    // filter can address: over them (and over a truly empty library)
+    // the row must not paint at all.
+    await pumpSettings(
+      tester,
+      historyStore: FakeHistorySettingsStore(entries: _historyEntries),
+      domain: SettingsDomain.history,
+    );
+    expect(find.byKey(const Key('settings-history-filter')), findsNothing);
+
+    // And so does the keep-nothing mode: no list, nothing to filter.
+    await pumpSettings(
+      tester,
+      store: FakeScenarioStore(_seededWithIds),
+      historyStore: FakeHistorySettingsStore(
+        config: const HistorySettings(enabled: false, retentionDays: 30),
+      ),
+      domain: SettingsDomain.history,
+    );
+    expect(find.byKey(const Key('settings-history-filter')), findsNothing);
+  });
+
+  testWidgets('the filter resets to 全部 when the pane reopens', (
+    tester,
+  ) async {
+    final store = FakeHistorySettingsStore(entries: _historyEntries);
+    await pumpSettings(
+      tester,
+      store: FakeScenarioStore(_seededWithIds),
+      historyStore: store,
+      domain: SettingsDomain.history,
+    );
+    await tester.tap(find.byKey(const Key('settings-history-filter:default')));
+    await tester.pump();
+    expect(
+      find.byKey(const Key('settings-history-rectified:1')),
+      findsNothing,
+      reason: 'the 默认 filter took',
+    );
+
+    // Away to 通用 and back: a fresh pane opens at 全部, unfiltered —
+    // the filter is a browsing state, never persisted.
+    await tester.tap(find.text('通用'));
+    await tester.pump();
+    await tester.tap(find.text('历史'));
+    await tester.pump();
+    await tester.pump(); // the config load lands
+    expect(store.lastFilter, const BridgeHistoryFilter.all());
+    expect(
+      find.byKey(const Key('settings-history-rectified:1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-rectified:2')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('enabling keep-nothing confirms, then clears everything', (
