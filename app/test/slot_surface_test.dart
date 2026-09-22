@@ -2479,4 +2479,78 @@ void main() {
     expect(surface.editor.canUndo, isFalse);
     await windDown(tester, h.controller);
   });
+
+  testWidgets(
+    'a re-typed same-number marker keeps a pill at every occurrence',
+    (tester) async {
+      // 停车场 19: with a minted capsule in the body, typing the same
+      // marker again elsewhere made the ORIGINAL's blue pill vanish —
+      // the band map was keyed by identity and the sibling's entry
+      // overwrote it. The drawing set is keyed by occurrence now:
+      // 同号处处各一枚 (the fillSlots contract: a re-typed marker of a
+      // minted number is that identity's span like any other).
+      final h = await pumpSlotPreview(tester, body: '发给‡1‡一下');
+      // Caret to the body's end, then the same marker typed again —
+      // committed text, the way the IME delivers it.
+      await h.ctrlKey(LogicalKeyboardKey.end);
+      await h.type('转');
+      await h.type('‡1‡');
+      await tester.pump();
+
+      // The projection carries BOTH same-number occurrences...
+      expect(h.surface.capsuleIds, [1, 1]);
+      // ...and each renders its own pill: two occurrence entries, each
+      // with its bands — the original's and the re-typed sibling's.
+      final occurrences =
+          h.surface.capsuleBandsByOccurrenceForTest.entries
+              .where((e) => e.key.id == 1)
+              .toList();
+      expect(occurrences.length, 2);
+      expect(occurrences.every((e) => e.value.isNotEmpty), isTrue);
+      // Two disjoint pills, one per occurrence.
+      final rects = [for (final e in occurrences) e.value.first.rect];
+      expect(rects[0].intersect(rects[1]).isEmpty, isTrue);
+      // Both carry the identity's value, and confirm substitutes each
+      // occurrence (插入与入库不受影响).
+      expect(h.surface.flatBaseText.split('张三').length - 1, 2);
+      expect(h.controller.previewText, '发给张三一下转张三');
+      await windDown(tester, h.controller);
+    },
+  );
+
+  testWidgets('same-number bare markers each keep their own circle', (
+    tester,
+  ) async {
+    // 停车场 19's sibling on the stream face: two bare `‡1‡` in one
+    // stream text are two circles — the identity-keyed rect map used to
+    // keep only the last one.
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: srTheme(Brightness.dark),
+        home: Scaffold(
+          body: SlotSurface(
+            key: const Key('session-stream-dup'),
+            mode: SlotSurfaceMode.stream,
+            text: '甲‡1‡乙‡1‡丙',
+            scrollController: scroll,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final state =
+        tester.state(find.byKey(const Key('session-stream-dup')))
+            as SlotSurfaceState;
+    final circles = state.streamCirclesForTest;
+    expect(circles.length, 2);
+    expect([for (final c in circles.keys) c.at], [1, 3]);
+    expect([for (final c in circles.keys) c.id], [1, 1]);
+    // Two disjoint circles at their own placeholders.
+    final rects = circles.values.toList();
+    expect(rects[0].intersect(rects[1]).isEmpty, isTrue);
+    // The legacy identity seam still reads the first occurrence.
+    expect(state.streamCircleRectsForTest().keys, [1]);
+  });
 }

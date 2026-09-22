@@ -115,7 +115,12 @@ import 'package:flutter/services.dart';
 
 import '../design/tokens.dart';
 import '../session/pin_capsule.dart'
-    show StreamMarkers, pinCapsuleReservation, pinCapsuleWidth, projectStream;
+    show
+        StreamCircle,
+        StreamMarkers,
+        pinCapsuleReservation,
+        pinCapsuleWidth,
+        projectStream;
 import 'slot_editor.dart';
 import 'slot_projection.dart';
 
@@ -265,9 +270,11 @@ class SlotSurfaceState extends State<SlotSurface>
   /// The IME pre-edit text at the caret — an overlay, never model text.
   String _composing = '';
 
-  /// The capsule under the hover (tooltip carrier) and its reveal timer.
-  int? _hoverId;
-  int? _tooltipId;
+  /// The capsule occurrence under the hover (tooltip carrier) and its
+  /// reveal timer — the occurrence, not the identity, so each of 同号
+  /// 多处 carries its own hover (停车场 19).
+  ProjectedSlot? _hoverSlot;
+  ProjectedSlot? _tooltipSlot;
   Timer? _tooltipTimer;
 
   /// Stream mode: the paragraph's context (the Builder inside the scroll
@@ -345,7 +352,7 @@ class SlotSurfaceState extends State<SlotSurface>
       // ephemeral and re-sync the platform.
       _composing = '';
       _clearTooltip();
-      _hoverId = null;
+      _hoverSlot = null;
       _fitVerified = const {};
       _connection?.close();
       _connection = null;
@@ -570,12 +577,15 @@ class SlotSurfaceState extends State<SlotSurface>
   RenderParagraph? get _paragraph =>
       _paragraphKey.currentContext?.findRenderObject() as RenderParagraph?;
 
-  /// The capsule under the caret — the one whose stroke fades in.
-  int? get _activeId {
+  /// The capsule occurrence under the caret — the one whose stroke fades
+  /// in. The occurrence, not the identity: a re-typed same-number marker
+  /// is its own pill and only the pill under the caret strokes (同号多处
+  /// 各枚各描; 停车场 19).
+  ProjectedSlot? get _activeSlot {
     final caret = _editor.caret;
     if (!caret.inside) return null;
     for (final slot in _projection.slots) {
-      if (slot.bodyStart == caret.at) return slot.id;
+      if (slot.bodyStart == caret.at) return slot;
     }
     return null;
   }
@@ -665,7 +675,7 @@ class SlotSurfaceState extends State<SlotSurface>
   /// whatever streams in after it keeps its breathing.
   List<InlineSpan> _streamSpanTree(
     StreamMarkers markers,
-    Map<int, double> reservationWidths, {
+    Map<ProjectedSlot, double> reservationWidths, {
     List<StreamFadeSegment> fades = const [],
     Color? fadeColor,
   }) {
@@ -674,10 +684,6 @@ class SlotSurfaceState extends State<SlotSurface>
     final chipAt = {for (final slot in markers.capsules) slot.chipAt: slot};
     final reservationAt = {
       for (final slot in markers.capsules) slot.valueEnd: slot,
-    };
-    final valueOf = {
-      for (final slot in markers.capsules)
-        slot.id: flat.substring(slot.valueStart, slot.valueEnd),
     };
     final children = <InlineSpan>[];
     var runStart = 0;
@@ -716,13 +722,18 @@ class SlotSurfaceState extends State<SlotSurface>
         );
       } else {
         final slot = reservation!;
-        final emptyTail = (valueOf[slot.id] ?? '').endsWith('\n');
+        // The occurrence's OWN value — never a same-number sibling's
+        // (the id-keyed lookup used to fold `‡1:a‡` and `‡1:b‡` into
+        // one entry; 停车场 19).
+        final emptyTail = flat
+            .substring(slot.valueStart, slot.valueEnd)
+            .endsWith('\n');
         children.add(
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: SizedBox(
               width:
-                  reservationWidths[slot.id] ??
+                  reservationWidths[slot] ??
                   (emptyTail
                       ? _stubFloor + capsuleSidePad
                       : pillRightPad + capsuleSidePad),
@@ -817,7 +828,9 @@ class SlotSurfaceState extends State<SlotSurface>
   /// computed in the same frame the layout happens (painted by the
   /// foreground layer, never placed by the WidgetSpan's font-metric
   /// alignment).
-  Map<int, Rect> _streamCircleRects() {
+  /// Keyed by the circle's own record — same-number bare markers are two
+  /// circles, each with its rect (同号各画各圆; 停车场 19).
+  Map<StreamCircle, Rect> _streamCircleRects() {
     final paragraph = _streamParagraph?.findRenderObject() as RenderParagraph?;
     if (paragraph == null || !paragraph.attached) return const {};
     final markers = _streamMarkers();
@@ -827,7 +840,7 @@ class SlotSurfaceState extends State<SlotSurface>
       markers.flat.length,
     );
     final inkBias = _paragraphInkBias(paragraph, lines, markers.flat);
-    final rects = <int, Rect>{};
+    final rects = <StreamCircle, Rect>{};
     for (final circle in markers.circles) {
       final boxes = paragraph.getBoxesForSelection(
         TextSelection(baseOffset: circle.at, extentOffset: circle.at + 1),
@@ -847,7 +860,7 @@ class SlotSurfaceState extends State<SlotSurface>
       final center = caretHeight > 0
           ? caretTop + caretHeight / 2 + inkBias + _opticalEasePx
           : box.center.dy + _opticalEasePx;
-      rects[circle.id] = Rect.fromLTRB(
+      rects[circle] = Rect.fromLTRB(
         left,
         center - SrCapsule.height / 2,
         left + pinCapsuleWidth(circle.id),
@@ -861,8 +874,9 @@ class SlotSurfaceState extends State<SlotSurface>
   /// computation the preview's pills use (one band per covered line,
   /// cut ends square and faded, the parking stub floor), over the
   /// stream's own flat projection with the value the text itself
-  /// carries. Read-only face: no active stroke ever fades in.
-  Map<int, List<CapsuleBand>> _streamCapsuleBands() {
+  /// carries, keyed by occurrence (同号多处各一枚; 停车场 19). Read-only
+  /// face: no active stroke ever fades in.
+  Map<ProjectedSlot, List<CapsuleBand>> _streamCapsuleBands() {
     final paragraph = _streamParagraph?.findRenderObject() as RenderParagraph?;
     if (paragraph == null || !paragraph.attached) return const {};
     final markers = _streamMarkers();
@@ -956,7 +970,7 @@ class SlotSurfaceState extends State<SlotSurface>
   /// never disagree with the pill's own geometry.
   List<InlineSpan> _spanTree(
     SrPalette pal,
-    Map<int, double> reservationWidths,
+    Map<ProjectedSlot, double> reservationWidths,
   ) {
     final projection = _projection;
     final base = projection.base;
@@ -1028,7 +1042,7 @@ class SlotSurfaceState extends State<SlotSurface>
               width: chip != null
                   ? capsuleSidePad + chipCircle + chipGap
                   : (reservation != null
-                            ? reservationWidths[reservation.id]
+                            ? reservationWidths[reservation]
                             : null) ??
                         (emptyTail
                             ? _stubFloor + capsuleSidePad
@@ -1380,17 +1394,19 @@ class SlotSurfaceState extends State<SlotSurface>
   void _tap(Offset local) {
     final hit = _cursorAt(local);
     if (hit == null) return;
-    final (cursor, capsuleId) = hit;
-    if (capsuleId != null) {
+    final (cursor, capsule) = hit;
+    if (capsule != null) {
       // Tap on the pill: the edit state. ENTERING a capsule starts its
       // value selected for fastest replacement (点预填非空胶囊默认全选
       // — the first tap only); tapping the capsule already under the
       // caret drops the selection and places the caret at the tapped
       // position, so a slot can be edited in place, not only replaced
-      // wholesale (2026-09-09 user ruling).
-      final slot = _projection.slots.firstWhere((s) => s.id == capsuleId);
-      final valueLength = _editor.doc.valueOf(capsuleId).length;
-      final entering = _activeId != capsuleId;
+      // wholesale (2026-09-09 user ruling). The tapped OCCURRENCE is
+      // the edit target — a same-number sibling keeps its own dock
+      // (停车场 19).
+      final slot = capsule;
+      final valueLength = _editor.doc.valueOf(slot.id).length;
+      final entering = _activeSlot != capsule;
       if (entering && valueLength > 0) {
         _editor.select(
           SlotCursor.inside(at: slot.bodyStart, offset: 0),
@@ -1453,21 +1469,21 @@ class SlotSurfaceState extends State<SlotSurface>
   }
 
   void _hover(Offset? local) {
-    int? id;
+    ProjectedSlot? slot;
     if (local != null) {
       for (final entry in _capsuleSegments().entries) {
         for (final rect in entry.value) {
-          if (rect.inflate(2).contains(local)) id = entry.key;
+          if (rect.inflate(2).contains(local)) slot = entry.key;
         }
       }
     }
-    if (id == _hoverId) return;
-    _hoverId = id;
+    if (slot == _hoverSlot) return;
+    _hoverSlot = slot;
     _clearTooltip();
-    if (id != null) {
+    if (slot != null) {
       _tooltipTimer = Timer(SrMotion.tooltipWait, () {
-        if (mounted && _hoverId == id) {
-          setState(() => _tooltipId = id);
+        if (mounted && _hoverSlot == slot) {
+          setState(() => _tooltipSlot = slot);
         }
       });
     }
@@ -1477,10 +1493,13 @@ class SlotSurfaceState extends State<SlotSurface>
   void _clearTooltip() {
     _tooltipTimer?.cancel();
     _tooltipTimer = null;
-    if (_tooltipId != null) _tooltipId = null;
+    if (_tooltipSlot != null) _tooltipSlot = null;
   }
 
-  /// A point's stop and, when it lands on a capsule's pill, that capsule.
+  /// A point's stop and, when it lands on a capsule's pill, that capsule
+  /// OCCURRENCE — the entry's own key, so a same-number sibling hit is
+  /// the sibling itself, never the first occurrence standing in for it
+  /// (停车场 19).
   ///
   /// The BACKGROUND the reservations hold outside the pill — a
   /// sidePad-wide strip at each of its flanks — carries the OUTSIDE
@@ -1491,7 +1510,7 @@ class SlotSurfaceState extends State<SlotSurface>
   /// off-pill resolution landing on a reservation's own flat offset
   /// (a click past the line's very end — the reservation is the line's
   /// last content) maps out the same way.
-  (SlotCursor, int?)? _cursorAt(Offset local) {
+  (SlotCursor, ProjectedSlot?)? _cursorAt(Offset local) {
     final paragraph = _paragraph;
     if (paragraph == null) {
       return null;
@@ -1500,7 +1519,7 @@ class SlotSurfaceState extends State<SlotSurface>
     final flat = _baseOf(paragraph.getPositionForOffset(local).offset);
     final cursor = projection.flatToCursor(flat, preferInside: true);
     for (final entry in _capsuleSegments().entries) {
-      final slot = projection.slots.firstWhere((s) => s.id == entry.key);
+      final slot = entry.key;
       final first = entry.value.first;
       final last = entry.value.last;
       if (Rect.fromLTRB(
@@ -1531,7 +1550,7 @@ class SlotSurfaceState extends State<SlotSurface>
     for (final entry in _capsuleSegments().entries) {
       for (final rect in entry.value) {
         if (rect.inflate(2).contains(local)) {
-          final slot = projection.slots.firstWhere((s) => s.id == entry.key);
+          final slot = entry.key;
           if (rect == entry.value.first &&
               local.dx < _valueContentLeft(paragraph, slot)) {
             return (
@@ -1539,7 +1558,7 @@ class SlotSurfaceState extends State<SlotSurface>
               null,
             );
           }
-          return (cursor, slot.id);
+          return (cursor, slot);
         }
       }
     }
@@ -1578,7 +1597,7 @@ class SlotSurfaceState extends State<SlotSurface>
   void _afterLocalChange() {
     _syncShadow();
     _blink.value = 0;
-    final newActive = _activeId;
+    final newActive = _activeSlot;
     if (newActive != _activeFadeTarget) {
       _activeFadeTarget = newActive;
       if (newActive != null) {
@@ -1592,7 +1611,7 @@ class SlotSurfaceState extends State<SlotSurface>
     setState(() {});
   }
 
-  int? _activeFadeTarget;
+  ProjectedSlot? _activeFadeTarget;
 
   /// The reservation widths the REAL paragraph has verified (停车场 04
   /// second round): a standalone TextPainter's accumulation drifts a
@@ -1602,19 +1621,25 @@ class SlotSurfaceState extends State<SlotSurface>
   /// paragraph itself and tightens from ITS leftover, one shaving frame
   /// at a time if the drift is deeper than the margin. Overrides win
   /// over the measure; they lift once the line holds a full reservation
-  /// of room again (content edited back below the edge).
-  Map<int, double> _fitVerified = const {};
+  /// of room again (content edited back below the edge). Keyed by the
+  /// OCCURRENCE, like every reservation width: each same-number
+  /// sibling fits its own line's leftover (停车场 19).
+  Map<ProjectedSlot, double> _fitVerified = const {};
 
   // -- geometry for painters and hit tests ---------------------------------
 
-  /// The pill rectangles per capsule identity, in paragraph-local
-  /// coordinates — the hover/tap hit boxes and the tests' geometry seam.
-  Map<int, List<Rect>> _capsuleSegments() => {
+  /// The pill rectangles per capsule occurrence, in paragraph-local
+  /// coordinates — the hover/tap hit boxes. Keyed by the OCCURRENCE, not
+  /// the identity: a re-typed same-number marker is its own pill
+  /// (同号多处各一枚; 停车场 19 — the identity-keyed map used to collapse
+  /// them and the original capsule's blue pill vanished the moment its
+  /// re-typed sibling overwrote the entry).
+  Map<ProjectedSlot, List<Rect>> _capsuleSegments() => {
     for (final entry in _capsuleBands().entries)
       entry.key: [for (final band in entry.value) band.rect],
   };
 
-  /// The rendered bands per capsule identity, in paragraph-local
+  /// The rendered bands per capsule occurrence, in paragraph-local
   /// coordinates: each covered line renders as its own band, centered on
   /// a content-independent anchor — the strut-locked caret line center
   /// plus the paragraph's ink bias, eased (05 号票; the ink box of 08 号
@@ -1646,7 +1671,7 @@ class SlotSurfaceState extends State<SlotSurface>
   /// line's edges hold (2026-09-10 反馈十六 re-ruling, retiring the
   /// line-edge swallows of 反馈四②/十三) — and the background strips the
   /// reservations hold beside the pill stay clickable (愿望三).
-  Map<int, List<CapsuleBand>> _capsuleBands() {
+  Map<ProjectedSlot, List<CapsuleBand>> _capsuleBands() {
     final paragraph = _paragraph;
     if (paragraph == null) return const {};
     return capsuleBandsFor(
@@ -1697,7 +1722,7 @@ class SlotSurfaceState extends State<SlotSurface>
         ? null
         : TextRange(start: _composingPaintStart, end: _composingPaintEnd);
     final standardWidth = pillRightPad + capsuleSidePad;
-    final next = <int, double>{..._fitVerified};
+    final next = <ProjectedSlot, double>{..._fitVerified};
     var changed = false;
     for (final slot in slots) {
       final emptyTail = _isPreview
@@ -1739,19 +1764,19 @@ class SlotSurfaceState extends State<SlotSurface>
       final leftover = maxWidth - reference.right;
       if (wrapped) {
         var width = math.max(0.0, math.min(standardWidth, leftover - 2));
-        final existing = next[slot.id];
+        final existing = next[slot];
         // Still wrapped at a value this same formula produced: the
         // drift runs deeper than the margin — shave a pixel and look
         // again next frame.
         if (existing != null && existing <= width) {
           width = math.max(0.0, existing - 1);
         }
-        if (next[slot.id] != width) {
-          next[slot.id] = width;
+        if (next[slot] != width) {
+          next[slot] = width;
           changed = true;
         }
-      } else if (next.containsKey(slot.id) && leftover >= standardWidth + 4) {
-        next.remove(slot.id);
+      } else if (next.containsKey(slot) && leftover >= standardWidth + 4) {
+        next.remove(slot);
         changed = true;
       }
     }
@@ -2091,29 +2116,70 @@ class SlotSurfaceState extends State<SlotSurface>
   /// The composing overlay currently in flight.
   String get composingText => _composing;
 
-  /// The capsule identities in body order.
+  /// The capsule identities in body order — one per occurrence.
   List<int> get capsuleIds => [for (final slot in _projection.slots) slot.id];
 
-  /// The identity whose stroke is fading in (the edited capsule).
-  int? get activeSlotId => _activeId;
+  /// The identity whose stroke is fading in (the edited occurrence).
+  int? get activeSlotId => _activeSlot?.id;
 
   /// The identity under the hover.
-  int? get hoverSlotId => _hoverId;
+  int? get hoverSlotId => _hoverSlot?.id;
 
   /// The identity whose prefill tooltip has revealed (past the hover
   /// wait).
-  int? get tooltipSlotId => _tooltipId;
+  int? get tooltipSlotId => _tooltipSlot?.id;
 
-  /// The pill rectangles per identity — the tests' geometry seam.
-  Map<int, List<Rect>> capsuleSegmentsForTest() => _capsuleSegments();
+  /// The pill rectangles per identity — the tests' geometry seam. An
+  /// identity's occurrences concatenate in body order; the
+  /// occurrence-keyed truth is [capsuleBandsByOccurrenceForTest]
+  /// (停车场 19).
+  Map<int, List<Rect>> capsuleSegmentsForTest() {
+    final out = <int, List<Rect>>{};
+    for (final entry in _capsuleSegments().entries) {
+      out.update(
+        entry.key.id,
+        (rects) => rects..addAll(entry.value),
+        ifAbsent: () => List.of(entry.value),
+      );
+    }
+    return out;
+  }
 
   /// The rendered bands per identity, corner shapes included — the
-  /// tests' shape seam (截断直角、自然端圆帽).
-  Map<int, List<CapsuleBand>> capsuleBandsForTest() => _capsuleBands();
+  /// tests' shape seam (截断直角、自然端圆帽). An identity's occurrences
+  /// concatenate in body order.
+  Map<int, List<CapsuleBand>> capsuleBandsForTest() {
+    final out = <int, List<CapsuleBand>>{};
+    for (final entry in _capsuleBands().entries) {
+      out.update(
+        entry.key.id,
+        (bands) => bands..addAll(entry.value),
+        ifAbsent: () => List.of(entry.value),
+      );
+    }
+    return out;
+  }
+
+  /// The rendered bands keyed by OCCURRENCE — the same-number
+  /// regression seam: a re-typed marker must hold its own entry beside
+  /// the original's (同号多处各一枚; 停车场 19).
+  Map<ProjectedSlot, List<CapsuleBand>> get capsuleBandsByOccurrenceForTest =>
+      _capsuleBands();
 
   /// The stream capsules' circle rectangles per identity — the stream
-  /// face's geometry seam.
-  Map<int, Rect> streamCircleRectsForTest() => _streamCircleRects();
+  /// face's geometry seam (an identity's FIRST circle; duplicates read
+  /// through [streamCirclesForTest]).
+  Map<int, Rect> streamCircleRectsForTest() {
+    final out = <int, Rect>{};
+    for (final entry in _streamCircleRects().entries) {
+      out.putIfAbsent(entry.key.id, () => entry.value);
+    }
+    return out;
+  }
+
+  /// The stream circles keyed by occurrence — same-number bare markers
+  /// each keep their own circle (同号各画各圆; 停车场 19).
+  Map<StreamCircle, Rect> get streamCirclesForTest => _streamCircleRects();
 
   /// The live fade segments (25 号票) — the tests' stream-fade seam.
   List<StreamFadeSegment> get streamFadesForTest => _streamFades;
@@ -2254,7 +2320,7 @@ List<({double top, double height})> truncateCoveredLines(
 /// stub) and never wraps. The measure iterates to a fixed point
 /// (capped): one slot's fit reflows the lines below it, so a downstream
 /// slot's leftover is only final once the slots before it are fitted.
-Map<int, double> fittedReservationWidths({
+Map<ProjectedSlot, double> fittedReservationWidths({
   required double maxWidth,
   required TextStyle ambientStyle,
   required TextStyle style,
@@ -2264,7 +2330,8 @@ Map<int, double> fittedReservationWidths({
   required double standardWidth,
   required List<ProjectedSlot> slots,
   required bool Function(ProjectedSlot slot) valueEndsWithNewline,
-  required List<InlineSpan> Function(Map<int, double> widths) buildSpans,
+  required List<InlineSpan> Function(Map<ProjectedSlot, double> widths)
+  buildSpans,
   int Function(int)? paintOf,
   int Function(int)? paintOfEnd,
   int Function(int)? paintContentOf,
@@ -2275,7 +2342,7 @@ Map<int, double> fittedReservationWidths({
   }
   final toPaintEnd = paintOfEnd ?? (f) => f;
   final toContent = paintContentOf ?? paintOf ?? (f) => f;
-  var widths = const <int, double>{};
+  var widths = const <ProjectedSlot, double>{};
   for (var pass = 0; pass < 3; pass++) {
     final spans = buildSpans(widths);
     final painter =
@@ -2356,7 +2423,7 @@ Map<int, double> fittedReservationWidths({
       final leftover = maxWidth - reference.right - 2;
       widths = {
         ...widths,
-        slot.id: math.max(0, math.min(standardWidth, leftover)),
+        slot: math.max(0, math.min(standardWidth, leftover)),
       };
       changed = true;
     }
@@ -2461,10 +2528,13 @@ List<({double top, double height})> coveredLinesFor(
   return bands;
 }
 
-/// The rendered bands per capsule identity, in paragraph-local
+/// The rendered bands per capsule OCCURRENCE, in paragraph-local
 /// coordinates — the ONE shape computation both faces of the surface
 /// family run: the preview's editable pills (29 号's extraction seam)
-/// and the stream's read-only inline capsules. Each covered line
+/// and the stream's read-only inline capsules. Keyed by the occurrence,
+/// never the identity: a re-typed same-number marker is its own pill
+/// beside the original's (同号多处各一枚; 停车场 19 — the identity key
+/// collapsed siblings and the original's pill vanished). Each covered line
 /// renders as its own band, centered on a content-independent anchor —
 /// the strut-locked caret line center plus the paragraph's ink bias,
 /// eased (05 号票; formerly the line's ink box, 08 号票, which re-seated
@@ -2483,7 +2553,7 @@ List<({double top, double height})> coveredLinesFor(
 /// [paintOf]/[paintOfEnd] default to identity for faces with no
 /// composing overlay; [paintContentOf] carries the content-space map the
 /// chip's box probes (05 号票).
-Map<int, List<CapsuleBand>> capsuleBandsFor({
+Map<ProjectedSlot, List<CapsuleBand>> capsuleBandsFor({
   required RenderParagraph paragraph,
   required String paintText,
   required List<ProjectedSlot> slots,
@@ -2509,7 +2579,7 @@ Map<int, List<CapsuleBand>> capsuleBandsFor({
   // The wrap width the layout itself used — the theoretical right edge
   // a full line of text reaches.
   final columnRight = paragraph.constraints.maxWidth;
-  final bands = <int, List<CapsuleBand>>{};
+  final bands = <ProjectedSlot, List<CapsuleBand>>{};
   for (final slot in slots) {
     // The chip probes CONTENT space — an offset at the composing point
     // belongs PAST the run, where the placeholder actually sits (05 号
@@ -2619,7 +2689,7 @@ Map<int, List<CapsuleBand>> capsuleBandsFor({
           ),
         );
       }
-      bands[slot.id] = slotBands;
+      bands[slot] = slotBands;
       continue;
     }
     // Single line: a complete pill hugging its content. Group the
@@ -2684,7 +2754,7 @@ Map<int, List<CapsuleBand>> capsuleBandsFor({
         ),
       );
     }
-    bands[slot.id] = slotBands;
+    bands[slot] = slotBands;
   }
   return bands;
 }
@@ -2896,17 +2966,11 @@ class _StreamCapsulesPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final circleAt = {
-      for (final circle in state._streamMarkers().circles) circle.id: circle.at,
-    };
-    final chipAt = {
-      for (final slot in state._streamMarkers().capsules) slot.id: slot.chipAt,
-    };
     for (final entry in state._streamCircleRects().entries) {
       final rect = entry.value;
       // A capsule arriving mid-stream fades with its segment (25 号
       // 票): fill and digits ride the alpha at the marker's own offset.
-      final alpha = state._streamFadeAlphaAt(circleAt[entry.key] ?? -1);
+      final alpha = state._streamFadeAlphaAt(entry.key.at);
       // The flat family: fill only — no border, no shadow; one digit a
       // true circle, wider numbers a capsule.
       canvas.drawRRect(
@@ -2939,10 +3003,10 @@ class _StreamCapsulesPainter extends CustomPainter {
     // 端切圆圆心,08 号票; the chip widget itself is a bare spacer).
     for (final entry in state._streamCapsuleBands().entries) {
       final first = entry.value.first;
-      final alpha = state._streamFadeAlphaAt(chipAt[entry.key] ?? -1);
+      final alpha = state._streamFadeAlphaAt(entry.key.chipAt);
       final digits = TextPainter(
         text: TextSpan(
-          text: '${entry.key}',
+          text: '${entry.key.id}',
           style: SrType.micro.copyWith(
             color: pal.accentText.withValues(
               alpha: pal.accentText.a * alpha,
@@ -2985,14 +3049,11 @@ class _StreamPillPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final pillRadius = Radius.circular(SlotSurfaceState.capsuleHeight / 2);
-    final chipAt = {
-      for (final slot in state._streamMarkers().capsules) slot.id: slot.chipAt,
-    };
     for (final entry in state._streamCapsuleBands().entries) {
       // The pill rides the alpha at its own chip offset — it fades in
       // only when the capsule itself is new (25 号票); appended text
       // after a matured capsule never pulses the pill.
-      final alpha = state._streamFadeAlphaAt(chipAt[entry.key] ?? -1);
+      final alpha = state._streamFadeAlphaAt(entry.key.chipAt);
       for (final band in entry.value) {
         paintFadedBand(
           canvas,
@@ -3046,9 +3107,10 @@ class _BackgroundPainter extends CustomPainter {
         );
       }
     }
-    // The active capsule's stroke, fading in and out (点按 = 选中编辑态),
-    // tracing the fill's own shape.
-    final active = state._activeId;
+    // The active capsule occurrence's stroke, fading in and out (点按 =
+    // 选中编辑态), tracing the fill's own shape — the occurrence under
+    // the caret only, never its same-number siblings (停车场 19).
+    final active = state._activeSlot;
     if (active != null && state._activeFade.value > 0) {
       for (final band in bandsById[active] ?? const <CapsuleBand>[]) {
         final shape = band.shape(pillRadius, inflate: 0.5);
@@ -3154,7 +3216,7 @@ class _ForegroundPainter extends CustomPainter {
       final first = entry.value.first;
       final digits = TextPainter(
         text: TextSpan(
-          text: '${entry.key}',
+          text: '${entry.key.id}',
           style: SrType.micro.copyWith(
             color: pal.accentText,
             height: 1,
@@ -3175,7 +3237,7 @@ class _ForegroundPainter extends CustomPainter {
     // Slot hover tooltip: one hint for every capsule in every state —
     // prefill or not, emptied or edited (2026-09-09 user decision; the
     // per-prefill wording 预填:X/预填为空 is retired).
-    final tooltip = state._tooltipId;
+    final tooltip = state._tooltipSlot;
     if (tooltip != null) {
       final segments = state._capsuleSegments()[tooltip];
       if (segments != null && segments.isNotEmpty) {
