@@ -289,21 +289,25 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   }
 
   /// Persist the editor's whole model, then tell the main window. Local
-  /// state only moves once the file has accepted the write — the file is
-  /// the truth, the editor is a view.
+  /// state only moves once the file has accepted the write — and it
+  /// moves to the store's re-read, not the editor's draft: new rows
+  /// only carry null ids in the draft, and the panes that address
+  /// scenarios by id (the history filter chips) need the minted ones
+  /// without waiting for a window reopen.
   Future<bool> _commit(
     List<BridgeScenario> next, {
     String? renamedFrom,
     String? renamedTo,
   }) async {
+    List<BridgeScenario> stored;
     try {
-      await widget.store.save(next);
+      stored = await widget.store.save(next);
     } catch (e) {
       logRawError('err_scenario_save', e);
       SrToast.of(_toastContext).show('保存失败', tone: SrToastTone.error);
       return false;
     }
-    setState(() => _scenarios = next);
+    setState(() => _scenarios = stored);
     await widget.channel.sendScenariosChanged(
       renamedFrom: renamedFrom,
       renamedTo: renamedTo,

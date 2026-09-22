@@ -18,8 +18,12 @@ abstract class ScenarioStore {
   Future<List<BridgeScenario>> load();
 
   /// Persist the editor's whole model, wholesale (see the Rust
-  /// `save_scenarios` for the placement and tolerance rules).
-  Future<void> save(List<BridgeScenario> scenarios);
+  /// `save_scenarios` for the placement and tolerance rules), then
+  /// return the library as the store now holds it: the editor's new
+  /// rows carry null ids only in the draft — the store mints the real
+  /// ones, and every consumer (the rerectify menu, the history filter
+  /// chips) needs them without a window reopen.
+  Future<List<BridgeScenario>> save(List<BridgeScenario> scenarios);
 }
 
 /// The production store over the flutter_rust_bridge calls.
@@ -30,8 +34,10 @@ class RustScenarioStore implements ScenarioStore {
   Future<List<BridgeScenario>> load() => rust.scenarios();
 
   @override
-  Future<void> save(List<BridgeScenario> scenarios) =>
-      rust.saveScenarios(scenarios: scenarios);
+  Future<List<BridgeScenario>> save(List<BridgeScenario> scenarios) async {
+    await rust.saveScenarios(scenarios: scenarios);
+    return rust.scenarios();
+  }
 }
 
 /// Global-directive persistence (ticket 22) — the companion file of the

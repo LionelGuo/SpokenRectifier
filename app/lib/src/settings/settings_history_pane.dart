@@ -65,6 +65,12 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
   HistorySettings? _config;
   List<BridgeHistoryEntry> _entries = const [];
 
+  /// The whole library's row count, whatever the filter shows: 清空 and
+  /// 不留存 act on the whole library (the tray's clear shares the call),
+  /// so their confirmations must count what they delete — the filter is
+  /// a browsing state and never narrows the blast radius.
+  int _allCount = 0;
+
   /// The list-level scenario scope the chip row selects. Not persisted:
   /// every opening of the pane starts at 全部.
   BridgeHistoryFilter _filter = const BridgeHistoryFilter.all();
@@ -79,10 +85,12 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
     try {
       final config = await widget.store.loadConfig();
       final entries = await widget.store.list(_filter);
+      final all = await widget.store.list(const BridgeHistoryFilter.all());
       if (!mounted) return;
       setState(() {
         _config = config;
         _entries = entries;
+        _allCount = all.length;
       });
     } catch (e) {
       if (!mounted) return;
@@ -109,12 +117,12 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
   Future<void> _toggleKeepNothing(bool on) async {
     final config = _config;
     if (config == null) return;
-    if (on && _entries.isNotEmpty) {
+    if (on && _allCount > 0) {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => _ConfirmDialog(
           title: '开启不留存模式？',
-          body: '${_entries.length} 条历史将被永久删除，新会话将不再保留历史。',
+          body: '$_allCount 条历史将被永久删除，新会话将不再保留历史。',
           confirmLabel: '开启并清空',
         ),
         barrierDismissible: false,
@@ -139,7 +147,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
       builder: (dialogContext) => _ConfirmDialog(
         key: const Key('settings-history-clear-confirm'),
         title: '清空全部历史？',
-        body: '${_entries.length} 条历史将被永久删除。',
+        body: '$_allCount 条历史将被永久删除。',
         confirmLabel: '清空',
       ),
     );
@@ -181,7 +189,7 @@ class _SettingsHistoryPaneState extends State<SettingsHistoryPane> {
             onToggleKeepNothing: _toggleKeepNothing,
             onRetention: (days) =>
                 _saveConfig(config.copyWith(retentionDays: days)),
-            onClear: _entries.isEmpty || !config.enabled ? null : _clear,
+            onClear: _allCount == 0 || !config.enabled ? null : _clear,
           ),
           if (config.enabled && filterable.isNotEmpty) ...[
             const SizedBox(height: 20),

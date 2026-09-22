@@ -81,14 +81,32 @@ class FakeScenarioStore implements ScenarioStore {
   Future<List<BridgeScenario>> load() async => List.of(library);
 
   @override
-  Future<void> save(List<BridgeScenario> scenarios) async {
+  Future<List<BridgeScenario>> save(List<BridgeScenario> scenarios) async {
     if (failNextSave != null) {
       final failure = failNextSave;
       failNextSave = null;
       throw failure!;
     }
     saves.add(List.of(scenarios));
-    library = List.of(scenarios);
+    // The store mints ids the editor's new rows don't carry — max+1,
+    // restarting at 1 once the library empties (SQLite reuses rowids
+    // without AUTOINCREMENT, same shape).
+    var nextId = 0;
+    for (final scenario in [...library, ...scenarios]) {
+      final id = scenario.id;
+      if (id != null && id > nextId) nextId = id;
+    }
+    library = [
+      for (final scenario in scenarios)
+        scenario.id == null
+            ? BridgeScenario(
+                id: ++nextId,
+                name: scenario.name,
+                directive: scenario.directive,
+              )
+            : scenario,
+    ];
+    return List.of(library);
   }
 }
 
@@ -157,13 +175,13 @@ class FakeHistorySettingsStore implements HistorySettingsStore {
     return settings;
   }
 
-  /// The filter the last `list` carried — the chip row's reach through
-  /// the seam.
-  BridgeHistoryFilter? lastFilter;
+  /// Every filter a `list` carried, in order — the pane now reads both
+  /// the selected scope and the all-count each reload.
+  final filters = <BridgeHistoryFilter>[];
 
   @override
   Future<List<BridgeHistoryEntry>> list(BridgeHistoryFilter filter) async {
-    lastFilter = filter;
+    filters.add(filter);
     return List.of(
       _entries.where((entry) => switch (filter) {
         BridgeHistoryFilter_All() => true,
@@ -1711,7 +1729,7 @@ void main() {
     // 默认 keeps only the 未选场景 row (scenario_id IS NULL).
     await tester.tap(find.byKey(const Key('settings-history-filter:default')));
     await tester.pump();
-    expect(store.lastFilter, const BridgeHistoryFilter.defaultRegister());
+    expect(store.filters, contains(const BridgeHistoryFilter.defaultRegister()));
     expect(
       find.byKey(const Key('settings-history-rectified:2')),
       findsOneWidget,
@@ -1726,7 +1744,7 @@ void main() {
       find.byKey(const Key('settings-history-filter:scenario:论文')),
     );
     await tester.pump();
-    expect(store.lastFilter, const BridgeHistoryFilter.scenario(11));
+    expect(store.filters, contains(const BridgeHistoryFilter.scenario(11)));
     expect(
       find.byKey(const Key('settings-history-rectified:1')),
       findsOneWidget,
@@ -1739,7 +1757,7 @@ void main() {
     // And 全部 brings everything back.
     await tester.tap(find.byKey(const Key('settings-history-filter:all')));
     await tester.pump();
-    expect(store.lastFilter, const BridgeHistoryFilter.all());
+    expect(store.filters, contains(const BridgeHistoryFilter.all()));
     expect(
       find.byKey(const Key('settings-history-rectified:1')),
       findsOneWidget,
@@ -1800,7 +1818,7 @@ void main() {
     await tester.tap(find.text('历史'));
     await tester.pump();
     await tester.pump(); // the config load lands
-    expect(store.lastFilter, const BridgeHistoryFilter.all());
+    expect(store.filters, contains(const BridgeHistoryFilter.all()));
     expect(
       find.byKey(const Key('settings-history-rectified:1')),
       findsOneWidget,
@@ -1810,6 +1828,100 @@ void main() {
       findsOneWidget,
     );
   });
+
+  // -- the 真机 round's two fixes (2026-09-22) ------------------------------
+
+  testWidgets('a freshly added scenario offers its filter chip at once', (
+    tester,
+  ) async {
+    // The empty library hides the row (established above); what the
+    // round hit was the library staying unaddressable after the editor
+    // minted new rows — the saved model carried null ids until a
+    // window reopen. The save must re-read the store.
+    final store = FakeScenarioStore();
+    await pumpSettings(
+      tester,
+      store: store,
+      historyStore: FakeHistorySettingsStore(entries: _historyEntries),
+      domain: SettingsDomain.scenarios,
+    );
+
+    await tester.tap(find.byKey(const Key('settings-scenario-new')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('settings-scenario-name-field')),
+      '论文',
+    );
+    await tester.enterText(
+      find.byKey(const Key('settings-scenario-directive-field')),
+      '学术书面语',
+    );
+    await tester.tap(find.byKey(const Key('settings-scenario-save')));
+    await tester.pump();
+
+    await tester.tap(find.text('历史'));
+    await tester.pump();
+    await tester.pump(); // the config load lands
+
+    expect(
+      find.byKey(const Key('settings-history-filter:all')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('settings-history-filter:scenario:论文')),
+      findsOneWidget,
+      reason: 'the saved row carries its minted id, no reopen needed',
+    );
+  });
+
+  testWidgets(
+    'the clear confirmation counts the whole library, not the filter',
+    (tester) async {
+      final store = FakeHistorySettingsStore(entries: _historyEntries);
+      await pumpSettings(
+        tester,
+        store: FakeScenarioStore(_seededWithIds),
+        historyStore: store,
+        domain: SettingsDomain.history,
+      );
+
+      // 默认 shows one of the two rows the library holds.
+      await tester.tap(find.byKey(const Key('settings-history-filter:default')));
+      await tester.pump();
+      expect(
+        find.byKey(const Key('settings-history-rectified:1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('settings-history-rectified:2')),
+        findsOneWidget,
+      );
+
+      // The confirmation counts what clear deletes — everything, the
+      // tray's same blast radius — never the filtered view.
+      await tester.tap(find.byKey(const Key('settings-history-clear')));
+      await tester.pump();
+      expect(find.text('2 条历史将被永久删除。'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const Key('settings-history-confirm-cancel')),
+      );
+      await tester.pump();
+
+      // And a filter whose slice is empty still offers the clear: the
+      // library is not (聊天 holds neither row).
+      await tester.tap(
+        find.byKey(const Key('settings-history-filter:scenario:聊天')),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('settings-history-empty')), findsOneWidget);
+      expect(
+        tester
+            .widget<SrButton>(find.byKey(const Key('settings-history-clear')))
+            .onTap,
+        isNotNull,
+      );
+    },
+  );
 
   testWidgets('enabling keep-nothing confirms, then clears everything', (
     tester,
