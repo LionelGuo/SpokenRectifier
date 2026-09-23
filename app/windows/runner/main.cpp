@@ -2,6 +2,8 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
+#include <cstdio>
+
 #include <desktop_multi_window/desktop_multi_window_plugin.h>
 #include <screen_retriever_windows/screen_retriever_windows_plugin_c_api.h>
 #include <window_manager/window_manager_plugin.h>
@@ -35,7 +37,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
-  if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
+  if (::AttachConsole(ATTACH_PARENT_PROCESS)) {
+    // Attaching alone is not enough: a GUI-subsystem process is born
+    // without std handles, so the CRT's stdout still points nowhere and
+    // every Dart-side print vanishes. Reopen the streams onto the
+    // attached console: an ordinary terminal run must show the
+    // [sr-perf] / [sr-error] lines (07).
+    FILE *unused;
+    freopen_s(&unused, "CONOUT$", "w", stdout);
+    freopen_s(&unused, "CONOUT$", "w", stderr);
+  } else if (::IsDebuggerPresent()) {
     CreateAndAttachConsole();
   }
 
