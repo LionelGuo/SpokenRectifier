@@ -305,6 +305,7 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       stored = await widget.store.save(next);
     } catch (e) {
       logRawError('err_scenario_save', e);
+      if (!mounted) return false;
       SrToast.of(_toastContext).show('保存失败', tone: SrToastTone.error);
       return false;
     }

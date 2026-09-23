@@ -29,7 +29,7 @@ import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/hotkey_binding.dart';
 import 'package:spokenrectifier_app/src/design/controls.dart' show SrButton;
 import 'package:spokenrectifier_app/src/design/tokens.dart'
-    show SrMotion, SrPalette, SrRadius, SrType;
+    show SrMotion, SrPalette, SrType;
 import 'package:spokenrectifier_app/src/settings/settings_fidelity_pane.dart'
     show SettingsFidelityPane;
 import 'package:spokenrectifier_app/src/rust/api/eval.dart'
