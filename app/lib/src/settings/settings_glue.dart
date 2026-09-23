@@ -32,13 +32,23 @@ import 'settings_channel.dart' show settingsToMainChannel;
 import 'settings_domain.dart';
 
 /// Owns the settings window from the main engine.
+///
+/// Engine residency follows ADR-0024: the first engine boots shortly
+/// after startup, a close re-arms behind a panel guard, long idle
+/// retires, and the quick panel's quiet reveal re-arms after a
+/// retirement — every birth dodges panel gestures, every open in an
+/// active window rides a booted engine.
 class DesktopSettingsWindow {
   DesktopSettingsWindow(
     this._controller, {
     Stream<void>? windowsChanged,
+    this.initialPrewarmDelay = const Duration(seconds: 10),
     this.prewarmArmDelay = Duration.zero,
+    this.prewarmRearmDelay = const Duration(seconds: 3),
+    this.prewarmRetireDelay = const Duration(minutes: 10),
   }) : _windowsChanged = windowsChanged ?? onWindowsChanged {
     _windowsChanged.listen((_) => _pruneWindow());
+    _controller.addListener(_onControllerChanged);
   }
 
   final SpeechController _controller;
@@ -47,12 +57,25 @@ class DesktopSettingsWindow {
   /// prune path is testable without a native window actually dying).
   final Stream<void> _windowsChanged;
 
-  /// How long after an arm call before the boot fires — zero by
-  /// default: the quiet window that keeps the boot off the quick
+  /// When the first engine boots after startup (08 号票's timing): the
+  /// shell has settled and no panel gesture is around.
+  final Duration initialPrewarmDelay;
+
+  /// How long after the panel's arm call before the boot fires — zero
+  /// by default: the quiet window that keeps the boot off the quick
   /// panel's gestures lives with the signal's source (the panel's
-  /// reveal-arm, 16 号票), and this timer is only the debounce for
-  /// repeated arms. Injectable so tests can widen it.
+  /// reveal-arm, 16 号票).
   final Duration prewarmArmDelay;
+
+  /// How long after a settings window's death before the next engine
+  /// stands ready — the repeat-tweaker's warmth (repeat opens within a
+  /// tuning burst ride a booted engine).
+  final Duration prewarmRearmDelay;
+
+  /// How long an engine may stand hidden and unopened before it
+  /// retires, handing its residency back (ADR-0024): the idle cost is
+  /// only paid inside active windows of use.
+  final Duration prewarmRetireDelay;
 
   WindowController? _window;
   ThemeMode? _lastTheme;
@@ -60,9 +83,32 @@ class DesktopSettingsWindow {
   bool? _lastOrbVisible;
   Timer? _prewarmTimer;
 
+  /// The idle retirement's clock, armed at every (re)birth and reset by
+  /// a reveal or an open — warmth must not evaporate on the way to a
+  /// click.
+  Timer? _retireTimer;
+
   /// Set by the exit chain's [close]: the prunes it drives must not
   /// re-arm the prewarm and resurrect a window on the way out.
   bool _closing = false;
+
+  /// Set by the retirement: the prune its close drives must not re-arm
+  /// either — the retirement is the one death that stays dead until a
+  /// panel reveal asks for warmth again.
+  bool _retiring = false;
+
+  /// A scheduled birth found the quick panel standing open (Q4's
+  /// invariant): it waits for the collapse, then re-arms.
+  bool _deferredBehindPanel = false;
+
+  /// The quick panel collapsed — a birth deferred behind it re-arms
+  /// now (the controller notifies on every quickOpen flip; only the
+  /// falling edge matters).
+  void _onControllerChanged() {
+    if (_controller.quickOpen || !_deferredBehindPanel) return;
+    _deferredBehindPanel = false;
+    _schedulePrewarm(prewarmRearmDelay);
+  }
 
   /// Opens run one at a time, in click order. A create takes a whole
   /// sub-engine (hundreds of milliseconds), so concurrent opens would
@@ -88,6 +134,11 @@ class DesktopSettingsWindow {
 
   Future<void> _open(SettingsDomain domain) async {
     final watch = Stopwatch()..start();
+    // A window about to be shown is the opposite of idle: the
+    // retirement clock stops here and restarts only at the next
+    // (re)birth after the eventual close (ADR-0024).
+    _retireTimer?.cancel();
+    _retireTimer = null;
     final existing = _window;
     if (existing != null) {
       if (await _navigateExisting(existing, domain)) {
@@ -136,22 +187,35 @@ class DesktopSettingsWindow {
     ),
   );
 
-  /// Arm the prewarm (08 号票; policy re-aimed in 16 号票): boot the
-  /// settings sub-engine hidden in the background so an open is a
-  /// navigate-and-show over a booted engine instead of a whole cold
-  /// start. The arm signal is the quick panel standing open — the only
-  /// doorway to settings — not startup and not a close: every sub-engine
-  /// death leaks GPU memory the driver never reclaims (16 号票's
-  /// measurement), so engines are born only where a settings open is
-  /// plausibly minutes away, and never automatically after a close.
-  /// [prewarmArmDelay] after the arm call, the boot fires.
-  void armPrewarm() => _schedulePrewarm(prewarmArmDelay);
+  /// Boot the first engine [initialPrewarmDelay] after startup: the
+  /// jank-free window (the shell has settled; the panel, the only
+  /// gesture surface, is not around). Guarded like every uninvited
+  /// birth — a panel already standing defers it past its collapse.
+  void armStartup() => _schedulePrewarm(initialPrewarmDelay);
 
-  void _schedulePrewarm(Duration delay) {
+  /// The quick panel stood open and went quiet — the fallback arm (16
+  /// 号票, kept per ADR-0024): after a retirement (or anything else
+  /// that left the app engine-less) this is what re-arms, so the
+  /// post-retire open rides a boot that already started instead of a
+  /// full cold start. A reveal also pushes an idle engine's retirement
+  /// out: warmth must not evaporate on the way to a click.
+  void armPrewarm() {
+    if (_window != null) _resetRetireTimer();
+    _schedulePrewarm(prewarmArmDelay, panelSanctioned: true);
+  }
+
+  /// [panelSanctioned] marks the one birth the panel itself invited
+  /// (its quiet window already cleared the gestures); every other
+  /// birth found the panel standing open defers behind its collapse.
+  void _schedulePrewarm(Duration delay, {bool panelSanctioned = false}) {
     if (_closing) return;
     _prewarmTimer?.cancel();
     _prewarmTimer = Timer(delay, () {
       _prewarmTimer = null;
+      if (!panelSanctioned && _controller.quickOpen) {
+        _deferredBehindPanel = true;
+        return;
+      }
       // The boot window's opening edge (16 号票 排查轮): the sub side's
       // entry/frame stamps close it, and the frame log in between tells
       // whether a jank cluster is the boot's or something else's.
@@ -183,6 +247,42 @@ class DesktopSettingsWindow {
     // sub's own settings_frame RSS stamp is the settled second-engine
     // cost — this one just anchors the before.
     logPerfMem('prewarm_created');
+    // Every (re)birth restarts the retirement clock (ADR-0024).
+    _resetRetireTimer();
+  }
+
+  /// (Re)arm the retirement: [prewarmRetireDelay] of standing hidden
+  /// and unopened hands the residency back.
+  void _resetRetireTimer() {
+    _retireTimer?.cancel();
+    _retireTimer = Timer(prewarmRetireDelay, () {
+      _retireTimer = null;
+      unawaited(_retire());
+    });
+  }
+
+  /// The idle retirement (ADR-0024): close the hidden engine so its
+  /// ~184MB residency leaves with it. The one death that must NOT
+  /// re-arm — the app stays engine-less until a reveal asks for warmth
+  /// again (each death leaks ~65MB of GPU the driver keeps; the
+  /// retirement pays it once per idle period, which the math of 16 号票's
+  /// correction says is the good trade).
+  Future<void> _retire() async {
+    final window = _window;
+    if (window == null || _closing) return;
+    if (_controller.quickOpen) {
+      // The panel stood open for the whole idle window: someone may be
+      // heading for a settings row — keep the warmth, restart the clock.
+      _resetRetireTimer();
+      return;
+    }
+    _retiring = true;
+    logPerfStamp('prewarm_retire');
+    try {
+      await window.invokeMethod('close', null);
+    } catch (_) {
+      // Already gone: the windows-changed prune is the authority.
+    }
   }
 
   /// Navigate the open window to [domain] and bring it back. False
@@ -345,9 +445,13 @@ class DesktopSettingsWindow {
     // leave the product chords unregistered — map 06: closing the
     // settings window ends capture and re-hangs from the file.
     unawaited(_controller.setHotkeysPaused(false));
-    // No re-arm here (16 号票): a sub-engine's death leaks GPU memory,
-    // so nothing respawns one on its own — the next quick-panel reveal
-    // arms the next boot, where a settings open is plausibly close.
+    // Re-arm behind the panel guard (ADR-0024): the repeat tweaker's
+    // next open rides a booted engine — unless this death is the exit
+    // chain's or the retirement's own, which stay dead.
+    final retiring = _retiring;
+    _retiring = false;
+    if (_closing || retiring) return;
+    _schedulePrewarm(prewarmRearmDelay);
   }
 
   /// Close the settings window through the proper chain, ahead of the
@@ -361,9 +465,11 @@ class DesktopSettingsWindow {
   /// exit forever.
   Future<void> close() async {
     // The exit chain: nothing this side does from here on may spawn a
-    // replacement window (the prunes below re-arm the prewarm).
+    // replacement window (the prunes and timers below re-arm).
     _closing = true;
     _prewarmTimer?.cancel();
+    _retireTimer?.cancel();
+    _deferredBehindPanel = false;
     // Wait out an in-flight open first: a create resolving after this
     // returns would leave a live window riding into process exit (the
     // frozen-linger family, small-fix 08).

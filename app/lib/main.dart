@@ -219,10 +219,8 @@ Future<void> main(List<String> args) async {
       stageWindow: const WindowManagerStageWindow(),
       onOpenSettings: settingsWindow.open,
       closeSettings: settingsWindow.close,
-      // The prewarm's arm signal (16 号票): the quick panel standing
-      // open is the one doorway to settings — no boot-time arm, no
-      // post-close rearm, both of which cycled sub-engines and each
-      // cycle leaks GPU memory the driver never reclaims.
+      // The fallback arm (ADR-0024): a reveal after a retirement
+      // re-arms behind its own quiet window.
       onPanelRevealed: settingsWindow.armPrewarm,
     ),
   );
@@ -232,6 +230,12 @@ Future<void> main(List<String> args) async {
   WidgetsBinding.instance.addPostFrameCallback(
     (_) => logPerfMem('main_frame'),
   );
+
+  // The first settings engine boots [initialPrewarmDelay] after
+  // startup (08 号票's timing, restored by ADR-0024): the jank-free
+  // window — no panel gesture is around, and the guard defers it past
+  // any panel that beat the clock.
+  settingsWindow.armStartup();
 }
 
 /// The settings window's engine entry: a standard OS window (title bar,
