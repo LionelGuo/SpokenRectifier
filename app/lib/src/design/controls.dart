@@ -77,6 +77,11 @@ class SrButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     final enabled = onTap != null;
+    // The dense in-field form corners concentrically with its field
+    // (35 号 真机回音); every other shape keeps the control radius.
+    final radius = BorderRadius.circular(
+      dense ? _fieldCornerRadius : SrRadius.control,
+    );
     return SrHover(
       builder: (hover) => SrPress(
         builder: (pressed) => GestureDetector(
@@ -87,7 +92,7 @@ class SrButton extends StatelessWidget {
             // inside, it would only cover the inner content and read
             // narrower than the button card (26 号票 真机 round).
             pressed: pressed && enabled,
-            radius: BorderRadius.circular(SrRadius.control),
+            radius: radius,
             child: AnimatedContainer(
               duration: SrMotion.fade,
               curve: SrMotion.curveFade,
@@ -104,8 +109,15 @@ class SrButton extends StatelessWidget {
                     : pal.surfaceOverlay.withValues(
                         alpha: hover && enabled ? 1 : 0,
                       ),
-                borderRadius: BorderRadius.circular(SrRadius.control),
-                border: primary ? null : Border.all(color: pal.hairline),
+                borderRadius: radius,
+                // The border slot is RESERVED in both states (35 号 真机
+                // 回音): a null border in primary made the lit button 2px
+                // smaller than the resting ghost, so the dirty flip
+                // changed the button's size. Transparent keeps the box
+                // identical; only the paint moves.
+                border: Border.all(
+                  color: primary ? const Color(0x00000000) : pal.hairline,
+                ),
               ),
               child: Text(
                 label,
@@ -151,7 +163,14 @@ class SrCard extends StatelessWidget {
 /// The in-field corner button's inset from the field box's edge (35
 /// 号票): right and bottom ride the SAME constant — the hard rule is
 /// that the two gaps stay strictly equal, so they share one number.
-const double _fieldCornerInset = 4;
+/// The eye measures an edge-to-edge gap of 4 (this 3px inset plus the
+/// 1px the field's Border.all insets the child origin).
+const double _fieldCornerInset = 3;
+
+/// The corner button's own radius — concentric with the field's
+/// corner (35 号 真机回音): button radius + gap = field radius, so the
+/// two arcs share one center (2 + 4 = 6).
+const double _fieldCornerRadius = SrRadius.control - _fieldCornerInset - 1;
 
 /// The text's bottom floor when a corner button owns the pocket: the
 /// input's own padding grows by this so a full box never slides a line

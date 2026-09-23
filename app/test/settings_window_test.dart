@@ -29,7 +29,7 @@ import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/hotkey_binding.dart';
 import 'package:spokenrectifier_app/src/design/controls.dart' show SrButton;
 import 'package:spokenrectifier_app/src/design/tokens.dart'
-    show SrMotion, SrPalette, SrType;
+    show SrMotion, SrPalette, SrRadius, SrType;
 import 'package:spokenrectifier_app/src/settings/settings_fidelity_pane.dart'
     show SettingsFidelityPane;
 import 'package:spokenrectifier_app/src/rust/api.dart'
@@ -2611,12 +2611,49 @@ void main() {
         final rightGap = fieldRect.right - saveRect.right;
         final bottomGap = fieldRect.bottom - saveRect.bottom;
         // The hard rule (35 号票): the right and bottom gaps are
-        // strictly equal — one constant feeds both edges. The 5 = the
-        // Border.all insetting the child origin by 1px (the 19 号票
-        // gotcha) plus the 4px inset; strokes-to-stroke it reads 4.
+        // strictly equal — one constant feeds both edges. The 4 = the
+        // 3px inset plus the 1px the field's Border.all insets the
+        // child origin (the 19 号票 gotcha).
         expect((rightGap - bottomGap).abs(), lessThan(0.01));
-        expect(rightGap, moreOrLessEquals(5, epsilon: 0.5));
+        expect(rightGap, moreOrLessEquals(4, epsilon: 0.5));
         expect(saveRect.top, greaterThan(fieldRect.top)); // inside the box
+        // Concentric corners (35 号 真机回音): button radius + gap =
+        // field radius (2 + 4 = 6), so the two arcs share one center.
+        // The button's is the only decoration-bearing AnimatedContainer
+        // in the field subtree (SrPressFill's carries none).
+        final box =
+            tester
+                .widget<Container>(
+                  find
+                      .descendant(
+                        of: find.byKey(fieldKey),
+                        matching: find.byType(Container),
+                      )
+                      .first,
+                )
+                .decoration!
+                as BoxDecoration;
+        final button =
+            tester
+                .widget<AnimatedContainer>(
+                  find
+                      .descendant(
+                        of: find.byKey(fieldKey),
+                        matching: find.byWidgetPredicate(
+                          (w) =>
+                              w is AnimatedContainer &&
+                              w.decoration is BoxDecoration,
+                        ),
+                      )
+                      .first,
+                )
+                .decoration!
+                as BoxDecoration;
+        expect(box.borderRadius, BorderRadius.circular(SrRadius.control));
+        expect(
+          button.borderRadius,
+          BorderRadius.circular(SrRadius.control - 4),
+        );
       }
 
       await scrollRectifyTo(tester, const Key('settings-rectify-light-extra'));
@@ -4648,8 +4685,8 @@ void main() {
     // The global card's save rides the field box's bottom-right corner
     // (35 号票): a field-scoped button lives inside its field, with the
     // right and bottom gaps strictly equal (one shared constant). The
-    // 5 = Border.all insetting the child origin by 1px (the 19 号票
-    // gotcha) plus the 4px inset.
+    // 4 = the 3px inset plus the 1px the field's Border.all insets the
+    // child origin (the 19 号票 gotcha).
     final fieldRect = tester.getRect(
       find.byKey(const Key('settings-global-field')),
     );
@@ -4659,8 +4696,30 @@ void main() {
     final rightGap = fieldRect.right - saveRect.right;
     final bottomGap = fieldRect.bottom - saveRect.bottom;
     expect((rightGap - bottomGap).abs(), lessThan(0.01));
-    expect(rightGap, moreOrLessEquals(5, epsilon: 0.5));
+    expect(rightGap, moreOrLessEquals(4, epsilon: 0.5));
     expect(saveRect.top, greaterThan(fieldRect.top)); // inside the box
+
+    // One box for both states (35 号 真机回音): the ghost→accent flip on
+    // dirty must not change the button's size, and the pinned corner
+    // gaps stay where they were.
+    await tester.enterText(
+      find.byKey(const Key('settings-global-field')),
+      '新的全局指令',
+    );
+    await tester.pump();
+    final litRect = tester.getRect(
+      find.byKey(const Key('settings-global-save')),
+    );
+    expect(litRect.width, moreOrLessEquals(saveRect.width, epsilon: 0.01));
+    expect(litRect.height, moreOrLessEquals(saveRect.height, epsilon: 0.01));
+    expect(
+      fieldRect.right - litRect.right,
+      moreOrLessEquals(rightGap, epsilon: 0.01),
+    );
+    expect(
+      fieldRect.bottom - litRect.bottom,
+      moreOrLessEquals(bottomGap, epsilon: 0.01),
+    );
   });
 
   // -----------------------------------------------------------------------
