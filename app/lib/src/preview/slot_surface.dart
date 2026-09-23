@@ -2980,7 +2980,7 @@ class _StreamCapsulesPainter extends CustomPainter {
       );
       final digits = TextPainter(
         text: TextSpan(
-          text: '${entry.key}',
+          text: '${entry.key.id}',
           style: SrType.micro.copyWith(
             color: pal.accentText.withValues(
               alpha: pal.accentText.a * alpha,
