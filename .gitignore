@@ -12,3 +12,26 @@ spokenrectifier-terms.txt
 
 # Personal scenario library (named style directives; app-owned file)
 spokenrectifier-scenarios.toml
+
+# Claude Code workflow + agent scratch (belt over .git/info/exclude suspenders)
+.claude/
+CLAUDE.md
+docs/agents/
+.scratch/
+
+# Sandcastle runner (contains a real .env locally)
+.sandcastle/
+
+# Course-design materials contain personal identity info — keep local
+docs/course_design/
+
+# Env files never belong in git
+.env
+.env.*
+
+# Node tooling
+node_modules/
+
+# Generalise the two named dev databases
+*.db
+
