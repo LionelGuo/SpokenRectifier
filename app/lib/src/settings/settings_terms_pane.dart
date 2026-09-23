@@ -200,8 +200,11 @@ class _TermRow extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
+                  // Body size (真机回音 2026-09-23): the term is the row's
+                  // own content, not chrome — it matches what the rename
+                  // field would show it at.
                   term,
-                  style: SrType.micro.copyWith(color: pal.textSecondary),
+                  style: SrType.body.copyWith(color: pal.textSecondary),
                 ),
               ),
               IgnorePointer(

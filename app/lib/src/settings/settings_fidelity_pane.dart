@@ -56,7 +56,7 @@ class _IdleCard extends StatelessWidget {
         children: [
           Text(
             '对内置样例进行一轮完整修正，检查是否忠实于原意。',
-            style: SrType.micro.copyWith(color: pal.textTertiary),
+            style: SrType.subhead.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 10),
           Text(

@@ -258,7 +258,10 @@ class SrField extends StatelessWidget {
               focusedBorder: InputBorder.none,
               enabledBorder: InputBorder.none,
               hintText: hint,
-              hintStyle: SrType.micro.copyWith(color: pal.textTertiary),
+              // The placeholder matches the input's own size (真机回音
+              // 2026-09-23): micro read as a second-class citizen beside
+              // the text it previews. Color stays tertiary.
+              hintStyle: SrType.body.copyWith(color: pal.textTertiary),
               contentPadding: EdgeInsets.zero,
             ),
           ),

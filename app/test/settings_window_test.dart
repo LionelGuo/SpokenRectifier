@@ -4295,9 +4295,9 @@ void main() {
       '轻修额外指令',
       SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
     );
-    // The placeholder rides the small tier through SrField's own
-    // default (the 33 号 double flip — the pilot's hintStyle override
-    // is gone).
+    // The placeholder rides the INPUT's own size through SrField's
+    // default (真机回音 2026-09-23: micro read too small beside the text
+    // it previews); the pilot's hintStyle override is gone either way.
     TextField lightExtra() => tester.widget<TextField>(
       find
           .descendant(
@@ -4308,7 +4308,7 @@ void main() {
     );
     expect(
       lightExtra().decoration?.hintStyle?.fontSize,
-      SrType.micro.fontSize,
+      SrType.body.fontSize,
     );
     expect(
       lightExtra().decoration?.hintStyle?.color,
@@ -4336,20 +4336,21 @@ void main() {
     );
     expect(
       quickExtra().decoration?.hintStyle?.fontSize,
-      SrType.micro.fontSize,
+      SrType.body.fontSize,
     );
     expect(
       quickExtra().decoration?.hintStyle?.color,
       SrPalette.light.textTertiary,
     );
 
-    // 评测: both entry lines flatten to the micro tier (33 号).
+    // 评测: the entry card's first line rides the in-card title tier,
+    // the second stays micro (真机回音 2026-09-23).
     await tester.tap(find.text('评测'));
     await tester.pump();
     expectLadder(
       tester,
       '对内置样例进行一轮完整修正，检查是否忠实于原意。',
-      SrType.micro.copyWith(color: SrPalette.light.textTertiary),
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
     );
     expectLadder(
       tester,
@@ -4458,6 +4459,15 @@ void main() {
         await tester.pump();
       }
       await tester.pump(); // the pane's load lands
+      if (domain == SettingsDomain.terms) {
+        // Body size (真机回音 2026-09-23): the term is the row's own
+        // content, not chrome.
+        expectLadder(
+          tester,
+          '术语样例',
+          SrType.body.copyWith(color: SrPalette.light.textSecondary),
+        );
+      }
       walk(domain.label);
     }
 
