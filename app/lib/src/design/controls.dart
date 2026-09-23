@@ -77,8 +77,8 @@ class SrButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     final enabled = onTap != null;
-    // The dense in-field form corners concentrically with its field
-    // (35 号 真机回音); every other shape keeps the control radius.
+    // The dense in-field form rides its own gentler radius (35 号
+    // 真机二轮); every other shape keeps the control radius.
     final radius = BorderRadius.circular(
       dense ? _fieldCornerRadius : SrRadius.control,
     );
@@ -167,10 +167,12 @@ class SrCard extends StatelessWidget {
 /// 1px the field's Border.all insets the child origin).
 const double _fieldCornerInset = 3;
 
-/// The corner button's own radius — concentric with the field's
-/// corner (35 号 真机回音): button radius + gap = field radius, so the
-/// two arcs share one center (2 + 4 = 6).
-const double _fieldCornerRadius = SrRadius.control - _fieldCornerInset - 1;
+/// The corner button's own radius (35 号 真机二轮裁定,prototype
+/// 看样): a uniform 4 on all four corners — the strictly concentric 2
+/// (r + gap = field's 6) read too square. 4 keeps the button round
+/// and one-radius; the diagonal gap breathes only ~0.8px wider than
+/// the axis gap (4), invisible at rest.
+const double _fieldCornerRadius = 4;
 
 /// The text's bottom floor when a corner button owns the pocket: the
 /// input's own padding grows by this so a full box never slides a line

@@ -2617,22 +2617,11 @@ void main() {
         expect((rightGap - bottomGap).abs(), lessThan(0.01));
         expect(rightGap, moreOrLessEquals(4, epsilon: 0.5));
         expect(saveRect.top, greaterThan(fieldRect.top)); // inside the box
-        // Concentric corners (35 号 真机回音): button radius + gap =
-        // field radius (2 + 4 = 6), so the two arcs share one center.
-        // The button's is the only decoration-bearing AnimatedContainer
-        // in the field subtree (SrPressFill's carries none).
-        final box =
-            tester
-                .widget<Container>(
-                  find
-                      .descendant(
-                        of: find.byKey(fieldKey),
-                        matching: find.byType(Container),
-                      )
-                      .first,
-                )
-                .decoration!
-                as BoxDecoration;
+        // One radius on all four button corners (35 号 真机二轮裁定):
+        // the uniform 4 — the strictly concentric 2 read too square,
+        // and the ~0.8px diagonal breathing 4 buys is invisible. The
+        // button's is the only decoration-bearing AnimatedContainer in
+        // the field subtree (SrPressFill's carries none).
         final button =
             tester
                 .widget<AnimatedContainer>(
@@ -2649,11 +2638,7 @@ void main() {
                 )
                 .decoration!
                 as BoxDecoration;
-        expect(box.borderRadius, BorderRadius.circular(SrRadius.control));
-        expect(
-          button.borderRadius,
-          BorderRadius.circular(SrRadius.control - 4),
-        );
+        expect(button.borderRadius, BorderRadius.circular(4));
       }
 
       await scrollRectifyTo(tester, const Key('settings-rectify-light-extra'));
