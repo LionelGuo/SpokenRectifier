@@ -184,6 +184,7 @@ class SrField extends StatelessWidget {
     required this.controller,
     this.label,
     this.hint,
+    this.hintStyle,
     this.obscure = false,
     this.monospace = false,
     this.onSubmitted,
@@ -195,6 +196,11 @@ class SrField extends StatelessWidget {
   final TextEditingController controller;
   final String? label;
   final String? hint;
+
+  /// Overrides the hint's tier; null keeps the control default. The
+  /// 修正 pane's five-tier pilot (32 号票) hands its hints the micro
+  /// tier until the ladder goes app-wide.
+  final TextStyle? hintStyle;
   final bool obscure;
   final bool monospace;
   final ValueChanged<String>? onSubmitted;
@@ -252,7 +258,8 @@ class SrField extends StatelessWidget {
               focusedBorder: InputBorder.none,
               enabledBorder: InputBorder.none,
               hintText: hint,
-              hintStyle: SrType.body.copyWith(color: pal.textTertiary),
+              hintStyle:
+                  hintStyle ?? SrType.body.copyWith(color: pal.textTertiary),
               contentPadding: EdgeInsets.zero,
             ),
           ),

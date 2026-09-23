@@ -976,6 +976,19 @@ void expectLadder(WidgetTester tester, String text, TextStyle tier) {
   expect(painted.color, tier.color, reason: text);
 }
 
+/// 32 号票: the same tier check over EVERY widget painting the text —
+/// the pane repeats 思考策略 on both cards, and the lazy list holds
+/// whichever copies the scroll has built.
+void expectLadderEvery(String text, TextStyle tier) {
+  final painted = find.text(text).evaluate();
+  expect(painted, isNotEmpty, reason: text);
+  for (final element in painted) {
+    final style = (element.widget as Text).style!;
+    expect(style.fontSize, tier.fontSize, reason: text);
+    expect(style.color, tier.color, reason: text);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The shell
 // ---------------------------------------------------------------------------
@@ -2411,6 +2424,13 @@ void main() {
           contains('暂不可选'),
           reason: '$state: the light card must say the same',
         );
+        // The note rides the small tier (32 号票) — same shape as the
+        // switch subtitles, only its key and placement differ.
+        final note = tester.widget<Text>(
+          find.byKey(const Key('settings-rectify-full-thinking-off')),
+        );
+        expect(note.style?.fontSize, SrType.micro.fontSize);
+        expect(note.style?.color, SrPalette.light.textTertiary);
 
         // The chips answer no tap: the model never moves.
         await tester.tap(
@@ -2457,6 +2477,13 @@ void main() {
       find.byKey(const Key('settings-rectify-full-warning')),
       findsOneWidget,
     );
+    // The warning rides the small tier in the live tone (32 号票): size
+    // flattens with every other small line, color stays semantic.
+    final warning = tester.widget<Text>(
+      find.byKey(const Key('settings-rectify-full-warning')),
+    );
+    expect(warning.style?.fontSize, SrType.micro.fontSize);
+    expect(warning.style?.color, SrPalette.light.live);
     await tester.tap(
       find.byKey(const Key('settings-rectify-full-policy:always')),
     );
@@ -4193,7 +4220,7 @@ void main() {
     );
   });
 
-  testWidgets('card-head captions and warnings ride the ladder tiers', (
+  testWidgets('card heads ride their tiers; the 修正 pilot flattens', (
     tester,
   ) async {
     final store = FakeRectifyBehaviorStore();
@@ -4203,23 +4230,92 @@ void main() {
       domain: SettingsDomain.rectify,
     );
     await tester.pump();
-    // 修正三卡头说明 → caption + textSecondary.
+    // 修正 (32 号票 five-tier pilot): the card heads ride the SAME micro
+    // tier as every other small line — only titles stand above it.
     expectLadder(
       tester,
       '对输入文本进行标准的语义过滤及篇章重组',
-      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+      SrType.micro.copyWith(color: SrPalette.light.textTertiary),
     );
     expectLadder(
       tester,
       '仅去除口头语，保留句式结构与措辞',
-      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+      SrType.micro.copyWith(color: SrPalette.light.textTertiary),
+    );
+    // The field-group labels ride the in-card TITLE tier — the full
+    // card's 思考策略 above the fold first.
+    expectLadderEvery(
+      '思考策略',
+      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+    );
+    await scrollRectifyTo(
+      tester,
+      const Key('settings-rectify-light-threshold'),
+    );
+    await tester.pump();
+    expectLadder(
+      tester,
+      '轻修字数阈值',
+      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+    );
+    // The light card's own 思考策略, now in view below the threshold.
+    expectLadderEvery(
+      '思考策略',
+      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+    );
+    await scrollRectifyTo(tester, const Key('settings-rectify-light-extra'));
+    await tester.pump();
+    expectLadder(
+      tester,
+      '轻修额外指令',
+      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+    );
+    // The placeholder rides the small tier too (SrField's hintStyle
+    // override — the control default stays body until the ladder goes
+    // app-wide).
+    TextField lightExtra() => tester.widget<TextField>(
+      find
+          .descendant(
+            of: find.byKey(const Key('settings-rectify-light-extra')),
+            matching: find.byType(TextField),
+          )
+          .first,
+    );
+    expect(
+      lightExtra().decoration?.hintStyle?.fontSize,
+      SrType.micro.fontSize,
+    );
+    expect(
+      lightExtra().decoration?.hintStyle?.color,
+      SrPalette.light.textTertiary,
     );
     await scrollRectifyTo(tester, const Key('settings-rectify-quick-save'));
     await tester.pump();
     expectLadder(
       tester,
       '开启后，按住主快捷键超过阈值松手即发送',
-      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+      SrType.micro.copyWith(color: SrPalette.light.textTertiary),
+    );
+    expectLadder(
+      tester,
+      '快速额外指令',
+      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+    );
+    TextField quickExtra() => tester.widget<TextField>(
+      find
+          .descendant(
+            of: find.byKey(const Key('settings-rectify-quick-extra')),
+            matching: find.byType(TextField),
+          )
+          .first,
+    );
+    expect(
+      quickExtra().decoration?.hintStyle?.fontSize,
+      SrType.micro.fontSize,
+    );
+    expect(
+      quickExtra().decoration?.hintStyle?.color,
+      SrPalette.light.textTertiary,
     );
 
     // 评测: the idle card's first line steps DOWN to caption (the second

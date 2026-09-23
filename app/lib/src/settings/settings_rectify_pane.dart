@@ -390,12 +390,12 @@ class _FullCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '对输入文本进行标准的语义过滤及篇章重组',
-            style: SrType.caption.copyWith(color: pal.textSecondary),
+            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
           _PrefillRow(value: prefill, onChanged: onPrefill),
           const SizedBox(height: 12),
-          Text('思考策略', style: SrType.micro.copyWith(color: pal.textTertiary)),
+          Text('思考策略', style: SrType.body.copyWith(color: pal.textPrimary)),
           const SizedBox(height: 6),
           _PolicyChips(
             testKey: 'settings-rectify-full-policy',
@@ -408,7 +408,7 @@ class _FullCard extends StatelessWidget {
             Text(
               _thinkingDisabledNote,
               key: const Key('settings-rectify-full-thinking-off'),
-              style: SrType.caption.copyWith(color: pal.textSecondary),
+              style: SrType.micro.copyWith(color: pal.textTertiary),
             ),
           ],
           if (_warns) ...[
@@ -416,7 +416,7 @@ class _FullCard extends StatelessWidget {
             Text(
               _comboWarning,
               key: const Key('settings-rectify-full-warning'),
-              style: SrType.caption.copyWith(color: pal.live),
+              style: SrType.micro.copyWith(color: pal.live),
             ),
           ],
         ],
@@ -475,7 +475,7 @@ class _LightCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '仅去除口头语，保留句式结构与措辞',
-            style: SrType.caption.copyWith(color: pal.textSecondary),
+            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
           Row(
@@ -514,10 +514,17 @@ class _LightCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 32 号票: the label rides the in-card title tier,
+                  // standalone like the extra-directive labels — not
+                  // SrField's own micro label.
+                  Text(
+                    '轻修字数阈值',
+                    style: SrType.body.copyWith(color: pal.textPrimary),
+                  ),
+                  const SizedBox(height: 4),
                   SrField(
                     key: const Key('settings-rectify-light-threshold'),
                     controller: threshold,
-                    label: '轻修字数阈值',
                     monospace: true,
                   ),
                   const SizedBox(height: 12),
@@ -529,7 +536,7 @@ class _LightCard extends StatelessWidget {
                   const SizedBox(height: 12),
                   Text(
                     '思考策略',
-                    style: SrType.micro.copyWith(color: pal.textTertiary),
+                    style: SrType.body.copyWith(color: pal.textPrimary),
                   ),
                   const SizedBox(height: 6),
                   _PolicyChips(
@@ -543,7 +550,7 @@ class _LightCard extends StatelessWidget {
                     Text(
                       _thinkingDisabledNote,
                       key: const Key('settings-rectify-light-thinking-off'),
-                      style: SrType.caption.copyWith(color: pal.textSecondary),
+                      style: SrType.micro.copyWith(color: pal.textTertiary),
                     ),
                   ],
                   if (_warns) ...[
@@ -551,13 +558,13 @@ class _LightCard extends StatelessWidget {
                     Text(
                       _comboWarning,
                       key: const Key('settings-rectify-light-warning'),
-                      style: SrType.caption.copyWith(color: pal.live),
+                      style: SrType.micro.copyWith(color: pal.live),
                     ),
                   ],
                   const SizedBox(height: 12),
                   Text(
                     '轻修额外指令',
-                    style: SrType.caption.copyWith(color: pal.textSecondary),
+                    style: SrType.body.copyWith(color: pal.textPrimary),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -569,6 +576,7 @@ class _LightCard extends StatelessWidget {
                     key: const Key('settings-rectify-light-extra'),
                     controller: extra,
                     hint: '例：保留技术术语原文',
+                    hintStyle: SrType.micro.copyWith(color: pal.textTertiary),
                     minLines: 2,
                     maxLines: 5,
                   ),
@@ -631,7 +639,7 @@ class _QuickCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '开启后，按住主快捷键超过阈值松手即发送',
-            style: SrType.caption.copyWith(color: pal.textSecondary),
+            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
           Row(
@@ -701,8 +709,8 @@ class _QuickCard extends StatelessWidget {
                         children: [
                           Text(
                             '快速额外指令',
-                            style: SrType.caption.copyWith(
-                              color: pal.textSecondary,
+                            style: SrType.body.copyWith(
+                              color: pal.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -717,6 +725,9 @@ class _QuickCard extends StatelessWidget {
                             key: const Key('settings-rectify-quick-extra'),
                             controller: extra,
                             hint: '例：保留技术术语原文',
+                            hintStyle: SrType.micro.copyWith(
+                              color: pal.textTertiary,
+                            ),
                             minLines: 2,
                             maxLines: 5,
                           ),
