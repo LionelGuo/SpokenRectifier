@@ -311,7 +311,7 @@ impl Store {
                 (
                     session_row_id,
                     fill.number as i64,
-                    (!fill.prefill.is_empty()).then(|| fill.prefill.as_str()),
+                    (!fill.prefill.is_empty()).then_some(fill.prefill.as_str()),
                     fill.value.as_str(),
                 ),
             )?;

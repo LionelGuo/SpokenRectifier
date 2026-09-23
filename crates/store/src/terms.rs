@@ -53,14 +53,13 @@ impl Store {
     pub fn remove_term(&self, term: &str) -> Result<(), StoreError> {
         let term = reject_blank(term)?;
         let mut conn = self.connection();
-        let Some(position) = (|| {
-            conn.query_row(
+        let Some(position) = conn
+            .query_row(
                 "SELECT position FROM terms WHERE text = ?",
                 (term,),
                 |row| row.get::<_, i64>(0),
             )
-            .optional()
-        })()?
+            .optional()?
         else {
             return Ok(()); // not present: nothing to do
         };
@@ -121,12 +120,11 @@ pub fn peek_terms(dirs: &[PathBuf]) -> Vec<String> {
         if version < 1 {
             continue;
         }
-        if let Ok(mut stmt) = conn.prepare("SELECT text FROM terms ORDER BY position") {
-            if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
-                if let Ok(terms) = rows.collect::<Result<Vec<_>, _>>() {
-                    return terms;
-                }
-            }
+        if let Ok(mut stmt) = conn.prepare("SELECT text FROM terms ORDER BY position")
+            && let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0))
+            && let Ok(terms) = rows.collect::<Result<Vec<_>, _>>()
+        {
+            return terms;
         }
     }
     // No initialized store anywhere: the dictionary is still a file.

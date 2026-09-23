@@ -329,11 +329,7 @@ fn the_list_filters_by_scenario_scope_through_the_view() {
     assert_eq!(default_register[0].raw_transcript, "无场景原话");
 
     let scenarios = store.list_scenarios();
-    let paper_id = scenarios
-        .iter()
-        .find(|s| s.name == "论文")
-        .unwrap()
-        .id;
+    let paper_id = scenarios.iter().find(|s| s.name == "论文").unwrap().id;
     let paper_rows = store.list(10, ScenarioFilter::Scenario(paper_id));
     assert_eq!(paper_rows.len(), 1);
     assert_eq!(paper_rows[0].raw_transcript, "论文原话");
@@ -341,11 +337,7 @@ fn the_list_filters_by_scenario_scope_through_the_view() {
     // Deleting the scenario (a save that keeps only the other one) folds
     // its rows into the default register (SET NULL, the schema's own
     // semantics) — no orphan bucket.
-    let chat_id = scenarios
-        .iter()
-        .find(|s| s.name == "聊天")
-        .unwrap()
-        .id;
+    let chat_id = scenarios.iter().find(|s| s.name == "聊天").unwrap().id;
     store
         .save_scenarios(&[spokenrectifier_store::ScenarioInput {
             id: Some(chat_id),
@@ -355,7 +347,11 @@ fn the_list_filters_by_scenario_scope_through_the_view() {
         .unwrap();
     let after_delete = store.list(10, ScenarioFilter::DefaultRegister);
     assert_eq!(after_delete.len(), 2);
-    assert!(after_delete.iter().any(|row| row.raw_transcript == "论文原话"));
+    assert!(
+        after_delete
+            .iter()
+            .any(|row| row.raw_transcript == "论文原话")
+    );
     assert!(
         store
             .list(10, ScenarioFilter::Scenario(paper_id))

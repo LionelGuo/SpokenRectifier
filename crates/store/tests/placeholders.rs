@@ -5,7 +5,7 @@
 //! first row) and the CASCADE the deletion semantics ride. Straight SQL
 //! reads the rows back, the same posture as the guard set's tests.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use spokenrectifier_engine::prefill::PlaceholderFill;
@@ -43,7 +43,7 @@ fn fill(number: u32, prefill: &str, value: &str) -> PlaceholderFill {
 
 /// Every placeholders row, ordered by slot — the shape all assertions
 /// read back.
-fn rows(dir: &PathBuf) -> Vec<(i64, i64, Option<String>, String)> {
+fn rows(dir: &Path) -> Vec<(i64, i64, Option<String>, String)> {
     let conn = rusqlite::Connection::open(dir.join(STORE_DB_FILE)).unwrap();
     let mut stmt = conn
         .prepare("SELECT session_id, slot, prefill, filled_value FROM placeholders ORDER BY slot")

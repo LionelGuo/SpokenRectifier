@@ -3,7 +3,7 @@
 //! gate keeps the whole thing to exactly one run — failures leave the
 //! legacy files untouched for the next launch.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -25,7 +25,7 @@ fn scratch(name: &str) -> PathBuf {
 /// A legacy history database with the old four-column schema and the
 /// given rows — including, from one caller, rows the new guards would
 /// refuse.
-fn legacy_history_db(dir: &PathBuf, rows: &[(&str, &str)]) {
+fn legacy_history_db(dir: &Path, rows: &[(&str, &str)]) {
     let conn = rusqlite::Connection::open(dir.join("spokenrectifier-history.db")).unwrap();
     conn.execute(
         "CREATE TABLE sessions (
@@ -47,7 +47,7 @@ fn legacy_history_db(dir: &PathBuf, rows: &[(&str, &str)]) {
     }
 }
 
-fn legacy_trio(dir: &PathBuf) {
+fn legacy_trio(dir: &Path) {
     legacy_history_db(
         dir,
         &[("很早的原话", "很早的成文"), ("后来的原话", "后来的成文")],

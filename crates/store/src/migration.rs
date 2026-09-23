@@ -39,13 +39,13 @@ impl MigrationReport {
     /// inert — log it and move on.
     pub(super) fn delete_legacy_files(&self) {
         for path in &self.legacy_files {
-            if let Err(err) = std::fs::remove_file(path) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!(
-                        "spokenrectifier-store: cannot remove the migrated legacy file {}: {err}",
-                        path.display()
-                    );
-                }
+            if let Err(err) = std::fs::remove_file(path)
+                && err.kind() != std::io::ErrorKind::NotFound
+            {
+                eprintln!(
+                    "spokenrectifier-store: cannot remove the migrated legacy file {}: {err}",
+                    path.display()
+                );
             }
         }
     }

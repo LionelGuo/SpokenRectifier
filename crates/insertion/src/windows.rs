@@ -226,7 +226,12 @@ fn window_belongs_to_us(hwnd: HWND) -> bool {
 /// hit. `EnumWindows` is process-wide but cheap at our window count.
 fn a_visible_subwindow_exists() -> bool {
     let mut found = false;
-    let _ = unsafe { EnumWindows(Some(enum_visible_subwindow), LPARAM(&mut found as *mut bool as isize)) };
+    let _ = unsafe {
+        EnumWindows(
+            Some(enum_visible_subwindow),
+            LPARAM(&mut found as *mut bool as isize),
+        )
+    };
     found
 }
 

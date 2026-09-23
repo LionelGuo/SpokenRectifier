@@ -4,7 +4,7 @@
 //! three foreign keys' delete semantics, and the view the filter will
 //! read. All straight SQL against a real database file.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use spokenrectifier_store::{HistoryConfig, NowMs, STORE_DB_FILE, Store};
@@ -22,7 +22,7 @@ fn scratch(name: &str) -> PathBuf {
 
 /// A direct connection to the store's database with the foreign keys
 /// ON — the same posture every store connection runs with.
-fn raw(dir: &PathBuf) -> rusqlite::Connection {
+fn raw(dir: &Path) -> rusqlite::Connection {
     let conn = rusqlite::Connection::open(dir.join(STORE_DB_FILE)).unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     conn
