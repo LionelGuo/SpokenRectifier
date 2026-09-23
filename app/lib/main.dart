@@ -69,6 +69,10 @@ Future<void> main(List<String> args) async {
   attachPerfLog(uiPrefsSearchDirs());
   logPerfMem('main_entry');
   WidgetsFlutterBinding.ensureInitialized();
+  // The main engine watches its own frames (16 号票 排查轮): slow-frame
+  // clusters in the log attribute the quick-panel scroll jank — boot
+  // window, data loads, or something else — instead of guessing.
+  observeFrameJank();
 
   // Sub-engine entry: desktop_multi_window re-runs main per window with
   // the entrypoint arguments it set natively. The main engine carries

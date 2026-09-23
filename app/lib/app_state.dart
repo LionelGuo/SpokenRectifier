@@ -517,13 +517,15 @@ class SpeechController extends ChangeNotifier {
 
   /// Right click — quick panel, idle only (会话期无右键). The lists the
   /// panel paints refresh as it opens; the shell shows what it has and
-  /// the fresh data lands a moment later.
+  /// the fresh data lands a moment later. The stamps (16 号票 排查轮)
+  /// put the two loads' landings on the same clock as the frame log.
   void orbSecondary() {
     if (phase != BridgeSessionState.idle) return;
+    logPerfStamp('quick_open');
     quickOpen = true;
     notifyListeners();
-    unawaited(loadTerms());
-    unawaited(loadRecentHistory());
+    unawaited(loadTerms().then((_) => logPerfStamp('quick_terms')));
+    unawaited(loadRecentHistory().then((_) => logPerfStamp('quick_history')));
   }
 
   /// Esc is context-sensitive at stage level: close the quick panel

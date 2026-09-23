@@ -14,6 +14,8 @@ library;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/scheduler.dart'
+    show FrameTiming, SchedulerBinding;
 
 /// The record file's name, resolved inside the ui prefs search dirs —
 /// the working directory first, then the exe's directory (dev runs vs a
@@ -59,6 +61,36 @@ void logPerf(String site, Duration elapsed) {
 /// delta only if they share that one number).
 void logPerfMem(String site) {
   _write('[sr-perf][$site] rss=${ProcessInfo.currentRss}B');
+}
+
+/// Formats a timing over [threshold] into a log line, or null when the
+/// frame was fast enough — the testable core of [observeFrameJank].
+String? frameSlowLine(
+  FrameTiming timing, {
+  Duration threshold = const Duration(milliseconds: 32),
+}) {
+  if (timing.buildDuration + timing.rasterDuration <= threshold) {
+    return null;
+  }
+  return '[sr-perf][frame_slow] build '
+      '${timing.buildDuration.inMilliseconds}ms raster '
+      '${timing.rasterDuration.inMilliseconds}ms '
+      '@${DateTime.now().millisecondsSinceEpoch}';
+}
+
+/// Watches the frame pipeline and logs every slow frame's wall clock
+/// (16 号票 排查轮): a jank cluster's position in the log reads against
+/// the arm/boot stamps and the data-load stamps of the same run, which
+/// is how the scroll jank gets attributed instead of guessed. The main
+/// engine attaches this; the settings engine's boot frames are slow by
+/// design and would only add noise.
+void observeFrameJank() {
+  SchedulerBinding.instance.addTimingsCallback((timings) {
+    for (final timing in timings) {
+      final line = frameSlowLine(timing);
+      if (line != null) _write(line);
+    }
+  });
 }
 
 /// Stamps [site] with the wall clock (ms since epoch). The settings

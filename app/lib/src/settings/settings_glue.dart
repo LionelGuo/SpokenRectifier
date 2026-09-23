@@ -152,6 +152,10 @@ class DesktopSettingsWindow {
     _prewarmTimer?.cancel();
     _prewarmTimer = Timer(delay, () {
       _prewarmTimer = null;
+      // The boot window's opening edge (16 号票 排查轮): the sub side's
+      // entry/frame stamps close it, and the frame log in between tells
+      // whether a jank cluster is the boot's or something else's.
+      logPerfStamp('prewarm_arm');
       unawaited(prewarm());
     });
   }

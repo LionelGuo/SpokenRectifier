@@ -7,6 +7,7 @@
 library;
 
 import 'dart:io';
+import 'dart:ui' show FrameTiming;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/src/perf_log.dart';
@@ -84,6 +85,23 @@ void main() {
       // byte counts (the delta between them is the second engine).
       expect(int.parse(match.group(2)!), greaterThan(0));
     }
+  });
+
+  test('a slow frame formats with its durations, a fast one is null', () {
+    FrameTiming frame(int buildUs, int rasterUs) => FrameTiming(
+      vsyncStart: 0,
+      buildStart: 0,
+      buildFinish: buildUs,
+      rasterStart: buildUs,
+      rasterFinish: buildUs + rasterUs,
+      rasterFinishWallTime: buildUs + rasterUs,
+    );
+    final slow = frameSlowLine(frame(25000, 30000)); // 55ms total
+    expect(slow, startsWith('[sr-perf][frame_slow] '));
+    expect(slow, contains('build 25ms'));
+    expect(slow, contains('raster 30ms'));
+    expect(slow, contains('@')); // the wall clock the log aligns by
+    expect(frameSlowLine(frame(8000, 12000)), isNull); // 20ms total
   });
 
   test('nothing writable leaves the seam console-only and quiet', () {
