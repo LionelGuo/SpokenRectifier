@@ -61,6 +61,13 @@ const _clearHistoryKey = 'clear-history';
 const _exitKey = 'exit';
 
 Future<void> main(List<String> args) async {
+  // The perf record attaches at the process's first Dart line (16 号票
+  // moved it here from the controller's birth): the memory stamps along
+  // the boot chain need a file from the very start, and both entry modes
+  // — main engine and settings sub-engine — share this one entry point,
+  // so each run still stamps exactly one header.
+  attachPerfLog(uiPrefsSearchDirs());
+  logPerfMem('main_entry');
   WidgetsFlutterBinding.ensureInitialized();
 
   // Sub-engine entry: desktop_multi_window re-runs main per window with
@@ -130,8 +137,10 @@ Future<void> main(List<String> args) async {
     }
     await windowManager.show();
   });
+  logPerfMem('main_window');
 
   await RustLib.init();
+  logPerfMem('main_rust');
   // The engine must exist before anything subscribes to its event stream:
   // the controller's constructor subscribes immediately, and a subscribe
   // that races engine creation errors out and takes the pending
@@ -148,6 +157,7 @@ Future<void> main(List<String> args) async {
     // problem instead of failing the launch with a dead window.
     startupError = '$e';
   }
+  logPerfMem('main_engine');
   await TrayManager.instance.setIcon('assets/tray_icon.ico');
 
   // The theme rides the app-owned prefs file (missing file = follow the
@@ -207,6 +217,12 @@ Future<void> main(List<String> args) async {
       closeSettings: settingsWindow.close,
     ),
   );
+  // The UI tree's first paint is where the main engine's resident set
+  // stops growing startup-wise (16 号票): shaders warm, raster caches
+  // seat, and everything past this line is runtime traffic.
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => logPerfMem('main_frame'),
+  );
 
   // Prewarm the settings engine once startup has settled (08 号票): an
   // open then rides the booted engine (navigate-and-show) instead of a
@@ -222,11 +238,12 @@ Future<void> main(List<String> args) async {
 /// only carries events).
 Future<void> _runSettingsWindow(SettingsLaunch launch) async {
   // The settings pipeline's numbers (08 号票): this isolate carries its
-  // own copy of the perf seam's globals, so it attaches its own record
-  // handle (the same file — the second run header marks the sub-engine).
+  // own copy of the perf seam's globals; main() already attached the
+  // record file for both entry modes, so the run header above the
+  // sub-engine's lines is the same file's next section.
   final boot = Stopwatch()..start();
-  attachPerfLog(uiPrefsSearchDirs());
   logPerfStamp('settings_entry');
+  logPerfMem('settings_entry');
   await windowManager.ensureInitialized();
   await RustLib.init();
   logPerf('settings_rust', boot.elapsed);
@@ -280,10 +297,12 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
   );
   // The first frame is the window becoming usable: content on screen,
   // not just a shown native surface (08 号票's headline number; while
-  // hidden the engine still paints, so this fires pre-show too).
-  WidgetsBinding.instance.addPostFrameCallback(
-    (_) => logPerf('settings_frame', boot.elapsed),
-  );
+  // hidden the engine still paints, so this fires pre-show too). The
+  // matching RSS stamp is the second engine's full cost, settled.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    logPerf('settings_frame', boot.elapsed);
+    logPerfMem('settings_frame');
+  });
 }
 
 /// Build a plugin [HotKey] for a legal product chord. Null for the

@@ -52,6 +52,15 @@ void logPerf(String site, Duration elapsed) {
   _write('[sr-perf][$site] ${elapsed.inMilliseconds}ms');
 }
 
+/// Stamps [site] with the process's resident set in bytes (16 号票): the
+/// memory pipeline's counterpart to the wall-clock stamp — one process,
+/// one RSS, so a value written from the settings engine's isolate reads
+/// against one from the main engine's (the boot milestones attribute by
+/// delta only if they share that one number).
+void logPerfMem(String site) {
+  _write('[sr-perf][$site] rss=${ProcessInfo.currentRss}B');
+}
+
 /// Stamps [site] with the wall clock (ms since epoch). The settings
 /// pipeline (08 号票) spans TWO engines in one process — the click is
 /// timed in the main isolate, the boot stages in the sub-engine's — and

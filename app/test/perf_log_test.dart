@@ -69,6 +69,23 @@ void main() {
     }
   });
 
+  test('a memory stamp carries the resident set, parseable as bytes', () {
+    final home = dir('memory');
+    attachPerfLog([home.path]);
+    logPerfMem('main_entry');
+    logPerfMem('settings_frame');
+    final lines = File('${home.path}/$perfLogFile').readAsLinesSync();
+    for (final (i, site) in ['main_entry', 'settings_frame'].indexed) {
+      final match = RegExp(
+        r'^\[sr-perf\]\[([\w]+)\] rss=(\d+)B$',
+      ).firstMatch(lines[i + 1])!;
+      expect(match.group(1), site);
+      // The two engines' stamps must be comparable: both parse as plain
+      // byte counts (the delta between them is the second engine).
+      expect(int.parse(match.group(2)!), greaterThan(0));
+    }
+  });
+
   test('nothing writable leaves the seam console-only and quiet', () {
     // A file standing where a directory was claimed: every open fails.
     final blocker = File('${tmp.path}/blocker')..writeAsStringSync('');

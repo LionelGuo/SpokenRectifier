@@ -172,6 +172,10 @@ class DesktopSettingsWindow {
     _lastTheme = _controller.themeMode;
     _lastSelection = _controller.selectedScenario;
     _lastOrbVisible = _controller.orbVisible;
+    // The create resolves before the sub-engine finishes booting; the
+    // sub's own settings_frame RSS stamp is the settled second-engine
+    // cost — this one just anchors the before.
+    logPerfMem('prewarm_created');
   }
 
   /// Navigate the open window to [domain] and bring it back. False
@@ -326,6 +330,10 @@ class DesktopSettingsWindow {
     _lastTheme = null;
     _lastSelection = null;
     _lastOrbVisible = null;
+    // The teardown's own number (16 号票): whether the resident set
+    // actually returns the second engine's pages decides if a retire-
+    // and-rearm lever is worth anything.
+    logPerfMem('settings_pruned');
     // A capture left running (title-bar X, a dying isolate) must not
     // leave the product chords unregistered — map 06: closing the
     // settings window ends capture and re-hangs from the file.

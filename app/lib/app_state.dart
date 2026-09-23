@@ -123,9 +123,6 @@ class SpeechController extends ChangeNotifier {
     this.pinHotkey,
     List<String>? uiPrefsDirs,
   }) : uiPrefsDirs = uiPrefsDirs ?? uiPrefsSearchDirs() {
-    // The perf record (07 号票) lives beside the ui prefs file; pointing
-    // it here keeps the two app-owned files neighbors whatever launched us.
-    attachPerfLog(uiPrefsDirs ?? uiPrefsSearchDirs());
     // onError: a subscribe against a not-yet-created engine emits a stream
     // error; the command paths surface the same failure with better
     // wording, so swallow it here instead of leaving it unhandled.
