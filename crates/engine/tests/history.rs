@@ -113,6 +113,10 @@ async fn cancelled_and_failed_sessions_record_nothing() {
     );
 
     ok(&h.engine, Command::StartSession).await;
+    // Mid-recording means the stream is live: with the open running
+    // behind the Recording transition (07), a cancel that races it
+    // aborts the open itself — a different (also tested) case.
+    await_live(&mut rx, "算了").await;
     ok(&h.engine, Command::Cancel).await;
     await_state(&mut rx, SessionState::Idle).await;
 

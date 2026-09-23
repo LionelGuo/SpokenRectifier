@@ -19,7 +19,7 @@ use crate::command::{Command, SessionStyle};
 use crate::config::{EngineConfig, EngineTimings};
 use crate::event::{EngineEvent, EventEnvelope, SessionId, SessionState};
 use crate::prefill;
-use crate::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
+use crate::provider::asr::{AsrEvent, AsrProvider};
 use crate::provider::history::{RecordedSession, SessionRecorder};
 use crate::provider::inserter::TextInserter;
 use crate::provider::llm::{RectifyLlm, RectifyRequest, RectifyTokenStream};
@@ -46,8 +46,6 @@ pub enum EngineError {
     },
     #[error("rectify text rejected: the utterance is empty")]
     EmptyUtterance,
-    #[error(transparent)]
-    AsrOpen(#[from] AsrOpenError),
 }
 
 #[derive(Clone)]
@@ -447,25 +445,60 @@ impl Engine {
         // so this session owns the provider it opened even if the slot is
         // swapped while the open is in flight.
         let asr = self.inner.asr.read().unwrap().clone();
-        let stream = asr.open_stream(&terms).await?;
+        let inner = self.inner.clone();
         let (sid, cancel) = {
-            let mut st = self.inner.state_lock();
+            let mut st = inner.state_lock();
             // The command gate serializes commands, so we are still idle.
             let id = SessionId(st.next_session_id);
             st.next_session_id += 1;
             let session = Session::new(
                 id,
-                terms,
-                self.inner.current_passage_mode(),
-                self.inner.current_timings(),
-                self.inner.current_quick_rectify(),
+                terms.clone(),
+                inner.current_passage_mode(),
+                inner.current_timings(),
+                inner.current_quick_rectify(),
             );
             let cancel = session.asr_cancel.clone();
             st.session = Some(session);
-            self.inner.transition(&mut st, id, SessionState::Recording);
+            // Recording begins the moment the session exists (07): the
+            // card's appearance, the command's reply, and every later
+            // command must not queue behind the microphone open and the
+            // provider handshake — the network leg runs below, off this
+            // critical path.
+            inner.transition(&mut st, id, SessionState::Recording);
             (id, cancel)
         };
-        tokio::spawn(consume_asr(self.inner.clone(), sid, stream, cancel));
+        // The open runs on its own task: a stop or cancel during the
+        // handshake aborts it through the same token consume_asr listens
+        // to, and an open failure surfaces as the session-stream failure
+        // every mid-session failure already uses (Error event + a
+        // cancelled end, focus restored with it).
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => {}
+                opened = asr.open_stream(&terms) => match opened {
+                    Ok(stream) => {
+                        let st = inner.state_lock();
+                        if session_matches(&st, sid) && st.state == SessionState::Recording {
+                            drop(st);
+                            tokio::spawn(consume_asr(inner, sid, stream, cancel));
+                        }
+                    }
+                    Err(err) => {
+                        let mut st = inner.state_lock();
+                        if session_matches(&st, sid) && st.state == SessionState::Recording {
+                            inner.emit_stream_event(
+                                &mut st,
+                                sid,
+                                EngineEvent::Error { message: err.to_string() },
+                            );
+                            inner.finish_session(&mut st, sid, SessionState::Cancelled);
+                        }
+                    }
+                }
+            }
+        });
         Ok(())
     }
 

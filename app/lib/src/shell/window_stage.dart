@@ -391,8 +391,10 @@ class _StageHostState extends State<StageHost>
       // foreground when the stage opens. The orb-click entry already
       // holds it; the hotkey entry does not, and Esc during recording
       // is dead without it. The insertion target is safe — the engine
-      // noted it while handling StartSession, before this notify.
-      await widget.stageWindow!.focus();
+      // noted it while handling StartSession, before this notify. Off
+      // the critical path (07 号票): the mount below must not queue
+      // behind the platform round-trip a foreground handoff costs.
+      unawaited(widget.stageWindow!.focus());
     }
     if (!mounted || seq != _seq) return;
     // Panels carry the keyboard affordances: with the window foreground
@@ -416,7 +418,18 @@ class _StageHostState extends State<StageHost>
   /// the card rect from here on). Win+Tab sees a work-area transparent
   /// window — the known, accepted cost (02).
   Future<void> _expandBounds(StageWindow window) async {
-    _areasW = await window.workAreas(); // refresh for the gestures to come
+    // The mount path no longer waits on the display enumeration (07 号
+    // 票): the mount-time and gesture-end primes keep [_areasW] warm, so
+    // the expand's own math rides the primed list and a background
+    // refresh feeds the gestures to come. A cold cache (an expand racing
+    // the first prime) and the rare corrective branch below still take
+    // the fresh enumeration inline — a heal must not plan on a stale
+    // desktop.
+    if (_areasW == null || _rect != _gestureArea(_anchor)) {
+      _areasW = await window.workAreas();
+    } else {
+      unawaited(window.workAreas().then((areas) => _areasW = areas));
+    }
     final area = _gestureArea(_anchor);
     if (_rect != area) {
       await _applyBounds(area);

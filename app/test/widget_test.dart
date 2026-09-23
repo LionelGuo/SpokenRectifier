@@ -5,6 +5,7 @@
 
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -141,6 +142,56 @@ class RecordingStageWindow implements stage.StageWindow {
   Future<void> focus() async => focuses += 1;
 }
 
+/// A [RecordingStageWindow] whose platform round-trips can be parked:
+/// every focus() waits on a gate, and every workAreas() after the
+/// startup prime's first call does too — proving the panel's mount owes
+/// nothing to either round-trip (07 号票: the card must not queue behind
+/// the foreground handoff or the display enumeration).
+class GatedStageWindow implements stage.StageWindow {
+  GatedStageWindow(this.inner);
+
+  final RecordingStageWindow inner;
+
+  final _focusGate = Completer<void>();
+
+  /// How many workAreas() calls arrived; the first (the startup prime)
+  /// delegates at once, the rest park until [releaseAreas].
+  int workAreasCalls = 0;
+  final _areasGate = Completer<void>();
+
+  void releaseFocus() => _focusGate.complete();
+  void releaseAreas() => _areasGate.complete();
+
+  @override
+  Future<void> focus() async {
+    await _focusGate.future;
+    await inner.focus();
+  }
+
+  @override
+  Future<stage.WorkAreas> workAreas() async {
+    workAreasCalls++;
+    if (workAreasCalls > 1) await _areasGate.future;
+    return inner.workAreas();
+  }
+
+  @override
+  Future<Offset> getPosition() => inner.getPosition();
+
+  @override
+  Future<Size> getSize() => inner.getSize();
+
+  @override
+  Future<Rect> seatBoundsPhysical(Rect physical) =>
+      inner.seatBoundsPhysical(physical);
+
+  @override
+  Future<void> setCardRegion(Rect? windowRect) => inner.setCardRegion(windowRect);
+
+  @override
+  Offset? pointerOnScreen() => inner.pointerOnScreen();
+}
+
 Future<SpeechController> pumpController(
   WidgetTester tester,
   FakeGateway gateway, {
@@ -258,6 +309,37 @@ void main() {
     // Expanding a panel takes the foreground: its Esc affordance is live
     // even after a hotkey start (whose focus never left the document).
     expect(window.focuses, greaterThanOrEqualTo(1));
+    await windDown(tester, controller);
+  });
+
+  testWidgets('the panel mounts without waiting for either round-trip', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final inner = RecordingStageWindow();
+    final window = GatedStageWindow(inner);
+    final controller = await pumpController(
+      tester,
+      gateway,
+      stageWindow: window,
+    );
+
+    await pumpToRecording(tester, controller);
+
+    // Fully grown while BOTH platform round-trips are still parked: the
+    // card owes nothing to the display enumeration (the expand rode the
+    // primed areas; the background refresh is the parked second call)
+    // nor to the foreground handoff.
+    expect(find.text('聆听中'), findsOneWidget);
+    expect(window.workAreasCalls, 2); // the prime + the parked refresh
+    expect(inner.focuses, 0);
+
+    // The handoff lands after the fact, harmlessly.
+    window.releaseFocus();
+    window.releaseAreas();
+    await tester.pump();
+    expect(inner.focuses, 1);
+
     await windDown(tester, controller);
   });
 

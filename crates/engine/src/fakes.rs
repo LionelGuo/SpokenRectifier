@@ -151,6 +151,15 @@ impl ChannelScripter {
         self.asr.pending.lock().unwrap().push_back(rx);
         AsrFeed { tx }
     }
+
+    /// Drop every queued-but-never-opened session. The engine may abort
+    /// an open (a session that ended before the open ran); the receiver
+    /// it would have taken stays behind, and a later session's open
+    /// would wrongly take the dead channel. Sequential drivers call
+    /// this before queueing the next session.
+    pub fn discard_pending(&self) {
+        self.asr.pending.lock().unwrap().clear();
+    }
 }
 
 impl ChannelAsr {

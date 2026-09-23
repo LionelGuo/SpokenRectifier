@@ -22,6 +22,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
 
 import 'src/design/tokens.dart' show SrGeometry, SrMotion;
 import 'src/errors.dart';
+import 'src/perf_log.dart';
 import 'src/rust/api/engine.dart';
 import 'src/rust/api/history.dart';
 import 'src/rust/api/library.dart';
@@ -206,6 +207,11 @@ class SpeechController extends ChangeNotifier {
 
   /// When the current recording started (header timer); null outside one.
   DateTime? recordStartedAt;
+
+  /// The click-to-card observation window (07 号票): started at the
+  /// session-start entry, logged and retired as the recording event and
+  /// the first live transcript land. Null outside a starting session.
+  Stopwatch? _perfSessionStart;
 
   /// Elapsed recording time for the session header.
   Duration get recordElapsed => recordStartedAt == null
@@ -553,9 +559,19 @@ class SpeechController extends ChangeNotifier {
     unawaited(gateway.restoreFocus().catchError((Object _) {}));
   }
 
+  /// Logs one click-to-card observation (07 号票) if a session-start
+  /// window is armed; the sites are reply, recording event, and first
+  /// transcript.
+  void _logSessionPerf(String site) {
+    final watch = _perfSessionStart;
+    if (watch == null) return;
+    logPerf(site, watch.elapsed);
+  }
+
   Future<void> startSession() async {
     final startupError = startupFailed ? lastError : null;
     lastError = null;
+    _perfSessionStart = Stopwatch()..start();
     try {
       // Fake speech needs its session armed first; a microphone-mode engine
       // has no fake feed (scriptedPhrases is empty there).
@@ -563,9 +579,12 @@ class SpeechController extends ChangeNotifier {
         await gateway.fakeBeginSession();
       }
       await gateway.startSession();
+      _logSessionPerf('perf_session_reply');
       _startScriptedSpeech();
     } catch (e) {
-      // e.g. the microphone could not be opened: show it, stay idle.
+      // e.g. the command was refused: show it, stay idle. No recording
+      // event will ever land, so the observation window dies here.
+      _perfSessionStart = null;
       // A launch refusal is the root cause — keep it over the click's
       // generic "engine not created yet" failure.
       if (startupError != null) {
@@ -1090,6 +1109,7 @@ class SpeechController extends ChangeNotifier {
           paragraphMarks = 0;
           speaking = false;
           recordStartedAt = DateTime.now();
+          _logSessionPerf('perf_session_recording');
           _startMicBreath();
           // A leftover true would skip this session's pin arm; the
           // previous Recording→* already cleared it, this is the belt.
@@ -1097,6 +1117,9 @@ class SpeechController extends ChangeNotifier {
           unawaited(_armPinHotkey());
         } else {
           recordStartedAt = null;
+          // A session that never reached a transcript retires the
+          // observation window with it; the next start arms a fresh one.
+          _perfSessionStart = null;
           _stopMicBreath();
           // Listening ended by any path — stop session or cancel alike:
           // the chord goes back to the system at once (its Alt+B roles
@@ -1155,6 +1178,12 @@ class SpeechController extends ChangeNotifier {
         }
       case BridgeEvent_LiveTranscriptUpdated(:final text):
         liveText = text;
+        // The network leg's landing moment (07 号票): the first transcript
+        // proves the microphone open and provider handshake completed.
+        if (_perfSessionStart != null) {
+          _logSessionPerf('perf_session_first_text');
+          _perfSessionStart = null;
+        }
       case BridgeEvent_ParagraphMarked():
         paragraphMarks += 1;
       case BridgeEvent_QuickMarked():

@@ -28,6 +28,10 @@ pub fn fake_begin_session() -> anyhow::Result<()> {
             "engine is in microphone mode; fake speech is unavailable"
         ));
     };
+    // The drive is strictly one session at a time: a session that ended
+    // before its open ran leaves the receiver behind, and the next open
+    // would wrongly take the dead channel — discard before queueing.
+    scripter.discard_pending();
     *feed.lock().unwrap() = Some(scripter.begin_session());
     Ok(())
 }

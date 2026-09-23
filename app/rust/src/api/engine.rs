@@ -484,9 +484,12 @@ pub fn execute(command: BridgeCommand) -> anyhow::Result<()> {
     }
     let outcome = g.rt.block_on(g.engine.execute(command.clone().into()));
     if matches!(command, BridgeCommand::StartSession) && outcome.is_err() {
-        // The session never opened (e.g. the microphone is busy): no state
-        // change will fire, so the eager arm above must be taken back —
-        // an armed guard at idle would eat a stranger's Esc.
+        // The only refusal left is a rejected command (a double-click
+        // racing the state machine): no state change will fire, so the
+        // eager arm above must be taken back — an armed guard at idle
+        // would eat a stranger's Esc. An open failure arrives later as
+        // an event pair (Error + Cancelled→Idle); the forwarder disarms
+        // on those state changes and the cancelled end restores focus.
         crate::esc_guard::set_armed(false);
         // The orb click that tried to start it still took the foreground;
         // hand it straight back so the user keeps typing where they were.
