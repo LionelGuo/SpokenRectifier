@@ -9,6 +9,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -106,18 +107,34 @@ void main() {
 
   late _FakeMultiWindow plugin;
   late SpeechController controller;
+  late StreamController<void> windowsChanged;
   late DesktopSettingsWindow glue;
 
   setUp(() {
     plugin = _FakeMultiWindow();
     controller = SpeechController(gateway: FakeGateway());
-    glue = DesktopSettingsWindow(controller);
+    windowsChanged = StreamController<void>.broadcast();
+    glue = DesktopSettingsWindow(
+      controller,
+      windowsChanged: windowsChanged.stream,
+      initialPrewarmDelay: Duration.zero,
+      prewarmRearmDelay: Duration.zero,
+    );
   });
 
   tearDown(() {
     plugin.dispose();
     controller.dispose();
+    windowsChanged.close();
   });
+
+  /// Enough event-loop turns for a zero-duration timer and the queue
+  /// chains behind it to run out.
+  Future<void> settle() async {
+    for (var i = 0; i < 5; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
 
   test('rapid clicks during the spawn open exactly one window', () async {
     // The create is held in flight, as spawning a sub-engine is; all
@@ -182,5 +199,97 @@ void main() {
 
     expect(plugin.createCalls, 1);
     expect(plugin.alive, isEmpty);
+  });
+
+  test('prewarm boots one hidden window; an open rides it', () async {
+    glue.armPrewarm();
+    await settle();
+
+    // The hidden engine booted: created with the prewarm marker, and
+    // nothing on this side showed it.
+    expect(plugin.createCalls, 1);
+    expect(plugin.creates.single, contains('"prewarm":true'));
+    expect(plugin.shown, isEmpty);
+
+    await glue.open(SettingsDomain.general);
+
+    // The open navigated the booted engine instead of spawning another.
+    expect(plugin.createCalls, 1);
+    expect(
+      plugin.sent.where((s) => s.$2 == 'navigate').single.$3,
+      'general',
+    );
+    expect(plugin.shown, ['w1']);
+  });
+
+  test('a click racing the prewarm boot still opens exactly one window',
+      () async {
+    final gate = Completer<void>();
+    plugin.gateCreate = gate;
+    glue.armPrewarm();
+    await Future<void>.delayed(Duration.zero); // the timer fired, create held
+    final opening = glue.open(SettingsDomain.history);
+    await Future<void>.delayed(Duration.zero);
+    gate.complete();
+
+    await opening;
+
+    // The click queued behind the prewarm's create and navigated it.
+    expect(plugin.createCalls, 1);
+    expect(
+      plugin.sent.where((s) => s.$2 == 'navigate').single.$3,
+      'history',
+    );
+  });
+
+  test('a window the user closed re-arms the prewarm', () async {
+    glue.armPrewarm();
+    await settle();
+    expect(plugin.createCalls, 1);
+
+    // The user closes it via the title bar: the window leaves the list,
+    // the windows-changed event prunes the handle.
+    plugin.dead.add('w1');
+    plugin.alive.remove('w1');
+    windowsChanged.add(null);
+    await settle();
+
+    // A fresh hidden engine stands ready for the next open.
+    expect(plugin.createCalls, 2);
+    expect(plugin.creates.last, contains('"prewarm":true'));
+    expect(plugin.shown, isEmpty);
+  });
+
+  test('the exit chain never resurrects the window', () async {
+    glue.armPrewarm();
+    await settle();
+    expect(plugin.createCalls, 1);
+
+    await glue.close();
+    await settle();
+
+    // The close pruned the handle (which re-arms) but the exit flag
+    // disarms it: no second engine on the way out.
+    expect(plugin.createCalls, 1);
+    expect(plugin.alive, isEmpty);
+  });
+
+  test('the prewarm marker parses into a hidden launch', () {
+    final launch = parseSettingsLaunch(
+      jsonEncode({
+        'kind': 'settings',
+        'prewarm': true,
+        'domain': 'general',
+        'theme': 'dark',
+      }),
+    )!;
+    expect(launch.hidden, isTrue);
+    expect(launch.domain, SettingsDomain.general);
+
+    // No marker: a normal create, whose engine shows itself at staging.
+    final normal = parseSettingsLaunch(
+      jsonEncode({'kind': 'settings', 'domain': 'general'}),
+    )!;
+    expect(normal.hidden, isFalse);
   });
 }

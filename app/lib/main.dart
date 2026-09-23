@@ -207,6 +207,11 @@ Future<void> main(List<String> args) async {
       closeSettings: settingsWindow.close,
     ),
   );
+
+  // Prewarm the settings engine once startup has settled (08 号票): an
+  // open then rides the booted engine (navigate-and-show) instead of a
+  // whole cold start — the measured cost of every settings open today.
+  settingsWindow.armPrewarm();
 }
 
 /// The settings window's engine entry: a standard OS window (title bar,
@@ -243,12 +248,18 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
         PlatformDispatcher.instance.platformBrightness,
       ),
     );
+    if (launch.hidden) return; // prewarmed: staged, not shown (08 号票)
     await windowManager.show();
     await windowManager.focus();
     logPerf('settings_show', boot.elapsed);
   });
 
-  final channel = DesktopSettingsChannel();
+  final channel = DesktopSettingsChannel(
+    // A prewarmed window centered itself at staging, possibly ages
+    // before anyone navigates to it; the reveal re-centers so it can
+    // never appear on a display that has since gone away.
+    revealPrep: launch.hidden ? windowManager.center : null,
+  );
   runApp(
     SettingsWindowApp(
       store: const RustScenarioStore(),

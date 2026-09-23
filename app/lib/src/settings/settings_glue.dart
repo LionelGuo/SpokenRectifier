@@ -14,7 +14,7 @@
 
 library;
 
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -33,15 +33,36 @@ import 'settings_domain.dart';
 
 /// Owns the settings window from the main engine.
 class DesktopSettingsWindow {
-  DesktopSettingsWindow(this._controller) {
-    onWindowsChanged.listen((_) => _pruneWindow());
+  DesktopSettingsWindow(
+    this._controller, {
+    Stream<void>? windowsChanged,
+    this.initialPrewarmDelay = const Duration(seconds: 10),
+    this.prewarmRearmDelay = const Duration(seconds: 3),
+  }) : _windowsChanged = windowsChanged ?? onWindowsChanged {
+    _windowsChanged.listen((_) => _pruneWindow());
   }
 
   final SpeechController _controller;
+
+  /// The windows-changed stream (dmw's in production; injectable so the
+  /// prune path is testable without a native window actually dying).
+  final Stream<void> _windowsChanged;
+
+  /// How long after the shell settles before the first prewarm, and how
+  /// long after a window's death before the next one — injectable so
+  /// the timers are testable without real waiting.
+  final Duration initialPrewarmDelay;
+  final Duration prewarmRearmDelay;
+
   WindowController? _window;
   ThemeMode? _lastTheme;
   String? _lastSelection;
   bool? _lastOrbVisible;
+  Timer? _prewarmTimer;
+
+  /// Set by the exit chain's [close]: the prunes it drives must not
+  /// re-arm the prewarm and resurrect a window on the way out.
+  bool _closing = false;
 
   /// Opens run one at a time, in click order. A create takes a whole
   /// sub-engine (hundreds of milliseconds), so concurrent opens would
@@ -82,19 +103,70 @@ class DesktopSettingsWindow {
     // this same wall clock (one process, one clock), so click-to-entry —
     // the sub-engine's whole boot — reads straight off the log.
     logPerfStamp('settings_click');
-    final controller = await WindowController.create(
-      WindowConfiguration(
-        arguments: jsonEncode({
-          'kind': 'settings',
-          'domain': domain.name,
-          'theme': _controller.themeMode.name,
-          'orb': _controller.orbVisible,
-          'primary': _controller.primaryChord.wire,
-          'pin': _controller.pinChord.wire,
-          'selected': _controller.selectedScenario,
-        }),
-        hiddenAtLaunch: true,
-      ),
+    final controller = await _createWindow(domain, prewarm: false);
+    _window = controller;
+    _lastTheme = _controller.themeMode;
+    _lastSelection = _controller.selectedScenario;
+    _lastOrbVisible = _controller.orbVisible;
+  }
+
+  /// What a fresh sub-engine needs at first paint, riding its launch
+  /// arguments (see [open] for why a push cannot replace this).
+  Map<String, dynamic> _launchPayload(
+    SettingsDomain domain, {
+    required bool prewarm,
+  }) => {
+    'kind': 'settings',
+    if (prewarm) 'prewarm': true,
+    'domain': domain.name,
+    'theme': _controller.themeMode.name,
+    'orb': _controller.orbVisible,
+    'primary': _controller.primaryChord.wire,
+    'pin': _controller.pinChord.wire,
+    'selected': _controller.selectedScenario,
+  };
+
+  Future<WindowController> _createWindow(
+    SettingsDomain domain, {
+    required bool prewarm,
+  }) => WindowController.create(
+    WindowConfiguration(
+      arguments: jsonEncode(_launchPayload(domain, prewarm: prewarm)),
+      hiddenAtLaunch: true,
+    ),
+  );
+
+  /// Arm the prewarm (08 号票): [initialPrewarmDelay] after the shell
+  /// settles, boot the settings sub-engine hidden in the background, so
+  /// the first open is a navigate-and-show over a booted engine instead
+  /// of a whole cold start. The trade is a resident second engine
+  /// (R2's prewarm direction) — idle cost is memory, not CPU (no
+  /// tickers, no channel traffic while hidden).
+  void armPrewarm() => _schedulePrewarm(initialPrewarmDelay);
+
+  void _schedulePrewarm(Duration delay) {
+    if (_closing) return;
+    _prewarmTimer?.cancel();
+    _prewarmTimer = Timer(delay, () {
+      _prewarmTimer = null;
+      unawaited(prewarm());
+    });
+  }
+
+  /// Boot the settings window hidden now; a no-op when one already
+  /// exists. Rides the open queue: a click landing mid-boot queues
+  /// behind it and takes the navigate path, never a second create.
+  Future<void> prewarm() {
+    final warmed = _openQueue.then((_) => _prewarm());
+    _openQueue = warmed.then<void>((_) {}, onError: (Object _) {});
+    return warmed;
+  }
+
+  Future<void> _prewarm() async {
+    if (_window != null || _closing) return;
+    final controller = await _createWindow(
+      SettingsDomain.scenarios,
+      prewarm: true,
     );
     _window = controller;
     _lastTheme = _controller.themeMode;
@@ -258,6 +330,9 @@ class DesktopSettingsWindow {
     // leave the product chords unregistered — map 06: closing the
     // settings window ends capture and re-hangs from the file.
     unawaited(_controller.setHotkeysPaused(false));
+    // The death leaves the app cold; be warm for the next open. The
+    // exit chain's own closes are covered by the _closing check inside.
+    _schedulePrewarm(prewarmRearmDelay);
   }
 
   /// Close the settings window through the proper chain, ahead of the
@@ -270,6 +345,10 @@ class DesktopSettingsWindow {
   /// window falls through after the bounded wait rather than blocking
   /// exit forever.
   Future<void> close() async {
+    // The exit chain: nothing this side does from here on may spawn a
+    // replacement window (the prunes below re-arm the prewarm).
+    _closing = true;
+    _prewarmTimer?.cancel();
     // Wait out an in-flight open first: a create resolving after this
     // returns would leave a live window riding into process exit (the
     // frozen-linger family, small-fix 08).
@@ -298,6 +377,8 @@ SettingsLaunch? parseSettingsLaunch(String? windowArguments) {
           (mode) => mode.name == decoded['theme'],
           orElse: () => ThemeMode.system,
         ),
+        // The prewarm marker (08 号票): stage but never self-show.
+        hidden: decoded['prewarm'] == true,
         // Tolerance default: anything but an explicit false reads as
         // visible — the ui.toml rule, applied at the wire too.
         orbVisible: decoded['orb'] != false,
@@ -321,6 +402,7 @@ class SettingsLaunch {
   const SettingsLaunch({
     required this.domain,
     required this.theme,
+    this.hidden = false,
     this.orbVisible = true,
     this.primary = HotkeyBinding.primaryDefault,
     this.pin = HotkeyBinding.pinDefault,
@@ -329,6 +411,11 @@ class SettingsLaunch {
 
   final SettingsDomain domain;
   final ThemeMode theme;
+
+  /// A prewarmed create (08 号票): the engine stages itself — geometry,
+  /// caption theme, first frame — but never shows; the first navigate
+  /// from the main window reveals (and re-centers) it.
+  final bool hidden;
 
   /// The orb's visibility at first paint (the general domain's switch);
   /// later changes follow over the channel.

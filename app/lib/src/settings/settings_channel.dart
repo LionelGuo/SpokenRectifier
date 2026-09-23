@@ -107,10 +107,25 @@ abstract class SettingsChannel {
 
 /// The production link over desktop_multi_window's method channels.
 class DesktopSettingsChannel implements SettingsChannel {
+  DesktopSettingsChannel({Future<void> Function()? revealPrep})
+    // A named parameter cannot be private, so the initializing formal
+    // this lint wants is not writable here.
+    // ignore: prefer_initializing_formals
+    : _revealPrep = revealPrep;
+
   final WindowMethodChannel _toMain = const WindowMethodChannel(
     settingsToMainChannel,
     mode: ChannelMode.unidirectional,
   );
+
+  /// Run once before the first reveal of a prewarmed window (08 号票):
+  /// its staging-time center may be stale by the time anyone navigates
+  /// to it, so the reveal re-centers — and show() is what turns the
+  /// hidden engine's window visible at all. Null for a normal window,
+  /// which showed itself at staging.
+  final Future<void> Function()? _revealPrep;
+
+  bool _revealed = false;
 
   void Function(ThemeMode mode)? _onTheme;
   void Function(String? name)? _onSelection;
@@ -195,12 +210,12 @@ class DesktopSettingsChannel implements SettingsChannel {
   Future<void> attach() async {
     final controller = await WindowController.fromCurrentEngine();
     await controller.setWindowMethodHandler((call) async {
-      _dispatch(call);
+      await _dispatch(call);
       return null;
     });
   }
 
-  void _dispatch(MethodCall call) {
+  Future<void> _dispatch(MethodCall call) async {
     switch (call.method) {
       case 'theme':
         final name = call.arguments as String?;
@@ -216,9 +231,17 @@ class DesktopSettingsChannel implements SettingsChannel {
         _onOrbVisible?.call(call.arguments as bool? ?? true);
       case 'navigate':
         _onNavigate?.call(settingsDomainFromName(call.arguments as String?));
-        // The main side's show() is a bare SW_SHOW (desktop_multi_window),
-        // which does not raise a background window; focus() restores a
-        // minimized one, raises it, and brings it to the foreground.
+        // The reveal (a prewarmed window's first navigate; a no-op for
+        // a window that already showed itself at staging): recenter if
+        // asked, show — the main side's show() is a bare SW_SHOW
+        // (desktop_multi_window), which does not raise a background
+        // window — and focus() restores a minimized one, raises it, and
+        // brings it to the foreground.
+        if (!_revealed) {
+          _revealed = true;
+          await _revealPrep?.call();
+          await windowManager.show();
+        }
         unawaited(windowManager.focus());
       case 'close':
         // Tray exit closes the settings window FIRST, through its own
