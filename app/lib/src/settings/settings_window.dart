@@ -742,18 +742,18 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
             hint: '例：全部输出以简体中文书写，语气克制',
             minLines: 2,
             maxLines: 5,
-          ),
-          const SizedBox(height: 10),
-          // Left-aligned like the four in-page save buttons (31 号票);
-          // only the dialogs keep 取消+保存 on the right (modal habit).
-          // The save key lights up only when there is something to save:
-          // enabled (accent) while dirty, a quiet outlined button at
-          // rest — disabled means no-op, never hidden.
-          SrButton(
-            key: const Key('settings-global-save'),
-            primary: _dirty,
-            label: '保存',
-            onTap: _dirty ? _save : null,
+            // The save rides the box's own bottom-right corner (35 号票):
+            // a field-scoped button belongs to its field, not the card's
+            // footer. It lights up only when there is something to save —
+            // enabled (accent) while dirty, a quiet outlined button at
+            // rest; disabled means no-op, never hidden.
+            cornerAction: SrButton(
+              key: const Key('settings-global-save'),
+              dense: true,
+              primary: _dirty,
+              label: '保存',
+              onTap: _dirty ? _save : null,
+            ),
           ),
         ],
       ),

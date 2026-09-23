@@ -2495,7 +2495,7 @@ void main() {
   });
 
   testWidgets(
-    "the light card's one button commits both inputs; blank unsets the directive",
+    "the light card's saves are per-field; a save never sweeps the other draft",
     (tester) async {
       tallRectifySurface(tester);
       final store = FakeRectifyBehaviorStore();
@@ -2506,15 +2506,16 @@ void main() {
       );
       await tester.pump();
 
-      // Quiet at rest: no change, no commit.
-      expect(
-        tester
-            .widget<SrButton>(
-              find.byKey(const Key('settings-rectify-light-save')),
-            )
-            .onTap,
-        isNull,
+      // Quiet at rest: no change, no commit — each field-scoped button
+      // sleeps until its own input moves (35 号票 split).
+      SrButton thresholdButton() => tester.widget<SrButton>(
+        find.byKey(const Key('settings-rectify-light-threshold-save')),
       );
+      SrButton extraButton() => tester.widget<SrButton>(
+        find.byKey(const Key('settings-rectify-light-save')),
+      );
+      expect(thresholdButton().onTap, isNull);
+      expect(extraButton().onTap, isNull);
 
       await scrollRectifyTo(
         tester,
@@ -2525,54 +2526,59 @@ void main() {
         find.byKey(const Key('settings-rectify-light-threshold')),
         '60',
       );
+      await tester.pump();
+      // Only the threshold's own button wakes.
+      expect(thresholdButton().onTap, isNotNull);
+      expect(extraButton().onTap, isNull);
+
       await scrollRectifyTo(tester, const Key('settings-rectify-light-extra'));
       await tester.pump();
       await tester.enterText(
         find.byKey(const Key('settings-rectify-light-extra')),
         '  保持短句  ',
       );
-      await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
       await tester.pump();
-      // Dirty now: the button is live.
-      expect(
-        tester
-            .widget<SrButton>(
-              find.byKey(const Key('settings-rectify-light-save')),
-            )
-            .onTap,
-        isNotNull,
-      );
+      expect(extraButton().onTap, isNotNull);
       await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
       await tester.pump();
 
-      // One write for both inputs, the picks riding as they stand.
-      final save = store.saves.single;
-      expect(save.lightTouchMaxChars, 60);
-      expect(save.lightTouchExtraDirective, '保持短句');
-      expect(save.fullThinkingPolicy, 'always'); // untouched picks ride
+      // The extra's save commits the extra only — the threshold draft
+      // (60) is not swept along; the picks ride as they stand.
+      final extraSave = store.saves.single;
+      expect(extraSave.lightTouchExtraDirective, '保持短句');
+      expect(extraSave.lightTouchMaxChars, 40); // committed truth, not 60
+      expect(extraSave.fullThinkingPolicy, 'always'); // untouched picks ride
       expect(store.applyCalls, 1);
       // The explicit save confirms over the toast (14 号票) — the one
       // path that still does.
       expect(textOf(tester, const Key('sr-toast')), '已保存');
 
-      // The save re-baselined the fields: the drafts became the
-      // committed truth and the button is quiet again.
-      expect(
-        fieldText(tester, const Key('settings-rectify-light-threshold')),
-        '60',
-      );
+      // Reseeded: the extra draft became the committed truth and its
+      // button sleeps again; the threshold's draft survived untouched.
       expect(
         fieldText(tester, const Key('settings-rectify-light-extra')),
         '保持短句',
       );
+      expect(extraButton().onTap, isNull);
       expect(
-        tester
-            .widget<SrButton>(
-              find.byKey(const Key('settings-rectify-light-save')),
-            )
-            .onTap,
-        isNull,
+        fieldText(tester, const Key('settings-rectify-light-threshold')),
+        '60',
       );
+      expect(thresholdButton().onTap, isNotNull);
+
+      // The threshold's save commits its own input the same way.
+      await scrollRectifyTo(
+        tester,
+        const Key('settings-rectify-light-threshold-save'),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('settings-rectify-light-threshold-save')),
+      );
+      await tester.pump();
+      expect(store.saves.last.lightTouchMaxChars, 60);
+      expect(store.saves.last.lightTouchExtraDirective, '保持短句');
+      expect(thresholdButton().onTap, isNull);
 
       // Blanking the directive is the off switch: the next commit
       // writes the unset form (the key is removed from the file).
@@ -2581,12 +2587,74 @@ void main() {
         '   ',
       );
       await tester.pump();
-      await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
-      await tester.pump();
       await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
       await tester.pump();
       expect(store.saves.last.lightTouchExtraDirective, isNull);
       expect(store.saves.last.lightTouchMaxChars, 60);
+    },
+  );
+
+  testWidgets(
+    'field-scoped saves corner their boxes; the side save rides the box line',
+    (tester) async {
+      tallRectifySurface(tester);
+      await pumpSettings(
+        tester,
+        rectifyStore: FakeRectifyBehaviorStore(),
+        domain: SettingsDomain.rectify,
+      );
+      await tester.pump();
+
+      void expectCornered(Key fieldKey, Key saveKey) {
+        final fieldRect = tester.getRect(find.byKey(fieldKey));
+        final saveRect = tester.getRect(find.byKey(saveKey));
+        final rightGap = fieldRect.right - saveRect.right;
+        final bottomGap = fieldRect.bottom - saveRect.bottom;
+        // The hard rule (35 号票): the right and bottom gaps are
+        // strictly equal — one constant feeds both edges. The 5 = the
+        // Border.all insetting the child origin by 1px (the 19 号票
+        // gotcha) plus the 4px inset; strokes-to-stroke it reads 4.
+        expect((rightGap - bottomGap).abs(), lessThan(0.01));
+        expect(rightGap, moreOrLessEquals(5, epsilon: 0.5));
+        expect(saveRect.top, greaterThan(fieldRect.top)); // inside the box
+      }
+
+      await scrollRectifyTo(tester, const Key('settings-rectify-light-extra'));
+      await tester.pump();
+      expectCornered(
+        const Key('settings-rectify-light-extra'),
+        const Key('settings-rectify-light-save'),
+      );
+      await scrollRectifyTo(tester, const Key('settings-rectify-quick-extra'));
+      await tester.pump();
+      expectCornered(
+        const Key('settings-rectify-quick-extra'),
+        const Key('settings-rectify-quick-save'),
+      );
+
+      // The threshold's save stands BESIDE its box (the single-line
+      // box is too shallow for a corner): vertically centered on the
+      // input line, fully below the label, right of the text area.
+      await scrollRectifyTo(
+        tester,
+        const Key('settings-rectify-light-threshold'),
+      );
+      await tester.pump();
+      final threshold = find.byKey(
+        const Key('settings-rectify-light-threshold'),
+      );
+      final sideRect = tester.getRect(
+        find.byKey(const Key('settings-rectify-light-threshold-save')),
+      );
+      final labelRect = tester.getRect(
+        find.descendant(of: threshold, matching: find.text('轻修字数阈值')),
+      );
+      final editableRect = tester.getRect(
+        find.descendant(of: threshold, matching: find.byType(EditableText)),
+      );
+      expect(sideRect.top, greaterThan(labelRect.bottom));
+      expect((sideRect.center.dy - editableRect.center.dy).abs(), lessThan(1));
+      expect(sideRect.left, greaterThan(editableRect.right));
     },
   );
 
@@ -2611,9 +2679,14 @@ void main() {
       find.byKey(const Key('settings-rectify-light-threshold')),
       'soon',
     );
-    await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
+    await scrollRectifyTo(
+      tester,
+      const Key('settings-rectify-light-threshold-save'),
+    );
     await tester.pump();
-    await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
+    await tester.tap(
+      find.byKey(const Key('settings-rectify-light-threshold-save')),
+    );
     await tester.pump();
     expect(textOf(tester, const Key('sr-toast')), '阈值需为大于 0 的整数');
     expect(store.saves, isEmpty); // refused before any write
@@ -2625,9 +2698,14 @@ void main() {
       '0',
     );
     await tester.pump();
-    await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
+    await scrollRectifyTo(
+      tester,
+      const Key('settings-rectify-light-threshold-save'),
+    );
     await tester.pump();
-    await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
+    await tester.tap(
+      find.byKey(const Key('settings-rectify-light-threshold-save')),
+    );
     await tester.pump();
     expect(store.saves, isEmpty);
   });
@@ -2689,10 +2767,15 @@ void main() {
         find.byKey(const Key('settings-rectify-light-threshold')),
         '60',
       );
-      await scrollRectifyTo(tester, const Key('settings-rectify-light-save'));
+      await scrollRectifyTo(
+        tester,
+        const Key('settings-rectify-light-threshold-save'),
+      );
       await tester.pump();
       store.failNextApply = 'no adapter yet';
-      await tester.tap(find.byKey(const Key('settings-rectify-light-save')));
+      await tester.tap(
+        find.byKey(const Key('settings-rectify-light-threshold-save')),
+      );
       await tester.pump();
       expect(textOf(tester, const Key('sr-toast')), '已保存，引擎沿用上一配置');
       expect(store.applyCalls, 1); // still not an adoption
@@ -4530,7 +4613,7 @@ void main() {
     );
   });
 
-  testWidgets('the scenario card centers its title line; global save left', (
+  testWidgets('the scenario card centers its title line; global save corners', (
     tester,
   ) async {
     await pumpSettings(tester); // scenarios domain, the seeded library
@@ -4562,15 +4645,22 @@ void main() {
       moreOrLessEquals(tester.getTopLeft(title).dx, epsilon: 0.5),
     );
 
-    // The global card's save sits at the content's left edge like the
-    // four in-page save buttons (31 号票 1), not the card's right.
-    expect(
-      tester.getTopLeft(find.byKey(const Key('settings-global-save'))).dx,
-      moreOrLessEquals(
-        tester.getTopLeft(find.byKey(const Key('settings-global-field'))).dx,
-        epsilon: 0.5,
-      ),
+    // The global card's save rides the field box's bottom-right corner
+    // (35 号票): a field-scoped button lives inside its field, with the
+    // right and bottom gaps strictly equal (one shared constant). The
+    // 5 = Border.all insetting the child origin by 1px (the 19 号票
+    // gotcha) plus the 4px inset.
+    final fieldRect = tester.getRect(
+      find.byKey(const Key('settings-global-field')),
     );
+    final saveRect = tester.getRect(
+      find.byKey(const Key('settings-global-save')),
+    );
+    final rightGap = fieldRect.right - saveRect.right;
+    final bottomGap = fieldRect.bottom - saveRect.bottom;
+    expect((rightGap - bottomGap).abs(), lessThan(0.01));
+    expect(rightGap, moreOrLessEquals(5, epsilon: 0.5));
+    expect(saveRect.top, greaterThan(fieldRect.top)); // inside the box
   });
 
   // -----------------------------------------------------------------------

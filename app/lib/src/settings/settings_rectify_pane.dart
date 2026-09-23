@@ -175,11 +175,14 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     quickRectify: _quickRectify,
   );
 
-  /// True while either light input field holds text the committed
-  /// truth doesn't (the light save button's enable; the pick path
-  /// never consults it — drafts are never swept along).
-  bool get _inputsDirty =>
-      _threshold.text.trim() != '${_model!.lightTouchMaxChars}' ||
+  /// Each light input's own dirty flag — its save button's enable;
+  /// the pick path never consults them (drafts are never swept
+  /// along). The 35 号票 split: one field's save never lights the
+  /// other's button.
+  bool get _thresholdDirty =>
+      _threshold.text.trim() != '${_model!.lightTouchMaxChars}';
+
+  bool get _ltExtraDirty =>
       _extra.text.trim() != (_model!.lightTouchExtraDirective ?? '');
 
   /// The quick extra field's own dirty flag — a separate save, so a
@@ -203,23 +206,32 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
     _save(_liveModel);
   }
 
-  /// The light card's explicit save: validate the threshold, blank the
-  /// directive to unset, commit the whole model with the picks as they
-  /// paint.
-  Future<void> _saveInputs() async {
-    final text = _threshold.text.trim();
-    final value = int.tryParse(text);
+  /// The threshold's own save (35 号票 split): validate the integer,
+  /// commit the whole model with the picks as they paint. The extra
+  /// directive's draft is never swept along — another field's save
+  /// leaves it exactly as it stands.
+  Future<void> _saveThreshold() async {
+    final value = int.tryParse(_threshold.text.trim());
     if (value == null || value < 1) {
       SrToast.of(context).show('阈值需为大于 0 的整数', tone: SrToastTone.error);
       return;
     }
+    await _save(
+      _liveModel.copyWith(lightTouchMaxChars: value),
+      reseedThreshold: true,
+      announce: true,
+    );
+  }
+
+  /// The light extra directive's own save: blanking to whitespace
+  /// writes the unset form. The threshold's draft rides separately.
+  Future<void> _saveLtExtra() async {
     final extra = _extra.text.trim();
     await _save(
       _liveModel.copyWith(
-        lightTouchMaxChars: value,
         lightTouchExtraDirective: extra.isEmpty ? null : extra,
       ),
-      reseedLightInputs: true,
+      reseedLtExtra: true,
       announce: true,
     );
   }
@@ -238,13 +250,14 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
 
   /// Commit the whole model, adopt the re-read truth, then hand the
   /// files to the live engine (ADR-0010). Each reseed flag re-baselines
-  /// only that card's input fields — a pick never reseeds, and one
-  /// card's save never consumes the other's draft. [announce] is the
-  /// save buttons' flag: picks stay silent (their paint is the
+  /// only that one input field — a pick never reseeds, and one field's
+  /// save never consumes another's draft (35 号票 split). [announce] is
+  /// the save buttons' flag: picks stay silent (their paint is the
   /// feedback), explicit saves confirm over the toast (14 号票).
   Future<void> _save(
     RectifyBehavior next, {
-    bool reseedLightInputs = false,
+    bool reseedThreshold = false,
+    bool reseedLtExtra = false,
     bool reseedQuickExtra = false,
     bool announce = false,
   }) async {
@@ -260,12 +273,14 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
         _ltPrefill = saved.lightTouchPrefill;
         _quickEnabled = saved.quickEnabled;
         _quickRectify = saved.quickRectify;
-        if (reseedLightInputs) {
+        if (reseedThreshold) {
           _threshold.removeListener(_onInput);
-          _extra.removeListener(_onInput);
           _threshold.text = '${saved.lightTouchMaxChars}';
-          _extra.text = saved.lightTouchExtraDirective ?? '';
           _threshold.addListener(_onInput);
+        }
+        if (reseedLtExtra) {
+          _extra.removeListener(_onInput);
+          _extra.text = saved.lightTouchExtraDirective ?? '';
           _extra.addListener(_onInput);
         }
         if (reseedQuickExtra) {
@@ -328,14 +343,16 @@ class _SettingsRectifyPaneState extends State<SettingsRectifyPane> {
             thinkingDisabled: model.thinkingDisabled,
             threshold: _threshold,
             extra: _extra,
-            inputsDirty: _inputsDirty,
+            thresholdDirty: _thresholdDirty,
+            extraDirty: _ltExtraDirty,
             onEnabled: (on) =>
                 _pick(_liveModel.copyWith(lightTouchEnabled: on)),
             onPolicy: (policy) =>
                 _pick(_liveModel.copyWith(lightTouchThinkingPolicy: policy)),
             onPrefill: (on) =>
                 _pick(_liveModel.copyWith(lightTouchPrefill: on)),
-            onSaveInputs: _saveInputs,
+            onSaveThreshold: _saveThreshold,
+            onSaveExtra: _saveLtExtra,
           ),
           const SizedBox(height: 16),
           _QuickCard(
@@ -427,8 +444,9 @@ class _FullCard extends StatelessWidget {
 
 /// 轻修 `[rectify.light_touch]`: the master switch first (always live),
 /// then the whole tail — threshold, prefill, thinking, extra directive,
-/// the shared save button — disabled in place while the switch is off:
-/// values stay visible, keys stay saved, the tier's warning silences.
+/// each input's own save button — disabled in place while the switch
+/// is off: values stay visible, keys stay saved, the tier's warning
+/// silences.
 class _LightCard extends StatelessWidget {
   const _LightCard({
     required this.enabled,
@@ -437,11 +455,13 @@ class _LightCard extends StatelessWidget {
     required this.thinkingDisabled,
     required this.threshold,
     required this.extra,
-    required this.inputsDirty,
+    required this.thresholdDirty,
+    required this.extraDirty,
     required this.onEnabled,
     required this.onPolicy,
     required this.onPrefill,
-    required this.onSaveInputs,
+    required this.onSaveThreshold,
+    required this.onSaveExtra,
   });
 
   final bool enabled;
@@ -453,11 +473,13 @@ class _LightCard extends StatelessWidget {
   final bool thinkingDisabled;
   final TextEditingController threshold;
   final TextEditingController extra;
-  final bool inputsDirty;
+  final bool thresholdDirty;
+  final bool extraDirty;
   final ValueChanged<bool> onEnabled;
   final ValueChanged<String> onPolicy;
   final ValueChanged<bool> onPrefill;
-  final VoidCallback onSaveInputs;
+  final VoidCallback onSaveThreshold;
+  final VoidCallback onSaveExtra;
 
   bool get _warns => enabled && !thinkingDisabled && policy == 'off' && prefill;
 
@@ -522,6 +544,15 @@ class _LightCard extends StatelessWidget {
                     controller: threshold,
                     label: '轻修字数阈值',
                     monospace: true,
+                    // The 34px single-line box is too shallow for an
+                    // in-field button; the field-scoped save stands
+                    // beside the box instead (35 号票).
+                    sideAction: SrButton(
+                      key: const Key('settings-rectify-light-threshold-save'),
+                      primary: thresholdDirty,
+                      label: '保存',
+                      onTap: thresholdDirty ? onSaveThreshold : null,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   _PrefillRow(
@@ -574,17 +605,16 @@ class _LightCard extends StatelessWidget {
                     hint: '例：保留技术术语原文',
                     minLines: 2,
                     maxLines: 5,
-                  ),
-                  const SizedBox(height: 14),
-                  // One button for both inputs (the advanced domain's
-                  // one-card-one-button rule); quiet until there is
-                  // something to commit — disabled is a no-op, never a
-                  // hidden button.
-                  SrButton(
-                    key: const Key('settings-rectify-light-save'),
-                    primary: inputsDirty,
-                    label: '保存轻修设置',
-                    onTap: inputsDirty ? onSaveInputs : null,
+                    // Field-scoped save in the box's bottom-right
+                    // corner (35 号票); quiet until there is something
+                    // to commit — disabled is a no-op, never hidden.
+                    cornerAction: SrButton(
+                      key: const Key('settings-rectify-light-save'),
+                      dense: true,
+                      primary: extraDirty,
+                      label: '保存',
+                      onTap: extraDirty ? onSaveExtra : null,
+                    ),
                   ),
                 ],
               ),
@@ -723,13 +753,17 @@ class _QuickCard extends StatelessWidget {
                             hint: '例：保留技术术语原文',
                             minLines: 2,
                             maxLines: 5,
-                          ),
-                          const SizedBox(height: 14),
-                          SrButton(
-                            key: const Key('settings-rectify-quick-save'),
-                            primary: inputsDirty,
-                            label: '保存快速设置',
-                            onTap: inputsDirty ? onSaveInputs : null,
+                            // Field-scoped save in the box's bottom-right
+                            // corner (35 号票); quiet until there is
+                            // something to commit — disabled is a no-op,
+                            // never hidden.
+                            cornerAction: SrButton(
+                              key: const Key('settings-rectify-quick-save'),
+                              dense: true,
+                              primary: inputsDirty,
+                              label: '保存',
+                              onTap: inputsDirty ? onSaveInputs : null,
+                            ),
                           ),
                         ],
                       ),
