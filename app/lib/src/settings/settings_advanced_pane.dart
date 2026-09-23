@@ -210,7 +210,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                         children: [
                           Text(
                             '篇章模式',
-                            style: SrType.body.copyWith(
+                            style: SrType.subhead.copyWith(
                               color: pal.textPrimary,
                             ),
                           ),
@@ -289,7 +289,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                 const SizedBox(height: 10),
                 Text(
                   '插入方式',
-                  style: SrType.micro.copyWith(color: pal.textTertiary),
+                  style: SrType.subhead.copyWith(color: pal.textPrimary),
                 ),
                 const SizedBox(height: 6),
                 _ModeChips(

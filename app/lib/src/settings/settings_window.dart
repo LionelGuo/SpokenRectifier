@@ -730,7 +730,7 @@ class _GlobalDirectiveCardState extends State<_GlobalDirectiveCard> {
               Expanded(
                 child: Text(
                   '始终生效，与场景指令冲突时以场景为准',
-                  style: SrType.caption.copyWith(color: pal.textTertiary),
+                  style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
               ),
             ],
@@ -833,10 +833,11 @@ class _ScenarioCard extends StatelessWidget {
                               : pal.hairline),
                   ),
                 ),
-                // The title row centers optically (31 号票): the body
-                // title's first line, the 16px glyph, and the 15px
-                // action icons share one horizontal line — the directive
-                // preview stays under it, indented to the title's edge.
+                // The title row centers optically (31 号票): the
+                // subhead title (33 号票's card-title ruling), the 16px
+                // glyph, and the 15px action icons share one horizontal
+                // line — the directive preview stays under it, indented
+                // to the title's edge.
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -867,7 +868,7 @@ class _ScenarioCard extends StatelessWidget {
                             // (26 号票).
                             duration: SrMotion.fade,
                             curve: SrMotion.curveFade,
-                            style: SrType.body.copyWith(
+                            style: SrType.subhead.copyWith(
                               color: selected
                                   ? pal.accentText
                                   : pal.textPrimary,
@@ -914,9 +915,7 @@ class _ScenarioCard extends StatelessWidget {
                         scenario.directive,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: SrType.caption.copyWith(
-                          color: pal.textSecondary,
-                        ),
+                        style: SrType.micro.copyWith(color: pal.textTertiary),
                       ),
                     ),
                   ],
@@ -1054,7 +1053,7 @@ class _ScenarioEditorDialogState extends State<_ScenarioEditorDialog> {
                 Text(
                   _error!,
                   key: const Key('settings-scenario-form-error'),
-                  style: SrType.caption.copyWith(color: pal.live),
+                  style: SrType.micro.copyWith(color: pal.live),
                 ),
               ],
               const SizedBox(height: 20),

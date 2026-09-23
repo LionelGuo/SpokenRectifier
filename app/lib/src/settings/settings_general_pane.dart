@@ -117,7 +117,7 @@ class SettingsGeneralPane extends StatelessWidget {
                   children: [
                     Text(
                       '显示悬浮球',
-                      style: SrType.body.copyWith(color: pal.textPrimary),
+                      style: SrType.subhead.copyWith(color: pal.textPrimary),
                     ),
                     Text(
                       '隐藏后点击托盘图标或勾选托盘菜单即可唤回',
@@ -295,7 +295,7 @@ class _HotkeyRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: SrType.body.copyWith(color: pal.textPrimary)),
+        Text(title, style: SrType.subhead.copyWith(color: pal.textPrimary)),
         Text(caption, style: SrType.micro.copyWith(color: pal.textTertiary)),
         const SizedBox(height: 6),
         Row(

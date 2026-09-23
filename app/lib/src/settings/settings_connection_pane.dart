@@ -609,7 +609,7 @@ class _KeyBlockState extends State<_KeyBlock> {
       children: [
         Text(
           widget.title,
-          style: SrType.micro.copyWith(color: pal.textTertiary),
+          style: SrType.subhead.copyWith(color: pal.textPrimary),
         ),
         const SizedBox(height: 6),
         Row(
@@ -817,10 +817,13 @@ class _LlmCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '配置用于修正的模型API接口',
-            style: SrType.caption.copyWith(color: pal.textSecondary),
+            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
-          Text('接口格式', style: SrType.micro.copyWith(color: pal.textTertiary)),
+          Text(
+            '接口格式',
+            style: SrType.subhead.copyWith(color: pal.textPrimary),
+          ),
           const SizedBox(height: 6),
           _ChipRow(
             testKey: 'settings-conn-llm-format',
@@ -832,7 +835,7 @@ class _LlmCard extends StatelessWidget {
           Text(
             '服务商',
             key: const Key('settings-conn-llm-vendor-caption'),
-            style: SrType.micro.copyWith(color: pal.textTertiary),
+            style: SrType.subhead.copyWith(color: pal.textPrimary),
           ),
           const SizedBox(height: 6),
           _ChipRow(
@@ -872,13 +875,13 @@ class _LlmCard extends StatelessWidget {
                   children: [
                     Text(
                       '设置思考字段',
-                      style: SrType.body.copyWith(color: pal.textPrimary),
+                      style: SrType.subhead.copyWith(color: pal.textPrimary),
                     ),
                     if (broken)
                       Text(
                         '思考字段配置有误',
                         key: const Key('settings-conn-llm-thinking-broken'),
-                        style: SrType.caption.copyWith(color: pal.live),
+                        style: SrType.micro.copyWith(color: pal.live),
                       )
                     else
                       Text(
@@ -1023,10 +1026,13 @@ class _AsrCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '未配置凭据时不做云端转写，仅显示说话状态',
-            style: SrType.caption.copyWith(color: pal.textSecondary),
+            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 14),
-          Text('服务商', style: SrType.micro.copyWith(color: pal.textTertiary)),
+          Text(
+            '服务商',
+            style: SrType.subhead.copyWith(color: pal.textPrimary),
+          ),
           const SizedBox(height: 6),
           _ChipRow(
             testKey: 'settings-conn-asr-providers',
@@ -1241,7 +1247,7 @@ class _ConfirmClearDialog extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 '该操作将删除 $section 已保存的 API 密钥，未配置环境变量时该服务将停用。',
-                style: SrType.caption.copyWith(color: pal.textSecondary),
+                style: SrType.micro.copyWith(color: pal.textSecondary),
               ),
               const SizedBox(height: 20),
               Row(

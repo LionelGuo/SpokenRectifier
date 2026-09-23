@@ -506,7 +506,7 @@ class _HistoryEntryRow extends StatelessWidget {
                       entry.rawTranscript.replaceAll('\n', ' '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: SrType.caption.copyWith(color: pal.textSecondary),
+                      style: SrType.micro.copyWith(color: pal.textSecondary),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -514,7 +514,7 @@ class _HistoryEntryRow extends StatelessWidget {
                       key: Key('settings-history-rectified:${entry.id}'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: SrType.caption.copyWith(color: pal.textTertiary),
+                      style: SrType.micro.copyWith(color: pal.textTertiary),
                     ),
                   ],
                 ),
@@ -710,7 +710,7 @@ class _ConfirmDialog extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 body,
-                style: SrType.caption.copyWith(color: pal.textSecondary),
+                style: SrType.micro.copyWith(color: pal.textSecondary),
               ),
               const SizedBox(height: 20),
               Row(

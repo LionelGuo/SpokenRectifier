@@ -201,7 +201,7 @@ class _TermRow extends StatelessWidget {
               Expanded(
                 child: Text(
                   term,
-                  style: SrType.caption.copyWith(color: pal.textSecondary),
+                  style: SrType.micro.copyWith(color: pal.textSecondary),
                 ),
               ),
               IgnorePointer(
@@ -367,7 +367,7 @@ class _TermEditorDialogState extends State<_TermEditorDialog> {
                 Text(
                   _error!,
                   key: const Key('settings-terms-form-error'),
-                  style: SrType.caption.copyWith(color: pal.live),
+                  style: SrType.micro.copyWith(color: pal.live),
                 ),
               ],
               const SizedBox(height: 20),

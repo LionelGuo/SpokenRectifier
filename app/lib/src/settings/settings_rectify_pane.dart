@@ -514,17 +514,13 @@ class _LightCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 32 号票: the label rides the in-card title tier,
-                  // standalone like the extra-directive labels — not
-                  // SrField's own micro label.
-                  Text(
-                    '轻修字数阈值',
-                    style: SrType.subhead.copyWith(color: pal.textPrimary),
-                  ),
-                  const SizedBox(height: 4),
+                  // The label rides SrField's own label (the in-card
+                  // title tier since the 33 号 rollout — the pilot's
+                  // standalone Text went back inside, 34 号票).
                   SrField(
                     key: const Key('settings-rectify-light-threshold'),
                     controller: threshold,
+                    label: '轻修字数阈值',
                     monospace: true,
                   ),
                   const SizedBox(height: 12),
@@ -576,7 +572,6 @@ class _LightCard extends StatelessWidget {
                     key: const Key('settings-rectify-light-extra'),
                     controller: extra,
                     hint: '例：保留技术术语原文',
-                    hintStyle: SrType.micro.copyWith(color: pal.textTertiary),
                     minLines: 2,
                     maxLines: 5,
                   ),
@@ -726,9 +721,6 @@ class _QuickCard extends StatelessWidget {
                             key: const Key('settings-rectify-quick-extra'),
                             controller: extra,
                             hint: '例：保留技术术语原文',
-                            hintStyle: SrType.micro.copyWith(
-                              color: pal.textTertiary,
-                            ),
                             minLines: 2,
                             maxLines: 5,
                           ),

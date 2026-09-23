@@ -184,7 +184,6 @@ class SrField extends StatelessWidget {
     required this.controller,
     this.label,
     this.hint,
-    this.hintStyle,
     this.obscure = false,
     this.monospace = false,
     this.onSubmitted,
@@ -196,11 +195,6 @@ class SrField extends StatelessWidget {
   final TextEditingController controller;
   final String? label;
   final String? hint;
-
-  /// Overrides the hint's tier; null keeps the control default. The
-  /// 修正 pane's five-tier pilot (32 号票) hands its hints the micro
-  /// tier until the ladder goes app-wide.
-  final TextStyle? hintStyle;
   final bool obscure;
   final bool monospace;
   final ValueChanged<String>? onSubmitted;
@@ -225,7 +219,13 @@ class SrField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (label != null) ...[
-          Text(label!, style: SrType.micro.copyWith(color: pal.textTertiary)),
+          // The label rides the in-card title tier (the five-tier
+          // ladder's third rung, 33 号票 rollout): subhead + textPrimary,
+          // like every switch-row title and field-group label.
+          Text(
+            label!,
+            style: SrType.subhead.copyWith(color: pal.textPrimary),
+          ),
           const SizedBox(height: 4),
         ],
         Container(
@@ -258,8 +258,7 @@ class SrField extends StatelessWidget {
               focusedBorder: InputBorder.none,
               enabledBorder: InputBorder.none,
               hintText: hint,
-              hintStyle:
-                  hintStyle ?? SrType.body.copyWith(color: pal.textTertiary),
+              hintStyle: SrType.micro.copyWith(color: pal.textTertiary),
               contentPadding: EdgeInsets.zero,
             ),
           ),

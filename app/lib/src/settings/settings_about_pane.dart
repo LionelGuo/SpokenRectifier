@@ -70,14 +70,14 @@ class _SettingsAboutPaneState extends State<SettingsAboutPane> {
                     Text(
                       'v${about.version}',
                       key: const Key('settings-about-version'),
-                      style: SrType.caption.copyWith(color: pal.textTertiary),
+                      style: SrType.micro.copyWith(color: pal.textTertiary),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Text(
                   '把即兴说出的口语段修正为保真、高信息密度的书面文本的语音输入工具。',
-                  style: SrType.caption.copyWith(color: pal.textSecondary),
+                  style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
               ],
             ),
@@ -121,14 +121,14 @@ class _AboutRow extends StatelessWidget {
             width: 64,
             child: Text(
               label,
-              style: SrType.caption.copyWith(color: pal.textTertiary),
+              style: SrType.micro.copyWith(color: pal.textTertiary),
             ),
           ),
           Expanded(
             child: Text(
               value,
               key: Key('settings-about-$label'),
-              style: SrType.caption.copyWith(color: pal.textSecondary),
+              style: SrType.micro.copyWith(color: pal.textSecondary),
             ),
           ),
         ],

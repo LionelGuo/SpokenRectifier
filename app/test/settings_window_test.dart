@@ -926,14 +926,14 @@ Future<void> scrollRectifyTo(WidgetTester tester, Key key) =>
 /// 31 号票: the 显示悬浮球 family shape — the switch's own row carries
 /// the title (and its subtitle, when there is one) stacked in one column
 /// left of the switch, the title riding the pane's control-title tier
-/// ([SrType.body]; the 修正 pilot's rows ride [SrType.subhead], 32 号
-/// round 2) in textPrimary.
+/// ([SrType.subhead] on every row since the 33 号 rollout) in
+/// textPrimary.
 void expectSwitchFamily(
   WidgetTester tester,
   Key switchKey, {
   required String title,
   String? subtitle,
-  TextStyle tier = SrType.body,
+  TextStyle tier = SrType.subhead,
 }) {
   // The switch's own row = the DEEPEST Row ancestor (the scaffold's row
   // and card-level rows sit above it in the chain).
@@ -3524,12 +3524,12 @@ void main() {
       textOf(tester, const Key('settings-conn-llm-thinking-broken')),
       '思考字段配置有误',
     );
-    // The warning rides caption + live (31 号票 ladder), inside the
-    // switch's family column.
+    // The warning rides micro + live (the app-wide ladder, 33 号票),
+    // inside the switch's family column.
     final warning = tester.widget<Text>(
       find.byKey(const Key('settings-conn-llm-thinking-broken')),
     );
-    expect(warning.style?.fontSize, SrType.caption.fontSize);
+    expect(warning.style?.fontSize, SrType.micro.fontSize);
     expect(warning.style?.color, SrPalette.light.live);
     // The break's detail lives in the file the user is about to
     // hand-fix, never on the card (copy.md conn-12).
@@ -4153,20 +4153,19 @@ void main() {
     await tester.pump(); // the behavior load lands
 
     // 修正 four rows, top to bottom (the lazy list needs the scroll for
-    // the tails) — the pilot's rows ride the subhead tier (32 号二轮).
+    // the tails) — every row rides the subhead tier since the 33 号
+    // rollout.
     expectSwitchFamily(
       tester,
       const Key('settings-rectify-full-prefill'),
       title: '预填',
       subtitle: '启用后占位图钉可自动预填初始值',
-      tier: SrType.subhead,
     );
     expectSwitchFamily(
       tester,
       const Key('settings-rectify-light-enabled'),
       title: '启用轻修模式',
       subtitle: '在字数低于阈值时允许启用轻修模式',
-      tier: SrType.subhead,
     );
     await scrollRectifyTo(
       tester,
@@ -4178,7 +4177,6 @@ void main() {
       const Key('settings-rectify-light-prefill'),
       title: '预填',
       subtitle: '启用后占位图钉可自动预填初始值',
-      tier: SrType.subhead,
     );
     await scrollRectifyTo(
       tester,
@@ -4189,7 +4187,6 @@ void main() {
       tester,
       const Key('settings-rectify-quick-enabled'),
       title: '启用快速模式',
-      tier: SrType.subhead,
     );
     await scrollRectifyTo(
       tester,
@@ -4201,7 +4198,6 @@ void main() {
       const Key('settings-rectify-quick-rectify'),
       title: '启用修正',
       subtitle: '关闭后将直接发送原始语音转写',
-      tier: SrType.subhead,
     );
 
     // 高级: the passage switch.
@@ -4226,9 +4222,30 @@ void main() {
       title: '设置思考字段',
       subtitle: '编辑模型供应商的模型思考配置字段',
     );
+
+    // 通用: the orb switch's own row, then the two hotkey row titles —
+    // every control-row title rides the subhead tier (33 号 rollout).
+    await tester.tap(find.text('通用'));
+    await tester.pump();
+    expectSwitchFamily(
+      tester,
+      const Key('settings-orb-visible'),
+      title: '显示悬浮球',
+      subtitle: '隐藏后点击托盘图标或勾选托盘菜单即可唤回',
+    );
+    expectLadder(
+      tester,
+      '主快捷键',
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
+    );
+    expectLadder(
+      tester,
+      '占位图钉',
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
+    );
   });
 
-  testWidgets('card heads ride their tiers; the 修正 pilot flattens', (
+  testWidgets('card heads ride their tiers on the app-wide ladder', (
     tester,
   ) async {
     final store = FakeRectifyBehaviorStore();
@@ -4238,8 +4255,8 @@ void main() {
       domain: SettingsDomain.rectify,
     );
     await tester.pump();
-    // 修正 (32 号票 five-tier pilot): the card heads ride the SAME micro
-    // tier as every other small line — only titles stand above it.
+    // 修正: the card heads ride the SAME micro tier as every other
+    // small line — only titles stand above it (app-wide since 33 号).
     expectLadder(
       tester,
       '对输入文本进行标准的语义过滤及篇章重组',
@@ -4278,9 +4295,9 @@ void main() {
       '轻修额外指令',
       SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
     );
-    // The placeholder rides the small tier too (SrField's hintStyle
-    // override — the control default stays body until the ladder goes
-    // app-wide).
+    // The placeholder rides the small tier through SrField's own
+    // default (the 33 号 double flip — the pilot's hintStyle override
+    // is gone).
     TextField lightExtra() => tester.widget<TextField>(
       find
           .descendant(
@@ -4326,39 +4343,136 @@ void main() {
       SrPalette.light.textTertiary,
     );
 
-    // 评测: the idle card's first line steps DOWN to caption (the second
-    // line keeps the finer tertiary note).
+    // 评测: both entry lines flatten to the micro tier (33 号).
     await tester.tap(find.text('评测'));
     await tester.pump();
     expectLadder(
       tester,
       '对内置样例进行一轮完整修正，检查是否忠实于原意。',
-      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+      SrType.micro.copyWith(color: SrPalette.light.textTertiary),
     );
     expectLadder(
       tester,
       '约需 1 分钟，不会插入文本、不会写入历史，也不使用场景或全局指令。',
-      SrType.caption.copyWith(color: SrPalette.light.textTertiary),
+      SrType.micro.copyWith(color: SrPalette.light.textTertiary),
     );
 
-    // 连接: the two card heads step UP; the broken warning rides
-    // caption + live inside the switch's family column.
+    // 连接: the card heads flatten to micro; the field-group labels
+    // step UP to the in-card title tier (接口格式 / 服务商 ×2, plus
+    // every SrField label through the control's own flip).
     await tester.tap(find.text('模型与连接'));
     await tester.pump();
     await tester.pump(); // the connection load lands
     expectLadder(
       tester,
       '配置用于修正的模型API接口',
-      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+      SrType.micro.copyWith(color: SrPalette.light.textTertiary),
     );
     expectLadder(
       tester,
       '未配置凭据时不做云端转写，仅显示说话状态',
-      SrType.caption.copyWith(color: SrPalette.light.textSecondary),
+      SrType.micro.copyWith(color: SrPalette.light.textTertiary),
     );
-    // The broken variant's tone rides caption + live — asserted in its
+    expectLadderEvery(
+      '接口格式',
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
+    );
+    expectLadderEvery(
+      '服务商',
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
+    );
+    expectLadder(
+      tester,
+      '端点 base_url',
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
+    );
+
+    // 高级: the insertion-mode group label rides the same title tier.
+    await tester.tap(find.text('高级'));
+    await tester.pump();
+    await tester.pump(); // the timings load lands
+    expectLadderEvery(
+      '插入方式',
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
+    );
+    expectLadder(
+      tester,
+      '分段静音（ms）',
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
+    );
+    // The broken variant's tone rides micro + live — asserted in its
     // own test below (a same-test re-pump would keep the old state's
     // domain, never painting the connection pane).
+  });
+
+  testWidgets('caption stays off body copy in every domain (33 号 rollout)', (
+    tester,
+  ) async {
+    // The ladder's fourth rung, as a sweep: NO painted body copy rides
+    // the caption size. What still paints there, by design: SrButton
+    // labels, chip labels (they inherit an AnimatedDefaultTextStyle
+    // caption — a null inline style the size check skips), the hotkey
+    // capture swap inside its AnimatedSwitcher, and the eval category
+    // chips (the one chip family drawn as a plain Container). The lazy
+    // lists build only what the opening viewport holds — the per-site
+    // ladder tests above cover the below-the-fold tails.
+    void walk(String where) {
+      final offenders = <String>[];
+      for (final element in find.byType(Text).evaluate()) {
+        final text = element.widget as Text;
+        if (text.style?.fontSize != SrType.caption.fontSize) continue;
+        final key = text.key;
+        if (key is ValueKey<String> &&
+            key.value.startsWith('settings-eval-category:')) {
+          continue;
+        }
+        var whitelisted = false;
+        element.visitAncestorElements((ancestor) {
+          final widget = ancestor.widget;
+          if (widget is SrButton || widget is AnimatedSwitcher) {
+            whitelisted = true;
+            return false; // found — stop climbing
+          }
+          return true;
+        });
+        if (!whitelisted) offenders.add(text.data ?? text.key.toString());
+      }
+      expect(offenders, isEmpty, reason: '$where: caption-tier body copy');
+    }
+
+    final runner = FakeFidelityEvalRunner();
+    await pumpSettings(
+      tester,
+      historyStore: FakeHistorySettingsStore(entries: _historyEntries),
+      termsStore: FakeTermsStore(['术语样例']),
+      evalRunner: runner,
+      domain: SettingsDomain.general,
+    );
+    await tester.pump();
+    // Walk the nine domains by their sidebar entries (a same-type
+    // re-pump would keep the old domain's state — taps are the only way
+    // across).
+    for (final domain in SettingsDomain.values) {
+      if (domain != SettingsDomain.general) {
+        await tester.tap(find.text(domain.label));
+        await tester.pump();
+      }
+      await tester.pump(); // the pane's load lands
+      walk(domain.label);
+    }
+
+    // The fidelity pane's finished cards paint only after a run — tap
+    // back into it (same tree, same gotcha) and walk that state too
+    // (verdicts, the summary lines, the versus line).
+    await tester.tap(find.text('评测'));
+    await tester.pump();
+    await tester.tap(find.text('开始评测'));
+    await tester.pump();
+    runner.emit(
+      const BridgeEvalEvent.finished(summary: _evalSummaryWithFailures),
+    );
+    await tester.pump();
+    walk('评测 finished');
   });
 
   testWidgets('the llm card paints the new order; the asr endpoint hugs save', (

@@ -56,12 +56,12 @@ class _IdleCard extends StatelessWidget {
         children: [
           Text(
             '对内置样例进行一轮完整修正，检查是否忠实于原意。',
-            style: SrType.caption.copyWith(color: pal.textSecondary),
+            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 10),
           Text(
             '约需 1 分钟，不会插入文本、不会写入历史，也不使用场景或全局指令。',
-            style: SrType.caption.copyWith(color: pal.textTertiary),
+            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
           const SizedBox(height: 20),
           Row(
@@ -102,13 +102,13 @@ class _RunningCard extends StatelessWidget {
               Text(
                 key: const Key('settings-eval-progress'),
                 total == 0 ? '评测准备中' : '$done / $total',
-                style: SrType.section.copyWith(color: pal.textPrimary),
+                style: SrType.micro.copyWith(color: pal.textSecondary),
               ),
               const SizedBox(width: 10),
               if (controller.currentCase case final id?)
                 Text(
                   id,
-                  style: SrType.caption.copyWith(color: pal.textTertiary),
+                  style: SrType.micro.copyWith(color: pal.textTertiary),
                 ),
               const Spacer(),
               SrButton(label: '取消', onTap: controller.cancel),
@@ -168,7 +168,7 @@ class _FailedCard extends StatelessWidget {
           Text(
             key: const Key('settings-eval-failure'),
             controller.failure ?? '',
-            style: SrType.caption.copyWith(color: pal.textSecondary),
+            style: SrType.micro.copyWith(color: pal.textSecondary),
           ),
           const SizedBox(height: 20),
           SrButton(primary: true, label: '重试', onTap: controller.start),
@@ -237,7 +237,7 @@ class _SummaryCard extends StatelessWidget {
                     child: Text(
                       key: const Key('settings-eval-versus'),
                       versus,
-                      style: SrType.caption.copyWith(
+                      style: SrType.micro.copyWith(
                         color: delta >= 0 ? pal.textSecondary : pal.live,
                       ),
                     ),
@@ -256,7 +256,7 @@ class _SummaryCard extends StatelessWidget {
                 '${summary.execFailed > 0 ? ' · 执行失败 ${summary.execFailed}' : ''}'
                 ' · 基线 ${summary.baselinePercent.toStringAsFixed(1)}%'
                 ' · ${summary.model}',
-                style: SrType.caption.copyWith(color: pal.textTertiary),
+                style: SrType.micro.copyWith(color: pal.textTertiary),
               ),
               const SizedBox(height: 16),
               // 失败类别摘要: one row of counts, display order fixed by
@@ -276,7 +276,7 @@ class _SummaryCard extends StatelessWidget {
         ),
         if (summary.failedCases.isNotEmpty) ...[
           const SizedBox(height: 12),
-          Text('失败明细', style: SrType.caption.copyWith(color: pal.textTertiary)),
+          Text('失败明细', style: SrType.micro.copyWith(color: pal.textTertiary)),
           const SizedBox(height: 8),
           for (final failed in summary.failedCases)
             Padding(
@@ -288,7 +288,7 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             '全部样例通过。',
-            style: SrType.caption.copyWith(color: pal.textTertiary),
+            style: SrType.micro.copyWith(color: pal.textTertiary),
           ),
         ],
       ],
@@ -355,13 +355,13 @@ class _FailedCaseCard extends StatelessWidget {
           if (failed.error case final error?) ...[
             Text(
               _classifiedCaseError(error),
-              style: SrType.caption.copyWith(color: pal.live),
+              style: SrType.micro.copyWith(color: pal.live),
             ),
           ] else
             for (final verdict in failed.failures)
               Text(
                 verdict,
-                style: SrType.caption.copyWith(color: pal.textSecondary),
+                style: SrType.micro.copyWith(color: pal.textSecondary),
               ),
         ],
       ),
