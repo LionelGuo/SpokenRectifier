@@ -925,12 +925,15 @@ Future<void> scrollRectifyTo(WidgetTester tester, Key key) =>
 
 /// 31 号票: the 显示悬浮球 family shape — the switch's own row carries
 /// the title (and its subtitle, when there is one) stacked in one column
-/// left of the switch, the title riding the body tier in textPrimary.
+/// left of the switch, the title riding the pane's control-title tier
+/// ([SrType.body]; the 修正 pilot's rows ride [SrType.subhead], 32 号
+/// round 2) in textPrimary.
 void expectSwitchFamily(
   WidgetTester tester,
   Key switchKey, {
   required String title,
   String? subtitle,
+  TextStyle tier = SrType.body,
 }) {
   // The switch's own row = the DEEPEST Row ancestor (the scaffold's row
   // and card-level rows sit above it in the chain).
@@ -947,7 +950,7 @@ void expectSwitchFamily(
   final titleText = tester.widget<Text>(
     find.descendant(of: rowFinder, matching: find.text(title)),
   );
-  expect(titleText.style?.fontSize, SrType.body.fontSize);
+  expect(titleText.style?.fontSize, tier.fontSize);
   expect(titleText.style?.color, SrPalette.light.textPrimary);
   // The subtitle, when present, stacks INSIDE the same row's family
   // column — under the title, never a second row below the switch.
@@ -4150,18 +4153,20 @@ void main() {
     await tester.pump(); // the behavior load lands
 
     // 修正 four rows, top to bottom (the lazy list needs the scroll for
-    // the tails).
+    // the tails) — the pilot's rows ride the subhead tier (32 号二轮).
     expectSwitchFamily(
       tester,
       const Key('settings-rectify-full-prefill'),
       title: '预填',
       subtitle: '启用后占位图钉可自动预填初始值',
+      tier: SrType.subhead,
     );
     expectSwitchFamily(
       tester,
       const Key('settings-rectify-light-enabled'),
       title: '启用轻修模式',
       subtitle: '在字数低于阈值时允许启用轻修模式',
+      tier: SrType.subhead,
     );
     await scrollRectifyTo(
       tester,
@@ -4173,6 +4178,7 @@ void main() {
       const Key('settings-rectify-light-prefill'),
       title: '预填',
       subtitle: '启用后占位图钉可自动预填初始值',
+      tier: SrType.subhead,
     );
     await scrollRectifyTo(
       tester,
@@ -4183,6 +4189,7 @@ void main() {
       tester,
       const Key('settings-rectify-quick-enabled'),
       title: '启用快速模式',
+      tier: SrType.subhead,
     );
     await scrollRectifyTo(
       tester,
@@ -4194,6 +4201,7 @@ void main() {
       const Key('settings-rectify-quick-rectify'),
       title: '启用修正',
       subtitle: '关闭后将直接发送原始语音转写',
+      tier: SrType.subhead,
     );
 
     // 高级: the passage switch.
@@ -4246,7 +4254,7 @@ void main() {
     // card's 思考策略 above the fold first.
     expectLadderEvery(
       '思考策略',
-      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
     );
     await scrollRectifyTo(
       tester,
@@ -4256,19 +4264,19 @@ void main() {
     expectLadder(
       tester,
       '轻修字数阈值',
-      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
     );
     // The light card's own 思考策略, now in view below the threshold.
     expectLadderEvery(
       '思考策略',
-      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
     );
     await scrollRectifyTo(tester, const Key('settings-rectify-light-extra'));
     await tester.pump();
     expectLadder(
       tester,
       '轻修额外指令',
-      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
     );
     // The placeholder rides the small tier too (SrField's hintStyle
     // override — the control default stays body until the ladder goes
@@ -4299,7 +4307,7 @@ void main() {
     expectLadder(
       tester,
       '快速额外指令',
-      SrType.body.copyWith(color: SrPalette.light.textPrimary),
+      SrType.subhead.copyWith(color: SrPalette.light.textPrimary),
     );
     TextField quickExtra() => tester.widget<TextField>(
       find

@@ -203,6 +203,17 @@ class SrType {
     fontFamilyFallback: familyFallback,
   );
 
+  /// In-card control titles (switch-row titles, field-group labels) —
+  /// the five-tier ladder's third rung (32 号票 round 2): [body]'s 14
+  /// sat at the section head's own size, reading as a second heading;
+  /// 13 steps it clearly under [section] while staying above
+  /// [caption] (buttons and chips) and [micro].
+  static const subhead = TextStyle(
+    fontSize: 13,
+    height: 1.4,
+    fontFamilyFallback: familyFallback,
+  );
+
   static const caption = TextStyle(
     fontSize: 12,
     height: 1.4,

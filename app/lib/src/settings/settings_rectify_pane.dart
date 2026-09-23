@@ -395,7 +395,7 @@ class _FullCard extends StatelessWidget {
           const SizedBox(height: 10),
           _PrefillRow(value: prefill, onChanged: onPrefill),
           const SizedBox(height: 12),
-          Text('思考策略', style: SrType.body.copyWith(color: pal.textPrimary)),
+          Text('思考策略', style: SrType.subhead.copyWith(color: pal.textPrimary)),
           const SizedBox(height: 6),
           _PolicyChips(
             testKey: 'settings-rectify-full-policy',
@@ -486,7 +486,7 @@ class _LightCard extends StatelessWidget {
                   children: [
                     Text(
                       '启用轻修模式',
-                      style: SrType.body.copyWith(color: pal.textPrimary),
+                      style: SrType.subhead.copyWith(color: pal.textPrimary),
                     ),
                     Text(
                       '在字数低于阈值时允许启用轻修模式',
@@ -519,7 +519,7 @@ class _LightCard extends StatelessWidget {
                   // SrField's own micro label.
                   Text(
                     '轻修字数阈值',
-                    style: SrType.body.copyWith(color: pal.textPrimary),
+                    style: SrType.subhead.copyWith(color: pal.textPrimary),
                   ),
                   const SizedBox(height: 4),
                   SrField(
@@ -536,7 +536,7 @@ class _LightCard extends StatelessWidget {
                   const SizedBox(height: 12),
                   Text(
                     '思考策略',
-                    style: SrType.body.copyWith(color: pal.textPrimary),
+                    style: SrType.subhead.copyWith(color: pal.textPrimary),
                   ),
                   const SizedBox(height: 6),
                   _PolicyChips(
@@ -564,7 +564,7 @@ class _LightCard extends StatelessWidget {
                   const SizedBox(height: 12),
                   Text(
                     '轻修额外指令',
-                    style: SrType.body.copyWith(color: pal.textPrimary),
+                    style: SrType.subhead.copyWith(color: pal.textPrimary),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -645,11 +645,12 @@ class _QuickCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                // No subtitle: the title alone rides the family's body
-                // tier (31 号票 item 2).
+                // No subtitle: the title alone rides the family's
+                // control-title tier (31 号票 item 2; subhead since 32
+                // 号二轮).
                 child: Text(
                   '启用快速模式',
-                  style: SrType.body.copyWith(color: pal.textPrimary),
+                  style: SrType.subhead.copyWith(color: pal.textPrimary),
                 ),
               ),
               Switch(
@@ -677,7 +678,7 @@ class _QuickCard extends StatelessWidget {
                           children: [
                             Text(
                               '启用修正',
-                              style: SrType.body.copyWith(
+                              style: SrType.subhead.copyWith(
                                 color: pal.textPrimary,
                               ),
                             ),
@@ -709,7 +710,7 @@ class _QuickCard extends StatelessWidget {
                         children: [
                           Text(
                             '快速额外指令',
-                            style: SrType.body.copyWith(
+                            style: SrType.subhead.copyWith(
                               color: pal.textPrimary,
                             ),
                           ),
@@ -777,7 +778,7 @@ class _PrefillRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('预填', style: SrType.body.copyWith(color: pal.textPrimary)),
+              Text('预填', style: SrType.subhead.copyWith(color: pal.textPrimary)),
               Text(
                 '启用后占位图钉可自动预填初始值',
                 style: SrType.micro.copyWith(color: pal.textTertiary),
