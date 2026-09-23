@@ -211,6 +211,7 @@ class StageHost extends StatefulWidget {
     required this.controller,
     this.stageWindow,
     this.onOpenSettings,
+    this.onPanelRevealed,
     required this.rectifyStore,
   });
 
@@ -224,6 +225,11 @@ class StageHost extends StatefulWidget {
   /// The settings window's doorway, handed down to the quick panel's
   /// management entries. Null in tests.
   final void Function(SettingsDomain domain)? onOpenSettings;
+
+  /// The quick panel stood open — handed down to the panel, which
+  /// fires it on mount as the settings prewarm's arm signal (16 号票).
+  /// Null in tests.
+  final VoidCallback? onPanelRevealed;
 
   /// The quick panel's rectify tiers ride the same store the settings
   /// window's 修正 page edits (one key, both surfaces).
@@ -1107,6 +1113,7 @@ class _StageHostState extends State<StageHost>
                                 controller: c,
                                 exiting: _exiting,
                                 onOpenSettings: widget.onOpenSettings,
+                                onRevealed: widget.onPanelRevealed,
                                 form: _form,
                                 rectifyStore: widget.rectifyStore,
                               ),

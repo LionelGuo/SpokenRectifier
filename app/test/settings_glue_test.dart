@@ -117,8 +117,7 @@ void main() {
     glue = DesktopSettingsWindow(
       controller,
       windowsChanged: windowsChanged.stream,
-      initialPrewarmDelay: Duration.zero,
-      prewarmRearmDelay: Duration.zero,
+      prewarmArmDelay: Duration.zero,
     );
   });
 
@@ -242,7 +241,7 @@ void main() {
     );
   });
 
-  test('a window the user closed re-arms the prewarm', () async {
+  test('a closed window stays down until the next panel reveal', () async {
     glue.armPrewarm();
     await settle();
     expect(plugin.createCalls, 1);
@@ -254,10 +253,33 @@ void main() {
     windowsChanged.add(null);
     await settle();
 
-    // A fresh hidden engine stands ready for the next open.
+    // No automatic rearm (16 号票): every sub-engine death leaks GPU
+    // memory, so nothing respawns one on its own — the next reveal
+    // (the next armPrewarm) is what boots the next hidden engine.
+    expect(plugin.createCalls, 1);
+
+    glue.armPrewarm();
+    await settle();
+
     expect(plugin.createCalls, 2);
     expect(plugin.creates.last, contains('"prewarm":true'));
     expect(plugin.shown, isEmpty);
+  });
+
+  test('arming while a window lives creates nothing', () async {
+    glue.armPrewarm();
+    await settle();
+    expect(plugin.createCalls, 1);
+
+    // Every quick-panel reveal arms; while an engine already stands
+    // (hidden or shown) the arm is a no-op.
+    glue.armPrewarm();
+    await settle();
+    await glue.open(SettingsDomain.general);
+    glue.armPrewarm();
+    await settle();
+
+    expect(plugin.createCalls, 1);
   });
 
   test('the exit chain never resurrects the window', () async {
@@ -268,8 +290,8 @@ void main() {
     await glue.close();
     await settle();
 
-    // The close pruned the handle (which re-arms) but the exit flag
-    // disarms it: no second engine on the way out.
+    // The exit flag disarms every arm path: no second engine on the
+    // way out.
     expect(plugin.createCalls, 1);
     expect(plugin.alive, isEmpty);
   });

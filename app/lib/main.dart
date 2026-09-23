@@ -215,6 +215,11 @@ Future<void> main(List<String> args) async {
       stageWindow: const WindowManagerStageWindow(),
       onOpenSettings: settingsWindow.open,
       closeSettings: settingsWindow.close,
+      // The prewarm's arm signal (16 号票): the quick panel standing
+      // open is the one doorway to settings — no boot-time arm, no
+      // post-close rearm, both of which cycled sub-engines and each
+      // cycle leaks GPU memory the driver never reclaims.
+      onPanelRevealed: settingsWindow.armPrewarm,
     ),
   );
   // The UI tree's first paint is where the main engine's resident set
@@ -223,11 +228,6 @@ Future<void> main(List<String> args) async {
   WidgetsBinding.instance.addPostFrameCallback(
     (_) => logPerfMem('main_frame'),
   );
-
-  // Prewarm the settings engine once startup has settled (08 号票): an
-  // open then rides the booted engine (navigate-and-show) instead of a
-  // whole cold start — the measured cost of every settings open today.
-  settingsWindow.armPrewarm();
 }
 
 /// The settings window's engine entry: a standard OS window (title bar,
@@ -391,11 +391,15 @@ class _Shell extends StatefulWidget {
     required this.stageWindow,
     required this.onOpenSettings,
     required this.closeSettings,
+    required this.onPanelRevealed,
   });
 
   final SpeechController controller;
   final StageWindow stageWindow;
   final Future<void> Function(SettingsDomain domain) onOpenSettings;
+
+  /// The quick panel stood open — the prewarm's arm signal (16 号票).
+  final VoidCallback onPanelRevealed;
 
   /// Tray exit closes the settings window through this before the main
   /// window quits — a sub-window left alive rides process teardown
@@ -551,6 +555,7 @@ class _ShellState extends State<_Shell> with TrayListener {
       controller: controller,
       stageWindow: widget.stageWindow,
       onOpenSettings: widget.onOpenSettings,
+      onPanelRevealed: widget.onPanelRevealed,
       rectifyStore: const RustRectifyBehaviorStore(),
     );
   }

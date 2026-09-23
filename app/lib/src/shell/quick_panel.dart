@@ -52,12 +52,19 @@ class QuickPanel extends StatefulWidget {
     required this.controller,
     required this.exiting,
     this.onOpenSettings,
+    this.onRevealed,
     required this.form,
     required this.rectifyStore,
   });
 
   final SpeechController controller;
   final bool exiting;
+
+  /// Fired once per mount — the panel stood open, which is the settings
+  /// prewarm's arm signal (16 号票): this panel is the only doorway to
+  /// the settings window, so a panel standing here means an open may be
+  /// a click away. Null in tests.
+  final VoidCallback? onRevealed;
 
   /// The rectify tiers' persistence — the SAME store the settings
   /// window's 修正 page edits (the theme precedent: one key, both
@@ -97,6 +104,7 @@ class _QuickPanelState extends State<QuickPanel> {
   void initState() {
     super.initState();
     c.addListener(_onChanged);
+    widget.onRevealed?.call();
     _loadRectify();
     // A pending error from before this panel opened (the orb's tooltip
     // carried it at idle) still toasts once the slot scope is mounted.

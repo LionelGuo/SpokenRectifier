@@ -36,8 +36,7 @@ class DesktopSettingsWindow {
   DesktopSettingsWindow(
     this._controller, {
     Stream<void>? windowsChanged,
-    this.initialPrewarmDelay = const Duration(seconds: 10),
-    this.prewarmRearmDelay = const Duration(seconds: 3),
+    this.prewarmArmDelay = const Duration(seconds: 1),
   }) : _windowsChanged = windowsChanged ?? onWindowsChanged {
     _windowsChanged.listen((_) => _pruneWindow());
   }
@@ -48,11 +47,10 @@ class DesktopSettingsWindow {
   /// prune path is testable without a native window actually dying).
   final Stream<void> _windowsChanged;
 
-  /// How long after the shell settles before the first prewarm, and how
-  /// long after a window's death before the next one — injectable so
-  /// the timers are testable without real waiting.
-  final Duration initialPrewarmDelay;
-  final Duration prewarmRearmDelay;
+  /// How long after an arm call before the boot fires — the settle
+  /// margin that keeps the sub-engine's startup off the quick panel's
+  /// entrance-animation frames. Injectable so tests skip the wait.
+  final Duration prewarmArmDelay;
 
   WindowController? _window;
   ThemeMode? _lastTheme;
@@ -136,13 +134,16 @@ class DesktopSettingsWindow {
     ),
   );
 
-  /// Arm the prewarm (08 号票): [initialPrewarmDelay] after the shell
-  /// settles, boot the settings sub-engine hidden in the background, so
-  /// the first open is a navigate-and-show over a booted engine instead
-  /// of a whole cold start. The trade is a resident second engine
-  /// (R2's prewarm direction) — idle cost is memory, not CPU (no
-  /// tickers, no channel traffic while hidden).
-  void armPrewarm() => _schedulePrewarm(initialPrewarmDelay);
+  /// Arm the prewarm (08 号票; policy re-aimed in 16 号票): boot the
+  /// settings sub-engine hidden in the background so an open is a
+  /// navigate-and-show over a booted engine instead of a whole cold
+  /// start. The arm signal is the quick panel standing open — the only
+  /// doorway to settings — not startup and not a close: every sub-engine
+  /// death leaks GPU memory the driver never reclaims (16 号票's
+  /// measurement), so engines are born only where a settings open is
+  /// plausibly minutes away, and never automatically after a close.
+  /// [prewarmArmDelay] after the arm call, the boot fires.
+  void armPrewarm() => _schedulePrewarm(prewarmArmDelay);
 
   void _schedulePrewarm(Duration delay) {
     if (_closing) return;
@@ -338,9 +339,9 @@ class DesktopSettingsWindow {
     // leave the product chords unregistered — map 06: closing the
     // settings window ends capture and re-hangs from the file.
     unawaited(_controller.setHotkeysPaused(false));
-    // The death leaves the app cold; be warm for the next open. The
-    // exit chain's own closes are covered by the _closing check inside.
-    _schedulePrewarm(prewarmRearmDelay);
+    // No re-arm here (16 号票): a sub-engine's death leaks GPU memory,
+    // so nothing respawns one on its own — the next quick-panel reveal
+    // arms the next boot, where a settings open is plausibly close.
   }
 
   /// Close the settings window through the proper chain, ahead of the

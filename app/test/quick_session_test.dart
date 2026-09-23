@@ -73,6 +73,43 @@ Future<void> windDown(WidgetTester tester, SpeechController controller) async {
 }
 
 void main() {
+  testWidgets('the quick panel standing open fires the reveal arm once', (
+    tester,
+  ) async {
+    final controller = SpeechController(
+      gateway: FakeGateway(),
+      scriptedPhrases: const [],
+    );
+    addTearDown(controller.dispose);
+    var reveals = 0;
+    await tester.pumpWidget(
+      SpokenRectifierApp(
+        controller: controller,
+        rectifyStore: FakeRectifyBehaviorStore(),
+        onPanelRevealed: () => reveals++,
+      ),
+    );
+    await tester.pump();
+
+    // Standing open mounts the panel once — the prewarm's arm signal
+    // (16 号票) fires once with it.
+    controller.orbSecondary();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(reveals, 1);
+
+    // Staying open and collapsing do not re-fire.
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(reveals, 1);
+    await controller.closeQuick();
+    await tester.pump(const Duration(milliseconds: 1200));
+    expect(reveals, 1);
+
+    // A fresh reveal is a fresh mount — the next arm.
+    controller.orbSecondary();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(reveals, 2);
+  });
+
   testWidgets('an upgrade flips the listening word to 快速', (tester) async {
     final gateway = FakeGateway();
     final controller = await pumpController(tester, gateway);

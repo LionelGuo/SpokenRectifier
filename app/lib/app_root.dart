@@ -21,6 +21,7 @@ class SpokenRectifierApp extends StatelessWidget {
     required this.controller,
     this.stageWindow,
     this.onOpenSettings,
+    this.onPanelRevealed,
     required this.rectifyStore,
   });
 
@@ -32,6 +33,10 @@ class SpokenRectifierApp extends StatelessWidget {
   /// The settings window's doorway (the quick panel's management
   /// entries); null in tests.
   final void Function(SettingsDomain domain)? onOpenSettings;
+
+  /// The quick panel stood open — the settings prewarm's arm signal
+  /// (16 号票); null in tests.
+  final VoidCallback? onPanelRevealed;
 
   /// The quick panel's rectify tiers' store — the same store the
   /// settings window's 修正 page edits.
@@ -53,6 +58,7 @@ class SpokenRectifierApp extends StatelessWidget {
             controller: controller,
             stageWindow: stageWindow,
             onOpenSettings: onOpenSettings,
+            onPanelRevealed: onPanelRevealed,
             rectifyStore: rectifyStore,
           ),
         ),
