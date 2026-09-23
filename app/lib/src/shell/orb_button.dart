@@ -19,7 +19,8 @@ import 'package:flutter/material.dart';
 
 import '../../app_state.dart';
 import '../design/tokens.dart';
-import '../rust/api.dart' show BridgeSessionState;
+import '../rust/api/engine.dart'
+    show BridgeSessionState;
 import 'session_flow.dart' show StageKind;
 
 /// Visual overshoot of decorations beyond the 56px core (socket, ring,

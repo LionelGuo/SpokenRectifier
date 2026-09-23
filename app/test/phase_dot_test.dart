@@ -12,8 +12,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
-import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgeSessionState;
+import 'package:spokenrectifier_app/src/rust/api/engine.dart'
+    show BridgeEvent,
+        BridgeSessionState;
 import 'package:spokenrectifier_app/src/session/session_panel.dart'
     show phaseDotGlowPeakAlpha, phaseDotValleyAlpha;
 

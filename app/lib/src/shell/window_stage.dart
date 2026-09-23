@@ -60,7 +60,8 @@ import 'package:window_manager/window_manager.dart';
 import '../../app_state.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
-import '../rust/api.dart' show BridgeSessionState;
+import '../rust/api/engine.dart'
+    show BridgeSessionState;
 import '../settings/rectify_store.dart';
 import '../settings/settings_domain.dart';
 import 'orb_button.dart';

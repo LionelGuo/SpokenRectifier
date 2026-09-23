@@ -22,8 +22,11 @@ import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
-import '../rust/api.dart'
-    show BridgeHistoryEntry, BridgeHistoryFilter, BridgeScenario;
+import '../rust/api/history.dart'
+    show BridgeHistoryEntry,
+        BridgeHistoryFilter;
+import '../rust/api/library.dart'
+    show BridgeScenario;
 import '../shell/history_retrieval.dart'
     show HistoryRerectify, showScenarioRerectifyMenu;
 import '../shell/quick_panel.dart' show formatHistoryStamp;

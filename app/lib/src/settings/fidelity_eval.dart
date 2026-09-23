@@ -16,10 +16,9 @@ import 'package:flutter/foundation.dart';
 
 import '../errors.dart';
 
-import '../rust/api.dart' as rust show BridgeEvalSummary, startFidelityEval;
-import '../rust/api.dart'
-    show
-        BridgeEvalEvent,
+import '../rust/api/eval.dart' as rust;
+import '../rust/api/eval.dart'
+    show BridgeEvalEvent,
         BridgeEvalEvent_CaseFinished,
         BridgeEvalEvent_CaseStarted,
         BridgeEvalEvent_Failed,

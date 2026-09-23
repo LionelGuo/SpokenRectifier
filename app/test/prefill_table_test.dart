@@ -6,7 +6,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_state.dart';
-import 'package:spokenrectifier_app/src/rust/api.dart';
+import 'package:spokenrectifier_app/src/rust/api/engine.dart';
 
 import 'fake_gateway.dart';
 

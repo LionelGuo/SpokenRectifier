@@ -6,7 +6,15 @@
 // Static analysis wrongly picks the IO variant, thus ignore this
 // ignore_for_file: argument_type_not_assignable
 
-import 'api.dart';
+import 'api/about.dart';
+import 'api/advanced.dart';
+import 'api/connection.dart';
+import 'api/demo.dart';
+import 'api/engine.dart';
+import 'api/eval.dart';
+import 'api/history.dart';
+import 'api/library.dart';
+import 'api/rectify.dart';
 
 import 'dart:async';
 import 'dart:convert';

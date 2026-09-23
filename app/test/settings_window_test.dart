@@ -32,18 +32,19 @@ import 'package:spokenrectifier_app/src/design/tokens.dart'
     show SrMotion, SrPalette, SrRadius, SrType;
 import 'package:spokenrectifier_app/src/settings/settings_fidelity_pane.dart'
     show SettingsFidelityPane;
-import 'package:spokenrectifier_app/src/rust/api.dart'
-    show
-        BridgeEvalCaseDetail,
+import 'package:spokenrectifier_app/src/rust/api/eval.dart'
+    show BridgeEvalCaseDetail,
         BridgeEvalCategory,
         BridgeEvalEvent,
-        BridgeEvalSummary,
-        BridgeHistoryEntry,
+        BridgeEvalSummary;
+import 'package:spokenrectifier_app/src/rust/api/history.dart'
+    show BridgeHistoryEntry,
         BridgeHistoryFilter,
         BridgeHistoryFilter_All,
         BridgeHistoryFilter_DefaultRegister,
-        BridgeHistoryFilter_Scenario,
-        BridgeScenario;
+        BridgeHistoryFilter_Scenario;
+import 'package:spokenrectifier_app/src/rust/api/library.dart'
+    show BridgeScenario;
 import 'package:spokenrectifier_app/src/settings/connection_store.dart';
 import 'package:spokenrectifier_app/src/settings/fidelity_eval.dart';
 import 'package:spokenrectifier_app/src/settings/history_store.dart';

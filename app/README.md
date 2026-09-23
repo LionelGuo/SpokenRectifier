@@ -31,6 +31,7 @@ flutter_rust_bridge_codegen generate
 flutter analyze && flutter test
 ```
 
-桥接 API 在 `rust/src/api.rs`(`Bridge*` 线类型与引擎类型解耦);UI 逻辑全部在
+桥接 API 在 `rust/src/api/`(按域一文件:engine/demo/state 与各设置面;`Bridge*` 线类型与
+引擎类型解耦,`api.rs` 门面再导出);UI 逻辑全部在
 `lib/app_state.dart` + `lib/app_root.dart`,经 `SpeechEngineGateway` 注入,widget 测试用纯 Dart
 假网关(`test/fake_gateway.dart`),不依赖 Rust 动态库。

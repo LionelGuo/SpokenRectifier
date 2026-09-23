@@ -8,7 +8,9 @@ import 'dart:async';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     show PlatformInt64;
 import 'package:spokenrectifier_app/app_state.dart';
-import 'package:spokenrectifier_app/src/rust/api.dart';
+import 'package:spokenrectifier_app/src/rust/api/engine.dart';
+import 'package:spokenrectifier_app/src/rust/api/history.dart';
+import 'package:spokenrectifier_app/src/rust/api/library.dart';
 
 class FakeGateway implements SpeechEngineGateway {
   final commands = <String>[];

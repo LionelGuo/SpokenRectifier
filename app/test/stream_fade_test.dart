@@ -21,8 +21,9 @@ import 'package:spokenrectifier_app/src/preview/slot_surface.dart'
         StreamFadeSegment,
         advanceStreamFades,
         streamFadeAlpha;
-import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgeSessionState;
+import 'package:spokenrectifier_app/src/rust/api/engine.dart'
+    show BridgeEvent,
+        BridgeSessionState;
 
 import 'fake_gateway.dart';
 import 'fake_rectify_store.dart';

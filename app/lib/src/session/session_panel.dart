@@ -21,7 +21,9 @@ import '../design/tokens.dart';
 import '../preview/slot_document.dart';
 import '../preview/slot_editor.dart';
 import '../preview/slot_surface.dart';
-import '../rust/api.dart' show BridgePlaceholderFill, BridgeSessionState;
+import '../rust/api/engine.dart'
+    show BridgePlaceholderFill,
+        BridgeSessionState;
 import 'thinking_marquee.dart';
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;

@@ -3,7 +3,15 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
-import 'api.dart';
+import 'api/about.dart';
+import 'api/advanced.dart';
+import 'api/connection.dart';
+import 'api/demo.dart';
+import 'api/engine.dart';
+import 'api/eval.dart';
+import 'api/history.dart';
+import 'api/library.dart';
+import 'api/rectify.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -67,7 +75,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1179723357;
+  int get rustContentHash => 201781378;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -79,15 +87,15 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
-  Future<BridgeAbout> crateApiAbout();
+  Future<BridgeAbout> crateApiAboutAbout();
 
-  Future<BridgeAdvancedConfig> crateApiAdvancedConfig();
+  Future<BridgeAdvancedConfig> crateApiAdvancedAdvancedConfig();
 
-  Future<void> crateApiAppendTerm({required String term});
+  Future<void> crateApiLibraryAppendTerm({required String term});
 
-  Future<void> crateApiApplyConnectionConfigs();
+  Future<void> crateApiConnectionApplyConnectionConfigs();
 
-  Future<String?> crateApiAsrEndpointPreview({
+  Future<String?> crateApiConnectionAsrEndpointPreview({
     required String provider,
     required String model,
     String? baseUrl,
@@ -96,94 +104,101 @@ abstract class RustLibApi extends BaseApi {
     String? appId,
   });
 
-  Future<BridgeConnection> crateApiConnectionConfig();
+  Future<BridgeConnection> crateApiConnectionConnectionConfig();
 
-  Future<void> crateApiCreateEngine({required List<String> llmResponses});
+  Future<void> crateApiEngineCreateEngine({required List<String> llmResponses});
 
-  Future<void> crateApiCreateFakeEngine({required List<String> llmResponses});
+  Future<void> crateApiEngineCreateFakeEngine({
+    required List<String> llmResponses,
+  });
 
-  Future<void> crateApiExecute({required BridgeCommand command});
+  Future<void> crateApiEngineExecute({required BridgeCommand command});
 
-  Future<void> crateApiFakeBeginSession();
+  Future<void> crateApiDemoFakeBeginSession();
 
-  Future<void> crateApiFakeSay({required String text});
+  Future<void> crateApiDemoFakeSay({required String text});
 
-  Future<void> crateApiFakeSilence({required BigInt elapsedMs});
+  Future<void> crateApiDemoFakeSilence({required BigInt elapsedMs});
 
-  Future<String?> crateApiGlobalDirective();
+  Future<String?> crateApiLibraryGlobalDirective();
 
-  Future<void> crateApiHistoryClear();
+  Future<void> crateApiHistoryHistoryClear();
 
-  Future<BridgeHistoryConfig> crateApiHistoryConfig();
+  Future<BridgeHistoryConfig> crateApiHistoryHistoryConfig();
 
-  Future<List<BridgeHistoryEntry>> crateApiHistoryList({
+  Future<List<BridgeHistoryEntry>> crateApiHistoryHistoryList({
     required BridgeHistoryFilter filter,
   });
 
-  Future<List<String>> crateApiInsertedTexts();
+  Future<List<String>> crateApiDemoInsertedTexts();
 
-  Future<bool> crateApiIsHolding();
+  Future<bool> crateApiEngineIsHolding();
 
-  Future<List<BridgeLlmPreset>> crateApiLlmPresets();
+  Future<List<BridgeLlmPreset>> crateApiConnectionLlmPresets();
 
-  Future<String> crateApiOpenConfigFile();
+  Future<String> crateApiAboutOpenConfigFile();
 
-  Future<bool> crateApiPassageMode();
+  Future<bool> crateApiEnginePassageMode();
 
-  Future<BridgeRectifyBehavior> crateApiRectifyBehavior();
+  Future<BridgeRectifyBehavior> crateApiRectifyRectifyBehavior();
 
-  Future<void> crateApiRemoveTerm({required String term});
+  Future<void> crateApiLibraryRemoveTerm({required String term});
 
-  Future<void> crateApiRestoreFocus();
+  Future<void> crateApiEngineRestoreFocus();
 
-  Future<void> crateApiSaveGlobalDirective({String? directive});
+  Future<void> crateApiLibrarySaveGlobalDirective({String? directive});
 
-  Future<void> crateApiSaveScenarios({required List<BridgeScenario> scenarios});
+  Future<void> crateApiLibrarySaveScenarios({
+    required List<BridgeScenario> scenarios,
+  });
 
-  Future<List<BridgeScenario>> crateApiScenarios();
+  Future<List<BridgeScenario>> crateApiLibraryScenarios();
 
-  Future<BridgeAsrConnection> crateApiSetAsrConnection({
+  Future<BridgeAsrConnection> crateApiConnectionSetAsrConnection({
     required BridgeAsrEdit edit,
   });
 
-  Future<BridgeEngineTiming> crateApiSetEngineSettings({
+  Future<BridgeEngineTiming> crateApiAdvancedSetEngineSettings({
     required bool passageMode,
     required BigInt paragraphSilenceMs,
     required BigInt sessionEndSilenceMs,
     required BigInt rectifyTimeoutMs,
   });
 
-  Future<BridgeHistoryConfig> crateApiSetHistoryConfig({
+  Future<BridgeHistoryConfig> crateApiHistorySetHistoryConfig({
     required bool enabled,
     required BigInt retentionDays,
   });
 
-  Future<BridgeInsertionTiming> crateApiSetInsertionTiming({
+  Future<BridgeInsertionTiming> crateApiAdvancedSetInsertionTiming({
     required String mode,
     required BigInt focusSettleMs,
     required BigInt pasteSettleMs,
     required BigInt typingDelayMs,
   });
 
-  Future<BridgeLlmConnection> crateApiSetLlmConnection({
+  Future<BridgeLlmConnection> crateApiConnectionSetLlmConnection({
     required BridgeLlmEdit edit,
   });
 
-  Future<BridgeRectifyBehavior> crateApiSetRectifyBehavior({
+  Future<BridgeRectifyBehavior> crateApiRectifySetRectifyBehavior({
     required BridgeRectifyBehavior edit,
   });
 
-  Stream<BridgeEvalEvent> crateApiStartFidelityEval();
+  Stream<BridgeEvalEvent> crateApiEvalStartFidelityEval();
 
-  Future<BridgeSessionState> crateApiState();
+  Future<BridgeSessionState> crateApiEngineState();
 
-  Stream<BridgeEventEnvelope> crateApiSubscribe();
+  Stream<BridgeEventEnvelope> crateApiEngineSubscribe();
 
-  Future<List<String>> crateApiTermsList();
+  Future<List<String>> crateApiLibraryTermsList();
 
-  Future<void> crateApiUpdateTerm({required String old, required String new_});
+  Future<void> crateApiLibraryUpdateTerm({
+    required String old,
+    required String new_,
+  });
 
-  Future<bool> crateApiWatchHold({
+  Future<bool> crateApiEngineWatchHold({
     required List<int> vks,
     required bool stopOnEarlyRelease,
   });
@@ -198,7 +213,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
-  Future<BridgeAbout> crateApiAbout() {
+  Future<BridgeAbout> crateApiAboutAbout() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -214,18 +229,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_about,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiAboutConstMeta,
+        constMeta: kCrateApiAboutAboutConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiAboutConstMeta =>
+  TaskConstMeta get kCrateApiAboutAboutConstMeta =>
       const TaskConstMeta(debugName: "about", argNames: []);
 
   @override
-  Future<BridgeAdvancedConfig> crateApiAdvancedConfig() {
+  Future<BridgeAdvancedConfig> crateApiAdvancedAdvancedConfig() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -241,18 +256,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_advanced_config,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiAdvancedConfigConstMeta,
+        constMeta: kCrateApiAdvancedAdvancedConfigConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiAdvancedConfigConstMeta =>
+  TaskConstMeta get kCrateApiAdvancedAdvancedConfigConstMeta =>
       const TaskConstMeta(debugName: "advanced_config", argNames: []);
 
   @override
-  Future<void> crateApiAppendTerm({required String term}) {
+  Future<void> crateApiLibraryAppendTerm({required String term}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -269,18 +284,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiAppendTermConstMeta,
+        constMeta: kCrateApiLibraryAppendTermConstMeta,
         argValues: [term],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiAppendTermConstMeta =>
+  TaskConstMeta get kCrateApiLibraryAppendTermConstMeta =>
       const TaskConstMeta(debugName: "append_term", argNames: ["term"]);
 
   @override
-  Future<void> crateApiApplyConnectionConfigs() {
+  Future<void> crateApiConnectionApplyConnectionConfigs() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -296,18 +311,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiApplyConnectionConfigsConstMeta,
+        constMeta: kCrateApiConnectionApplyConnectionConfigsConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiApplyConnectionConfigsConstMeta =>
+  TaskConstMeta get kCrateApiConnectionApplyConnectionConfigsConstMeta =>
       const TaskConstMeta(debugName: "apply_connection_configs", argNames: []);
 
   @override
-  Future<String?> crateApiAsrEndpointPreview({
+  Future<String?> crateApiConnectionAsrEndpointPreview({
     required String provider,
     required String model,
     String? baseUrl,
@@ -336,27 +351,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_opt_String,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiAsrEndpointPreviewConstMeta,
+        constMeta: kCrateApiConnectionAsrEndpointPreviewConstMeta,
         argValues: [provider, model, baseUrl, workspaceId, region, appId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiAsrEndpointPreviewConstMeta => const TaskConstMeta(
-    debugName: "asr_endpoint_preview",
-    argNames: [
-      "provider",
-      "model",
-      "baseUrl",
-      "workspaceId",
-      "region",
-      "appId",
-    ],
-  );
+  TaskConstMeta get kCrateApiConnectionAsrEndpointPreviewConstMeta =>
+      const TaskConstMeta(
+        debugName: "asr_endpoint_preview",
+        argNames: [
+          "provider",
+          "model",
+          "baseUrl",
+          "workspaceId",
+          "region",
+          "appId",
+        ],
+      );
 
   @override
-  Future<BridgeConnection> crateApiConnectionConfig() {
+  Future<BridgeConnection> crateApiConnectionConnectionConfig() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -372,18 +388,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_connection,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiConnectionConfigConstMeta,
+        constMeta: kCrateApiConnectionConnectionConfigConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiConnectionConfigConstMeta =>
+  TaskConstMeta get kCrateApiConnectionConnectionConfigConstMeta =>
       const TaskConstMeta(debugName: "connection_config", argNames: []);
 
   @override
-  Future<void> crateApiCreateEngine({required List<String> llmResponses}) {
+  Future<void> crateApiEngineCreateEngine({
+    required List<String> llmResponses,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -400,20 +418,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiCreateEngineConstMeta,
+        constMeta: kCrateApiEngineCreateEngineConstMeta,
         argValues: [llmResponses],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiCreateEngineConstMeta => const TaskConstMeta(
+  TaskConstMeta get kCrateApiEngineCreateEngineConstMeta => const TaskConstMeta(
     debugName: "create_engine",
     argNames: ["llmResponses"],
   );
 
   @override
-  Future<void> crateApiCreateFakeEngine({required List<String> llmResponses}) {
+  Future<void> crateApiEngineCreateFakeEngine({
+    required List<String> llmResponses,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -430,20 +450,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiCreateFakeEngineConstMeta,
+        constMeta: kCrateApiEngineCreateFakeEngineConstMeta,
         argValues: [llmResponses],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiCreateFakeEngineConstMeta => const TaskConstMeta(
-    debugName: "create_fake_engine",
-    argNames: ["llmResponses"],
-  );
+  TaskConstMeta get kCrateApiEngineCreateFakeEngineConstMeta =>
+      const TaskConstMeta(
+        debugName: "create_fake_engine",
+        argNames: ["llmResponses"],
+      );
 
   @override
-  Future<void> crateApiExecute({required BridgeCommand command}) {
+  Future<void> crateApiEngineExecute({required BridgeCommand command}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -460,18 +481,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiExecuteConstMeta,
+        constMeta: kCrateApiEngineExecuteConstMeta,
         argValues: [command],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiExecuteConstMeta =>
+  TaskConstMeta get kCrateApiEngineExecuteConstMeta =>
       const TaskConstMeta(debugName: "execute", argNames: ["command"]);
 
   @override
-  Future<void> crateApiFakeBeginSession() {
+  Future<void> crateApiDemoFakeBeginSession() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -487,18 +508,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiFakeBeginSessionConstMeta,
+        constMeta: kCrateApiDemoFakeBeginSessionConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiFakeBeginSessionConstMeta =>
+  TaskConstMeta get kCrateApiDemoFakeBeginSessionConstMeta =>
       const TaskConstMeta(debugName: "fake_begin_session", argNames: []);
 
   @override
-  Future<void> crateApiFakeSay({required String text}) {
+  Future<void> crateApiDemoFakeSay({required String text}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -515,18 +536,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiFakeSayConstMeta,
+        constMeta: kCrateApiDemoFakeSayConstMeta,
         argValues: [text],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiFakeSayConstMeta =>
+  TaskConstMeta get kCrateApiDemoFakeSayConstMeta =>
       const TaskConstMeta(debugName: "fake_say", argNames: ["text"]);
 
   @override
-  Future<void> crateApiFakeSilence({required BigInt elapsedMs}) {
+  Future<void> crateApiDemoFakeSilence({required BigInt elapsedMs}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -543,18 +564,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiFakeSilenceConstMeta,
+        constMeta: kCrateApiDemoFakeSilenceConstMeta,
         argValues: [elapsedMs],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiFakeSilenceConstMeta =>
+  TaskConstMeta get kCrateApiDemoFakeSilenceConstMeta =>
       const TaskConstMeta(debugName: "fake_silence", argNames: ["elapsedMs"]);
 
   @override
-  Future<String?> crateApiGlobalDirective() {
+  Future<String?> crateApiLibraryGlobalDirective() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -570,18 +591,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_opt_String,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiGlobalDirectiveConstMeta,
+        constMeta: kCrateApiLibraryGlobalDirectiveConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiGlobalDirectiveConstMeta =>
+  TaskConstMeta get kCrateApiLibraryGlobalDirectiveConstMeta =>
       const TaskConstMeta(debugName: "global_directive", argNames: []);
 
   @override
-  Future<void> crateApiHistoryClear() {
+  Future<void> crateApiHistoryHistoryClear() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -597,18 +618,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiHistoryClearConstMeta,
+        constMeta: kCrateApiHistoryHistoryClearConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiHistoryClearConstMeta =>
+  TaskConstMeta get kCrateApiHistoryHistoryClearConstMeta =>
       const TaskConstMeta(debugName: "history_clear", argNames: []);
 
   @override
-  Future<BridgeHistoryConfig> crateApiHistoryConfig() {
+  Future<BridgeHistoryConfig> crateApiHistoryHistoryConfig() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -624,18 +645,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_history_config,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiHistoryConfigConstMeta,
+        constMeta: kCrateApiHistoryHistoryConfigConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiHistoryConfigConstMeta =>
+  TaskConstMeta get kCrateApiHistoryHistoryConfigConstMeta =>
       const TaskConstMeta(debugName: "history_config", argNames: []);
 
   @override
-  Future<List<BridgeHistoryEntry>> crateApiHistoryList({
+  Future<List<BridgeHistoryEntry>> crateApiHistoryHistoryList({
     required BridgeHistoryFilter filter,
   }) {
     return handler.executeNormal(
@@ -654,18 +675,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_bridge_history_entry,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiHistoryListConstMeta,
+        constMeta: kCrateApiHistoryHistoryListConstMeta,
         argValues: [filter],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiHistoryListConstMeta =>
+  TaskConstMeta get kCrateApiHistoryHistoryListConstMeta =>
       const TaskConstMeta(debugName: "history_list", argNames: ["filter"]);
 
   @override
-  Future<List<String>> crateApiInsertedTexts() {
+  Future<List<String>> crateApiDemoInsertedTexts() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -681,18 +702,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_String,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiInsertedTextsConstMeta,
+        constMeta: kCrateApiDemoInsertedTextsConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiInsertedTextsConstMeta =>
+  TaskConstMeta get kCrateApiDemoInsertedTextsConstMeta =>
       const TaskConstMeta(debugName: "inserted_texts", argNames: []);
 
   @override
-  Future<bool> crateApiIsHolding() {
+  Future<bool> crateApiEngineIsHolding() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -708,18 +729,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bool,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiIsHoldingConstMeta,
+        constMeta: kCrateApiEngineIsHoldingConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiIsHoldingConstMeta =>
+  TaskConstMeta get kCrateApiEngineIsHoldingConstMeta =>
       const TaskConstMeta(debugName: "is_holding", argNames: []);
 
   @override
-  Future<List<BridgeLlmPreset>> crateApiLlmPresets() {
+  Future<List<BridgeLlmPreset>> crateApiConnectionLlmPresets() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -735,18 +756,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_bridge_llm_preset,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiLlmPresetsConstMeta,
+        constMeta: kCrateApiConnectionLlmPresetsConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLlmPresetsConstMeta =>
+  TaskConstMeta get kCrateApiConnectionLlmPresetsConstMeta =>
       const TaskConstMeta(debugName: "llm_presets", argNames: []);
 
   @override
-  Future<String> crateApiOpenConfigFile() {
+  Future<String> crateApiAboutOpenConfigFile() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -762,18 +783,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiOpenConfigFileConstMeta,
+        constMeta: kCrateApiAboutOpenConfigFileConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiOpenConfigFileConstMeta =>
+  TaskConstMeta get kCrateApiAboutOpenConfigFileConstMeta =>
       const TaskConstMeta(debugName: "open_config_file", argNames: []);
 
   @override
-  Future<bool> crateApiPassageMode() {
+  Future<bool> crateApiEnginePassageMode() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -789,18 +810,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bool,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiPassageModeConstMeta,
+        constMeta: kCrateApiEnginePassageModeConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPassageModeConstMeta =>
+  TaskConstMeta get kCrateApiEnginePassageModeConstMeta =>
       const TaskConstMeta(debugName: "passage_mode", argNames: []);
 
   @override
-  Future<BridgeRectifyBehavior> crateApiRectifyBehavior() {
+  Future<BridgeRectifyBehavior> crateApiRectifyRectifyBehavior() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -816,18 +837,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_rectify_behavior,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiRectifyBehaviorConstMeta,
+        constMeta: kCrateApiRectifyRectifyBehaviorConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiRectifyBehaviorConstMeta =>
+  TaskConstMeta get kCrateApiRectifyRectifyBehaviorConstMeta =>
       const TaskConstMeta(debugName: "rectify_behavior", argNames: []);
 
   @override
-  Future<void> crateApiRemoveTerm({required String term}) {
+  Future<void> crateApiLibraryRemoveTerm({required String term}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -844,18 +865,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiRemoveTermConstMeta,
+        constMeta: kCrateApiLibraryRemoveTermConstMeta,
         argValues: [term],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiRemoveTermConstMeta =>
+  TaskConstMeta get kCrateApiLibraryRemoveTermConstMeta =>
       const TaskConstMeta(debugName: "remove_term", argNames: ["term"]);
 
   @override
-  Future<void> crateApiRestoreFocus() {
+  Future<void> crateApiEngineRestoreFocus() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -871,18 +892,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiRestoreFocusConstMeta,
+        constMeta: kCrateApiEngineRestoreFocusConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiRestoreFocusConstMeta =>
+  TaskConstMeta get kCrateApiEngineRestoreFocusConstMeta =>
       const TaskConstMeta(debugName: "restore_focus", argNames: []);
 
   @override
-  Future<void> crateApiSaveGlobalDirective({String? directive}) {
+  Future<void> crateApiLibrarySaveGlobalDirective({String? directive}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -899,21 +920,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSaveGlobalDirectiveConstMeta,
+        constMeta: kCrateApiLibrarySaveGlobalDirectiveConstMeta,
         argValues: [directive],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSaveGlobalDirectiveConstMeta =>
+  TaskConstMeta get kCrateApiLibrarySaveGlobalDirectiveConstMeta =>
       const TaskConstMeta(
         debugName: "save_global_directive",
         argNames: ["directive"],
       );
 
   @override
-  Future<void> crateApiSaveScenarios({
+  Future<void> crateApiLibrarySaveScenarios({
     required List<BridgeScenario> scenarios,
   }) {
     return handler.executeNormal(
@@ -932,18 +953,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSaveScenariosConstMeta,
+        constMeta: kCrateApiLibrarySaveScenariosConstMeta,
         argValues: [scenarios],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSaveScenariosConstMeta =>
+  TaskConstMeta get kCrateApiLibrarySaveScenariosConstMeta =>
       const TaskConstMeta(debugName: "save_scenarios", argNames: ["scenarios"]);
 
   @override
-  Future<List<BridgeScenario>> crateApiScenarios() {
+  Future<List<BridgeScenario>> crateApiLibraryScenarios() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -959,18 +980,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_bridge_scenario,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiScenariosConstMeta,
+        constMeta: kCrateApiLibraryScenariosConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiScenariosConstMeta =>
+  TaskConstMeta get kCrateApiLibraryScenariosConstMeta =>
       const TaskConstMeta(debugName: "scenarios", argNames: []);
 
   @override
-  Future<BridgeAsrConnection> crateApiSetAsrConnection({
+  Future<BridgeAsrConnection> crateApiConnectionSetAsrConnection({
     required BridgeAsrEdit edit,
   }) {
     return handler.executeNormal(
@@ -989,18 +1010,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_asr_connection,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSetAsrConnectionConstMeta,
+        constMeta: kCrateApiConnectionSetAsrConnectionConstMeta,
         argValues: [edit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSetAsrConnectionConstMeta =>
+  TaskConstMeta get kCrateApiConnectionSetAsrConnectionConstMeta =>
       const TaskConstMeta(debugName: "set_asr_connection", argNames: ["edit"]);
 
   @override
-  Future<BridgeEngineTiming> crateApiSetEngineSettings({
+  Future<BridgeEngineTiming> crateApiAdvancedSetEngineSettings({
     required bool passageMode,
     required BigInt paragraphSilenceMs,
     required BigInt sessionEndSilenceMs,
@@ -1025,7 +1046,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_engine_timing,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSetEngineSettingsConstMeta,
+        constMeta: kCrateApiAdvancedSetEngineSettingsConstMeta,
         argValues: [
           passageMode,
           paragraphSilenceMs,
@@ -1037,18 +1058,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     );
   }
 
-  TaskConstMeta get kCrateApiSetEngineSettingsConstMeta => const TaskConstMeta(
-    debugName: "set_engine_settings",
-    argNames: [
-      "passageMode",
-      "paragraphSilenceMs",
-      "sessionEndSilenceMs",
-      "rectifyTimeoutMs",
-    ],
-  );
+  TaskConstMeta get kCrateApiAdvancedSetEngineSettingsConstMeta =>
+      const TaskConstMeta(
+        debugName: "set_engine_settings",
+        argNames: [
+          "passageMode",
+          "paragraphSilenceMs",
+          "sessionEndSilenceMs",
+          "rectifyTimeoutMs",
+        ],
+      );
 
   @override
-  Future<BridgeHistoryConfig> crateApiSetHistoryConfig({
+  Future<BridgeHistoryConfig> crateApiHistorySetHistoryConfig({
     required bool enabled,
     required BigInt retentionDays,
   }) {
@@ -1069,20 +1091,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_history_config,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSetHistoryConfigConstMeta,
+        constMeta: kCrateApiHistorySetHistoryConfigConstMeta,
         argValues: [enabled, retentionDays],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSetHistoryConfigConstMeta => const TaskConstMeta(
-    debugName: "set_history_config",
-    argNames: ["enabled", "retentionDays"],
-  );
+  TaskConstMeta get kCrateApiHistorySetHistoryConfigConstMeta =>
+      const TaskConstMeta(
+        debugName: "set_history_config",
+        argNames: ["enabled", "retentionDays"],
+      );
 
   @override
-  Future<BridgeInsertionTiming> crateApiSetInsertionTiming({
+  Future<BridgeInsertionTiming> crateApiAdvancedSetInsertionTiming({
     required String mode,
     required BigInt focusSettleMs,
     required BigInt pasteSettleMs,
@@ -1107,20 +1130,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_insertion_timing,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSetInsertionTimingConstMeta,
+        constMeta: kCrateApiAdvancedSetInsertionTimingConstMeta,
         argValues: [mode, focusSettleMs, pasteSettleMs, typingDelayMs],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSetInsertionTimingConstMeta => const TaskConstMeta(
-    debugName: "set_insertion_timing",
-    argNames: ["mode", "focusSettleMs", "pasteSettleMs", "typingDelayMs"],
-  );
+  TaskConstMeta get kCrateApiAdvancedSetInsertionTimingConstMeta =>
+      const TaskConstMeta(
+        debugName: "set_insertion_timing",
+        argNames: ["mode", "focusSettleMs", "pasteSettleMs", "typingDelayMs"],
+      );
 
   @override
-  Future<BridgeLlmConnection> crateApiSetLlmConnection({
+  Future<BridgeLlmConnection> crateApiConnectionSetLlmConnection({
     required BridgeLlmEdit edit,
   }) {
     return handler.executeNormal(
@@ -1139,18 +1163,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_llm_connection,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSetLlmConnectionConstMeta,
+        constMeta: kCrateApiConnectionSetLlmConnectionConstMeta,
         argValues: [edit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSetLlmConnectionConstMeta =>
+  TaskConstMeta get kCrateApiConnectionSetLlmConnectionConstMeta =>
       const TaskConstMeta(debugName: "set_llm_connection", argNames: ["edit"]);
 
   @override
-  Future<BridgeRectifyBehavior> crateApiSetRectifyBehavior({
+  Future<BridgeRectifyBehavior> crateApiRectifySetRectifyBehavior({
     required BridgeRectifyBehavior edit,
   }) {
     return handler.executeNormal(
@@ -1169,20 +1193,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_rectify_behavior,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiSetRectifyBehaviorConstMeta,
+        constMeta: kCrateApiRectifySetRectifyBehaviorConstMeta,
         argValues: [edit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSetRectifyBehaviorConstMeta => const TaskConstMeta(
-    debugName: "set_rectify_behavior",
-    argNames: ["edit"],
-  );
+  TaskConstMeta get kCrateApiRectifySetRectifyBehaviorConstMeta =>
+      const TaskConstMeta(
+        debugName: "set_rectify_behavior",
+        argNames: ["edit"],
+      );
 
   @override
-  Stream<BridgeEvalEvent> crateApiStartFidelityEval() {
+  Stream<BridgeEvalEvent> crateApiEvalStartFidelityEval() {
     final sink = RustStreamSink<BridgeEvalEvent>();
     unawaited(
       handler.executeNormal(
@@ -1201,7 +1226,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: sse_decode_AnyhowException,
           ),
-          constMeta: kCrateApiStartFidelityEvalConstMeta,
+          constMeta: kCrateApiEvalStartFidelityEvalConstMeta,
           argValues: [sink],
           apiImpl: this,
         ),
@@ -1210,11 +1235,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiStartFidelityEvalConstMeta =>
+  TaskConstMeta get kCrateApiEvalStartFidelityEvalConstMeta =>
       const TaskConstMeta(debugName: "start_fidelity_eval", argNames: ["sink"]);
 
   @override
-  Future<BridgeSessionState> crateApiState() {
+  Future<BridgeSessionState> crateApiEngineState() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -1230,18 +1255,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bridge_session_state,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiStateConstMeta,
+        constMeta: kCrateApiEngineStateConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiStateConstMeta =>
+  TaskConstMeta get kCrateApiEngineStateConstMeta =>
       const TaskConstMeta(debugName: "state", argNames: []);
 
   @override
-  Stream<BridgeEventEnvelope> crateApiSubscribe() {
+  Stream<BridgeEventEnvelope> crateApiEngineSubscribe() {
     final sink = RustStreamSink<BridgeEventEnvelope>();
     unawaited(
       handler.executeNormal(
@@ -1260,7 +1285,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: sse_decode_AnyhowException,
           ),
-          constMeta: kCrateApiSubscribeConstMeta,
+          constMeta: kCrateApiEngineSubscribeConstMeta,
           argValues: [sink],
           apiImpl: this,
         ),
@@ -1269,11 +1294,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiSubscribeConstMeta =>
+  TaskConstMeta get kCrateApiEngineSubscribeConstMeta =>
       const TaskConstMeta(debugName: "subscribe", argNames: ["sink"]);
 
   @override
-  Future<List<String>> crateApiTermsList() {
+  Future<List<String>> crateApiLibraryTermsList() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -1289,18 +1314,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_String,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiTermsListConstMeta,
+        constMeta: kCrateApiLibraryTermsListConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiTermsListConstMeta =>
+  TaskConstMeta get kCrateApiLibraryTermsListConstMeta =>
       const TaskConstMeta(debugName: "terms_list", argNames: []);
 
   @override
-  Future<void> crateApiUpdateTerm({required String old, required String new_}) {
+  Future<void> crateApiLibraryUpdateTerm({
+    required String old,
+    required String new_,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -1318,18 +1346,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiUpdateTermConstMeta,
+        constMeta: kCrateApiLibraryUpdateTermConstMeta,
         argValues: [old, new_],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUpdateTermConstMeta =>
+  TaskConstMeta get kCrateApiLibraryUpdateTermConstMeta =>
       const TaskConstMeta(debugName: "update_term", argNames: ["old", "new_"]);
 
   @override
-  Future<bool> crateApiWatchHold({
+  Future<bool> crateApiEngineWatchHold({
     required List<int> vks,
     required bool stopOnEarlyRelease,
   }) {
@@ -1350,14 +1378,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bool,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiWatchHoldConstMeta,
+        constMeta: kCrateApiEngineWatchHoldConstMeta,
         argValues: [vks, stopOnEarlyRelease],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiWatchHoldConstMeta => const TaskConstMeta(
+  TaskConstMeta get kCrateApiEngineWatchHoldConstMeta => const TaskConstMeta(
     debugName: "watch_hold",
     argNames: ["vks", "stopOnEarlyRelease"],
   );

@@ -6,15 +6,10 @@
 
 library;
 
-import '../rust/api.dart'
-    as rust
-    show
-        BridgeHistoryConfig,
-        historyClear,
-        historyConfig,
-        historyList,
-        setHistoryConfig;
-import '../rust/api.dart' show BridgeHistoryEntry, BridgeHistoryFilter;
+import '../rust/api/history.dart' as rust;
+import '../rust/api/history.dart'
+    show BridgeHistoryEntry,
+        BridgeHistoryFilter;
 
 /// The `[history]` settings as the pane paints them — plain Dart ints
 /// (the wire's u64 arrives as BigInt; the seam converts).

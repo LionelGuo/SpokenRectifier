@@ -9,9 +9,7 @@
 
 library;
 
-import '../rust/api.dart'
-    as rust
-    show appendTerm, removeTerm, termsList, updateTerm;
+import '../rust/api/library.dart' as rust;
 
 /// Hotword-dictionary persistence as the terms domain needs it.
 abstract class TermsStore {

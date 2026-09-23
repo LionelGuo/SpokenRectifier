@@ -12,7 +12,8 @@
 
 library;
 
-import '../rust/api.dart' show BridgeSessionState;
+import '../rust/api/engine.dart'
+    show BridgeSessionState;
 
 /// A user input at the orb position. `primary` is the orb's left click
 /// and the hotkey press — the same step. `secondary` is the orb's right

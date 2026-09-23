@@ -12,7 +12,9 @@ import 'package:flutter/material.dart';
 import '../design/controls.dart' show SrButton, SrCard;
 import '../design/tokens.dart';
 import '../errors.dart';
-import '../rust/api.dart' show BridgeEvalCaseDetail, BridgeEvalSummary;
+import '../rust/api/eval.dart'
+    show BridgeEvalCaseDetail,
+        BridgeEvalSummary;
 import 'fidelity_eval.dart';
 
 class SettingsFidelityPane extends StatelessWidget {

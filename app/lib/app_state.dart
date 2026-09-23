@@ -22,7 +22,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
 
 import 'src/design/tokens.dart' show SrGeometry, SrMotion;
 import 'src/errors.dart';
-import 'src/rust/api.dart';
+import 'src/rust/api/engine.dart';
+import 'src/rust/api/history.dart';
+import 'src/rust/api/library.dart';
 import 'src/session/thinking_marquee.dart' show ThinkingMarquee;
 import 'src/shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick, ScenarioPick;

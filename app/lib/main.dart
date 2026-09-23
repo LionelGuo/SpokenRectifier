@@ -29,7 +29,9 @@ import 'app_state.dart';
 import 'gateway.dart';
 import 'sample_speech.dart';
 import 'src/design/tokens.dart' show SrGeometry;
-import 'src/rust/api.dart' show BridgeSessionState, createEngine;
+import 'src/rust/api/engine.dart'
+    show BridgeSessionState,
+        createEngine;
 import 'src/rust/frb_generated.dart' show RustLib;
 import 'src/settings/caption_theme.dart';
 import 'src/settings/connection_store.dart';

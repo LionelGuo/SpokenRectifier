@@ -25,7 +25,8 @@ import '../design/theme.dart' show srTheme;
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
-import '../rust/api.dart' show BridgeScenario;
+import '../rust/api/library.dart'
+    show BridgeScenario;
 import 'caption_theme.dart';
 import 'connection_store.dart';
 import 'fidelity_eval.dart';

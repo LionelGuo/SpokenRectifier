@@ -7,7 +7,11 @@ library;
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     show PlatformInt64;
 
-import 'src/rust/api.dart' as rust;
+import 'src/rust/api/about.dart' as rust;
+import 'src/rust/api/demo.dart' as rust;
+import 'src/rust/api/engine.dart' as rust;
+import 'src/rust/api/history.dart' as rust;
+import 'src/rust/api/library.dart' as rust;
 
 import 'app_state.dart';
 

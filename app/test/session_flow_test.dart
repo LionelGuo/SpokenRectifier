@@ -5,7 +5,8 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:spokenrectifier_app/src/rust/api.dart' show BridgeSessionState;
+import 'package:spokenrectifier_app/src/rust/api/engine.dart'
+    show BridgeSessionState;
 import 'package:spokenrectifier_app/src/shell/session_flow.dart';
 
 void main() {

@@ -7,10 +7,9 @@
 
 library;
 
-import '../rust/api.dart'
-    as rust
-    show globalDirective, saveGlobalDirective, saveScenarios, scenarios;
-import '../rust/api.dart' show BridgeScenario;
+import '../rust/api/library.dart' as rust;
+import '../rust/api/library.dart'
+    show BridgeScenario;
 
 /// Scenario-library persistence as the settings window needs it.
 abstract class ScenarioStore {

@@ -27,7 +27,7 @@ library;
 
 import 'package:collection/collection.dart' show MapEquality;
 
-import '../rust/api.dart' as rust;
+import '../rust/api/connection.dart' as rust;
 
 /// A key's state for the diff-echo field: its placement, plus the stored
 /// value when (and only when) it lives in the local layer.

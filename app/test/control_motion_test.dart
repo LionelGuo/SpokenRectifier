@@ -16,8 +16,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/hotkey_binding.dart';
-import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeScenario, BridgeSessionState;
+import 'package:spokenrectifier_app/src/rust/api/engine.dart'
+    show BridgeSessionState;
+import 'package:spokenrectifier_app/src/rust/api/library.dart'
+    show BridgeScenario;
 import 'package:spokenrectifier_app/src/design/controls.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/settings/settings_general_pane.dart';

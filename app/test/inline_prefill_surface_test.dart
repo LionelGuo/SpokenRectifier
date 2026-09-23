@@ -15,8 +15,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
-import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgePrefillRow, BridgeSessionState;
+import 'package:spokenrectifier_app/src/rust/api/engine.dart'
+    show BridgeEvent,
+        BridgePrefillRow,
+        BridgeSessionState;
 
 import 'fake_gateway.dart';
 import 'fake_rectify_store.dart';

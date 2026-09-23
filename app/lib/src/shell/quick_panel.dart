@@ -36,7 +36,10 @@ import '../design/hover.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
-import '../rust/api.dart' show BridgeHistoryEntry, BridgeScenario;
+import '../rust/api/history.dart'
+    show BridgeHistoryEntry;
+import '../rust/api/library.dart'
+    show BridgeScenario;
 import '../settings/rectify_store.dart';
 import '../settings/settings_domain.dart';
 import 'history_retrieval.dart'

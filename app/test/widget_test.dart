@@ -17,14 +17,15 @@ import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
-import 'package:spokenrectifier_app/src/rust/api.dart'
-    show
-        BridgeEvent,
-        BridgeHistoryEntry,
+import 'package:spokenrectifier_app/src/rust/api/engine.dart'
+    show BridgeEvent,
         BridgePlaceholderFill,
         BridgePrefillRow,
-        BridgeScenario,
         BridgeSessionState;
+import 'package:spokenrectifier_app/src/rust/api/history.dart'
+    show BridgeHistoryEntry;
+import 'package:spokenrectifier_app/src/rust/api/library.dart'
+    show BridgeScenario;
 import 'package:spokenrectifier_app/src/settings/rectify_store.dart';
 import 'package:spokenrectifier_app/src/settings/settings_domain.dart';
 import 'package:spokenrectifier_app/src/shell/history_retrieval.dart'

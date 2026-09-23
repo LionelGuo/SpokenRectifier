@@ -13,7 +13,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     show PlatformInt64;
 
 import '../design/tokens.dart';
-import '../rust/api.dart' show BridgeScenario;
+import '../rust/api/library.dart'
+    show BridgeScenario;
 
 /// What the 指定场景重新修正 menu returned: the built-in 默认 item
 /// (ticket 28) or a named library scenario. Sealed, and not a plain

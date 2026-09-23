@@ -17,7 +17,8 @@
 
 library;
 
-import '../rust/api.dart' as rust;
+import '../rust/api/connection.dart' as rust;
+import '../rust/api/rectify.dart' as rust;
 
 /// The legal thinking-policy wire names, in chip display order
 /// (ADR-0015; the pane labels them 始终 / 仅占位符 / 关闭).

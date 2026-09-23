@@ -22,8 +22,10 @@ import 'package:spokenrectifier_app/src/design/tokens.dart'
 import 'package:spokenrectifier_app/src/preview/slot_editor.dart';
 import 'package:spokenrectifier_app/src/preview/slot_projection.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
-import 'package:spokenrectifier_app/src/rust/api.dart'
-    show BridgeEvent, BridgePrefillRow, BridgeSessionState;
+import 'package:spokenrectifier_app/src/rust/api/engine.dart'
+    show BridgeEvent,
+        BridgePrefillRow,
+        BridgeSessionState;
 
 import 'fake_gateway.dart';
 import 'fake_rectify_store.dart';
