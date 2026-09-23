@@ -25,6 +25,7 @@ import 'package:flutter/services.dart' show MethodCall;
 
 import '../../app_state.dart' show SpeechController;
 import '../../hotkey_binding.dart';
+import '../perf_log.dart';
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
 import 'settings_channel.dart' show settingsToMainChannel;
@@ -65,11 +66,22 @@ class DesktopSettingsWindow {
   }
 
   Future<void> _open(SettingsDomain domain) async {
+    final watch = Stopwatch()..start();
     final existing = _window;
     if (existing != null) {
-      if (await _navigateExisting(existing, domain)) return;
+      if (await _navigateExisting(existing, domain)) {
+        // The warm path's whole story (08 号票): click to shown, over a
+        // sub-engine that already booted (today: an open window being
+        // re-navigated; after prewarm: every open past the first idle).
+        logPerf('settings_reopen', watch.elapsed);
+        return;
+      }
       _window = null; // confirmed gone from the window list
     }
+    // The cold path's epoch: the sub-engine stamps its own entry against
+    // this same wall clock (one process, one clock), so click-to-entry —
+    // the sub-engine's whole boot — reads straight off the log.
+    logPerfStamp('settings_click');
     final controller = await WindowController.create(
       WindowConfiguration(
         arguments: jsonEncode({

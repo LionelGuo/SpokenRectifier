@@ -49,7 +49,19 @@ void attachPerfLog(List<String> dirs) {
 /// Logs [elapsed] at [site]: the console line, then the record file's
 /// append. The only timing seam this effort adds.
 void logPerf(String site, Duration elapsed) {
-  final line = '[sr-perf][$site] ${elapsed.inMilliseconds}ms';
+  _write('[sr-perf][$site] ${elapsed.inMilliseconds}ms');
+}
+
+/// Stamps [site] with the wall clock (ms since epoch). The settings
+/// pipeline (08 号票) spans TWO engines in one process — the click is
+/// timed in the main isolate, the boot stages in the sub-engine's — and
+/// a duration measured in one isolate cannot be subtracted from one
+/// measured in another. Stamps can: one process, one clock.
+void logPerfStamp(String site) {
+  _write('[sr-perf][$site] @${DateTime.now().millisecondsSinceEpoch}');
+}
+
+void _write(String line) {
   debugPrint(line);
   final file = _record;
   if (file == null) return;

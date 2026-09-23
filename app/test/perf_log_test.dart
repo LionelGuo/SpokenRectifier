@@ -47,6 +47,28 @@ void main() {
     expect(lines[2], '[sr-perf][perf_session_first_text] 412ms');
   });
 
+  test('a stamp carries the wall clock, not a duration', () {
+    final home = dir('stamps');
+    attachPerfLog([home.path]);
+    final before = DateTime.now().millisecondsSinceEpoch;
+    logPerfStamp('settings_click');
+    logPerfStamp('settings_entry');
+    final after = DateTime.now().millisecondsSinceEpoch;
+    final lines = File('${home.path}/$perfLogFile').readAsLinesSync();
+    // Two engines' stamps must be subtractable: both parse as integers,
+    // both sit inside the writing window, and neither reads as a
+    // duration.
+    for (final (i, site) in ['settings_click', 'settings_entry'].indexed) {
+      final match = RegExp(
+        r'^\[sr-perf\]\[([\w]+)\] @(\d+)$',
+      ).firstMatch(lines[i + 1])!;
+      expect(match.group(1), site);
+      final at = int.parse(match.group(2)!);
+      expect(at, greaterThanOrEqualTo(before));
+      expect(at, lessThanOrEqualTo(after));
+    }
+  });
+
   test('nothing writable leaves the seam console-only and quiet', () {
     // A file standing where a directory was claimed: every open fails.
     final blocker = File('${tmp.path}/blocker')..writeAsStringSync('');

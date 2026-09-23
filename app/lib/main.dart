@@ -29,6 +29,7 @@ import 'app_state.dart';
 import 'gateway.dart';
 import 'sample_speech.dart';
 import 'src/design/tokens.dart' show SrGeometry;
+import 'src/perf_log.dart';
 import 'src/rust/api/engine.dart'
     show BridgeSessionState,
         createEngine;
@@ -215,8 +216,15 @@ Future<void> main(List<String> args) async {
 /// files the orb shell's engine sees (the file is the sync, the channel
 /// only carries events).
 Future<void> _runSettingsWindow(SettingsLaunch launch) async {
+  // The settings pipeline's numbers (08 号票): this isolate carries its
+  // own copy of the perf seam's globals, so it attaches its own record
+  // handle (the same file — the second run header marks the sub-engine).
+  final boot = Stopwatch()..start();
+  attachPerfLog(uiPrefsSearchDirs());
+  logPerfStamp('settings_entry');
   await windowManager.ensureInitialized();
   await RustLib.init();
+  logPerf('settings_rust', boot.elapsed);
 
   const options = WindowOptions(
     size: Size(920, 640),
@@ -237,6 +245,7 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
     );
     await windowManager.show();
     await windowManager.focus();
+    logPerf('settings_show', boot.elapsed);
   });
 
   final channel = DesktopSettingsChannel();
@@ -257,6 +266,12 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
       rectifyStore: const RustRectifyBehaviorStore(),
       systemStore: const RustSystemStore(),
     ),
+  );
+  // The first frame is the window becoming usable: content on screen,
+  // not just a shown native surface (08 号票's headline number; while
+  // hidden the engine still paints, so this fires pre-show too).
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => logPerf('settings_frame', boot.elapsed),
   );
 }
 
