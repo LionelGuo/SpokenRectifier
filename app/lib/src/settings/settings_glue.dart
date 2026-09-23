@@ -36,7 +36,7 @@ class DesktopSettingsWindow {
   DesktopSettingsWindow(
     this._controller, {
     Stream<void>? windowsChanged,
-    this.prewarmArmDelay = const Duration(seconds: 1),
+    this.prewarmArmDelay = Duration.zero,
   }) : _windowsChanged = windowsChanged ?? onWindowsChanged {
     _windowsChanged.listen((_) => _pruneWindow());
   }
@@ -47,9 +47,11 @@ class DesktopSettingsWindow {
   /// prune path is testable without a native window actually dying).
   final Stream<void> _windowsChanged;
 
-  /// How long after an arm call before the boot fires — the settle
-  /// margin that keeps the sub-engine's startup off the quick panel's
-  /// entrance-animation frames. Injectable so tests skip the wait.
+  /// How long after an arm call before the boot fires — zero by
+  /// default: the quiet window that keeps the boot off the quick
+  /// panel's gestures lives with the signal's source (the panel's
+  /// reveal-arm, 16 号票), and this timer is only the debounce for
+  /// repeated arms. Injectable so tests can widen it.
   final Duration prewarmArmDelay;
 
   WindowController? _window;

@@ -73,7 +73,7 @@ Future<void> windDown(WidgetTester tester, SpeechController controller) async {
 }
 
 void main() {
-  testWidgets('the quick panel standing open fires the reveal arm once', (
+  testWidgets('the reveal arm waits out the quiet window, gestures postpone it', (
     tester,
   ) async {
     final controller = SpeechController(
@@ -91,23 +91,32 @@ void main() {
     );
     await tester.pump();
 
-    // Standing open mounts the panel once — the prewarm's arm signal
-    // (16 号票) fires once with it.
+    // Standing open starts the quiet window — the prewarm's arm signal
+    // (16 号票) does not fire until the entrance settle has elapsed.
     controller.orbSecondary();
+    await tester.pump(); // the panel mounts; its timer starts here
     await tester.pump(const Duration(milliseconds: 350));
+    expect(reveals, 0);
+
+    await tester.pump(const Duration(milliseconds: 800));
     expect(reveals, 1);
 
-    // Staying open and collapsing do not re-fire.
-    await tester.pump(const Duration(milliseconds: 350));
+    // A gesture restarts the quiet window: the boot must land in a
+    // reading pause, never mid-gesture (the first cut's scroll jank).
+    await tester.drag(find.text('快捷设置'), const Offset(0, -40));
+    await tester.pump(const Duration(milliseconds: 500));
     expect(reveals, 1);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(reveals, 2);
+
+    // Collapsing cancels the pending arm; a fresh reveal re-arms.
     await controller.closeQuick();
     await tester.pump(const Duration(milliseconds: 1200));
-    expect(reveals, 1);
-
-    // A fresh reveal is a fresh mount — the next arm.
-    controller.orbSecondary();
-    await tester.pump(const Duration(milliseconds: 350));
     expect(reveals, 2);
+    controller.orbSecondary();
+    await tester.pump(); // the fresh mount; its timer starts here
+    await tester.pump(const Duration(milliseconds: 1100));
+    expect(reveals, 3);
   });
 
   testWidgets('an upgrade flips the listening word to 快速', (tester) async {
