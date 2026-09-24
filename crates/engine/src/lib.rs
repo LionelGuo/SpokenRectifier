@@ -15,6 +15,8 @@ pub mod event;
 pub mod fakes;
 pub mod prefill;
 pub mod provider;
+mod session;
+mod tasks;
 
 pub use clock::{Clock, TokioClock};
 pub use command::{Command, SessionStyle};
