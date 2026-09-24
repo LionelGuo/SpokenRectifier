@@ -61,7 +61,18 @@ const _clearHistoryKey = 'clear-history';
 const _exitKey = 'exit';
 
 Future<void> main(List<String> args) async {
+  // The perf record attaches at the process's first Dart line (16 号票
+  // moved it here from the controller's birth): the memory stamps along
+  // the boot chain need a file from the very start, and both entry modes
+  // — main engine and settings sub-engine — share this one entry point,
+  // so each run still stamps exactly one header.
+  attachPerfLog(uiPrefsSearchDirs());
+  logPerfMem('main_entry');
   WidgetsFlutterBinding.ensureInitialized();
+  // The main engine watches its own frames (16 号票 排查轮): slow-frame
+  // clusters in the log attribute the quick-panel scroll jank — boot
+  // window, data loads, or something else — instead of guessing.
+  observeFrameJank();
 
   // Sub-engine entry: desktop_multi_window re-runs main per window with
   // the entrypoint arguments it set natively. The main engine carries
@@ -130,8 +141,10 @@ Future<void> main(List<String> args) async {
     }
     await windowManager.show();
   });
+  logPerfMem('main_window');
 
   await RustLib.init();
+  logPerfMem('main_rust');
   // The engine must exist before anything subscribes to its event stream:
   // the controller's constructor subscribes immediately, and a subscribe
   // that races engine creation errors out and takes the pending
@@ -148,6 +161,7 @@ Future<void> main(List<String> args) async {
     // problem instead of failing the launch with a dead window.
     startupError = '$e';
   }
+  logPerfMem('main_engine');
   await TrayManager.instance.setIcon('assets/tray_icon.ico');
 
   // The theme rides the app-owned prefs file (missing file = follow the
@@ -205,13 +219,23 @@ Future<void> main(List<String> args) async {
       stageWindow: const WindowManagerStageWindow(),
       onOpenSettings: settingsWindow.open,
       closeSettings: settingsWindow.close,
+      // The fallback arm (ADR-0024): a reveal after a retirement
+      // re-arms behind its own quiet window.
+      onPanelRevealed: settingsWindow.armPrewarm,
     ),
   );
+  // The UI tree's first paint is where the main engine's resident set
+  // stops growing startup-wise (16 号票): shaders warm, raster caches
+  // seat, and everything past this line is runtime traffic.
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => logPerfMem('main_frame'),
+  );
 
-  // Prewarm the settings engine once startup has settled (08 号票): an
-  // open then rides the booted engine (navigate-and-show) instead of a
-  // whole cold start — the measured cost of every settings open today.
-  settingsWindow.armPrewarm();
+  // The first settings engine boots [initialPrewarmDelay] after
+  // startup (08 号票's timing, restored by ADR-0024): the jank-free
+  // window — no panel gesture is around, and the guard defers it past
+  // any panel that beat the clock.
+  settingsWindow.armStartup();
 }
 
 /// The settings window's engine entry: a standard OS window (title bar,
@@ -222,11 +246,12 @@ Future<void> main(List<String> args) async {
 /// only carries events).
 Future<void> _runSettingsWindow(SettingsLaunch launch) async {
   // The settings pipeline's numbers (08 号票): this isolate carries its
-  // own copy of the perf seam's globals, so it attaches its own record
-  // handle (the same file — the second run header marks the sub-engine).
+  // own copy of the perf seam's globals; main() already attached the
+  // record file for both entry modes, so the run header above the
+  // sub-engine's lines is the same file's next section.
   final boot = Stopwatch()..start();
-  attachPerfLog(uiPrefsSearchDirs());
   logPerfStamp('settings_entry');
+  logPerfMem('settings_entry');
   await windowManager.ensureInitialized();
   await RustLib.init();
   logPerf('settings_rust', boot.elapsed);
@@ -280,10 +305,12 @@ Future<void> _runSettingsWindow(SettingsLaunch launch) async {
   );
   // The first frame is the window becoming usable: content on screen,
   // not just a shown native surface (08 号票's headline number; while
-  // hidden the engine still paints, so this fires pre-show too).
-  WidgetsBinding.instance.addPostFrameCallback(
-    (_) => logPerf('settings_frame', boot.elapsed),
-  );
+  // hidden the engine still paints, so this fires pre-show too). The
+  // matching RSS stamp is the second engine's full cost, settled.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    logPerf('settings_frame', boot.elapsed);
+    logPerfMem('settings_frame');
+  });
 }
 
 /// Build a plugin [HotKey] for a legal product chord. Null for the
@@ -383,11 +410,15 @@ class _Shell extends StatefulWidget {
     required this.stageWindow,
     required this.onOpenSettings,
     required this.closeSettings,
+    required this.onPanelRevealed,
   });
 
   final SpeechController controller;
   final StageWindow stageWindow;
   final Future<void> Function(SettingsDomain domain) onOpenSettings;
+
+  /// The quick panel stood open — the prewarm's arm signal (16 号票).
+  final VoidCallback onPanelRevealed;
 
   /// Tray exit closes the settings window through this before the main
   /// window quits — a sub-window left alive rides process teardown
@@ -550,6 +581,7 @@ class _ShellState extends State<_Shell> with TrayListener {
       controller: controller,
       stageWindow: widget.stageWindow,
       onOpenSettings: widget.onOpenSettings,
+      onPanelRevealed: widget.onPanelRevealed,
       rectifyStore: const RustRectifyBehaviorStore(),
     );
   }

@@ -356,9 +356,17 @@ class ThinkingMarqueeView {
 /// masked, scrolling text band. Ignores the pointer entirely — the
 /// chrome beneath keeps handling hits.
 class ThinkingMarqueeOverlay extends StatefulWidget {
-  const ThinkingMarqueeOverlay({super.key, required this.machine});
+  const ThinkingMarqueeOverlay({super.key, required this.machine, this.onGone});
 
   final ThinkingMarquee machine;
+
+  /// Fired once when the handover fade has run out (17 号票): the mount
+  /// gate lives in the PANEL's build, and with the per-notify
+  /// whole-tree rebuilds retired, no later notify is guaranteed to
+  /// re-evaluate it — a last-delta-then-silence attempt would leave a
+  /// fully faded overlay mounted. The overlay owns its own end-of-life
+  /// signal; the panel's callback rebuilds and unmounts the slot.
+  final VoidCallback? onGone;
 
   @override
   State<ThinkingMarqueeOverlay> createState() => _ThinkingMarqueeOverlayState();
@@ -370,6 +378,7 @@ class _ThinkingMarqueeOverlayState extends State<ThinkingMarqueeOverlay>
   final TextPainterCache _cache = TextPainterCache();
   Duration _last = Duration.zero;
   int _frame = 0;
+  bool _gone = false;
 
   @override
   void initState() {
@@ -388,6 +397,13 @@ class _ThinkingMarqueeOverlayState extends State<ThinkingMarqueeOverlay>
     final dt = elapsed - _last;
     _last = elapsed;
     widget.machine.tick(dt.inMilliseconds);
+    // The fade is monotone once handed over: its running out is a
+    // one-way end state, fired exactly once.
+    if (!_gone && widget.machine.handedOver && !widget.machine.hasVisual) {
+      _gone = true;
+      widget.onGone?.call();
+      return;
+    }
     setState(() => _frame++);
   }
 

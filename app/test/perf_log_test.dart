@@ -7,6 +7,7 @@
 library;
 
 import 'dart:io';
+import 'dart:ui' show FrameTiming;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spokenrectifier_app/src/perf_log.dart';
@@ -59,14 +60,111 @@ void main() {
     // both sit inside the writing window, and neither reads as a
     // duration.
     for (final (i, site) in ['settings_click', 'settings_entry'].indexed) {
-      final match = RegExp(
-        r'^\[sr-perf\]\[([\w]+)\] @(\d+)$',
-      ).firstMatch(lines[i + 1])!;
+      final match = RegExp(r'^\[sr-perf\]\[([\w]+)\] @(\d+)$')
+          .firstMatch(lines[i + 1])!;
       expect(match.group(1), site);
       final at = int.parse(match.group(2)!);
       expect(at, greaterThanOrEqualTo(before));
       expect(at, lessThanOrEqualTo(after));
     }
+  });
+
+  test('a memory stamp carries the resident set, parseable as bytes', () {
+    final home = dir('memory');
+    attachPerfLog([home.path]);
+    logPerfMem('main_entry');
+    logPerfMem('settings_frame');
+    final lines = File('${home.path}/$perfLogFile').readAsLinesSync();
+    for (final (i, site) in ['main_entry', 'settings_frame'].indexed) {
+      final match = RegExp(r'^\[sr-perf\]\[([\w]+)\] rss=(\d+)B$')
+          .firstMatch(lines[i + 1])!;
+      expect(match.group(1), site);
+      // The two engines' stamps must be comparable: both parse as plain
+      // byte counts (the delta between them is the second engine).
+      expect(int.parse(match.group(2)!), greaterThan(0));
+    }
+  });
+
+  test('a slow frame formats with its durations, a fast one is null', () {
+    FrameTiming frame(int buildUs, int rasterUs) => FrameTiming(
+      vsyncStart: 0,
+      buildStart: 0,
+      buildFinish: buildUs,
+      rasterStart: buildUs,
+      rasterFinish: buildUs + rasterUs,
+      rasterFinishWallTime: buildUs + rasterUs,
+    );
+    final slow = frameSlowLine(frame(25000, 30000)); // 55ms total
+    expect(slow, startsWith('[sr-perf][frame_slow] '));
+    expect(slow, contains('build 25ms'));
+    expect(slow, contains('raster 30ms'));
+    expect(slow, contains('@')); // the wall clock the log aligns by
+    expect(frameSlowLine(frame(8000, 12000)), isNull); // 20ms total
+  });
+
+  test('a recording window summarizes both sides of the storm', () {
+    FrameTiming frame(int vsyncUs, int buildUs, int rasterUs) => FrameTiming(
+      vsyncStart: vsyncUs,
+      buildStart: vsyncUs,
+      buildFinish: vsyncUs + buildUs,
+      rasterStart: vsyncUs + buildUs,
+      rasterFinish: vsyncUs + buildUs + rasterUs,
+      rasterFinishWallTime: vsyncUs + buildUs + rasterUs,
+    );
+    // Two frames spanning 5s of vsync: 2ms/20ms build, 3ms/30ms raster.
+    final line = recordingWindowLine(
+      frames: [frame(0, 2000, 3000), frame(5000000, 20000, 30000)],
+      notifies: 101,
+    )!;
+    expect(line, startsWith('[sr-perf][recording_window] 5000ms '));
+    expect(line, contains('frames=2 notifies=101'));
+    expect(line, contains('build_avg=11000us build_max=20000us'));
+    expect(line, contains('raster_avg=16500us raster_max=30000us'));
+    // An empty window writes nothing at all.
+    expect(recordingWindowLine(frames: const [], notifies: 0), isNull);
+  });
+
+  test('the watch closes windows by wall time and a partial one at stop', () {
+    final home = dir('watch');
+    attachPerfLog([home.path]);
+    FrameTiming frame(int vsyncUs, int buildUs, int rasterUs) => FrameTiming(
+      vsyncStart: vsyncUs,
+      buildStart: vsyncUs,
+      buildFinish: vsyncUs + buildUs,
+      rasterStart: vsyncUs + buildUs,
+      rasterFinish: vsyncUs + buildUs + rasterUs,
+      rasterFinishWallTime: vsyncUs + buildUs + rasterUs,
+    );
+
+    var count = 0;
+    startRecordingWatch(() => count);
+    // Under the window length: nothing written yet.
+    count = 40;
+    feedRecordingFrames([frame(0, 1000, 1000), frame(1000000, 1000, 1000)]);
+    expect(
+      File('${home.path}/$perfLogFile')
+          .readAsLinesSync()
+          .where((l) => l.contains('recording_window')),
+      isEmpty,
+    );
+    // Past it: one line lands, and the next window counts notifies from
+    // the close, not from the start.
+    count = 100;
+    feedRecordingFrames([frame(5200000, 1000, 1000)]);
+    final first = File('${home.path}/$perfLogFile')
+        .readAsLinesSync()
+        .lastWhere((l) => l.contains('recording_window'));
+    expect(first, contains('frames=3 notifies=100'));
+    // Stop writes the partial window that was open since.
+    count = 130;
+    feedRecordingFrames([frame(5400000, 1000, 1000)]);
+    stopRecordingWatch();
+    final last = File('${home.path}/$perfLogFile')
+        .readAsLinesSync()
+        .lastWhere((l) => l.contains('recording_window'));
+    expect(last, contains('frames=1 notifies=30'));
+    // A stop without a start stays quiet.
+    stopRecordingWatch();
   });
 
   test('nothing writable leaves the seam console-only and quiet', () {

@@ -118,7 +118,11 @@ void main() {
       controller,
       windowsChanged: windowsChanged.stream,
       initialPrewarmDelay: Duration.zero,
+      prewarmArmDelay: Duration.zero,
       prewarmRearmDelay: Duration.zero,
+      // Long enough that the default glue never retires mid-test; the
+      // retirement's own tests build their own glue with a live clock.
+      prewarmRetireDelay: const Duration(hours: 1),
     );
   });
 
@@ -242,22 +246,100 @@ void main() {
     );
   });
 
-  test('a window the user closed re-arms the prewarm', () async {
+  test('a closed window re-arms, but never behind an open panel', () async {
     glue.armPrewarm();
     await settle();
     expect(plugin.createCalls, 1);
 
     // The user closes it via the title bar: the window leaves the list,
-    // the windows-changed event prunes the handle.
+    // the windows-changed event prunes the handle, the re-arm boots a
+    // fresh hidden engine (ADR-0024's repeat-tweaker warmth).
     plugin.dead.add('w1');
     plugin.alive.remove('w1');
     windowsChanged.add(null);
     await settle();
-
-    // A fresh hidden engine stands ready for the next open.
     expect(plugin.createCalls, 2);
     expect(plugin.creates.last, contains('"prewarm":true'));
     expect(plugin.shown, isEmpty);
+
+    // The same close with the quick panel standing open: the birth
+    // waits (a boot inside a panel session is the scroll jank), then
+    // fires three seconds — zero here — after the collapse.
+    plugin.dead.add('w2');
+    plugin.alive.remove('w2');
+    controller.quickOpen = true;
+    windowsChanged.add(null);
+    await settle();
+    expect(plugin.createCalls, 2); // deferred, not dropped
+
+    controller.quickOpen = false;
+    controller.notifyListeners();
+    await settle();
+    expect(plugin.createCalls, 3);
+    expect(plugin.creates.last, contains('"prewarm":true'));
+  });
+
+  test('an idle engine retires and stays dead until a reveal re-arms', () async {
+    final retiring = DesktopSettingsWindow(
+      controller,
+      windowsChanged: windowsChanged.stream,
+      prewarmArmDelay: Duration.zero,
+      prewarmRetireDelay: Duration.zero,
+    );
+    retiring.armPrewarm();
+    await settle();
+    expect(plugin.createCalls, 1);
+
+    // The idle clock ran out at birth: the hidden window was asked to
+    // close (the fake drops it from the alive list), and once the
+    // windows-changed prune sees it gone, that death does NOT re-arm
+    // (the retirement is the one that stays dead — ADR-0024).
+    await settle();
+    expect(plugin.alive, isEmpty);
+    windowsChanged.add(null);
+    await settle();
+    expect(plugin.createCalls, 1);
+
+    // The panel's quiet reveal is what brings warmth back.
+    retiring.armPrewarm();
+    await settle();
+    expect(plugin.createCalls, 2);
+  });
+
+  test('a retirement never lands inside an open panel', () async {
+    final retiring = DesktopSettingsWindow(
+      controller,
+      windowsChanged: windowsChanged.stream,
+      prewarmArmDelay: Duration.zero,
+      prewarmRetireDelay: const Duration(milliseconds: 40),
+    );
+    retiring.armPrewarm();
+    await settle();
+    expect(plugin.createCalls, 1);
+
+    // The panel stands open when the idle clock runs out: the
+    // retirement holds (someone may be heading for a settings row) and
+    // restarts its clock instead of closing the warmth (the window
+    // stays alive; a landed close would have dropped it from the list).
+    controller.quickOpen = true;
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(plugin.alive, contains('w1'));
+  });
+
+  test('arming while a window lives creates nothing', () async {
+    glue.armPrewarm();
+    await settle();
+    expect(plugin.createCalls, 1);
+
+    // Every quick-panel reveal arms; while an engine already stands
+    // (hidden or shown) the arm is a no-op.
+    glue.armPrewarm();
+    await settle();
+    await glue.open(SettingsDomain.general);
+    glue.armPrewarm();
+    await settle();
+
+    expect(plugin.createCalls, 1);
   });
 
   test('the exit chain never resurrects the window', () async {
@@ -268,8 +350,8 @@ void main() {
     await glue.close();
     await settle();
 
-    // The close pruned the handle (which re-arms) but the exit flag
-    // disarms it: no second engine on the way out.
+    // The exit flag disarms every arm path: no second engine on the
+    // way out.
     expect(plugin.createCalls, 1);
     expect(plugin.alive, isEmpty);
   });

@@ -218,6 +218,7 @@ class StageHost extends StatefulWidget {
     required this.controller,
     this.stageWindow,
     this.onOpenSettings,
+    this.onPanelRevealed,
     required this.rectifyStore,
   });
 
@@ -231,6 +232,11 @@ class StageHost extends StatefulWidget {
   /// The settings window's doorway, handed down to the quick panel's
   /// management entries. Null in tests.
   final void Function(SettingsDomain domain)? onOpenSettings;
+
+  /// The quick panel stood open — handed down to the panel, which
+  /// fires it on mount as the settings prewarm's arm signal (16 号票).
+  /// Null in tests.
+  final VoidCallback? onPanelRevealed;
 
   /// The quick panel's rectify tiers ride the same store the settings
   /// window's 修正 page edits (one key, both surfaces).
@@ -299,12 +305,17 @@ class _StageHostState extends State<StageHost>
   /// (it lands when the form settles).
   bool _regionAfterMotion = false;
 
+  /// The orb visibility build last painted from (17 号票): flipping the
+  /// tray checkbox must repaint the stage even without a stage change.
+  bool _orbVisibleShown = true;
+
   SpeechController get c => widget.controller;
 
   @override
   void initState() {
     super.initState();
     c.addListener(_onChanged);
+    _orbVisibleShown = c.orbVisible;
     _form = PanelForm(this)..addListener(_onFormSettled);
     // Prime the geometry cache for the gestures (work areas + current
     // window rect); they run synchronously against it from here on.
@@ -320,6 +331,7 @@ class _StageHostState extends State<StageHost>
     // newcomer's own world.
     oldWidget.controller.removeListener(_onChanged);
     c.addListener(_onChanged);
+    _orbVisibleShown = c.orbVisible;
     _settling = StageKind.orb;
     _displayed = StageKind.orb;
     _exiting = false;
@@ -371,6 +383,15 @@ class _StageHostState extends State<StageHost>
       _keyboardNode.requestFocus();
     }
     _keyboardPhase = c.phase;
+
+    // The tray's visibility toggle repaints the stage without a stage
+    // change — the orb-less rest branch lives in build. The app shell's
+    // per-notify rebuild used to carry this silently; it now listens to
+    // the theme feed alone (17 号票), so the stage owns its own seam.
+    if (c.orbVisible != _orbVisibleShown) {
+      _orbVisibleShown = c.orbVisible;
+      setState(() {});
+    }
 
     final target = c.stage;
     if (target == _settling) return; // already on it (or underway)
@@ -486,10 +507,12 @@ class _StageHostState extends State<StageHost>
       // ellipse (返修: zero line + 2px) — the visually empty ring and
       // the footprint square's corners stop swallowing clicks meant
       // for whatever sits below.
-      unawaited(_pushCardRegion(
-        orbHitEllipseAt(_anchor).shift(-_rect.topLeft),
-        ellipse: true,
-      ));
+      unawaited(
+        _pushCardRegion(
+          orbHitEllipseAt(_anchor).shift(-_rect.topLeft),
+          ellipse: true,
+        ),
+      );
     }
     if (!mounted || seq != _seq) return;
     // 3. Back to the standalone ball.
@@ -1074,27 +1097,28 @@ class _StageHostState extends State<StageHost>
         return ValueListenableBuilder<Size?>(
           valueListenable: _panelSize,
           child: child,
-          builder: (context, panelSize, child) => ValueListenableBuilder<Offset>(
-            valueListenable: _anchorLocalN,
-            child: child,
-            builder: (context, _, child) => AnimatedBuilder(
-              animation: _form,
-              child: child,
-              builder: (context, child) {
-                final Rect? rect = _displayed == StageKind.orb
-                    ? null
-                    : panelRectAt(
-                        _rectKnown
-                            ? _anchorInView(view)
-                            : anchorOf(Offset.zero & view, _dir),
-                        panelSize ?? view,
-                        gl: _form.gl,
-                        gu: _form.gu,
-                      );
-                return SrTooltipBoundary(rect: rect, child: child!);
-              },
-            ),
-          ),
+          builder: (context, panelSize, child) =>
+              ValueListenableBuilder<Offset>(
+                valueListenable: _anchorLocalN,
+                child: child,
+                builder: (context, _, child) => AnimatedBuilder(
+                  animation: _form,
+                  child: child,
+                  builder: (context, child) {
+                    final Rect? rect = _displayed == StageKind.orb
+                        ? null
+                        : panelRectAt(
+                            _rectKnown
+                                ? _anchorInView(view)
+                                : anchorOf(Offset.zero & view, _dir),
+                            panelSize ?? view,
+                            gl: _form.gl,
+                            gu: _form.gu,
+                          );
+                    return SrTooltipBoundary(rect: rect, child: child!);
+                  },
+                ),
+              ),
         );
       },
     );
@@ -1132,104 +1156,113 @@ class _StageHostState extends State<StageHost>
       onKeyEvent: _onKey,
       child: _tooltipBoundary(
         child: Stack(
-        children: [
-          // Panel bodies and their resize affordances share one slot:
-          // full-bleed while the window IS the panel footprint, the
-          // anchor-pinned sub-rect while a resize gesture grows the card
-          // by layout inside the frozen window. Only one panel is
-          // mounted at a time; each animates its own entrance on mount
-          // and exit via [PanelBody.exiting].
-          // Keyed both (小修 12): the slot's unmount shifts the Stack's
-          // positional matching — without keys the orb subtree's elements
-          // are torn down and reinflated at every collapse completion (and
-          // clobbered at every expand), killing a live gesture's release
-          // (the defunct state's setState assertion swallows onDragEnd in
-          // debug builds: region stuck unclipped, anchor never persisted).
-          // The keys keep the orb's element identity across the swap —
-          // the 编舞铁律 (the ball never leaves the tree) made true at the
-          // element level, not just the widget level.
-          if (_displayed != StageKind.orb)
-            KeyedSubtree(
-              key: const Key('stage-panel-slot'),
-              child: _panelSlot(
-                child: Stack(
-                  children: [
-                    // The panel stage's toast layer (ui-copy toast spec):
-                    // bottom-center IN the card, fixed — never flipped by
-                    // the growth direction. The scope wraps the panel at
-                    // the slot, so the slot edge is the card's outer
-                    // bounds (the card paints its 8px margin inside) and
-                    // 72 parks the capsule above the session footer band
-                    // and the quick panel's bottom content — the value
-                    // the verdict was judged on in the prototype.
-                    Positioned.fill(
-                      child: SrToastScope(
-                        anchor: SrToastAnchor.bottom,
-                        clearance: 72,
-                        child: _displayed == StageKind.session
-                            ? SessionPanel(
-                                controller: c,
-                                exiting: _exiting,
-                                form: _form,
-                              )
-                            : QuickPanel(
-                                controller: c,
-                                exiting: _exiting,
-                                onOpenSettings: widget.onOpenSettings,
-                                form: _form,
-                                rectifyStore: widget.rectifyStore,
-                              ),
-                      ),
+          children: [
+            // Panel bodies and their resize affordances share one slot:
+            // full-bleed while the window IS the panel footprint, the
+            // anchor-pinned sub-rect while a resize gesture grows the card
+            // by layout inside the frozen window. Only one panel is
+            // mounted at a time; each animates its own entrance on mount
+            // and exit via [PanelBody.exiting].
+            // Keyed both (小修 12): the slot's unmount shifts the Stack's
+            // positional matching — without keys the orb subtree's elements
+            // are torn down and reinflated at every collapse completion (and
+            // clobbered at every expand), killing a live gesture's release
+            // (the defunct state's setState assertion swallows onDragEnd in
+            // debug builds: region stuck unclipped, anchor never persisted).
+            // The keys keep the orb's element identity across the swap —
+            // the 编舞铁律 (the ball never leaves the tree) made true at the
+            // element level, not just the widget level.
+            if (_displayed != StageKind.orb)
+              KeyedSubtree(
+                key: const Key('stage-panel-slot'),
+                child: _panelSlot(
+                  // The card is its own layer (17 号票, R1's invisible-
+                  // stays-undrawn): the work-area window had exactly one
+                  // picture — the orb's 20Hz level ring re-rastered the
+                  // whole card with it, and any card dirt re-rastered the
+                  // orb and the transparent margins. One boundary splits
+                  // the two; each repaints itself only.
+                  child: RepaintBoundary(
+                    child: Stack(
+                      children: [
+                        // The panel stage's toast layer (ui-copy toast spec):
+                        // bottom-center IN the card, fixed — never flipped by
+                        // the growth direction. The scope wraps the panel at
+                        // the slot, so the slot edge is the card's outer
+                        // bounds (the card paints its 8px margin inside) and
+                        // 72 parks the capsule above the session footer band
+                        // and the quick panel's bottom content — the value
+                        // the verdict was judged on in the prototype.
+                        Positioned.fill(
+                          child: SrToastScope(
+                            anchor: SrToastAnchor.bottom,
+                            clearance: 72,
+                            child: _displayed == StageKind.session
+                                ? SessionPanel(
+                                    controller: c,
+                                    exiting: _exiting,
+                                    form: _form,
+                                  )
+                                : QuickPanel(
+                                    controller: c,
+                                    exiting: _exiting,
+                                    onOpenSettings: widget.onOpenSettings,
+                                    onRevealed: widget.onPanelRevealed,
+                                    form: _form,
+                                    rectifyStore: widget.rectifyStore,
+                                  ),
+                          ),
+                        ),
+                        // The resize affordances ride above the panel, flush to
+                        // the slot's free edges (the shared footprint resizes
+                        // as one — 一调俱调).
+                        if (_gesturesLive) ..._resizeHandles(),
+                      ],
                     ),
-                    // The resize affordances ride above the panel, flush to
-                    // the slot's free edges (the shared footprint resizes
-                    // as one — 一调俱调).
-                    if (_gesturesLive) ..._resizeHandles(),
-                  ],
+                  ),
                 ),
               ),
+            // The one continuous element: orb in orb stage, anchor button
+            // in panel stages — same widget, same screen position, at the
+            // anchor wherever it sits in the window (02 号票: the panel
+            // window is the whole work area; the ball is mid-window, no
+            // longer at a corner). OrbButton lays itself out at the full
+            // orb footprint (96x96) with the ball centered, so the ball
+            // center lands exactly on the anchor and stays concentric with
+            // the card's corner arc (an inset would push the ball off the
+            // arc center — third preview round).
+            KeyedSubtree(
+              key: const Key('stage-orb'),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return ValueListenableBuilder<Offset>(
+                    valueListenable: _anchorLocalN,
+                    child: OrbButton(
+                      controller: c,
+                      onDragStart: _gesturesLive ? _anchorDragStart : null,
+                      onDragUpdate: _gesturesLive ? _anchorDragUpdate : null,
+                      onDragEnd: _gesturesLive ? _anchorDragEnd : null,
+                    ),
+                    builder: (context, _, orb) {
+                      final view = constraints.biggest;
+                      final anchor = _rectKnown
+                          ? _anchorInView(view)
+                          : anchorOf(Offset.zero & view, _dir);
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Positioned.fromRect(
+                            rect: orbFootprintAt(anchor),
+                            child: orb!,
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          // The one continuous element: orb in orb stage, anchor button
-          // in panel stages — same widget, same screen position, at the
-          // anchor wherever it sits in the window (02 号票: the panel
-          // window is the whole work area; the ball is mid-window, no
-          // longer at a corner). OrbButton lays itself out at the full
-          // orb footprint (96x96) with the ball centered, so the ball
-          // center lands exactly on the anchor and stays concentric with
-          // the card's corner arc (an inset would push the ball off the
-          // arc center — third preview round).
-          KeyedSubtree(
-            key: const Key('stage-orb'),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return ValueListenableBuilder<Offset>(
-                  valueListenable: _anchorLocalN,
-                  child: OrbButton(
-                    controller: c,
-                    onDragStart: _gesturesLive ? _anchorDragStart : null,
-                    onDragUpdate: _gesturesLive ? _anchorDragUpdate : null,
-                    onDragEnd: _gesturesLive ? _anchorDragEnd : null,
-                  ),
-                  builder: (context, _, orb) {
-                    final view = constraints.biggest;
-                    final anchor = _rectKnown
-                        ? _anchorInView(view)
-                        : anchorOf(Offset.zero & view, _dir);
-                    return Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Positioned.fromRect(
-                          rect: orbFootprintAt(anchor),
-                          child: orb!,
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
+          ],
         ),
       ),
     );

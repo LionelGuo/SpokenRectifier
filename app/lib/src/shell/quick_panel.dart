@@ -27,6 +27,8 @@ library;
 
 // GrowthDirection hidden: the framework exports its own (a sliver
 // token); this panel's is the orb-geometry one via window_stage.
+import 'dart:async' show Timer;
+
 import 'package:flutter/material.dart' hide GrowthDirection;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
@@ -37,10 +39,8 @@ import '../design/sr_tooltip.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
-import '../rust/api/history.dart'
-    show BridgeHistoryEntry;
-import '../rust/api/library.dart'
-    show BridgeScenario;
+import '../rust/api/history.dart' show BridgeHistoryEntry;
+import '../rust/api/library.dart' show BridgeScenario;
 import '../settings/rectify_store.dart';
 import '../settings/settings_domain.dart';
 import 'history_retrieval.dart'
@@ -53,12 +53,23 @@ class QuickPanel extends StatefulWidget {
     required this.controller,
     required this.exiting,
     this.onOpenSettings,
+    this.onRevealed,
     required this.form,
     required this.rectifyStore,
   });
 
   final SpeechController controller;
   final bool exiting;
+
+  /// Fired when the panel has stood open for a quiet beat — the settings
+  /// prewarm's arm signal (16 号票): this panel is the only doorway to
+  /// the settings window, so a panel standing here means an open may be
+  /// a click away. The quiet beat exists because the sub-engine's boot
+  /// contends with this engine's frames — arming mid-gesture is the
+  /// scroll jank the first cut of the reveal-arm shipped (real-machine
+  /// 16 号票 acceptance), so every pointer activity (drag, trackpad,
+  /// wheel) postpones the fire. Null in tests.
+  final VoidCallback? onRevealed;
 
   /// The rectify tiers' persistence — the SAME store the settings
   /// window's 修正 page edits (the theme precedent: one key, both
@@ -85,6 +96,26 @@ class _QuickPanelState extends State<QuickPanel> {
   final _termInput = TextEditingController();
   int _toastedErrorSeq = 0;
 
+  /// How long the panel must stand quiet before the prewarm arm fires
+  /// (16 号票): long enough to clear the entrance animation and to ride
+  /// out an active scroll — the boot's CPU/driver contention must land
+  /// in a reading pause, never mid-gesture.
+  static const _armQuiet = Duration(seconds: 1);
+
+  /// The pending arm, restarted by every pointer activity.
+  Timer? _armTimer;
+
+  void _postponeArm() {
+    if (widget.onRevealed == null) return;
+    _armTimer?.cancel();
+    _armTimer = Timer(_armQuiet, () => widget.onRevealed?.call());
+  }
+
+  /// Any pointer activity restarts the quiet window — drag, trackpad
+  /// pan, wheel signal alike. Object-typed on purpose: one handler
+  /// assigns to every Listener callback shape.
+  void _onArmActivity(Object _) => _postponeArm();
+
   /// The rectify tiers' snapshot for PAINT (ticket 02's channel (b)):
   /// loaded once when the panel mounts, refreshed by every save's
   /// receipt — the files' truth, never a locally-guessed default. Null
@@ -98,6 +129,7 @@ class _QuickPanelState extends State<QuickPanel> {
   void initState() {
     super.initState();
     c.addListener(_onChanged);
+    if (widget.onRevealed != null) _postponeArm();
     _loadRectify();
     // A pending error from before this panel opened (the orb's tooltip
     // carried it at idle) still toasts once the slot scope is mounted.
@@ -108,6 +140,7 @@ class _QuickPanelState extends State<QuickPanel> {
 
   @override
   void dispose() {
+    _armTimer?.cancel();
     c.removeListener(_onChanged);
     _termInput.dispose();
     super.dispose();
@@ -223,272 +256,286 @@ class _QuickPanelState extends State<QuickPanel> {
     );
     // The header row is display-only (02 号票 abolished the header move
     // grip — the anchor button is the panel's one move affordance).
-    return PanelBody(
-      exiting: widget.exiting,
-      form: widget.form,
-      // The pinned top band (钉边裁切): the header row plus its divider
-      // ride the card's current visual top as it grows out of the disc.
-      header: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          header,
-          Divider(height: 1, thickness: 1, color: pal.hairline),
-        ],
-      ),
-      // No footer band: the list stretches to the card's current visual
-      // bottom and clips to the remaining height.
-      body: ClipRRect(
-        // Bottom corners clip to the card arc: scrolling content can
-        // never bleed past the rounded card (the window-bleed-zero
-        // principle, applied to the card's own edges).
-        borderRadius: BorderRadius.vertical(
-          bottom: Radius.circular(SrRadius.panel),
+    return Listener(
+      // The quiet window's sensors (16 号票): every form of interaction
+      // — drag, trackpad two-finger, wheel — restarts the arm timer, so
+      // the sub-engine's boot can only fire in a reading pause.
+      onPointerDown: _onArmActivity,
+      onPointerMove: _onArmActivity,
+      onPointerUp: _onArmActivity,
+      onPointerPanZoomStart: _onArmActivity,
+      onPointerPanZoomUpdate: _onArmActivity,
+      onPointerPanZoomEnd: _onArmActivity,
+      onPointerSignal: _onArmActivity,
+      child: PanelBody(
+        exiting: widget.exiting,
+        form: widget.form,
+        // The pinned top band (钉边裁切): the header row plus its divider
+        // ride the card's current visual top as it grows out of the disc.
+        header: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            Divider(height: 1, thickness: 1, color: pal.hairline),
+          ],
         ),
-        child: AnimatedBuilder(
-          // The body's anchor obligations interpolate with the form
-          // (12 号票): head padding 12↔48, tail clearance 96·gu, and
-          // the two fades hand over by OPACITY — surface over surface,
-          // the one "disappearance" that is not a control.
-          animation: widget.form,
-          builder: (context, _) => Stack(
-            children: [
-              Positioned.fill(
-                child: ListView(
-                  // Straight-edge body content: contentInset. The
-                  // leading/trailing anchor paddings pair with the
-                  // fades below — at rest (or end-of-scroll) the first
-                  // (last) row rests exactly at its fade's far edge,
-                  // never inside the fade.
-                  padding: EdgeInsets.fromLTRB(
-                    SrSpace.contentInset,
-                    widget.form.bodyTopPad,
-                    SrSpace.contentInset,
-                    0,
-                  ),
-                  children: [
-                    // The scenario section stays with an empty library:
-                    // the picker row hides (a lone 默认 chip has nothing
-                    // to pick between) but the editor entry remains the
-                    // creation path into the settings window.
-                    _sectionLabel(pal, '场景'),
-                    // The global directive's preview row (ticket 22):
-                    // shown only while one is set — with an empty
-                    // library too, it is not a picker among scenarios.
-                    if (c.globalDirective != null) ...[
-                      _DirectivePreviewRow(
-                        icon: Icons.public_rounded,
-                        tooltip: '全局指令',
-                        text: c.globalDirective!,
-                        testKey: 'quick-global',
+        // No footer band: the list stretches to the card's current visual
+        // bottom and clips to the remaining height.
+        body: ClipRRect(
+          // Bottom corners clip to the card arc: scrolling content can
+          // never bleed past the rounded card (the window-bleed-zero
+          // principle, applied to the card's own edges).
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(SrRadius.panel),
+          ),
+          child: AnimatedBuilder(
+            // The body's anchor obligations interpolate with the form
+            // (12 号票): head padding 12↔48, tail clearance 96·gu, and
+            // the two fades hand over by OPACITY — surface over surface,
+            // the one "disappearance" that is not a control.
+            animation: widget.form,
+            builder: (context, _) => Stack(
+              children: [
+                Positioned.fill(
+                  child: ListView(
+                    // Straight-edge body content: contentInset. The
+                    // leading/trailing anchor paddings pair with the
+                    // fades below — at rest (or end-of-scroll) the first
+                    // (last) row rests exactly at its fade's far edge,
+                    // never inside the fade.
+                    padding: EdgeInsets.fromLTRB(
+                      SrSpace.contentInset,
+                      widget.form.bodyTopPad,
+                      SrSpace.contentInset,
+                      0,
+                    ),
+                    children: [
+                      // The scenario section stays with an empty library:
+                      // the picker row hides (a lone 默认 chip has nothing
+                      // to pick between) but the editor entry remains the
+                      // creation path into the settings window.
+                      _sectionLabel(pal, '场景'),
+                      // The global directive's preview row (ticket 22):
+                      // shown only while one is set — with an empty
+                      // library too, it is not a picker among scenarios.
+                      if (c.globalDirective != null) ...[
+                        _DirectivePreviewRow(
+                          icon: Icons.public_rounded,
+                          tooltip: '全局指令',
+                          text: c.globalDirective!,
+                          testKey: 'quick-global',
+                          domain: SettingsDomain.scenarios,
+                          onOpen: _openSettings,
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (c.scenarios.isNotEmpty) ...[
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _SelectableChip(
+                              key: const Key('quick-scenario-default'),
+                              label: '默认',
+                              selected: c.selectedScenario == null,
+                              onTap: () => c.selectScenario(null),
+                            ),
+                            for (final scenario in c.scenarios)
+                              _SelectableChip(
+                                key: Key('quick-scenario:${scenario.name}'),
+                                label: scenario.name,
+                                selected: c.selectedScenario == scenario.name,
+                                onTap: () => c.selectScenario(scenario.name),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      _EntryRow(
+                        key: const Key('quick-open-settings:scenarios'),
+                        label: '编辑场景',
                         domain: SettingsDomain.scenarios,
                         onOpen: _openSettings,
                       ),
-                      const SizedBox(height: 8),
-                    ],
-                    if (c.scenarios.isNotEmpty) ...[
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                      _sectionGap(pal),
+                      _sectionLabel(pal, '术语速加'),
+                      Row(
                         children: [
-                          _SelectableChip(
-                            key: const Key('quick-scenario-default'),
-                            label: '默认',
-                            selected: c.selectedScenario == null,
-                            onTap: () => c.selectScenario(null),
-                          ),
-                          for (final scenario in c.scenarios)
-                            _SelectableChip(
-                              key: Key('quick-scenario:${scenario.name}'),
-                              label: scenario.name,
-                              selected: c.selectedScenario == scenario.name,
-                              onTap: () => c.selectScenario(scenario.name),
+                          Expanded(
+                            child: _TermField(
+                              controller: _termInput,
+                              onAdd: _addTerm,
                             ),
+                          ),
+                          const SizedBox(width: 8),
+                          _AddButton(onTap: () => _addTerm(_termInput.text)),
                         ],
                       ),
                       const SizedBox(height: 8),
-                    ],
-                    _EntryRow(
-                      key: const Key('quick-open-settings:scenarios'),
-                      label: '编辑场景',
-                      domain: SettingsDomain.scenarios,
-                      onOpen: _openSettings,
-                    ),
-                    _sectionGap(pal),
-                    _sectionLabel(pal, '术语速加'),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _TermField(
-                            controller: _termInput,
-                            onAdd: _addTerm,
-                          ),
+                      if (c.terms.isNotEmpty)
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final term in c.terms)
+                              _TermChip(
+                                label: term,
+                                onRemoved: () => c.removeQuickTerm(term),
+                              ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        _AddButton(onTap: () => _addTerm(_termInput.text)),
+                      _sectionGap(pal),
+                      _sectionLabel(pal, '历史'),
+                      if (c.recentHistory.isEmpty)
+                        Padding(
+                          key: const Key('quick-history-empty'),
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '暂无历史记录',
+                            style: SrType.micro.copyWith(
+                              color: pal.textTertiary,
+                            ),
+                          ),
+                        )
+                      else
+                        for (final entry in c.recentHistory)
+                          _HistoryRow(
+                            entry: entry,
+                            scenarios: c.scenarios,
+                            onRerectify: c.rerectifyHistory,
+                          ),
+                      const SizedBox(height: 8),
+                      _EntryRow(
+                        key: const Key('quick-open-settings:history'),
+                        label: '全部历史与管理',
+                        domain: SettingsDomain.history,
+                        onOpen: _openSettings,
+                      ),
+                      // The rectify mirror (quick-panel-additions 02): the
+                      // settings page's three cards as three FIRST-LEVEL
+                      // sections, pick-to-save over the same store. The
+                      // whole block stays hidden until the load lands (or
+                      // forever on a refused read) — the neighboring
+                      // sections are not hostage to it.
+                      if (_rectify case final RectifyBehavior rectify) ...[
+                        _sectionGap(pal),
+                        _sectionLabel(pal, '全量修正模式'),
+                        _RectifyTierSection(
+                          tier: _RectifyTier.full,
+                          behavior: rectify,
+                          onPick: _pickRectify,
+                          onOpen: _openSettings,
+                        ),
+                        _sectionGap(pal),
+                        _sectionLabel(pal, '轻修模式'),
+                        _RectifyTierSection(
+                          tier: _RectifyTier.lightTouch,
+                          behavior: rectify,
+                          onPick: _pickRectify,
+                          onOpen: _openSettings,
+                        ),
+                        _sectionGap(pal),
+                        _sectionLabel(pal, '快速模式'),
+                        _RectifyTierSection(
+                          tier: _RectifyTier.quick,
+                          behavior: rectify,
+                          onPick: _pickRectify,
+                          onOpen: _openSettings,
+                        ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (c.terms.isNotEmpty)
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final term in c.terms)
-                            _TermChip(
-                              label: term,
-                              onRemoved: () => c.removeQuickTerm(term),
-                            ),
-                        ],
-                      ),
-                    _sectionGap(pal),
-                    _sectionLabel(pal, '历史'),
-                    if (c.recentHistory.isEmpty)
-                      Padding(
-                        key: const Key('quick-history-empty'),
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(
-                          '暂无历史记录',
-                          style: SrType.micro.copyWith(color: pal.textTertiary),
-                        ),
-                      )
-                    else
-                      for (final entry in c.recentHistory)
-                        _HistoryRow(
-                          entry: entry,
-                          scenarios: c.scenarios,
-                          onRerectify: c.rerectifyHistory,
-                        ),
-                    const SizedBox(height: 8),
-                    _EntryRow(
-                      key: const Key('quick-open-settings:history'),
-                      label: '全部历史与管理',
-                      domain: SettingsDomain.history,
-                      onOpen: _openSettings,
-                    ),
-                    // The rectify mirror (quick-panel-additions 02): the
-                    // settings page's three cards as three FIRST-LEVEL
-                    // sections, pick-to-save over the same store. The
-                    // whole block stays hidden until the load lands (or
-                    // forever on a refused read) — the neighboring
-                    // sections are not hostage to it.
-                    if (_rectify case final RectifyBehavior rectify) ...[
                       _sectionGap(pal),
-                      _sectionLabel(pal, '全量修正模式'),
-                      _RectifyTierSection(
-                        tier: _RectifyTier.full,
-                        behavior: rectify,
-                        onPick: _pickRectify,
+                      _sectionLabel(pal, '外观'),
+                      _ThemeRow(controller: c),
+                      _sectionGap(pal),
+                      _sectionLabel(pal, '设置入口'),
+                      _EntryRow(
+                        key: const Key('quick-open-settings:general'),
+                        label: '打开设置',
+                        domain: SettingsDomain.general,
                         onOpen: _openSettings,
                       ),
-                      _sectionGap(pal),
-                      _sectionLabel(pal, '轻修模式'),
-                      _RectifyTierSection(
-                        tier: _RectifyTier.lightTouch,
-                        behavior: rectify,
-                        onPick: _pickRectify,
-                        onOpen: _openSettings,
-                      ),
-                      _sectionGap(pal),
-                      _sectionLabel(pal, '快速模式'),
-                      _RectifyTierSection(
-                        tier: _RectifyTier.quick,
-                        behavior: rectify,
-                        onPick: _pickRectify,
-                        onOpen: _openSettings,
+                      // Anchor zone clearance — scaled by how much the
+                      // anchor sits at the bottom edge (up-growth): the
+                      // orb's whole footprint rides this band. A
+                      // top-anchored orb's obligations live at the list's
+                      // head (fade + padding above); the tail keeps the
+                      // standing md floor (小修 13) — a zero tail let the
+                      // last entry row kiss the card's bottom edge.
+                      SizedBox(
+                        key: const Key('quick-tail-clearance'),
+                        height: widget.form.bodyTailPad,
                       ),
                     ],
-                    _sectionGap(pal),
-                    _sectionLabel(pal, '外观'),
-                    _ThemeRow(controller: c),
-                    _sectionGap(pal),
-                    _sectionLabel(pal, '设置入口'),
-                    _EntryRow(
-                      key: const Key('quick-open-settings:general'),
-                      label: '打开设置',
-                      domain: SettingsDomain.general,
-                      onOpen: _openSettings,
-                    ),
-                    // Anchor zone clearance — scaled by how much the
-                    // anchor sits at the bottom edge (up-growth): the
-                    // orb's whole footprint rides this band. A
-                    // top-anchored orb's obligations live at the list's
-                    // head (fade + padding above); the tail keeps the
-                    // standing md floor (小修 13) — a zero tail let the
-                    // last entry row kiss the card's bottom edge.
-                    SizedBox(
-                      key: const Key('quick-tail-clearance'),
-                      height: widget.form.bodyTailPad,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              // The anchor-zone fades: surface-colored, fully opaque
-              // at the card's anchor edge and transparent by the
-              // matching clearance's far edge (bottom 96, top 48).
-              // Content scrolling toward the ✕ dissolves into the
-              // card instead of crowding the button; over the empty
-              // surface beside short content it paints
-              // surface-on-surface and is invisible. The orb sits
-              // above (stage stack), so the ✕ stays crisp. Each edge
-              // carries its fade only while the anchor sits on it
-              // (mounted at zero weight otherwise), and a vertical
-              // switch CROSSES them over by opacity alone.
-              if (widget.form.gu > 0.001)
-                Positioned(
-                  key: const Key('quick-bottom-fade'),
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: SrGeometry.anchorInset * 2,
-                  child: IgnorePointer(
-                    child: Opacity(
-                      opacity: widget.form.gu,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [
-                              pal.surface,
-                              pal.surface,
-                              pal.surface.withValues(alpha: 0),
-                            ],
-                            stops: const [0.0, 0.25, 1.0],
+                // The anchor-zone fades: surface-colored, fully opaque
+                // at the card's anchor edge and transparent by the
+                // matching clearance's far edge (bottom 96, top 48).
+                // Content scrolling toward the ✕ dissolves into the
+                // card instead of crowding the button; over the empty
+                // surface beside short content it paints
+                // surface-on-surface and is invisible. The orb sits
+                // above (stage stack), so the ✕ stays crisp. Each edge
+                // carries its fade only while the anchor sits on it
+                // (mounted at zero weight otherwise), and a vertical
+                // switch CROSSES them over by opacity alone.
+                if (widget.form.gu > 0.001)
+                  Positioned(
+                    key: const Key('quick-bottom-fade'),
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: SrGeometry.anchorInset * 2,
+                    child: IgnorePointer(
+                      child: Opacity(
+                        opacity: widget.form.gu,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [
+                                pal.surface,
+                                pal.surface,
+                                pal.surface.withValues(alpha: 0),
+                              ],
+                              stops: const [0.0, 0.25, 1.0],
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              if (widget.form.gu < 0.999)
-                Positioned(
-                  key: const Key('quick-top-fade'),
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  height: SrGeometry.anchorInset,
-                  child: IgnorePointer(
-                    child: Opacity(
-                      opacity: (1 - widget.form.gu).clamp(0.0, 1.0),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              pal.surface,
-                              pal.surface,
-                              pal.surface.withValues(alpha: 0),
-                            ],
-                            stops: const [0.0, 0.25, 1.0],
+                if (widget.form.gu < 0.999)
+                  Positioned(
+                    key: const Key('quick-top-fade'),
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    height: SrGeometry.anchorInset,
+                    child: IgnorePointer(
+                      child: Opacity(
+                        opacity: (1 - widget.form.gu).clamp(0.0, 1.0),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                pal.surface,
+                                pal.surface,
+                                pal.surface.withValues(alpha: 0),
+                              ],
+                              stops: const [0.0, 0.25, 1.0],
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

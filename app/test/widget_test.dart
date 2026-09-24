@@ -438,12 +438,33 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(controller.speaking, isTrue);
     // The synthesized loudness rose off its silent floor.
-    expect(controller.micLevel, greaterThan(0.2));
+    expect(controller.micLevel.value, greaterThan(0.2));
 
     gateway.emit(const BridgeEvent.speechActivityChanged(speaking: false));
     await tester.pump(const Duration(milliseconds: 300));
     expect(controller.speaking, isFalse);
-    expect(controller.micLevel, lessThan(0.15));
+    expect(controller.micLevel.value, lessThan(0.15));
+    await windDown(tester, controller);
+  });
+
+  testWidgets('the level breath rides its feed, not controller notifies', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+    await pumpToRecording(tester, controller);
+
+    // A silent stretch of recording: the breath keeps feeding the ring
+    // (the level still moves every tick) while the controller itself
+    // goes quiet — the 20Hz whole-tree notify storm (17 号票) is gone;
+    // an envelope event still notifies, a converged level alone never
+    // does.
+    final level0 = controller.micLevel.value;
+    final notifies0 = controller.notifyCount;
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(controller.micLevel.value, isNot(equals(level0)));
+    expect(controller.notifyCount, notifies0);
+
     await windDown(tester, controller);
   });
 
@@ -2358,14 +2379,20 @@ void main() {
       // Expanded: card region, still the one startup bounds call.
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       expect(window.regions.last, const Rect.fromLTRB(676, 56, 1096, 596));
-      expect(window.regionEllipses.last, isFalse); // 小修 23: panel slots stay rect
+      expect(
+        window.regionEllipses.last,
+        isFalse,
+      ); // 小修 23: panel slots stay rect
 
       await controller.cancelSession();
       await tester.pump(const Duration(milliseconds: 1700));
       // Collapsed: footprint region, STILL the same single bounds call.
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
-      expect(window.regionEllipses.last, isTrue); // 小修 23: collapse tail = ellipse
+      expect(
+        window.regionEllipses.last,
+        isTrue,
+      ); // 小修 23: collapse tail = ellipse
 
       // A second cycle (the quick panel this time) adds nothing either.
       controller.orbSecondary();
@@ -2376,24 +2403,28 @@ void main() {
       await tester.pump(const Duration(milliseconds: 700));
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
-      expect(window.regionEllipses.last, isTrue); // 小修 23: collapse tail = ellipse
+      expect(
+        window.regionEllipses.last,
+        isTrue,
+      ); // 小修 23: collapse tail = ellipse
     });
 
-    testWidgets('the startup idle prime rests the orb on its footprint ellipse (小修 23)', (
-      tester,
-    ) async {
-      // ADR-0017's single-rect passthrough left the idle orb on its
-      // FULL 96×96 footprint square — visually empty past the glow
-      // (alpha-zero at 46 of the 48 half-footprint), yet its corners
-      // swallowed clicks meant for whatever sits below. The prime's
-      // push keeps the same box but goes out as its inscribed ellipse;
-      // the expand/collapse/release companions live in the tests above.
-      final window = RecordingStageWindow();
-      await pumpGeometry(tester, window: window, dir: scratch());
-      await tester.pump(); // flush the prime's unawaited region push
-      expect(window.regions.first, const Rect.fromLTRB(1006, 506, 1090, 590));
-      expect(window.regionEllipses.first, isTrue);
-    });
+    testWidgets(
+      'the startup idle prime rests the orb on its footprint ellipse (小修 23)',
+      (tester) async {
+        // ADR-0017's single-rect passthrough left the idle orb on its
+        // FULL 96×96 footprint square — visually empty past the glow
+        // (alpha-zero at 46 of the 48 half-footprint), yet its corners
+        // swallowed clicks meant for whatever sits below. The prime's
+        // push keeps the same box but goes out as its inscribed ellipse;
+        // the expand/collapse/release companions live in the tests above.
+        final window = RecordingStageWindow();
+        await pumpGeometry(tester, window: window, dir: scratch());
+        await tester.pump(); // flush the prime's unawaited region push
+        expect(window.regions.first, const Rect.fromLTRB(1006, 506, 1090, 590));
+        expect(window.regionEllipses.first, isTrue);
+      },
+    );
 
     // -- small-fix 24: tooltip bubbles stay inside the card --------------
 
@@ -2407,35 +2438,34 @@ void main() {
       expect(inner.bottom, lessThanOrEqualTo(outer.bottom));
     }
 
-    testWidgets(
-      'the anchor orb tooltip lands inside the card (小修 24)',
-      (tester) async {
-        // Stock Tooltip clamps its bubble against the overlay — the
-        // whole work-area window — while the OS region clips everything
-        // past the card slot (ADR-0017): any bubble crossing the card
-        // edge is hard-cut unless the card sits flush with the screen.
-        // SrTooltip re-clamps into the card. The anchor (1048, 548)
-        // parks the card mid-screen, where the window clamp cannot
-        // mask the difference.
-        final window = RecordingStageWindow();
-        final controller = await pumpGeometry(
-          tester,
-          window: window,
-          dir: scratch(),
-        );
-        await controller.startSession();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 700));
-        await hoverOver(tester, find.byType(OrbButton));
-        await tester.pump(
-          SrMotion.tooltipWait + const Duration(milliseconds: 400),
-        );
-        final bubble = tester.getRect(find.text('结束录入'));
-        final card = tester.getRect(find.byKey(const Key('panel-card')));
-        expectInside(bubble, card);
-        await windDown(tester, controller);
-      },
-    );
+    testWidgets('the anchor orb tooltip lands inside the card (小修 24)', (
+      tester,
+    ) async {
+      // Stock Tooltip clamps its bubble against the overlay — the
+      // whole work-area window — while the OS region clips everything
+      // past the card slot (ADR-0017): any bubble crossing the card
+      // edge is hard-cut unless the card sits flush with the screen.
+      // SrTooltip re-clamps into the card. The anchor (1048, 548)
+      // parks the card mid-screen, where the window clamp cannot
+      // mask the difference.
+      final window = RecordingStageWindow();
+      final controller = await pumpGeometry(
+        tester,
+        window: window,
+        dir: scratch(),
+      );
+      await controller.startSession();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await hoverOver(tester, find.byType(OrbButton));
+      await tester.pump(
+        SrMotion.tooltipWait + const Duration(milliseconds: 400),
+      );
+      final bubble = tester.getRect(find.text('结束录入'));
+      final card = tester.getRect(find.byKey(const Key('panel-card')));
+      expectInside(bubble, card);
+      await windDown(tester, controller);
+    });
 
     testWidgets(
       'a row-end icon tooltip slides inward at the card edge (小修 24)',
@@ -2464,8 +2494,12 @@ void main() {
         // Reveal the row's actions, then hover the scenario icon — one
         // pointer moved between the two, not two pointers.
         final row = find.text('第1句修正');
-        final icon = find.byKey(const Key('quick-history-rerectify-scenario:1'));
-        final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        final icon = find.byKey(
+          const Key('quick-history-rerectify-scenario:1'),
+        );
+        final gesture = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
         await gesture.addPointer(location: tester.getCenter(row));
         await tester.pump(SrMotion.fade);
         await gesture.moveTo(tester.getCenter(icon));
@@ -2481,9 +2515,7 @@ void main() {
       },
     );
 
-    testWidgets('the idle orb shows no tooltip at all (小修 24)', (
-      tester,
-    ) async {
+    testWidgets('the idle orb shows no tooltip at all (小修 24)', (tester) async {
       // The idle window's region is the 84px footprint circle — no
       // bubble fits, and none ever rendered since ADR-0017 clipped the
       // footprint. Ruling 丙: no boundary in scope, no tooltip. (The
@@ -2514,18 +2546,21 @@ void main() {
 
     test('srTooltipClamp flips and slides into the boundary (小修 24)', () {
       const boundary = Rect.fromLTRB(676, 56, 1096, 596);
-      Offset clamp(Offset target, Size tooltipSize, {bool preferBelow = true}) =>
-          srTooltipClamp(
-            boundary,
-            TooltipPositionContext(
-              target: target,
-              targetSize: const Size(60, 29),
-              tooltipSize: tooltipSize,
-              verticalOffset: 24,
-              preferBelow: preferBelow,
-              overlaySize: const Size(1920, 1080),
-            ),
-          );
+      Offset clamp(
+        Offset target,
+        Size tooltipSize, {
+        bool preferBelow = true,
+      }) => srTooltipClamp(
+        boundary,
+        TooltipPositionContext(
+          target: target,
+          targetSize: const Size(60, 29),
+          tooltipSize: tooltipSize,
+          verticalOffset: 24,
+          preferBelow: preferBelow,
+          overlaySize: const Size(1920, 1080),
+        ),
+      );
       // A footer-like target near the card bottom: below would exit,
       // so the bubble flips above and stays inside.
       final footer = clamp(const Offset(900, 560), const Size(104, 24));

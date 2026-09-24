@@ -123,9 +123,6 @@ class SpeechController extends ChangeNotifier {
     this.pinHotkey,
     List<String>? uiPrefsDirs,
   }) : uiPrefsDirs = uiPrefsDirs ?? uiPrefsSearchDirs() {
-    // The perf record (07 号票) lives beside the ui prefs file; pointing
-    // it here keeps the two app-owned files neighbors whatever launched us.
-    attachPerfLog(uiPrefsDirs ?? uiPrefsSearchDirs());
     // onError: a subscribe against a not-yet-created engine emits a stream
     // error; the command paths surface the same failure with better
     // wording, so swallow it here instead of leaving it unhandled.
@@ -206,7 +203,18 @@ class SpeechController extends ChangeNotifier {
   /// Synthesized mic loudness, 0..1, while recording — drives the orb's
   /// level ring and glow (non-size recording dynamics). The engine only
   /// reports a speaking boolean, so liveliness is synthesized from it.
-  double micLevel = 0;
+  ///
+  /// A feed of its own (17 号票): the level's ONLY consumers are the
+  /// orb's two painters, so the 20Hz breath rides this notifier and
+  /// repaints that one box — it no longer notifyListeners the whole
+  /// controller (MaterialApp, panels and orb subtree rebuilt twenty
+  /// times a second for a ring that reads one field).
+  final ValueNotifier<double> micLevel = ValueNotifier(0);
+
+  /// Every [notifyListeners] call bumps this (17 号票): the recording
+  /// steady-state watch reads the storm's cause-side count off the real
+  /// machine's log.
+  int notifyCount = 0;
 
   /// When the current recording started (header timer); null outside one.
   DateTime? recordStartedAt;
@@ -245,6 +253,14 @@ class SpeechController extends ChangeNotifier {
   /// file = follow the system). The quick panel's tri-state switcher
   /// repaints it at once and writes it back — the read/write loop.
   ThemeMode themeMode;
+
+  /// The theme's narrow broadcast (17 号票): the app shell is the ONE
+  /// listener that rebuilds on a theme flip alone — it watches this
+  /// feed instead of the whole controller, so the recording-phase
+  /// notify storm no longer rebuilds MaterialApp with it. [setThemeMode]
+  /// writes both; the flip itself still notifies the controller too
+  /// (the settings-window sync rides that path).
+  late final ValueNotifier<ThemeMode> themeFeed = ValueNotifier(themeMode);
 
   /// Where the theme write-back lands (the app-owned prefs file's search
   /// directories); injectable so tests point it at a scratch directory.
@@ -522,13 +538,15 @@ class SpeechController extends ChangeNotifier {
 
   /// Right click — quick panel, idle only (会话期无右键). The lists the
   /// panel paints refresh as it opens; the shell shows what it has and
-  /// the fresh data lands a moment later.
+  /// the fresh data lands a moment later. The stamps (16 号票 排查轮)
+  /// put the two loads' landings on the same clock as the frame log.
   void orbSecondary() {
     if (phase != BridgeSessionState.idle) return;
+    logPerfStamp('quick_open');
     quickOpen = true;
     notifyListeners();
-    unawaited(loadTerms());
-    unawaited(loadRecentHistory());
+    unawaited(loadTerms().then((_) => logPerfStamp('quick_terms')));
+    unawaited(loadRecentHistory().then((_) => logPerfStamp('quick_history')));
   }
 
   /// Esc is context-sensitive at stage level: close the quick panel
@@ -927,6 +945,7 @@ class SpeechController extends ChangeNotifier {
   /// keeps the on-screen mode: the user sees what they got.
   Future<void> setThemeMode(ThemeMode mode) async {
     themeMode = mode;
+    themeFeed.value = mode;
     notifyListeners();
     try {
       saveUiThemeMode(uiPrefsDirs, mode);
@@ -1059,21 +1078,23 @@ class SpeechController extends ChangeNotifier {
 
   /// Non-size recording dynamics: a fast tick breathing the level ring
   /// and glow (voice steps set `speaking` on bursts). The engine reports
-  /// only a speaking boolean, so the loudness curve is synthesized.
+  /// only a speaking boolean, so the loudness curve is synthesized. The
+  /// curve and cadence are exactly what they were (17 号票 only changed
+  /// WHO hears them): the tick writes the feed, not the controller —
+  /// and a converged silent value stops firing on its own.
   void _startMicBreath() {
     _stopMicBreath();
-    micLevel = 0.08;
+    micLevel.value = 0.08;
     _micBreathTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       final target = speaking ? 0.35 + _rand.nextDouble() * 0.6 : 0.06;
-      micLevel += (target - micLevel) * 0.35;
-      notifyListeners();
+      micLevel.value += (target - micLevel.value) * 0.35;
     });
   }
 
   void _stopMicBreath() {
     _micBreathTimer?.cancel();
     _micBreathTimer = null;
-    micLevel = 0;
+    micLevel.value = 0;
   }
 
   /// The header's 思考中 elapsed label needs repaints while the
@@ -1116,6 +1137,9 @@ class SpeechController extends ChangeNotifier {
           recordStartedAt = DateTime.now();
           _logSessionPerf('perf_session_recording');
           _startMicBreath();
+          // The 挂卡 steady-state watch (17 号票): every window summary
+          // lands in the perf log until this recording ends.
+          startRecordingWatch(() => notifyCount);
           // A leftover true would skip this session's pin arm; the
           // previous Recording→* already cleared it, this is the belt.
           quickMarked = false;
@@ -1126,6 +1150,7 @@ class SpeechController extends ChangeNotifier {
           // observation window with it; the next start arms a fresh one.
           _perfSessionStart = null;
           _stopMicBreath();
+          stopRecordingWatch();
           // Listening ended by any path — stop session or cancel alike:
           // the chord goes back to the system at once (its Alt+B roles
           // elsewhere — bookmark menus, undo — stay ours-free at idle).
@@ -1230,10 +1255,21 @@ class SpeechController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The steady-state watch's cause-side tap (17 号票): counting here is
+  /// the whole point — the counter IS the measurement, no behavior
+  /// change rides along.
+  @override
+  void notifyListeners() {
+    notifyCount += 1;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
     _stopScriptedSpeech();
     _stopMicBreath();
+    micLevel.dispose();
+    themeFeed.dispose();
     _flashTimer?.cancel();
     _thinkingTimer?.cancel();
     _previewPushDebounce?.cancel();
