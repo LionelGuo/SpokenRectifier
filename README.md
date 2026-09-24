@@ -1,82 +1,132 @@
 # SpokenRectifier
 
-把即兴说出的口语段修正为保真、高信息密度的书面文本的语音输入工具(首发 Windows,未来或扩展其他平台)。
+SpokenRectifier(口语滤波器)是一个 Windows 语音输入工具:把即兴说出的口语段修正为保真、高信息密度的书面文本,并直接插入你正在输入的地方。
 
-对着它说话可以磕巴、可以停顿思考、可以说"不对,应该是 X"、"再补充一点"——引擎负责应用口头更正、去除冗余、篇章重组与语体转换,产出遵守保真铁律的修正文本:绝不捏造、绝不丢失明确表达的意思。术语表见 [`CONTEXT.md`](CONTEXT.md),架构决策见 [`docs/adr/`](docs/adr/)。
+> Speak naturally — SpokenRectifier turns impromptu, self-corrected speech into faithful written text, and types it right where you were typing.
 
-## 当前状态
+对着它说话可以磕巴、可以停顿思考、可以说「不对,应该是 X」「再补充一点」:引擎负责应用口头更正、去除冗余、重组篇章与转换语体,产出遵守保真铁律的修正文本——绝不捏造,绝不丢失明确表达的意思。
 
-早期开发中。已落地:**Rust 引擎 crate(命令进、事件出的单一测试缝)与全假件确定性测试、`sr-replay` 脚本回放驱动器、修正管线(`crates/llm`:强度分档 + 保真 prompt + OpenAI 兼容流式客户端)与 `sr-rectify` 真 LLM 演示驱动器、麦克风采集与 VAD(`crates/audio`:cpal 采集 + 能量 VAD,真实 AsrProvider——说话状态、静音语义、设备失效反馈;无声段不判语音即幻觉抑制门)、阿里云端 ASR 适配器(`crates/aliyun`:qwen3-asr-flash-realtime 实时 WebSocket 协议,`[asr]` 配置带 key 即启用——说话段+拖尾静音才上链、断线限次重连补发、部分/最终转写回流引擎;无 key 自动回退纯麦克风模式)、真实插入(`crates/insertion`:剪贴板借还 + Ctrl+V 粘贴,或逐字键入回退——目标窗口记忆/焦点归还、25 秒修正硬上限可见可取消)、Flutter 壳(`app/`:托盘 + 热键 + 悬浮球 + 预览窗,真麦克风;`[llm]` 带 key 即真 LLM 流式修正,预览可编辑、对照原文、reroll;无 key 纯演示模式——`[asr]` 有 key 而 `[llm]` 无 key 直接报错,真转写永不喂假修正)**。
+## 工作方式
 
-## 布局
+1. 光标落在任意输入处,按 `Ctrl+Alt+V`(默认主流程热键)开始录入;
+2. 随意地说——篇章模式下静音只分段、不结束会话,可以边想边说;
+3. 再按一次热键结束录入,修正文本流式生成;
+4. 预览里就地编辑、填写占位符、重生成,满意后确认;
+5. 文本插入回你最初所在的输入处(粘贴或逐字键入)。
+
+悬浮球的左键点按与热键同构;托盘菜单提供显示开关、场景切换、配置入口与清空历史。
+
+## 特性
+
+- **篇章模式**:长停顿只标记分段,会话由你显式结束,无压力口述长内容;
+- **口头更正按语义合并**:「不对,应该是 X」「再补充一点」直接生效,不出现在成文里;
+- **保真铁律**:修正只删真正的冗余,拿不准时保留;语体与密度永远让位于保真;
+- **占位符钉入**:聆听中按 `Alt+B` 在此刻钉一个槽,预览阶段就地补值,修正器尽量给出预填初值;
+- **两档整理强度**:短句轻修(去口头语、应用口头更正,不改篇章结构与措辞)、中长段全量修正;字数阈值、思考策略均可调;
+- **快速模式**:`Ctrl+Alt+V` 按住不放越过阈值,本场升级为直通——松开即结束,流完自动插入,无预览(默认关闭,设置中开启);
+- **多供应商,自带密钥**:ASR 内置阿里云、火山引擎、腾讯云适配器;修正走任一 OpenAI 兼容端点(DeepSeek、通义、火山方舟、OpenAI、自建网关);
+- **术语词表与场景**:领域术语注入识别与修正;命名场景(目标语体)随时切换,指令只塑形式与语气;
+- **历史与取回**:已插入会话仅文本、仅本机留存,可复制原文、可送回重跑;保留期可调,可一键清空,也可完全不留存;
+- **悬浮球 / 全局热键 / 托盘**三种入口;开机自启可在设置中开关;
+- **音频永不落盘**。
+
+## 安装
+
+从仓库的 Releases 页下载任一附件:
+
+- `SpokenRectifier-Setup-x.y.z.exe` —— 安装器,按用户安装(不需要管理员权限)。安装页的「开机自启」勾选项默认不勾,装后随时在应用内开关;
+- portable zip —— 免安装版,解压即用。
+
+**SmartScreen 提示**(二进制未签名,发布早期为常态):
+
+- 弹出「Windows 已保护你的电脑」:点「更多信息」→「仍要运行」;装一次即收敛;
+- Windows 11 若开启了「智能应用控制」,会被直接拦截且没有「仍要运行」:到「Windows 安全中心 → 应用和浏览器控制 → 智能应用控制设置」关闭后再安装。
+
+## 密钥配置(自带 key)
+
+识别与修正各需要一个云服务密钥,费用直接产生在你自己的云账号上——本项目不内置、不代理、不中转任何密钥或流量。
+
+| 用途 | 默认预设 | 其他选择 |
+| --- | --- | --- |
+| 修正 LLM | DeepSeek(`deepseek-flash`) | 任一 OpenAI 兼容端点:通义、火山方舟、OpenAI、自建网关 |
+| 云 ASR | 阿里云百炼(`qwen3-asr-flash-realtime`) | 火山引擎、腾讯云 |
+
+两种配法:
+
+1. **图形界面(推荐)**:悬浮球右键 → 快捷面板 →「打开设置」→「模型与连接」页,选供应商、填 API 密钥,保存即落盘;
+2. **配置文件**:密钥只允许住在 `spokenrectifier.local.toml`(git 已忽略)或各供应商的环境变量(如 `DASHSCOPE_API_KEY`、`DEEPSEEK_API_KEY`)。配置分「可入库共享层 + 本地覆盖层」两层逐字段合并;完整 schema 与全部可调项见 [`spokenrectifier.example.toml`](spokenrectifier.example.toml),托盘「打开配置文件」会在系统编辑器里打开共享配置(不存在时先生成带注释的桩文件)。
+
+未配置密钥时应用可启动,但不会产出修正文本。
+
+## 使用
+
+- **热键**:`Ctrl+Alt+V` 步进主流程(开始 → 结束并修正 → 确认插入),可在设置「通用」页改绑;
+- **悬浮球**:左键与热键点按同构;空闲时右键展开快捷面板(修正三档高频点选、场景与历史入口);面板展开后就地变形为锚点钮,可拖动搬家;
+- **场景**:托盘「场景」子菜单或录音面板的场景行切换目标语体,默认通用书面;场景在设置窗口「场景」页增删改;
+- **术语**:设置窗口「术语」页维护领域词表,注入识别与修正;
+- **历史**:长按空闲悬浮球,或快捷面板「全部历史与管理」;仅文本、仅本机,默认保留 30 天。
+
+## 隐私
+
+- **音频**:仅实时送你所配置的 ASR 供应商做识别,本机不落盘、不缓存;
+- **文本**:原始转写与修正文本随修正请求送你所配置的 LLM 供应商;本地历史仅文本、仅本机,可在设置中缩短保留、一键清空或完全不留存(不留存开启即清空既有);
+- 无账号、无遥测、无云同步;除你配置的云服务外,不与任何服务器通信。
+
+## 已知限制
+
+- **管理员(提权)目标窗口**:Windows UIPI 拦截普通进程的模拟按键,粘贴与键入两种插入模式对提权窗口均无效——系统安全边界,与安装形态无关;
+- Windows 11「智能应用控制」开启态会硬拦未签名程序,见安装节;
+- 仅支持 Windows 10/11(x64),界面语言为简体中文;
+- 单次修正有硬上限(默认 25 秒,可配置),超时可见、可取消,重生成获得新的时限。
+
+## 从源码构建
+
+前置:Rust(rustup 按 `rust-toolchain.toml` 自动安装固定版本)、Flutter 3.47.x stable、Visual Studio「使用 C++ 的桌面开发」工作负载。
 
 ```
-crates/engine   核心引擎:会话状态机 + Provider trait(ASR / 修正 LLM / 插入器 / 时钟)
-crates/audio    麦克风采集 + VAD:cpal 默认输入设备 → 16k mono s16 → 能量 VAD → AsrProvider
-crates/aliyun   阿里云端 ASR 适配器:qwen3-asr-flash-realtime 实时 WS 协议、上链门控、断线重连
-crates/insertion 真实插入:剪贴板借还 + Ctrl+V 粘贴 / 逐字键入回退,目标窗口记忆与焦点归还(已知边界:管理员/提权目标窗口按 UIPI 规则丢弃模拟按键,两种模式均失效)
-crates/llm      修正管线:强度分档、prompt 组装(保真铁律/五类变换)、OpenAI 兼容流式客户端
-crates/cli      sr-replay:脚本化假会话回放;sr-rectify:canned 口语段 × 真 LLM 演示;sr-eval:保真金样例评测(真 LLM × 机器断言)
-app/            Flutter 壳:托盘常驻、Ctrl+Alt+V 全局热键、悬浮球、预览窗(真麦克风)
-app/rust        flutter_rust_bridge 缝:引擎命令/事件流暴露给 Flutter(Bridge* 线类型)
+cargo test --workspace        # Rust 侧全部确定性测试(无需网络与音频设备)
+cd app
+flutter pub get
+flutter analyze
+flutter test
+flutter build windows --release
 ```
 
-引擎公共 API 即测试缝:命令(`StartSession` / `StopSession` / `Cancel` / `ConfirmInsert` / `Reroll` / …)经 `Engine::execute` 进入,事件(`SessionStateChanged` / `LiveTranscriptUpdated` / `ParagraphMarked` / `RectifiedTextChunk` / …)经 `Engine::subscribe` 流出。ASR、LLM、插入器、时钟全部为可注入 trait,全部测试无需网络与真实音频设备。
+产物在 `app/build/windows/x64/runner/Release/`。Flutter 与 Rust 之间的桥接生成物已提交,仅当改动 `app/rust` 的 API 缝时才需要本地重跑 codegen。
 
-## 构建与测试
+配置文件按「工作目录 → 可执行文件目录」顺序查找:开发运行时即仓库根目录,安装运行时即安装目录。
 
-```
-cargo build
-cargo test          # 一键构建并运行全部确定性测试
-cargo clippy --workspace --all-targets
-```
-
-## 回放演示
+## 仓库布局与开发工具
 
 ```
-cargo run -p sr-replay -- crates/cli/demo-script.txt
+crates/engine     核心引擎:会话状态机 + Provider trait(ASR / 修正 LLM / 插入器 / 时钟)
+crates/audio      麦克风采集 + 能量 VAD
+crates/asr        ASR 多供应商配置与 schema
+crates/aliyun     阿里云实时 ASR 适配器(qwen3-asr-flash-realtime WS 协议)
+crates/volcengine 火山引擎 ASR 适配器
+crates/tencent    腾讯云 ASR 适配器
+crates/insertion  真实插入:剪贴板借还 + Ctrl+V 粘贴 / 逐字键入回退
+crates/llm        修正管线:强度分档、保真 prompt、OpenAI 兼容流式客户端
+crates/store      本机业务库(SQLite:历史、术语、场景)
+crates/config     分层配置加载与写回
+crates/cli        sr-replay / sr-rectify / sr-eval 驱动器
+crates/eval       保真评测:金样例、机器断言、报告
+app/              Flutter 壳(托盘、热键、悬浮球、面板、设置窗)
+app/rust          flutter_rust_bridge 缝:引擎命令/事件流暴露给 Flutter
 ```
 
-演示脚本包含两场会话:篇章模式下静音只分段随后取消(零输出),以及完整链路(停止 → 流式修正 → 预览编辑 → 确认插入)。脚本语法见 `crates/cli/src/main.rs` 顶部注释。
+引擎公共 API 即测试缝:命令(`StartSession` / `StopSession` / `Cancel` / `ConfirmInsert` / `Reroll` / …)经 `Engine::execute` 进入,事件经 `Engine::subscribe` 流出;ASR、LLM、插入器、时钟全部为可注入 trait,测试无需网络与真实音频设备。
 
-## 修正演示(真 LLM,无需麦克风)
-
-```
-# 密钥:在仓库根目录创建 spokenrectifier.local.toml(git 忽略),写入
-#   [llm]
-#   api_key = "sk-..."     # DeepSeek
-# 或导出 DEEPSEEK_API_KEY 环境变量。参见 spokenrectifier.example.toml。
-cargo run -p sr-replay --bin sr-rectify -- crates/cli/demo-utterance.txt
-```
-
-`demo-utterance.txt` 含两场会话:39 字短句(低于阈值 → 轻修)与中长会议口述(全量修正),同一模型、仅 prompt 强度不同,覆盖口头更正、补充、磕巴、中英夹杂与中文数字。修正文本以 token 增量流式打印,随后插入 stdout。
-
-## 保真评测(真 LLM,机器断言)
+常用驱动器:
 
 ```
-cargo run -p sr-replay --bin sr-eval                    # 全部用例,报告打印 stdout
-cargo run -p sr-replay --bin sr-eval -- --only short-   # 只跑一个前缀/一条
-cargo run -p sr-replay --bin sr-eval -- --report out.md # 报告另存 markdown
+cargo run -p sr-replay -- crates/cli/demo-script.txt                        # 脚本回放(无网络、无麦克风)
+cargo run -p sr-replay --bin sr-rectify -- crates/cli/demo-utterance.txt    # 真 LLM 修正演示
+cargo run -p sr-replay --bin sr-eval                                        # 保真金样例评测
 ```
 
-金样例评测集(`crates/cli/eval/cases.toml`,23 条,七类覆盖:口头更正/补充/磕巴冗余/中英夹杂/术语/中文数字/短句轻修边界)骑引擎缝逐条跑真 LLM,输出按失败类别(捏造/丢失/过度改写/保留失败/残留)分计的通过率报告;退出码 0/1/2 = 全过/有失败/环境错。追加用例即编辑该文件,零其他改动。基线通过率与已知缺口记录在 [`crates/cli/eval/BASELINE.md`](crates/cli/eval/BASELINE.md);每夜定时入口 `scripts/nightly-eval.sh`(报告落不入库的 `.scratch/eval/`)。
-
-## 配置与密钥
-
-配置分两层:`spokenrectifier.toml`(可入库的共享配置)与 `spokenrectifier.local.toml`(git 忽略,`api_key` 只能放这里,或用各档 `api_key_env` 指定的环境变量);共享文件的任何 section 下出现非空 `api_key` 都会在启动时被拒绝。本地值逐字段覆盖共享值;两个文件各自按「工作目录 → 可执行文件目录」查找。完整 schema 见 [`spokenrectifier.example.toml`](spokenrectifier.example.toml)。
-
-术语词表(工单 08)是同目录下的纯文本文件 `spokenrectifier-terms.txt`(git 忽略):一行一词,`#` 注释;每次会话开始时重读,改完即生效于下一会话。支持识别偏置的 Provider(阿里)把词表注入 ASR 识别;所有 Provider 同时把词表作为修正 prompt 的术语参考(逐字保留)兜底纠错。
-
-语体(工单 09,ADR-0004)只有一种内置默认:通用书面。需要别的语体时,在场景库 `spokenrectifier-scenarios.toml`(与配置文件同目录,git 忽略)自建命名场景,一段名字配一段风格指令:
-
-```toml
-[[scenario]]
-name = "Prompt"
-directive = "输出将直接用作 AI 提示词:信息密度优先,可分点分行,行内代码用反引号"
-```
-
-托盘「风格」子菜单与录音展开面板的场景行可随时在「默认」与各场景间切换,立即作用于下一次修正(reroll 同样受影响);选择不持久化,重启回到默认;场景库缺失或损坏按空库处理(面板场景行隐藏、托盘只剩「默认」),不报错不落盘。风格指令只塑形式与语气,保真铁律恒在其上。托盘「打开配置文件」在系统编辑器里打开共享配置(不存在时先落一个带注释的桩文件)。配置校验:未知 vendor、空 model/base_url、配了端点却没有可解析的 key,都在启动横幅给出明确报错,不会静默回退演示模式。
+评测集与基线记录在 [`crates/eval/`](crates/eval/)。
 
 ## 许可
 
-计划采用 Apache-2.0,MVP 后公开源码。
+[Apache-2.0](LICENSE)

@@ -95,33 +95,25 @@ enabled = true              # false = keep-nothing mode: nothing is stored
 retention_days = 30         # sessions older than this are swept on launch
                             #  and on every new record
 
-# Hotword dictionary (术语词表): a separate plain-text file, NOT a section
-# here. Create spokenrectifier-terms.txt next to these config files, one
-# term per line (# comments allowed), and it takes effect from the next
-# session with no restart:
-#   spokenrectifier-terms.txt
-#   # 领域术语
-#   SpokenRectifier
-#   EGFR抑制剂
-# Providers that can bias recognition get the list injected into ASR
-# (Aliyun: the transcription corpus; Volcengine: the corpus context
-# hotwords, capped to the stream's ~100-token budget); every provider
+# Hotword dictionary (术语词表): maintained in the settings window's
+# 术语 page and stored in the local store database — NOT a file or a
+# section here. A legacy spokenrectifier-terms.txt from older versions
+# is imported once on first launch, then removed. Providers that can
+# bias recognition get the list injected into ASR (Aliyun: the
+# transcription corpus; Volcengine: the corpus context hotwords,
+# capped to the stream's ~100-token budget); every provider
 # additionally gets it as the rectify prompt's term reference,
 # verbatim-preserved.
 
-# Scenario library (场景库): a separate app-owned file, NOT a section
-# here. Create spokenrectifier-scenarios.toml next to these config files
-# to add named style directives beyond the built-in default register
-# (通用书面), e.g.:
-#   [[scenario]]
-#   name = "Prompt"
-#   directive = "输出将直接用作 AI 提示词:信息密度优先,可分点分行,行内代码用反引号"
-# The tray's 风格 submenu and the recording panel's scenario row switch
-# between 默认 and these entries; a pick applies from the next rectify on
-# (rerolls included) and is never persisted — every launch starts on the
-# default. A missing or corrupt file reads as an empty library (pickers
-# hide). Style directives shape form and tone only; the fidelity rule
-# always outranks them.
+# Scenario library (场景库): maintained in the settings window's
+# scenario manager and stored in the local store database — named
+# style directives beyond the built-in default register (通用书面),
+# NOT a file or a section here. A legacy spokenrectifier-scenarios.toml
+# from older versions is imported once on first launch, then removed.
+# The tray's 场景 submenu and the recording panel's scenario row switch
+# between 默认 and these entries; a pick applies from the next rectify
+# on (rerolls included). Style directives shape form and tone only; the
+# fidelity rule always outranks them.
 
 # Rectify behavior (ADR-0015/0016): one tier per intensity, the two
 # never inheriting from each other. thinking_policy is one of the three
