@@ -88,6 +88,11 @@ pub(crate) struct Inner {
     /// settings window's third card). Read when a hold crosses the
     /// threshold: with it off, no mark can upgrade a session.
     quick_mode: RwLock<bool>,
+    /// Wall-clock budget for one session's stream open (see
+    /// [`EngineConfig::open_budget_ms`]): the watchdog that keeps a
+    /// wedged open (device graph, network) from becoming a session that
+    /// listens forever with no events.
+    open_budget_ms: u64,
     /// `[rectify.quick] rectify` as it stands now — same seeding and
     /// runtime switch as [`Inner::quick_mode`]. Snapshotted when each
     /// session opens, so a switch applies from the next session on.
@@ -139,6 +144,7 @@ impl Engine {
                 timings: RwLock::new(config.timings()),
                 quick_mode: RwLock::new(config.quick_mode),
                 quick_rectify: RwLock::new(config.quick_rectify),
+                open_budget_ms: config.open_budget_ms,
                 asr: RwLock::new(deps.asr),
                 llm: RwLock::new(deps.llm),
                 inserter: deps.inserter,
@@ -342,26 +348,49 @@ impl Engine {
         // handshake aborts it through the same token consume_asr listens
         // to, and an open failure surfaces as the session-stream failure
         // every mid-session failure already uses (Error event + a
-        // cancelled end, focus restored with it).
+        // cancelled end, focus restored with it). The whole leg runs
+        // under the open budget (26 号票): collaborators that wedge —
+        // a device graph that never finishes opening the microphone, a
+        // network leg that never answers — become that same visible
+        // failure instead of a session that listens forever with no
+        // events.
+        let budget_ms = self.inner.open_budget_ms;
         tokio::spawn(async move {
+            let budget = std::time::Duration::from_millis(budget_ms);
             tokio::select! {
                 biased;
                 _ = cancel.cancelled() => {}
-                opened = asr.open_stream(&terms) => match opened {
-                    Ok(stream) => {
+                opened = tokio::time::timeout(budget, asr.open_stream(&terms)) => match opened {
+                    Ok(Ok(stream)) => {
                         let st = inner.state_lock();
                         if session_matches(&st, sid) && st.state == SessionState::Recording {
                             drop(st);
                             tokio::spawn(consume_asr(inner, sid, stream, cancel));
                         }
                     }
-                    Err(err) => {
+                    Ok(Err(err)) => {
                         let mut st = inner.state_lock();
                         if session_matches(&st, sid) && st.state == SessionState::Recording {
                             inner.emit_stream_event(
                                 &mut st,
                                 sid,
                                 EngineEvent::Error { message: err.to_string() },
+                            );
+                            inner.finish_session(&mut st, sid, SessionState::Cancelled);
+                        }
+                    }
+                    Err(_) => {
+                        let mut st = inner.state_lock();
+                        if session_matches(&st, sid) && st.state == SessionState::Recording {
+                            inner.emit_stream_event(
+                                &mut st,
+                                sid,
+                                EngineEvent::Error {
+                                    message: format!(
+                                        "opening the recognizer timed out after {budget_ms} ms; \
+                                         retry the session"
+                                    ),
+                                },
                             );
                             inner.finish_session(&mut st, sid, SessionState::Cancelled);
                         }

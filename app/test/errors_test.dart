@@ -19,6 +19,19 @@ void main() {
       );
     });
 
+    test('listen-start timeouts are their own face (小修 26)', () {
+      expect(
+        classifyEngineError(
+          'opening the recognizer timed out after 15000 ms; retry the session',
+        ),
+        '聆听未能启动，请重试',
+      );
+      expect(
+        classifyEngineError('opening the microphone timed out after 5000 ms'),
+        '聆听未能启动，请重试',
+      );
+    });
+
     test('audio device messages from cpal / mic.rs', () {
       expect(classifyEngineError('no default input device'), '音频设备异常，请检查麦克风');
       expect(

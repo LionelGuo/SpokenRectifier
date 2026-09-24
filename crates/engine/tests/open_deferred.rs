@@ -47,6 +47,22 @@ impl GatedAsr {
         mpsc::UnboundedReceiver<()>,
         Arc<AtomicBool>,
     ) {
+        Self::engine_with(fail, EngineConfig::default())
+    }
+
+    /// [`GatedAsr::engine`] with the engine's config injected — the
+    /// open-budget test needs a shrunk watchdog.
+    #[allow(clippy::type_complexity)]
+    fn engine_with(
+        fail: bool,
+        config: EngineConfig,
+    ) -> (
+        Engine,
+        broadcast::Receiver<EventEnvelope>,
+        Arc<Notify>,
+        mpsc::UnboundedReceiver<()>,
+        Arc<AtomicBool>,
+    ) {
         let gate = Arc::new(Notify::new());
         let completed = Arc::new(AtomicBool::new(false));
         let (attempted_tx, attempted_rx) = mpsc::unbounded_channel();
@@ -58,7 +74,7 @@ impl GatedAsr {
         });
         let clock = FakeClock::new(0);
         let engine = Engine::new(
-            EngineConfig::default(),
+            config,
             EngineDeps {
                 asr,
                 llm: ScriptedLlm::new(Vec::new()),
@@ -167,4 +183,40 @@ async fn a_stop_during_the_open_aborts_it_without_a_trace() {
         rx.try_recv(),
         Err(broadcast::error::TryRecvError::Empty)
     ));
+}
+
+#[tokio::test]
+async fn an_open_that_never_completes_fails_within_its_budget() {
+    // The wedge this guards against (26 号票): the open leg's
+    // collaborators can hang in ways nothing downstream can observe —
+    // a device graph that never finishes opening the microphone, a
+    // half-open network leg. Without a budget the session sits in
+    // Recording with no events and no error; the panel listens forever.
+    let config = EngineConfig {
+        open_budget_ms: 50,
+        ..EngineConfig::default()
+    };
+    let (engine, mut rx, _gate, mut attempted, completed) = GatedAsr::engine_with(false, config);
+
+    ok(&engine, Command::StartSession).await;
+    attempted.recv().await.expect("the open started");
+    // The gate never opens; the budget must speak instead.
+    let error = next_matching(&mut rx, |env| {
+        matches!(env.event, EngineEvent::Error { .. })
+    })
+    .await;
+    match error.event {
+        EngineEvent::Error { message } => {
+            assert!(message.contains("timed out"), "{message}");
+        }
+        _ => unreachable!("matched on the event kind above"),
+    }
+    // The failed end is the cancelled one — the engine must come back to
+    // idle instead of wedging in Recording.
+    await_state(&mut rx, SessionState::Idle).await;
+    assert_eq!(engine.state(), SessionState::Idle);
+    assert!(
+        !completed.load(Ordering::SeqCst),
+        "the aborted open must never run to completion"
+    );
 }

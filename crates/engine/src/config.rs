@@ -32,6 +32,15 @@ pub struct EngineConfig {
     /// opens — the timings rule — so a switch applies from the next
     /// session on.
     pub quick_rectify: bool,
+    /// Wall-clock budget for a session's stream open (microphone capture
+    /// plus the provider handshake), which begins the moment the session
+    /// enters `Recording` (07). Expiry surfaces as an Error event and a
+    /// cancelled end instead of a session that listens forever with no
+    /// events — the open leg's collaborators (the WASAPI device graph,
+    /// the network) can wedge in ways nothing downstream can see.
+    /// Construction-time only: a watchdog, not a latency knob, so it is
+    /// not part of the runtime-switchable [`EngineTimings`].
+    pub open_budget_ms: u64,
 }
 
 impl Default for EngineConfig {
@@ -43,6 +52,7 @@ impl Default for EngineConfig {
             rectify_timeout_ms: 25_000,
             quick_mode: false,
             quick_rectify: true,
+            open_budget_ms: 15_000,
         }
     }
 }

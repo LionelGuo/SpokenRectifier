@@ -140,9 +140,19 @@ impl Vad {
         self.floor = (self.floor + alpha * (rms - self.floor))
             .clamp(self.config.min_floor, self.config.max_floor);
     }
+
+    /// The adapted noise floor as it stands — a diagnostic read for the
+    /// listening record: a floor pinned at [`VadConfig::max_floor`]
+    /// after calibration is the no-text signature of a poisoned open.
+    pub fn floor(&self) -> f32 {
+        self.floor
+    }
 }
 
-fn frame_rms(frame: &[i16]) -> f32 {
+/// One frame's RMS level (0..1 for full scale) — the VAD's own measure,
+/// public so the listening record reports the same number the gate
+/// judged by.
+pub fn frame_rms(frame: &[i16]) -> f32 {
     if frame.is_empty() {
         return 0.0;
     }

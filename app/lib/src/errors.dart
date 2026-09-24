@@ -22,19 +22,27 @@ void logRawError(String site, Object error) {
 }
 
 /// Classifies an engine-side raw message (or exception) into the
-/// on-screen short sentence. Order is timeout → audio → credentials
-/// → insert → network → other, matching the inventory's 0.1 table:
-/// `rectify timed out` must beat the network `timed out` substring,
-/// and `device` must beat a later network match. The insert buckets
-/// (小修 25) keep the three failure faces distinct — no target found
-/// (nothing touched), a failed paste (the text IS on the clipboard,
-/// the manual Ctrl+V fallback is live), and everything else insertion
-/// touches — because「服务出错」 on an insert failure sends the user
-/// hunting a network that is fine.
+/// on-screen short sentence. Order is timeout → listen-start → audio
+/// → credentials → insert → network → other, matching the inventory's
+/// 0.1 table: `rectify timed out` must beat the network `timed out`
+/// substring, the listen-start timeouts (小修 26) must beat the plain
+/// `timed out` too — a wedged open is its own face, not a network
+/// verdict — and `device` must beat a later network match. The insert
+/// buckets (小修 25) keep the three failure faces distinct — no target
+/// found (nothing touched), a failed paste (the text IS on the
+/// clipboard, the manual Ctrl+V fallback is live), and everything else
+/// insertion touches — because「服务出错」 on an insert failure sends
+/// the user hunting a network that is fine.
 String classifyEngineError(Object error) {
   final haystack = error.toString().toLowerCase();
   if (haystack.contains('rectify timed out')) {
     return '修正超时，请重试';
+  }
+  if (_matches(haystack, const [
+    'opening the recognizer timed out',
+    'opening the microphone timed out',
+  ])) {
+    return '聆听未能启动，请重试';
   }
   if (_matches(haystack, const [
     'input device',

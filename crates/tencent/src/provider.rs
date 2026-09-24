@@ -25,7 +25,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 use spokenrectifier_asr::schema::{ActiveCredentials, AsrConfig, AsrConfigError, AsrProviderKind};
-use spokenrectifier_asr::session::SessionParams;
+use spokenrectifier_asr::session::{DEFAULT_SEND_BUDGET, SessionParams};
 use spokenrectifier_asr::transport::{RealtimeConnect, TungsteniteConnect};
 use spokenrectifier_audio::{FrameSource, VadConfig};
 use spokenrectifier_engine::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
@@ -185,6 +185,7 @@ impl AsrProvider for TencentAsr {
                 connect,
                 connect_timeout: self.connect_timeout,
                 keepalive_every: self.keepalive_every,
+                send_budget: DEFAULT_SEND_BUDGET,
             },
         )
         .await

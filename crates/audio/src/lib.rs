@@ -23,6 +23,7 @@
 //! [`AsrEvent`]: spokenrectifier_engine::AsrEvent
 
 mod convert;
+pub mod diag;
 mod mic;
 mod provider;
 mod vad;
@@ -30,7 +31,7 @@ mod vad;
 pub use convert::{Resampler, TARGET_RATE};
 pub use mic::{MicEvent, open as open_mic};
 pub use provider::{FrameEvents, FrameSource, FrameStream, MicVadAsr};
-pub use vad::{FRAME_MS, FRAME_SAMPLES, Vad, VadConfig, VadDecision};
+pub use vad::{FRAME_MS, FRAME_SAMPLES, Vad, VadConfig, VadDecision, frame_rms};
 
 /// Synthetic 100 ms frame builders shared by the crate's deterministic
 /// tests (VAD and provider suites alike).

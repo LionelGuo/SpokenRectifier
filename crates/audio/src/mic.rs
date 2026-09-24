@@ -9,12 +9,13 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{InputCallbackInfo, SampleFormat, StreamConfig};
 
 use crate::convert::Resampler;
+use crate::diag;
 use crate::vad::FRAME_SAMPLES;
 
 /// What the capture thread sends upstream.
@@ -74,19 +75,37 @@ fn error_forwarder(
     }
 }
 
+/// Budget for the device open itself (26 号票): the device graph can
+/// wedge — a default endpoint mid-switch, a resumed-from-sleep
+/// Bluetooth profile, a driver holding the device — in ways no
+/// downstream collaborator can observe, and the open runs inside the
+/// async provider call, where an unbounded block also pins a runtime
+/// worker. The engine's session-open budget catches the wedge too, but
+/// this bound fails with the microphone named as the culprit.
+const OPEN_BUDGET: Duration = Duration::from_secs(5);
+
 /// Open the default input device and stream converted frames.
 ///
 /// Returns the receiver the caller owns; dropping it stops capture. The
 /// cpal stream never crosses threads — it is built and parked on one
 /// dedicated capture thread (cpal's `Stream` is not `Send` on every
-/// backend), with the open result relayed back through a channel.
+/// backend), with the open result relayed back through a channel. The
+/// relay waits under [`OPEN_BUDGET`]; a caller that gave up leaves the
+/// thread to drop whatever it managed to open and exit (no ghost
+/// capture), and every verdict lands in the listening record.
 pub fn open() -> Result<mpsc::Receiver<MicEvent>, String> {
+    let started = Instant::now();
     let (result_tx, result_rx) = mpsc::channel();
     std::thread::Builder::new()
         .name("spokenrectifier-mic".into())
         .spawn(move || match open_on_this_thread() {
-            Ok((rx, stream, dead)) => {
-                let _ = result_tx.send(Ok(rx));
+            Ok((rx, stream, dead, summary)) => {
+                if result_tx.send(Ok((rx, summary))).is_err() {
+                    // The caller gave up on us (budget expiry, session
+                    // cancelled mid-open): drop everything and exit —
+                    // parking here would hold the device open forever.
+                    return;
+                }
                 // Keep the stream alive until the receiver is dropped or
                 // the device errors; dropping it stops capture.
                 while !dead.load(Ordering::Relaxed) {
@@ -99,25 +118,60 @@ pub fn open() -> Result<mpsc::Receiver<MicEvent>, String> {
             }
         })
         .map_err(|e| format!("failed to start capture thread: {e}"))?;
-    match result_rx.recv() {
+    let outcome = match result_rx.recv_timeout(OPEN_BUDGET) {
         Ok(result) => result,
-        Err(_) => Err("capture thread died during open".to_string()),
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            diag::log(&format!(
+                "mic open timed out after {}ms",
+                OPEN_BUDGET.as_millis()
+            ));
+            return Err(format!(
+                "opening the microphone timed out after {} ms",
+                OPEN_BUDGET.as_millis()
+            ));
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            return Err("capture thread died during open".to_string());
+        }
+    };
+    let ms = started.elapsed().as_millis();
+    match outcome {
+        Ok((rx, summary)) => {
+            diag::log(&format!("mic open ok {ms}ms {summary}"));
+            Ok(rx)
+        }
+        Err(err) => {
+            diag::log(&format!("mic open failed after {ms}ms: {err}"));
+            Err(err)
+        }
     }
 }
 
 /// Everything that must happen on the eventual owner thread of the stream.
-fn open_on_this_thread() -> Result<(mpsc::Receiver<MicEvent>, cpal::Stream, Arc<AtomicBool>), String>
-{
+fn open_on_this_thread() -> Result<
+    (
+        mpsc::Receiver<MicEvent>,
+        cpal::Stream,
+        Arc<AtomicBool>,
+        String,
+    ),
+    String,
+> {
     let host = cpal::default_host();
     let device = host
         .default_input_device()
         .ok_or_else(|| "no default input device".to_string())?;
+    let name = device.name().unwrap_or_else(|_| "unknown device".into());
     let supported = device
         .default_input_config()
         .map_err(|e| format!("no usable input config: {e}"))?;
     let config: StreamConfig = supported.clone().into();
     let channels = supported.channels();
     let rate = supported.sample_rate().0;
+    let summary = format!(
+        "\"{name}\" {channels}ch {rate}Hz {:?}",
+        supported.sample_format()
+    );
 
     let (tx, rx) = mpsc::channel::<MicEvent>();
     let dead = Arc::new(AtomicBool::new(false));
@@ -146,7 +200,7 @@ fn open_on_this_thread() -> Result<(mpsc::Receiver<MicEvent>, cpal::Stream, Arc<
     stream
         .play()
         .map_err(|e| format!("input stream failed to start: {e}"))?;
-    Ok((rx, stream, dead))
+    Ok((rx, stream, dead, summary))
 }
 
 /// Build an input stream whose callback first converts each chunk to f32,

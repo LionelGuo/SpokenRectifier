@@ -9,5 +9,6 @@ license.workspace = true
 async-trait.workspace = true
 cpal = "0.15"
 futures.workspace = true
+spokenrectifier-config = { path = "../config" }
 spokenrectifier-engine = { path = "../engine" }
 tokio.workspace = true

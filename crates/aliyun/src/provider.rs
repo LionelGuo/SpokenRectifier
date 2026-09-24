@@ -22,7 +22,7 @@ use base64::Engine as _;
 use futures::stream::BoxStream;
 
 use spokenrectifier_asr::schema::{AsrConfig, AsrConfigError};
-use spokenrectifier_asr::session::{SessionParams, WireProtocol};
+use spokenrectifier_asr::session::{DEFAULT_SEND_BUDGET, SessionParams, WireProtocol};
 use spokenrectifier_asr::transport::{RealtimeConnect, TextWire, TungsteniteConnect};
 use spokenrectifier_audio::{FrameSource, VadConfig};
 use spokenrectifier_engine::provider::asr::{AsrEvent, AsrOpenError, AsrProvider};
@@ -106,6 +106,7 @@ impl AsrProvider for AliyunAsr {
                 // DashScope tolerates an idle connection; no liveness
                 // message needed.
                 keepalive_every: None,
+                send_budget: DEFAULT_SEND_BUDGET,
             },
         )
         .await

@@ -38,6 +38,10 @@ node_modules/
 # Runtime-written app artifacts (perf log and UI state land next to the exe)
 spokenrectifier-perf.log
 spokenrectifier-ui.toml
+# Diagnostic records (insert and listening logs land in the search dirs,
+# which during cargo test includes the crate working directories)
+spokenrectifier-insert.log
+spokenrectifier-asr.log
 
 # Local node tooling manifests (not part of the project)
 package*.json
