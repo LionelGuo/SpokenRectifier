@@ -533,7 +533,7 @@ void main() {
     // footprint — the window itself NEVER changed (ADR-0022: no size
     // change, no present race, no ghost).
     expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-    expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+    expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
     await windDown(tester, controller);
   });
 
@@ -1264,7 +1264,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 700));
       expect(controller.stage, StageKind.orb);
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
       expect(gateway.commands, contains('restoreFocus'));
     },
   );
@@ -2328,7 +2328,7 @@ void main() {
       // Release: the footprint region lands on the moved anchor, and
       // the anchor is what persists (松手即写).
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions.last, const Rect.fromLTRB(1100, 500, 1196, 596));
+      expect(window.regions.last, const Rect.fromLTRB(1106, 506, 1190, 590));
       expect(window.regionEllipses.last, isTrue); // 小修 23: inscribed ellipse
       expect(controller.orbAnchor, const Offset(1148, 548));
       expect(
@@ -2359,7 +2359,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1700));
       // Collapsed: footprint region, STILL the same single bounds call.
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
       expect(window.regionEllipses.last, isTrue); // 小修 23: collapse tail = ellipse
 
       // A second cycle (the quick panel this time) adds nothing either.
@@ -2370,7 +2370,7 @@ void main() {
       await controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 700));
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
       expect(window.regionEllipses.last, isTrue); // 小修 23: collapse tail = ellipse
     });
 
@@ -2386,7 +2386,7 @@ void main() {
       final window = RecordingStageWindow();
       await pumpGeometry(tester, window: window, dir: scratch());
       await tester.pump(); // flush the prime's unawaited region push
-      expect(window.regions.first, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regions.first, const Rect.fromLTRB(1006, 506, 1090, 590));
       expect(window.regionEllipses.first, isTrue);
     });
 
@@ -2443,7 +2443,7 @@ void main() {
       // the anchor is what persists.
       await g.up();
       await tester.pump();
-      expect(window.regions.last, const Rect.fromLTRB(1300, 500, 1396, 596));
+      expect(window.regions.last, const Rect.fromLTRB(1306, 506, 1390, 590));
       expect(controller.orbAnchor, const Offset(1348, 548));
     });
 
@@ -2505,7 +2505,7 @@ void main() {
       await tester.pump();
       // The footprint region lands inside the seated window and the
       // anchor persists in the (settled) logical space.
-      expect(window.regions.last, const Rect.fromLTRB(232, 500, 328, 596));
+      expect(window.regions.last, const Rect.fromLTRB(238, 506, 322, 590));
       expect(controller.orbAnchor, const Offset(2200, 548));
       expect(
         File('${dir.path}/$uiPrefsFile').readAsStringSync(),
@@ -2561,7 +2561,7 @@ void main() {
         contains('orb_position = [2200, 492]'),
       );
       // And the footprint region sits inside the landed window.
-      expect(window.regions.last, const Rect.fromLTRB(232, 444, 328, 540));
+      expect(window.regions.last, const Rect.fromLTRB(238, 450, 322, 534));
     });
 
     testWidgets('content at the resize floor keeps its right inset', (
@@ -2610,7 +2610,7 @@ void main() {
       // the window never moved, the region re-pinned to the moved
       // footprint.
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions.last, const Rect.fromLTRB(1035, 515, 1131, 611));
+      expect(window.regions.last, const Rect.fromLTRB(1041, 521, 1125, 605));
       // 松手即写: the anchor landed in the file at gesture end.
       expect(
         File('${dir.path}/$uiPrefsFile').readAsStringSync(),
@@ -2638,7 +2638,7 @@ void main() {
       // Flush: the footprint region exactly on the work-area corner —
       // the window itself is long since the whole work area.
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions.last, const Rect.fromLTRB(1824, 984, 1920, 1080));
+      expect(window.regions.last, const Rect.fromLTRB(1830, 990, 1914, 1074));
     });
 
     testWidgets('a sub-threshold wiggle stays a click — the session starts', (
@@ -2713,7 +2713,7 @@ void main() {
       controller.closeQuick();
       await tester.pump(const Duration(milliseconds: 700));
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions.last, const Rect.fromLTRB(1050, 550, 1146, 646));
+      expect(window.regions.last, const Rect.fromLTRB(1056, 556, 1140, 640));
     });
 
     testWidgets('the quadrant switch crosses center+48; hysteresis inside', (
@@ -2797,11 +2797,11 @@ void main() {
       // card, press null, click release back to the card, collapse to
       // the footprint.
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions[0], const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regions[0], const Rect.fromLTRB(1006, 506, 1090, 590));
       expect(window.regions[1], const Rect.fromLTRB(676, 56, 1096, 596));
       expect(window.regions[2], isNull);
       expect(window.regions[3], const Rect.fromLTRB(676, 56, 1096, 596));
-      expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
     });
 
     testWidgets('dragging across monitors re-bases the window once', (
@@ -3002,7 +3002,7 @@ void main() {
         // Back to the orb: the region narrowed to the footprint (the
         // window itself never moved, never resized — the whole point).
         expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-        expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+        expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
       },
     );
 
@@ -3814,7 +3814,7 @@ void main() {
       // (ADR-0022) and the card is gone.
       await tester.pump(const Duration(milliseconds: 700));
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
-      expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regions.last, const Rect.fromLTRB(1006, 506, 1090, 590));
       expect(card, findsNothing);
     });
 

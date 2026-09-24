@@ -373,13 +373,23 @@ abstract final class SrGeometry {
 
   /// Aura containment budget: the orb's ambient shadow and glow are
   /// painted as radial gradients that reach EXACTLY zero alpha at
-  /// [orbMaskFadeEnd] from the ball center — 2px inside the footprint
+  /// [orbMaskFadeEnd] from the ball center — 8px inside the footprint
   /// edge (48) — so no gaussian tail can ever be cut by the window
   /// rectangle or a shader layer boundary (a cut tail reads as a
   /// "semi-transparent box" behind the ball). The glow disc starts its
   /// growth at [orbMaskFadeStart].
-  static const orbMaskFadeStart = 40.0;
-  static const orbMaskFadeEnd = 46.0;
+  ///
+  /// 小修 23 返修: trimmed 40/46 → 34/40 (device round 1: the 20px ring
+  /// of clickable-but-visually-empty glow read too large) — the hit
+  /// ellipse below hugs the zero line.
+  static const orbMaskFadeStart = 34.0;
+  static const orbMaskFadeEnd = 40.0;
+
+  /// The idle hit ellipse's radius: the glow's zero line
+  /// ([orbMaskFadeEnd]) plus 2px of dpr-rounding headroom. The OS
+  /// region clips PAINTING too, so it may not cut inside the visible
+  /// aura — anything tighter shears the fading glow (小修 23 返修).
+  static const orbHitRadius = 42.0;
 
   /// Session panel and quick panel share one footprint (同形同位互斥).
   /// The design default; user-resized panels override it at runtime

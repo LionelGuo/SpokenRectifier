@@ -481,11 +481,12 @@ class _StageHostState extends State<StageHost>
     // wherever the ball rests (the same `!_grabArmed` gate the idle
     // prime already carries).
     if (widget.stageWindow != null && !_grabArmed) {
-      // 小修 23: the resting orb goes out as the footprint's inscribed
-      // ellipse — the square's visually empty corners stop swallowing
-      // clicks meant for whatever sits below.
+      // 小修 23: the resting orb goes out as its glow-hugging hit
+      // ellipse (返修: zero line + 2px) — the visually empty ring and
+      // the footprint square's corners stop swallowing clicks meant
+      // for whatever sits below.
       unawaited(_pushCardRegion(
-        orbFootprintAt(_anchor).shift(-_rect.topLeft),
+        orbHitEllipseAt(_anchor).shift(-_rect.topLeft),
         ellipse: true,
       ));
     }
@@ -916,16 +917,17 @@ class _StageHostState extends State<StageHost>
   /// window itself is ALWAYS the whole work area (ADR-0022), so the
   /// region is the only thing that ever narrows it. Pushed when the
   /// stage settles (idle prime, expand, resize release, drag release,
-  /// collapse end). At idle the box goes out as its INSCRIBED ELLIPSE
-  /// (小修 23, ADR-0017 修订): everything visible ends 2px inside it,
-  /// so the square's empty corners release their clicks to the
-  /// desktop; a panel's slot keeps the rect.
+  /// collapse end). At idle the region is the orb's hit ellipse
+  /// (小修 23 返修, ADR-0017 修订): the glow's zero line plus 2px of
+  /// rounding headroom — everything visible ends 2px inside it, and
+  /// the visually empty ring releases its clicks to the desktop; a
+  /// panel's slot keeps the rect.
   Rect _stageRegion() {
     final size = _panelSize.value;
     if (size != null) {
       return panelRectFor(_anchor, size, _dir).shift(-_rect.topLeft);
     }
-    return orbFootprintAt(_anchor).shift(-_rect.topLeft);
+    return orbHitEllipseAt(_anchor).shift(-_rect.topLeft);
   }
 
   Future<void> _pushStageRegion() {

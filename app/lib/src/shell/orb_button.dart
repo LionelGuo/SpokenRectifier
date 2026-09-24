@@ -259,7 +259,7 @@ class _OrbButtonState extends State<OrbButton> {
 
 /// Ambient shadow and recording glow, painted as explicit radial
 /// gradients whose alpha reaches EXACTLY zero at
-/// [SrGeometry.orbMaskFadeEnd] (46px) from the ball center — 2px inside
+/// [SrGeometry.orbMaskFadeEnd] (40px) from the ball center — 8px inside
 /// the footprint edge (48px).
 ///
 /// This replaces the earlier BoxShadow-blur + ShaderMask combination:

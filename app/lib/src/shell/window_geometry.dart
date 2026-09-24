@@ -50,6 +50,17 @@ Rect orbFootprintAt(Offset anchor) => Rect.fromCenter(
   height: SrGeometry.orbFootprint.height,
 );
 
+/// 小修 23 返修: the idle hit ellipse's bounding box — the footprint
+/// deflated to the glow's zero line plus rounding headroom
+/// ([SrGeometry.orbHitRadius]); the OS region clips painting too, so
+/// it may not cut inside the visible aura. The seat (and every window
+/// layout clamp) keeps the full footprint.
+Rect orbHitEllipseAt(Offset anchor) => Rect.fromCenter(
+  center: anchor,
+  width: SrGeometry.orbHitRadius * 2,
+  height: SrGeometry.orbHitRadius * 2,
+);
+
 /// Clamp an anchor so the whole orb footprint sits inside the work area
 /// (不压任务栏). A flush landing — footprint edge on the work-area edge —
 /// is legal; the clamp itself produces exactly those.
