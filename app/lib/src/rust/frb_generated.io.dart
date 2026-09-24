@@ -5,6 +5,7 @@
 
 import 'api/about.dart';
 import 'api/advanced.dart';
+import 'api/autostart.dart';
 import 'api/connection.dart';
 import 'api/demo.dart';
 import 'api/engine.dart';

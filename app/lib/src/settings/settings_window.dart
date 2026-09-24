@@ -6,8 +6,8 @@
 /// cross-window link is [SettingsChannel] (events only, never state).
 ///
 /// All nine domains are filled: general (通用 — the theme tri-state
-/// mirror, the orb's visibility, and the two product-hotkey rows),
-/// scenarios (场景库), rectify (修正 —
+/// mirror, the orb's visibility, the 开机自启 switch, and the two
+/// product-hotkey rows), scenarios (场景库), rectify (修正 —
 /// the [rectify] behavior cards), history (历史), terms (术语),
 /// connection (模型与连接), fidelity eval (保真评测), advanced (高级) and
 /// about (关于). The eval run lives in a controller here — it survives
@@ -130,6 +130,14 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
     with WidgetsBindingObserver {
   ThemeMode _mode = ThemeMode.system;
   bool _orbVisible = true;
+
+  /// The autostart switch's state (the HKCU Run value's presence).
+  /// Null until the read lands — the switch paints off and disabled
+  /// rather than guessing. Unlike the orb's visibility this never rides
+  /// the launch arguments or the channel: the registry is read here,
+  /// written here, and nothing on the main side follows it.
+  bool? _autostart;
+
   HotkeyBinding _primary = HotkeyBinding.primaryDefault;
   HotkeyBinding _pin = HotkeyBinding.pinDefault;
   SettingsDomain _domain = SettingsDomain.scenarios;
@@ -210,6 +218,22 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
   Future<void> _setHotkeysPaused(bool paused) =>
       widget.channel.sendHotkeysPaused(paused);
 
+  /// The general domain's autostart switch: write the HKCU Run value
+  /// (or delete it) and paint the re-read state — the registry is the
+  /// one truth, so the switch never moves ahead of the write. A failed
+  /// write toasts and leaves the switch where it was.
+  Future<void> _setAutostart(bool enabled) async {
+    try {
+      final saved = await widget.systemStore.saveAutostart(enabled);
+      if (!mounted) return;
+      setState(() => _autostart = saved);
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('err_autostart_save', e);
+      SrToast.of(_toastContext).show('设置失败', tone: SrToastTone.error);
+    }
+  }
+
   /// A row finished a record / clear / restore: write the file (it is
   /// the truth), paint the pair, tell the main engine to re-read. A
   /// failed write keeps the on-screen pair and toasts the error.
@@ -267,6 +291,17 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       if (!mounted) return;
       logRawError('err_directive_load', e);
       SrToast.of(_toastContext).show('全局指令读取失败', tone: SrToastTone.error);
+    }
+    try {
+      final autostart = await widget.systemStore.loadAutostart();
+      if (!mounted) return;
+      setState(() => _autostart = autostart);
+    } catch (e) {
+      // Same posture again: the switch stays disabled (unknown) and the
+      // toast carries the diagnosis.
+      if (!mounted) return;
+      logRawError('err_autostart_load', e);
+      SrToast.of(_toastContext).show('开机自启状态读取失败', tone: SrToastTone.error);
     }
   }
 
@@ -421,10 +456,12 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
       SettingsDomain.general => SettingsGeneralPane(
         themeMode: _mode,
         orbVisible: _orbVisible,
+        autostart: _autostart,
         primary: _primary,
         pin: _pin,
         onThemePicked: _pickTheme,
         onOrbVisible: _setOrbVisible,
+        onAutostart: _setAutostart,
         onCapture: _setHotkeysPaused,
         onCommit: _commitHotkey,
       ),

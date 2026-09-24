@@ -1,15 +1,18 @@
 /// The settings window's system seam: the advanced timings (an editable
 /// form, ADR-0007 revised 2026-08-28 — a save writes the layer files and
 /// hands the new values to the live engine: engine timings from the next
-/// session on, insertion timings at once), the about info, and the
+/// session on, insertion timings at once), the about info, the
 /// open-config-file entry the tray already owns (the same bridge call —
-/// 同源迁移, ticket 19). Injectable so widget tests run with an
-/// in-memory model and no Rust dylib.
+/// 同源迁移, ticket 19), and the 开机自启 switch over the HKCU Run value
+/// (ticket 06, the oss-release map — the registry is the one truth; the
+/// installer's checkbox writes the same value). Injectable so widget
+/// tests run with an in-memory model and no Rust dylib.
 
 library;
 
 import '../rust/api/about.dart' as rust;
 import '../rust/api/advanced.dart' as rust;
+import '../rust/api/autostart.dart' as rust;
 
 /// The effective `[engine]` timings (plain Dart ints; the wire's u64
 /// arrives as BigInt, the seam converts).
@@ -114,6 +117,14 @@ abstract class SystemStore {
   /// entry's own bridge call (a first run creates a commented stub).
   /// Returns the path that was opened.
   Future<String> openConfigFile();
+
+  /// The 开机自启 switch's truth: whether the HKCU Run key carries the
+  /// app's value. The registry is the state — no second copy anywhere.
+  Future<bool> loadAutostart();
+
+  /// Turn autostart on (write the quoted exe) or off (delete the
+  /// value). Returns the re-read state, the switch's next paint.
+  Future<bool> saveAutostart(bool enabled);
 }
 
 /// The production store over the flutter_rust_bridge calls.
@@ -194,4 +205,11 @@ class RustSystemStore implements SystemStore {
 
   @override
   Future<String> openConfigFile() => rust.openConfigFile();
+
+  @override
+  Future<bool> loadAutostart() => rust.autostartEnabled();
+
+  @override
+  Future<bool> saveAutostart(bool enabled) =>
+      rust.setAutostart(enabled: enabled);
 }

@@ -30,6 +30,7 @@
 
 pub(crate) mod about;
 pub(crate) mod advanced;
+pub(crate) mod autostart;
 pub(crate) mod connection;
 pub(crate) mod demo;
 pub(crate) mod engine;
@@ -41,6 +42,7 @@ pub(crate) mod state;
 
 pub use about::*;
 pub use advanced::*;
+pub use autostart::*;
 pub use connection::*;
 pub use demo::*;
 pub use engine::*;

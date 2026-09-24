@@ -3,8 +3,11 @@
 /// `setThemeMode` entry on the main controller — this pane's edit rides
 /// the channel back, the write and the banner live on the main side);
 /// the orb's visibility is the tray checkbox's sibling, persisted to
-/// ui.toml the same way. The two product-hotkey rows live here too:
-/// click to capture, first legal chord writes the file at once (map 06).
+/// ui.toml the same way. The 开机自启 switch writes the HKCU Run value
+/// itself (the registry is the one truth; the write stays in this
+/// engine — nothing on the main side follows it, ticket 06 of the
+/// oss-release map). The two product-hotkey rows live here too: click
+/// to capture, first legal chord writes the file at once (map 06).
 library;
 
 import 'dart:async' show unawaited;
@@ -26,6 +29,8 @@ class SettingsGeneralPane extends StatelessWidget {
     required this.pin,
     required this.onThemePicked,
     required this.onOrbVisible,
+    this.autostart,
+    required this.onAutostart,
     required this.onCapture,
     required this.onCommit,
   });
@@ -36,6 +41,11 @@ class SettingsGeneralPane extends StatelessWidget {
   /// arguments seed it; tray toggles push fresh values over the channel).
   final bool orbVisible;
 
+  /// The autostart switch's state as the HKCU Run key reads it. Null =
+  /// the read is still in flight (the switch paints off and waits,
+  /// disabled, rather than guessing).
+  final bool? autostart;
+
   final HotkeyBinding primary;
   final HotkeyBinding pin;
 
@@ -45,6 +55,10 @@ class SettingsGeneralPane extends StatelessWidget {
 
   /// Apply an orb-visibility flip — the main controller's single entry.
   final ValueChanged<bool> onOrbVisible;
+
+  /// Apply an autostart flip — the Run value write (local to the
+  /// settings engine; the returned re-read is the next paint).
+  final ValueChanged<bool> onAutostart;
 
   /// Capture started or ended — the main engine unregisters both product
   /// chords for the duration so this window can hear the press.
@@ -130,6 +144,42 @@ class SettingsGeneralPane extends StatelessWidget {
                 key: const Key('settings-orb-visible'),
                 value: orbVisible,
                 onChanged: onOrbVisible,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        SrCard(
+          child: Row(
+            children: [
+              Icon(
+                Icons.power_settings_new_outlined,
+                size: 16,
+                color: pal.textSecondary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '开机自启',
+                      style: SrType.subhead.copyWith(color: pal.textPrimary),
+                    ),
+                    Text(
+                      '登录 Windows 后自动启动，可在任务管理器的「启动应用」中停用',
+                      style: SrType.micro.copyWith(color: pal.textTertiary),
+                    ),
+                  ],
+                ),
+              ),
+              // The read-in-flight state keeps the switch disabled with
+              // the off paint: a guess at the registry's answer could
+              // flip under the user's finger one frame later.
+              Switch(
+                key: const Key('settings-autostart'),
+                value: autostart ?? false,
+                onChanged: autostart == null ? null : onAutostart,
               ),
             ],
           ),

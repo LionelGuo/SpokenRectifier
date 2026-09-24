@@ -560,7 +560,9 @@ String? fakeAsrEndpoint({
 
 /// The advanced/about fake: timings in memory (a save mutates them,
 /// mirroring the file write + live apply); an open-config call is
-/// recorded (the same entry the tray makes).
+/// recorded (the same entry the tray makes); the autostart state is an
+/// in-memory Run value (a save mutates it, mirroring the registry
+/// write).
 class FakeSystemStore implements SystemStore {
   FakeSystemStore({
     this.engine = const EngineTiming(
@@ -576,17 +578,21 @@ class FakeSystemStore implements SystemStore {
       typingDelayMs: 8,
     ),
     this.about = const AboutInfo(version: '1.0.0', license: 'Apache-2.0'),
+    this.autostart = false,
   });
 
   EngineTiming engine;
   InsertionTiming insertion;
   AboutInfo about;
+  bool autostart;
   int openConfigCalls = 0;
   final engineSaves =
       <({bool passage, int paragraph, int sessionEnd, int timeout})>[];
   final insertionSaves = <({String mode, int focus, int paste, int typing})>[];
+  final autostartSaves = <bool>[];
 
-  /// When set, the next save throws (an unwritable layer file).
+  /// When set, the next save throws (an unwritable layer file or an
+  /// unopenable Run key).
   Object? failNextSave;
 
   @override
@@ -654,6 +660,21 @@ class FakeSystemStore implements SystemStore {
   Future<String> openConfigFile() async {
     openConfigCalls++;
     return '/fake/spokenrectifier.toml';
+  }
+
+  @override
+  Future<bool> loadAutostart() async => autostart;
+
+  @override
+  Future<bool> saveAutostart(bool enabled) async {
+    if (failNextSave != null) {
+      final failure = failNextSave;
+      failNextSave = null;
+      throw failure!;
+    }
+    autostartSaves.add(enabled);
+    autostart = enabled;
+    return autostart;
   }
 }
 
@@ -1039,6 +1060,7 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('settings-theme-light')), findsOneWidget);
     expect(find.byKey(const Key('settings-orb-visible')), findsOneWidget);
+    expect(find.byKey(const Key('settings-autostart')), findsOneWidget);
     expect(find.byKey(const Key('settings-hotkey-primary')), findsOneWidget);
     expect(find.byKey(const Key('settings-hotkey-pin')), findsOneWidget);
     await tester.tap(find.text('修正'));
@@ -1170,6 +1192,55 @@ void main() {
       initialOrbVisible: false,
     );
     expect(orbSwitch(tester).value, isFalse);
+  });
+
+  Switch autostartSwitch(WidgetTester tester) =>
+      tester.widget(find.byKey(const Key('settings-autostart')));
+
+  testWidgets(
+    'the autostart switch paints the loaded Run state and writes on flip',
+    (tester) async {
+      final store = FakeSystemStore()..autostart = true;
+      await pumpSettings(
+        tester,
+        domain: SettingsDomain.general,
+        systemStore: store,
+      );
+
+      // The switch paints what the registry read returned, not a
+      // default: an armed autostart shows armed.
+      expect(autostartSwitch(tester).value, isTrue);
+      expect(autostartSwitch(tester).onChanged, isNotNull);
+
+      await tester.tap(find.byKey(const Key('settings-autostart')));
+      await tester.pump();
+
+      // The write went through the store, and the re-read state is the
+      // next paint — the switch never moves ahead of the write.
+      expect(store.autostartSaves, [false]);
+      expect(autostartSwitch(tester).value, isFalse);
+    },
+  );
+
+  testWidgets('a failed autostart write toasts and keeps the switch', (
+    tester,
+  ) async {
+    final store = FakeSystemStore()..failNextSave = 'nope';
+    await pumpSettings(
+      tester,
+      domain: SettingsDomain.general,
+      systemStore: store,
+    );
+
+    expect(autostartSwitch(tester).value, isFalse);
+    await tester.tap(find.byKey(const Key('settings-autostart')));
+    await tester.pump();
+
+    // The write failed: nothing was saved, the switch stays off, and
+    // the toast says so.
+    expect(store.autostartSaves, isEmpty);
+    expect(autostartSwitch(tester).value, isFalse);
+    expect(textOf(tester, const Key('sr-toast')), '设置失败');
   });
 
   testWidgets('the hotkey rows seed from the launch arguments', (tester) async {

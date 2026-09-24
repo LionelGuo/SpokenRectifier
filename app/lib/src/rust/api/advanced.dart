@@ -16,12 +16,13 @@ Future<BridgeAdvancedConfig> advancedConfig() =>
 
 /// Write the form's `[engine]` model (passage mode + the three timings)
 /// into the layer files and hand it to the live engine at once
-/// (ADR-0007, revised): both runtime commands adopt the saved values
-/// immediately, and each session snapshots what it opens with — so the
-/// save applies from the NEXT session on, while the file stays the
-/// truth across launches. The quick panel's passage toggle stays the
-/// runtime-only quick switch; this one persists. Returns the re-read
-/// view.
+/// (ADR-0007, revised): SetPassageMode adopts the saved value
+/// immediately (a running session switches mid-flight), while each
+/// session snapshots the timings it opens with — those apply from the
+/// NEXT session on, and the file stays the truth across launches.
+/// The pane's switch commits on flip through this same call (ticket
+/// 20); the quick panel's passage toggle was runtime-only and is
+/// gone. Returns the re-read view.
 Future<BridgeEngineTiming> setEngineSettings({
   required bool passageMode,
   required BigInt paragraphSilenceMs,
