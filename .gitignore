@@ -42,3 +42,6 @@ spokenrectifier-ui.toml
 # Local node tooling manifests (not part of the project)
 package*.json
 
+# Release packaging output (packaging/build-release.ps1)
+/dist/
+

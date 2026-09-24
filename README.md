@@ -35,7 +35,7 @@ SpokenRectifier(口语滤波器)是一个 Windows 语音输入工具:把即兴�
 从仓库的 Releases 页下载任一附件:
 
 - `SpokenRectifier-Setup-x.y.z.exe` —— 安装器,按用户安装(不需要管理员权限)。安装页的「开机自启」勾选项默认不勾,装后随时在应用内开关;
-- portable zip —— 免安装版,解压即用。
+- `SpokenRectifier-x.y.z-win64.zip` —— 免安装版,解压到任意目录后运行其中的 `spokenrectifier_app.exe`。
 
 **SmartScreen 提示**(二进制未签名,发布早期为常态):
 

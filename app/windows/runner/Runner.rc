@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "dev.spokenrectifier" "\0"
-            VALUE "FileDescription", "spokenrectifier_app" "\0"
+            VALUE "CompanyName", "LionelGuo" "\0"
+            VALUE "FileDescription", "SpokenRectifier" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "spokenrectifier_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 dev.spokenrectifier. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 LionelGuo. All rights reserved." "\0"
             VALUE "OriginalFilename", "spokenrectifier_app.exe" "\0"
-            VALUE "ProductName", "spokenrectifier_app" "\0"
+            VALUE "ProductName", "SpokenRectifier" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
