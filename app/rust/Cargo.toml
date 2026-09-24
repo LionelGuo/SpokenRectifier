@@ -1,7 +1,7 @@
 [package]
 name = "rust_lib_spokenrectifier_app"
 description = "flutter_rust_bridge seam: engine commands and the event stream for the Flutter shell, compiled into the library the app loads."
-version = "1.0.0"  # the product version — keep in step with ../../app/pubspec.yaml
+version = "1.0.1"  # the product version — keep in step with ../../app/pubspec.yaml
 edition = "2021"
 license = "Apache-2.0"
 
