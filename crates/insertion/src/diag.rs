@@ -96,7 +96,9 @@ impl DiagLog {
 
 /// Whether the record has outgrown its cap (a missing file has not).
 fn overgrown(path: &Path) -> bool {
-    std::fs::metadata(path).map(|m| m.len() > MAX_BYTES).unwrap_or(false)
+    std::fs::metadata(path)
+        .map(|m| m.len() > MAX_BYTES)
+        .unwrap_or(false)
 }
 
 /// Local-wall-clock-ish stamp without a date dependency: civil date

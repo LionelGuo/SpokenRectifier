@@ -121,7 +121,8 @@ impl InputOs for Win32Os {
                 Ok(())
             }
             Err((tries, err)) => {
-                self.diag.log(&format!("clipboard err tries={tries} msg={err}"));
+                self.diag
+                    .log(&format!("clipboard err tries={tries} msg={err}"));
                 Err(err)
             }
         }
@@ -452,9 +453,13 @@ fn with_clipboard<T>(body: impl FnOnce() -> Result<T, String>) -> Result<(T, u32
             let result = body();
             unsafe { CloseClipboard() }.ok();
             let tries = attempt + 1;
-            return result.map_err(|err| (tries, err)).map(|value| (value, tries));
+            return result
+                .map_err(|err| (tries, err))
+                .map(|value| (value, tries));
         }
-        std::thread::sleep(std::time::Duration::from_millis(25 * u64::from(attempt + 1)));
+        std::thread::sleep(std::time::Duration::from_millis(
+            25 * u64::from(attempt + 1),
+        ));
     }
     Err((8, "the clipboard stayed busy (another app holds it)".into()))
 }
