@@ -8,8 +8,10 @@
 /// - Placement: [SrToastAnchor.top] on the settings window (below the
 ///   OS caption), bottom-center-in-card on the panel stages — fixed,
 ///   never flipped by GrowthDirection, clear of the chrome rows and
-///   the anchor button. The orb window mounts no scope (its badge
-///   keeps the error duty).
+///   the anchor button. The orb window mounts no scope — a capsule
+///   would not fit its footprint-circle region either; the badge
+///   keeps the attention duty and the sentence rides the tray
+///   tooltip (小修 24).
 /// - Timing: success 2000ms / error 3000ms dwell, click-to-dismiss,
 ///   new replaces old (each restarts the clock).
 /// - Tone contract (14 号票's audit rule): the leading icon wears the

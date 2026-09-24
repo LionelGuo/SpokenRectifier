@@ -43,6 +43,7 @@ import 'package:flutter/material.dart';
 
 import '../design/controls.dart' show SrButton, SrCard, SrField, SrPressFill;
 import '../design/hover.dart';
+import '../design/sr_tooltip.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
@@ -626,9 +627,8 @@ class _KeyBlockState extends State<_KeyBlock> {
             ),
             const SizedBox(width: 8),
             SrHover(
-              builder: (hover) => Tooltip(
+              builder: (hover) => SrTooltip(
                 message: _obscured ? '显示密钥' : '隐藏密钥',
-                waitDuration: SrMotion.tooltipWait,
                 child: GestureDetector(
                   key: Key('settings-conn-key-eye:${widget.id}'),
                   onTap: () => setState(() => _obscured = !_obscured),

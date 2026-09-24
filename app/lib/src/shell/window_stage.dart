@@ -58,6 +58,7 @@ import 'package:screen_retriever/screen_retriever.dart' as sr;
 import 'package:window_manager/window_manager.dart';
 
 import '../../app_state.dart';
+import '../design/sr_tooltip.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../rust/api/engine.dart' show BridgeSessionState;
@@ -1052,6 +1053,53 @@ class _StageHostState extends State<StageHost>
     );
   }
 
+  /// The tooltip boundary for the whole stage (小修 24): the card-slot
+  /// rect whenever a card exists, a NULL rect while idle — SrTooltip
+  /// clamps its bubble into the rect (the OS region clips anything
+  /// painted past it) and stays inert on null (no bubble fits the idle
+  /// footprint circle). Mounted OUTSIDE both the panel slot and the
+  /// orb subtree: the orb is the card's anchor button in panel phases
+  /// yet a Stack SIBLING of the slot (小修 12's keys), so a slot-only
+  /// scope would orphan its tooltip. The boundary layer is mounted
+  /// THROUGH every stage and only its rect goes null — never a
+  /// structural swap (小修 12's lesson: re-inflating the orb subtree
+  /// mid-gesture kills the live grab's release). Mirrors [_panelSlot]'s
+  /// rect inputs so the boundary tracks the card through resize, drag
+  /// and form morphs; the pure-UI test fallback (no stage window) is
+  /// the same too — the view is the card.
+  Widget _tooltipBoundary({required Widget child}) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final view = constraints.biggest;
+        return ValueListenableBuilder<Size?>(
+          valueListenable: _panelSize,
+          child: child,
+          builder: (context, panelSize, child) => ValueListenableBuilder<Offset>(
+            valueListenable: _anchorLocalN,
+            child: child,
+            builder: (context, _, child) => AnimatedBuilder(
+              animation: _form,
+              child: child,
+              builder: (context, child) {
+                final Rect? rect = _displayed == StageKind.orb
+                    ? null
+                    : panelRectAt(
+                        _rectKnown
+                            ? _anchorInView(view)
+                            : anchorOf(Offset.zero & view, _dir),
+                        panelSize ?? view,
+                        gl: _form.gl,
+                        gu: _form.gu,
+                      );
+                return SrTooltipBoundary(rect: rect, child: child!);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ---- keyboard: the in-window twin of the hotkey surface ---------------
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
@@ -1082,7 +1130,8 @@ class _StageHostState extends State<StageHost>
       focusNode: _keyboardNode,
       autofocus: true,
       onKeyEvent: _onKey,
-      child: Stack(
+      child: _tooltipBoundary(
+        child: Stack(
         children: [
           // Panel bodies and their resize affordances share one slot:
           // full-bleed while the window IS the panel footprint, the
@@ -1181,6 +1230,7 @@ class _StageHostState extends State<StageHost>
             ),
           ),
         ],
+        ),
       ),
     );
   }

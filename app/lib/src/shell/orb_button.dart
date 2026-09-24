@@ -18,6 +18,7 @@ import 'package:flutter/gestures.dart' show kPrimaryButton;
 import 'package:flutter/material.dart';
 
 import '../../app_state.dart';
+import '../design/sr_tooltip.dart';
 import '../design/tokens.dart';
 import '../rust/api/engine.dart'
     show BridgeSessionState;
@@ -125,12 +126,12 @@ class _OrbButtonState extends State<OrbButton> {
     final pal = srPalette(context);
     final look = _OrbLook.of(c);
 
-    return Tooltip(
-      // A startup/config error rides the tooltip while the orb idles:
-      // there is no panel surface to carry it, and hiding it silently
-      // is worse.
-      message: look.tooltipFor(c),
-      waitDuration: SrMotion.tooltipWait,
+    return SrTooltip(
+      // Only panel phases ever show this: the boundary scope exists
+      // with a card, and SrTooltip is inert without one (小修 24 — no
+      // bubble fits the idle footprint circle). The idle error
+      // sentence lives in the tray tooltip now.
+      message: look.tooltip,
       child: MouseRegion(
         cursor: look.clickable
             ? SystemMouseCursors.click
@@ -219,9 +220,10 @@ class _OrbButtonState extends State<OrbButton> {
                         ),
                       // A pending error while the orb rests: a live-color
                       // pin on the ball's top-right edge saying only
-                      // "something needs attention"; the tooltip carries
-                      // the message (there is no panel to open — the
-                      // engine never assembled).
+                      // "something needs attention"; the sentence itself
+                      // rides the TRAY tooltip (小修 24 — no bubble fits
+                      // the idle footprint circle, and there is no panel
+                      // to open: the engine never assembled).
                       if (c.orbErrorPending)
                         Positioned(
                           key: const Key('orb-error-badge'),
@@ -389,7 +391,8 @@ final class _OrbLook {
   final Color Function(SrPalette) border;
   final bool clickable;
 
-  /// Hover hint for the current role.
+  /// Hover hint for the current role (panel phases only — the idle
+  /// orb shows no tooltip, 小修 24).
   final String tooltip;
 
   /// Recording mic-level arc ring.
@@ -397,10 +400,6 @@ final class _OrbLook {
 
   /// Recording glow halo.
   final bool glow;
-
-  /// The orb rests with a pending error: the tooltip carries it.
-  String tooltipFor(SpeechController c) =>
-      c.orbErrorPending ? c.lastError! : tooltip;
 
   static _OrbLook of(SpeechController c) {
     switch (c.stage) {

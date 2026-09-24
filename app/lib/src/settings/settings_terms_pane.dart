@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 
 import '../design/controls.dart' show SrButton, SrField;
 import '../design/hover.dart';
+import '../design/sr_tooltip.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
@@ -256,9 +257,8 @@ class _TermAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => Tooltip(
+      builder: (hover) => SrTooltip(
         message: tooltip,
-        waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: onTap,
           child: Icon(

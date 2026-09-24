@@ -16,6 +16,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spokenrectifier_app/app_root.dart';
 import 'package:spokenrectifier_app/app_state.dart';
+import 'package:spokenrectifier_app/main.dart' show trayTooltipFor;
+import 'package:spokenrectifier_app/src/design/sr_tooltip.dart'
+    show srTooltipClamp;
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
 import 'package:spokenrectifier_app/src/rust/api/engine.dart'
@@ -456,13 +459,15 @@ void main() {
 
     expect(controller.phase, BridgeSessionState.idle);
     expect(controller.lastError, '音频设备异常，请检查麦克风');
-    // No panel is open; the resting orb carries the classified short
-    // sentence on its tooltip until the next interaction.
+    // No panel is open — and the resting orb carries no tooltip at all
+    // (小修 24: no bubble fits the footprint circle). The badge pins
+    // the attention; the classified short sentence rides the TRAY
+    // tooltip, the one channel no window region clips.
+    expect(controller.orbErrorPending, isTrue);
+    expect(find.byKey(const Key('orb-error-badge')), findsOneWidget);
     expect(
-      find.byWidgetPredicate(
-        (w) => w is Tooltip && (w.message ?? '') == '音频设备异常，请检查麦克风',
-      ),
-      findsOneWidget,
+      trayTooltipFor(controller, phase: '空闲'),
+      'SpokenRectifier · 音频设备异常，请检查麦克风',
     );
   });
 
@@ -2388,6 +2393,147 @@ void main() {
       await tester.pump(); // flush the prime's unawaited region push
       expect(window.regions.first, const Rect.fromLTRB(1006, 506, 1090, 590));
       expect(window.regionEllipses.first, isTrue);
+    });
+
+    // -- small-fix 24: tooltip bubbles stay inside the card --------------
+
+    /// The containment assertion: every side of [inner] within [outer]
+    /// (the OS region clips painting past the card, so a bubble that
+    /// leaves it is not "slightly off" — it is hard-cut).
+    void expectInside(Rect inner, Rect outer) {
+      expect(inner.left, greaterThanOrEqualTo(outer.left));
+      expect(inner.top, greaterThanOrEqualTo(outer.top));
+      expect(inner.right, lessThanOrEqualTo(outer.right));
+      expect(inner.bottom, lessThanOrEqualTo(outer.bottom));
+    }
+
+    testWidgets(
+      'the anchor orb tooltip lands inside the card (小修 24)',
+      (tester) async {
+        // Stock Tooltip clamps its bubble against the overlay — the
+        // whole work-area window — while the OS region clips everything
+        // past the card slot (ADR-0017): any bubble crossing the card
+        // edge is hard-cut unless the card sits flush with the screen.
+        // SrTooltip re-clamps into the card. The anchor (1048, 548)
+        // parks the card mid-screen, where the window clamp cannot
+        // mask the difference.
+        final window = RecordingStageWindow();
+        final controller = await pumpGeometry(
+          tester,
+          window: window,
+          dir: scratch(),
+        );
+        await controller.startSession();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+        await hoverOver(tester, find.byType(OrbButton));
+        await tester.pump(
+          SrMotion.tooltipWait + const Duration(milliseconds: 400),
+        );
+        final bubble = tester.getRect(find.text('结束录入'));
+        final card = tester.getRect(find.byKey(const Key('panel-card')));
+        expectInside(bubble, card);
+        await windDown(tester, controller);
+      },
+    );
+
+    testWidgets(
+      'a row-end icon tooltip slides inward at the card edge (小修 24)',
+      (tester) async {
+        // The horizontal twin of the containment guard: the history
+        // action icons sit at the card's right inset, where a centered
+        // stock bubble pokes past the edge (mid-screen anchor again —
+        // flush-right placement would let the window clamp mask it).
+        final gateway = FakeGateway()
+          ..historyEntries.add(
+            BridgeHistoryEntry(
+              id: 1,
+              createdAtMs: BigInt.from(1),
+              rawTranscript: '第1句原话',
+              rectifiedText: '第1句修正',
+            ),
+          );
+        final window = RecordingStageWindow();
+        final controller = await pumpGeometry(
+          tester,
+          window: window,
+          dir: scratch(),
+          gateway: gateway,
+        );
+        await pumpQuickOpen(tester, controller);
+        // Reveal the row's actions, then hover the scenario icon — one
+        // pointer moved between the two, not two pointers.
+        final row = find.text('第1句修正');
+        final icon = find.byKey(const Key('quick-history-rerectify-scenario:1'));
+        final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await gesture.addPointer(location: tester.getCenter(row));
+        await tester.pump(SrMotion.fade);
+        await gesture.moveTo(tester.getCenter(icon));
+        addTearDown(gesture.removePointer);
+        await tester.pump(
+          SrMotion.tooltipWait + const Duration(milliseconds: 400),
+        );
+        final bubble = tester.getRect(find.text('指定场景重新修正'));
+        final card = tester.getRect(find.byKey(const Key('panel-card')));
+        expectInside(bubble, card);
+        await controller.closeQuick();
+        await tester.pump(const Duration(milliseconds: 700));
+      },
+    );
+
+    testWidgets('the idle orb shows no tooltip at all (小修 24)', (
+      tester,
+    ) async {
+      // The idle window's region is the 84px footprint circle — no
+      // bubble fits, and none ever rendered since ADR-0017 clipped the
+      // footprint. Ruling 丙: no boundary in scope, no tooltip. (The
+      // idle error sentence rides the tray tooltip instead.)
+      final window = RecordingStageWindow();
+      await pumpGeometry(tester, window: window, dir: scratch());
+      await hoverOver(tester, find.byType(OrbButton));
+      await tester.pump(
+        SrMotion.tooltipWait + const Duration(milliseconds: 400),
+      );
+      expect(find.text('点击录入'), findsNothing);
+    });
+
+    test('the tray tooltip carries the pending error sentence (小修 24)', () {
+      final controller = SpeechController(
+        gateway: FakeGateway(),
+        scriptedPhrases: const [],
+      );
+      addTearDown(controller.dispose);
+      expect(trayTooltipFor(controller, phase: '空闲'), 'SpokenRectifier · 空闲');
+      controller.lastError = '连接配置读取失败';
+      expect(controller.orbErrorPending, isTrue);
+      expect(
+        trayTooltipFor(controller, phase: '空闲'),
+        'SpokenRectifier · 连接配置读取失败',
+      );
+    });
+
+    test('srTooltipClamp flips and slides into the boundary (小修 24)', () {
+      const boundary = Rect.fromLTRB(676, 56, 1096, 596);
+      Offset clamp(Offset target, Size tooltipSize, {bool preferBelow = true}) =>
+          srTooltipClamp(
+            boundary,
+            TooltipPositionContext(
+              target: target,
+              targetSize: const Size(60, 29),
+              tooltipSize: tooltipSize,
+              verticalOffset: 24,
+              preferBelow: preferBelow,
+              overlaySize: const Size(1920, 1080),
+            ),
+          );
+      // A footer-like target near the card bottom: below would exit,
+      // so the bubble flips above and stays inside.
+      final footer = clamp(const Offset(900, 560), const Size(104, 24));
+      expectInside(Rect.fromLTWH(footer.dx, footer.dy, 104, 24), boundary);
+      // A right-edge target: centered would poke past the edge, so the
+      // bubble slides inward.
+      final edge = clamp(const Offset(1063, 300), const Size(104, 24));
+      expectInside(Rect.fromLTWH(edge.dx, edge.dy, 104, 24), boundary);
     });
 
     testWidgets('a collapse that lands mid-drag never re-clips the orb', (

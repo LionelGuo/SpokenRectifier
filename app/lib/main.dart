@@ -365,6 +365,17 @@ class HotkeyManagerPinHotkeyRegistrar implements PinHotkeyRegistrar {
   }
 }
 
+/// The tray tooltip's text (小修 24): the phase word normally; while
+/// the orb rests with a pending error, the error SENTENCE — the tray
+/// is the one channel no window region can clip, and the idle orb
+/// window (its region the 84px footprint circle) cannot fit a bubble,
+/// so the sentence moved here from the orb's tooltip. Public for the
+/// widget/unit tests.
+String trayTooltipFor(SpeechController c, {required String phase}) =>
+    c.orbErrorPending
+        ? 'SpokenRectifier · ${c.lastError!}'
+        : 'SpokenRectifier · $phase';
+
 /// Hosts the tray listener; window morphing lives in the stage host.
 class _Shell extends StatefulWidget {
   const _Shell({
@@ -395,6 +406,8 @@ class _ShellState extends State<_Shell> with TrayListener {
   BridgeSessionState? _trayPhase;
   bool? _trayOrbVisible;
   String? _trayScenario;
+  bool _trayErrorPending = false;
+  int _trayErrorSeq = 0;
 
   @override
   void initState() {
@@ -415,7 +428,10 @@ class _ShellState extends State<_Shell> with TrayListener {
   void _onControllerChanged() {
     if (_trayPhase != controller.phase ||
         _trayOrbVisible != controller.orbVisible ||
-        _trayScenario != controller.selectedScenario) {
+        _trayScenario != controller.selectedScenario ||
+        _trayErrorPending != controller.orbErrorPending ||
+        (controller.orbErrorPending &&
+            _trayErrorSeq != controller.lastErrorSeq)) {
       _refreshTray();
     }
   }
@@ -424,6 +440,8 @@ class _ShellState extends State<_Shell> with TrayListener {
     _trayPhase = controller.phase;
     _trayOrbVisible = controller.orbVisible;
     _trayScenario = controller.selectedScenario;
+    _trayErrorPending = controller.orbErrorPending;
+    _trayErrorSeq = controller.lastErrorSeq;
     // Status wording aligned with the session window's phase vocabulary.
     final phase = switch (controller.phase) {
       BridgeSessionState.idle => '空闲',
@@ -433,7 +451,7 @@ class _ShellState extends State<_Shell> with TrayListener {
       BridgeSessionState.inserted => '已插入',
       BridgeSessionState.cancelled => '已取消',
     };
-    await trayManager.setToolTip('SpokenRectifier · $phase');
+    await trayManager.setToolTip(trayTooltipFor(controller, phase: phase));
     await trayManager.setContextMenu(
       Menu(
         items: [

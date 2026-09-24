@@ -277,7 +277,9 @@ class SpeechController extends ChangeNotifier {
   bool orbVisible;
 
   /// Last engine error as an on-screen short sentence (the window toast
-  /// while a panel is open, the orb's tooltip while idle). The raw
+  /// while a panel is open, the tray tooltip while idle — 小修 24: the
+  /// idle orb window's region cannot fit a tooltip bubble, so the
+  /// sentence rides the tray, the one channel no region clips). The raw
   /// exception is in the console via [logRawError] — never here.
   String? lastError;
 

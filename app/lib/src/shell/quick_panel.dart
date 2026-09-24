@@ -33,6 +33,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../../app_state.dart';
 import '../design/controls.dart' show SrHoverTintIcon, SrPressFill;
 import '../design/hover.dart';
+import '../design/sr_tooltip.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
@@ -629,9 +630,8 @@ class _DirectivePreviewRow extends StatelessWidget {
                 Icon(icon, size: 14, color: pal.textTertiary),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Tooltip(
+                  child: SrTooltip(
                     message: tooltip,
-                    waitDuration: SrMotion.tooltipWait,
                     child: Text(
                       text,
                       key: Key('$testKey-preview'),
@@ -645,9 +645,8 @@ class _DirectivePreviewRow extends StatelessWidget {
                 GestureDetector(
                   key: Key('$testKey-open'),
                   onTap: () => onOpen(domain),
-                  child: Tooltip(
+                  child: SrTooltip(
                     message: '编辑$tooltip',
-                    waitDuration: SrMotion.tooltipWait,
                     child: SrHoverTintIcon(
                       icon: Icons.settings_outlined,
                       size: 15,
@@ -1165,9 +1164,8 @@ class _HistoryAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => Tooltip(
+      builder: (hover) => SrTooltip(
         message: tooltip,
-        waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: onTap,
           child: SrHoverTintIcon(
@@ -1216,9 +1214,8 @@ class _HistoryScenarioAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SrHover(
-      builder: (hover) => Tooltip(
+      builder: (hover) => SrTooltip(
         message: '指定场景重新修正',
-        waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: () => _open(context),
           child: SrHoverTintIcon(

@@ -21,6 +21,7 @@ import '../../hotkey_binding.dart';
 import '../../ui_prefs.dart';
 import '../design/controls.dart' show SrButton, SrField, SrPressFill;
 import '../design/hover.dart';
+import '../design/sr_tooltip.dart';
 import '../design/theme.dart' show srTheme;
 import '../design/toast.dart';
 import '../design/tokens.dart';
@@ -375,8 +376,14 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
         // light while dark mode darkened everything else. The toast
         // scope rides the same builder: top-center, below the OS caption
         // (the home body starts under it already, so 12 just keeps the
-        // capsule off the header line).
-        builder: (context) => SrToastScope(
+        // capsule off the header line). The tooltip boundary is the
+        // window body itself (小修 24's 统一: same wrapper as the panels,
+        // clamping to the whole window ≈ stock behavior — this window
+        // has no region clipping it).
+        builder: (context) => LayoutBuilder(
+          builder: (context, constraints) => SrTooltipBoundary(
+            rect: Offset.zero & constraints.biggest,
+            child: SrToastScope(
           anchor: SrToastAnchor.top,
           clearance: 12,
           child: Builder(
@@ -401,6 +408,8 @@ class _SettingsWindowAppState extends State<SettingsWindowApp>
                 ),
               );
             },
+          ),
+            ),
           ),
         ),
       ),
@@ -949,7 +958,7 @@ class _CardAction extends StatelessWidget {
       builder: (hover) => GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
-        child: Tooltip(
+        child: SrTooltip(
           message: tooltip,
           child: Icon(
             icon,

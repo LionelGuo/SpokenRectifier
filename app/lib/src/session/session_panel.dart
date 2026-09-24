@@ -16,6 +16,7 @@ import 'package:flutter/material.dart' hide GrowthDirection;
 
 import '../../app_state.dart';
 import '../design/controls.dart' show SrPressFill;
+import '../design/sr_tooltip.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../preview/slot_document.dart';
@@ -1341,10 +1342,11 @@ class _GhostButtonState extends State<_GhostButton> {
     if (t > _tRoundDone) return body;
     // 圆钮态 tooltip 补全名 (03 号票; 19 号票: the plain label, no key
     // suffix — the （Esc） tail was ruled off on device check): the words
-    // live only here once the capsule has folded away.
-    return Tooltip(
+    // live only here once the capsule has folded away. SrTooltip keeps
+    // the bubble inside the card (小修 24 — it flips above here, the
+    // stock bubble below crossed the card edge into region clip).
+    return SrTooltip(
       message: spec.label,
-      waitDuration: SrMotion.tooltipWait,
       child: body,
     );
   }

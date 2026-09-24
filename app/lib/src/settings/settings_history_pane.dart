@@ -19,6 +19,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../design/controls.dart' show SrButton, SrCard, SrPressFill;
 import '../design/hover.dart';
+import '../design/sr_tooltip.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
 import '../errors.dart';
@@ -589,9 +590,8 @@ class _EntryAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => Tooltip(
+      builder: (hover) => SrTooltip(
         message: tooltip,
-        waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: onTap,
           child: Icon(
@@ -640,10 +640,9 @@ class _ScenarioRerectifyAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = srPalette(context);
     return SrHover(
-      builder: (hover) => Tooltip(
+      builder: (hover) => SrTooltip(
         key: Key('settings-history-rerectify-scenario:${entry.id}'),
         message: '指定场景重新修正',
-        waitDuration: SrMotion.tooltipWait,
         child: GestureDetector(
           onTap: () => _open(context),
           child: Icon(
