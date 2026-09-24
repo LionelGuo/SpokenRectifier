@@ -35,3 +35,10 @@ node_modules/
 # Generalise the two named dev databases
 *.db
 
+# Runtime-written app artifacts (perf log and UI state land next to the exe)
+spokenrectifier-perf.log
+spokenrectifier-ui.toml
+
+# Local node tooling manifests (not part of the project)
+package*.json
+
