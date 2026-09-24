@@ -1,19 +1,22 @@
 /// The 高级 domain: the session and insertion latency parameters as an
 /// editable form (ADR-0007, revised 2026-08-28 — the original read-only
-/// escape hatch gave way once the runtime paths landed). Saving writes
-/// the layer files (still the truth across launches) and hands the new
-/// values to the live collaborators at once:
+/// escape hatch gave way once the runtime paths landed). Every write
+/// lands the layer files (still the truth across launches) and hands
+/// the new values to the live collaborators:
 ///
-/// - The engine card carries the passage-mode switch and the three
-///   timings, all through runtime commands (SetPassageMode /
-///   SetEngineTimings); each session snapshots what it opens with — a
-///   save applies from the NEXT session on, so a threshold never shifts
-///   under a running session. This switch is the persistent one (the
-///   save writes `[engine]`); the quick panel keeps its instant,
-///   runtime-only toggle.
-/// - Insertion timings (mode + the three settles/delays) swap into the
-///   live inserter — true real-time: the very next confirm runs with
-///   them.
+/// - The point-selects — the passage-mode switch and the insertion-
+///   mode chips — commit on touch (ticket 20): paint the pick, then
+///   persist it over a fresh read and push it live in one step. The
+///   passage mode adopts at once (the same SetPassageMode the engine
+///   honours mid-session); a mode chip swaps the live inserter. The
+///   card's in-flight ms edits ride nothing — they wait for their
+///   save button.
+/// - The three engine timings ride the card's save: each session
+///   snapshots what it opens with — the save applies from the NEXT
+///   session on, so a threshold never shifts under a running session.
+/// - The three insertion timings ride the card's save too, swapping
+///   into the live inserter — true real-time: the very next confirm
+///   runs with them.
 ///
 /// The config file remains the escape hatch for everything here.
 
@@ -122,6 +125,80 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
     return value;
   }
 
+  /// A point-select (the passage switch, ticket 20): paint the pick at
+  /// once, then commit it over a FRESH read — the one field changed,
+  /// the whole model written (the quick panel's pick recipe, 02 号票's
+  /// channel (b), so a config file hand-edited while the window is
+  /// open never loses a value to the pick). The card's in-flight ms
+  /// edits ride nothing: the fields keep their edits (invalid ones
+  /// included — no format gate stands before the switch) until the
+  /// save button commits them. A refused read or write toasts 保存失败
+  /// and leaves the pick painted (a re-tap is the retry); a pick never
+  /// toasts on success (14 号票).
+  Future<void> _pickPassageMode(bool on) async {
+    setState(() => _passageMode = on);
+    final EngineTiming fresh;
+    try {
+      fresh = (await widget.store.loadAdvanced()).engine;
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('err_advanced_passage_reread', e);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
+      return;
+    }
+    try {
+      final saved = await widget.store.saveEngineSettings(
+        passageMode: on,
+        paragraphSilenceMs: fresh.paragraphSilenceMs,
+        sessionEndSilenceMs: fresh.sessionEndSilenceMs,
+        rectifyTimeoutMs: fresh.rectifyTimeoutMs,
+      );
+      if (!mounted) return;
+      // Adopt the picked field only — the text fields hold in-flight
+      // edits that must survive the pick.
+      setState(() {
+        _engine = saved;
+        _passageMode = saved.passageMode;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('err_advanced_passage_save', e);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
+    }
+  }
+
+  /// The mode chips' point-select — same contract as the passage pick:
+  /// paint, commit over a fresh read, adopt the mode only (the ms
+  /// fields keep their in-flight edits). Tapping the already-selected
+  /// chip is a no-op.
+  Future<void> _pickInsertionMode(String mode) async {
+    if (mode == _insertionMode) return;
+    setState(() => _insertionMode = mode);
+    final InsertionTiming fresh;
+    try {
+      fresh = (await widget.store.loadAdvanced()).insertion;
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('err_advanced_mode_reread', e);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
+      return;
+    }
+    try {
+      final saved = await widget.store.saveInsertionTiming(
+        mode: mode,
+        focusSettleMs: fresh.focusSettleMs,
+        pasteSettleMs: fresh.pasteSettleMs,
+        typingDelayMs: fresh.typingDelayMs,
+      );
+      if (!mounted) return;
+      setState(() => _insertionMode = saved.mode);
+    } catch (e) {
+      if (!mounted) return;
+      logRawError('err_advanced_mode_save', e);
+      SrToast.of(context).show('保存失败', tone: SrToastTone.error);
+    }
+  }
+
   Future<void> _saveEngine() async {
     try {
       final paragraph = _milliseconds(_paragraphSilence, '分段静音');
@@ -226,7 +303,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                     Switch(
                       key: const Key('settings-advanced-passage'),
                       value: _passageMode,
-                      onChanged: (on) => setState(() => _passageMode = on),
+                      onChanged: _pickPassageMode,
                     ),
                   ],
                 ),
@@ -294,7 +371,7 @@ class _SettingsAdvancedPaneState extends State<SettingsAdvancedPane> {
                 const SizedBox(height: 6),
                 _ModeChips(
                   selected: _insertionMode,
-                  onSelect: (mode) => setState(() => _insertionMode = mode),
+                  onSelect: _pickInsertionMode,
                 ),
                 const SizedBox(height: 12),
                 Row(

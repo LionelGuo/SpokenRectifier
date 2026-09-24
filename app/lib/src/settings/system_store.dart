@@ -86,8 +86,9 @@ abstract class SystemStore {
   Future<({EngineTiming engine, InsertionTiming insertion})> loadAdvanced();
 
   /// Write the form's `[engine]` model (passage mode + the three
-  /// timings) and hand it to the live engine (each session snapshots
-  /// what it opens with, so the save applies from the NEXT session on).
+  /// timings) and hand it to the live engine: passage mode adopts at
+  /// once (honoured mid-session), while each session snapshots the
+  /// timings it opens with — those apply from the NEXT session on.
   /// Returns the re-read view.
   Future<EngineTiming> saveEngineSettings({
     required bool passageMode,

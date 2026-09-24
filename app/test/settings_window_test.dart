@@ -4746,66 +4746,161 @@ void main() {
     expect(store.openConfigCalls, 1);
   });
 
-  testWidgets('an engine save records the form; the note says next session', (
-    tester,
-  ) async {
-    final store = FakeSystemStore();
-    await pumpSettings(
-      tester,
-      systemStore: store,
-      domain: SettingsDomain.advanced,
-    );
+  testWidgets(
+    'a passage pick commits at once over file truth; the save still commits the form',
+    (tester) async {
+      final store = FakeSystemStore();
+      await pumpSettings(
+        tester,
+        systemStore: store,
+        domain: SettingsDomain.advanced,
+      );
 
-    await tester.tap(find.byKey(const Key('settings-advanced-passage')));
-    await tester.pump();
-    await tester.enterText(
-      find.byKey(const Key('settings-advanced-paragraph-silence')),
-      '1500',
-    );
-    await tester.enterText(
-      find.byKey(const Key('settings-advanced-session-end-silence')),
-      '2500',
-    );
-    await tester.tap(find.byKey(const Key('settings-advanced-engine-save')));
-    await tester.pump();
+      // The pick paints and commits at once (ticket 20): the flipped
+      // switch lands with the file's ms — the fields hold no edits yet.
+      await tester.tap(find.byKey(const Key('settings-advanced-passage')));
+      await tester.pump();
+      var save = store.engineSaves.single;
+      expect(save.passage, isFalse);
+      expect(save.paragraph, 1200); // the file's truth, not the fields
+      expect(save.sessionEnd, 3000);
+      expect(save.timeout, 25000);
+      // A pick never toasts (14 号票) — the repaint is the feedback.
+      expect(find.byKey(const Key('sr-toast')), findsNothing);
+      expect(store.insertionSaves, isEmpty); // one card, one write
 
-    final save = store.engineSaves.single;
-    expect(save.passage, isFalse); // the flipped switch rides the save
-    expect(save.paragraph, 1500);
-    expect(save.sessionEnd, 2500);
-    expect(save.timeout, 25000); // untouched field rides
-    expect(textOf(tester, const Key('sr-toast')), '已保存');
-    expect(store.insertionSaves, isEmpty); // one card, one save
-  });
+      // The save button still commits the form: field edits ride it,
+      // and the picked switch rides it too.
+      await tester.enterText(
+        find.byKey(const Key('settings-advanced-paragraph-silence')),
+        '1500',
+      );
+      await tester.enterText(
+        find.byKey(const Key('settings-advanced-session-end-silence')),
+        '2500',
+      );
+      await tester.tap(find.byKey(const Key('settings-advanced-engine-save')));
+      await tester.pump();
 
-  testWidgets('an insertion save records mode and pacing; instant note', (
-    tester,
-  ) async {
-    final store = FakeSystemStore();
-    await pumpSettings(
-      tester,
-      systemStore: store,
-      domain: SettingsDomain.advanced,
-    );
+      save = store.engineSaves.last;
+      expect(save.passage, isFalse); // the picked switch rides the save
+      expect(save.paragraph, 1500);
+      expect(save.sessionEnd, 2500);
+      expect(save.timeout, 25000); // untouched field rides
+      expect(textOf(tester, const Key('sr-toast')), '已保存');
+    },
+  );
 
-    await tester.tap(
-      find.byKey(const Key('settings-advanced-insertion-mode:typing')),
-    );
-    await tester.pump();
-    await tester.enterText(
-      find.byKey(const Key('settings-advanced-typing-delay')),
-      '15',
-    );
-    await tester.tap(find.byKey(const Key('settings-advanced-insertion-save')));
-    await tester.pump();
+  testWidgets(
+    'a passage pick never sweeps in-flight or invalid field edits',
+    (tester) async {
+      final store = FakeSystemStore();
+      await pumpSettings(
+        tester,
+        systemStore: store,
+        domain: SettingsDomain.advanced,
+      );
 
-    final save = store.insertionSaves.single;
-    expect(save.mode, 'typing');
-    expect(save.typing, 15);
-    expect(save.focus, 50); // untouched fields ride
-    expect(textOf(tester, const Key('sr-toast')), '已保存');
-    expect(store.engineSaves, isEmpty);
-  });
+      // An in-flight edit and an invalid one sit in the fields…
+      await tester.enterText(
+        find.byKey(const Key('settings-advanced-paragraph-silence')),
+        '1500',
+      );
+      await tester.enterText(
+        find.byKey(const Key('settings-advanced-rectify-timeout')),
+        'soon',
+      );
+      // …the pick still lands — no format gate stands before the
+      // switch — and it writes the file's ms, never the fields'.
+      await tester.tap(find.byKey(const Key('settings-advanced-passage')));
+      await tester.pump();
+
+      final save = store.engineSaves.single;
+      expect(save.passage, isFalse);
+      expect(save.paragraph, 1200); // the pick rode the fresh read
+      expect(save.timeout, 25000);
+      expect(find.byKey(const Key('sr-toast')), findsNothing); // not 格式不正确
+      // The fields keep their edits (the invalid one included).
+      expect(
+        fieldText(tester, const Key('settings-advanced-paragraph-silence')),
+        '1500',
+      );
+      expect(
+        fieldText(tester, const Key('settings-advanced-rectify-timeout')),
+        'soon',
+      );
+    },
+  );
+
+  testWidgets(
+    'a refused passage pick toasts 保存失败 and stays painted',
+    (tester) async {
+      final store = FakeSystemStore()
+        ..failNextSave = Exception('layer file unwritable');
+      await pumpSettings(
+        tester,
+        systemStore: store,
+        domain: SettingsDomain.advanced,
+      );
+
+      await tester.tap(find.byKey(const Key('settings-advanced-passage')));
+      await tester.pump();
+
+      expect(textOf(tester, const Key('sr-toast')), '保存失败');
+      // The pick stays painted — a re-tap is the retry.
+      Switch passageSwitch() =>
+          tester.widget(find.byKey(const Key('settings-advanced-passage')));
+      expect(passageSwitch().value, isFalse);
+      expect(store.engineSaves, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'an insertion-mode pick commits at once; the save commits pacing',
+    (tester) async {
+      final store = FakeSystemStore();
+      await pumpSettings(
+        tester,
+        systemStore: store,
+        domain: SettingsDomain.advanced,
+      );
+
+      // Tapping the already-selected chip is a no-op.
+      await tester.tap(
+        find.byKey(const Key('settings-advanced-insertion-mode:paste')),
+      );
+      await tester.pump();
+      expect(store.insertionSaves, isEmpty);
+
+      // The chip tap commits at once (ticket 20) over the file's
+      // pacing — the ms field holds no edit yet.
+      await tester.tap(
+        find.byKey(const Key('settings-advanced-insertion-mode:typing')),
+      );
+      await tester.pump();
+      var save = store.insertionSaves.single;
+      expect(save.mode, 'typing');
+      expect(save.focus, 50); // the file's truth, not the fields
+      expect(save.paste, 250);
+      expect(save.typing, 8);
+      expect(find.byKey(const Key('sr-toast')), findsNothing);
+      expect(store.engineSaves, isEmpty); // one card, one write
+
+      // The save button still commits the pacing edits.
+      await tester.enterText(
+        find.byKey(const Key('settings-advanced-typing-delay')),
+        '15',
+      );
+      await tester.tap(find.byKey(const Key('settings-advanced-insertion-save')));
+      await tester.pump();
+
+      save = store.insertionSaves.last;
+      expect(save.mode, 'typing');
+      expect(save.typing, 15);
+      expect(save.focus, 50); // untouched fields ride
+      expect(textOf(tester, const Key('sr-toast')), '已保存');
+    },
+  );
 
   testWidgets('a non-numeric field refuses the save with a visible error', (
     tester,
