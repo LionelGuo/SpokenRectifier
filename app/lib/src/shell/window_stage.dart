@@ -60,8 +60,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../app_state.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
-import '../rust/api/engine.dart'
-    show BridgeSessionState;
+import '../rust/api/engine.dart' show BridgeSessionState;
 import '../settings/rectify_store.dart';
 import '../settings/settings_domain.dart';
 import 'orb_button.dart';
@@ -1619,31 +1618,21 @@ class _PanelBodyState extends State<PanelBody>
                 Positioned.fromRect(
                   rect: Rect.fromLTWH(left, top, w, h),
                   child: DecoratedBox(
-                    key: const Key('panel-card'),
+                    // 小修 22: the hairline paints FOREGROUND. The
+                    // constant soft-cut bands (小修 13) are full-bleed
+                    // and opaque at the card's own top/bottom edges —
+                    // as card BACKGROUND the border sat beneath them
+                    // and its verticals' ends read buried inside the
+                    // fade zones. One stroke above the whole content
+                    // stack keeps the outline continuous over every
+                    // in-card band, both surfaces.
+                    key: const Key('panel-card-outline'),
+                    position: DecorationPosition.foreground,
                     decoration: BoxDecoration(
-                      // Solid surfaces by design (materials spike: no
-                      // acrylic bet — spec §6).
-                      //
-                      // The fade rides the growth's own timeline as
-                      // DIRECT ALPHA on the card's own paints (环先实:
-                      // solid by 80% of the size progress — never a
-                      // fade-then-grow). It must NOT ride an Opacity
-                      // layer: a layer-composited partial-alpha card at
-                      // the window transparency boundary composites
-                      // DARK on device — a card-shaped ghost exactly
-                      // while the card is semi-transparent (小修 18,
-                      // E1 fade-off experiment killed it). Direct
-                      // partial-alpha pixels are the device-proven
-                      // path (the orb aura paints the same way). The
-                      // content ink fades on its own later phase (the
-                      // Opacity below) — always over the opaque card,
-                      // never at partial alpha across the boundary.
-                      color: fade == 1.0
-                          ? pal.surface
-                          : pal.surface.withValues(
-                              alpha: pal.surface.a * paintedFade,
-                            ),
                       borderRadius: BorderRadius.circular(SrRadius.panel),
+                      // The same grow-timeline ride as the fill below
+                      // (√α-precompensated direct alpha, 小修 18) —
+                      // only the paint position moved.
                       border: Border.all(
                         color: fade == 1.0
                             ? pal.hairline
@@ -1657,50 +1646,78 @@ class _PanelBodyState extends State<PanelBody>
                       // window itself is the floating surface; the
                       // hairline border carries the edge.
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(SrRadius.panel),
-                      // The ink band. Zero while the surface is still
-                      // fading (paints nothing), 1 at rest (no layer at
-                      // all) — a layer exists only over the solid card.
-                      child: Opacity(
-                        key: const Key('panel-content-fade'),
-                        opacity: contentFade,
-                        child: CustomMultiChildLayout(
-                          delegate: _PinnedChromeLayout(),
-                          children: [
-                            LayoutId(
-                              id: _PinnedChromeLayout._header,
-                              child: KeyedSubtree(
-                                key: const Key('panel-chrome-header'),
-                                child: widget.header,
+                    child: DecoratedBox(
+                      key: const Key('panel-card'),
+                      decoration: BoxDecoration(
+                        // Solid surfaces by design (materials spike: no
+                        // acrylic bet — spec §6).
+                        //
+                        // The fade rides the growth's own timeline as
+                        // DIRECT ALPHA on the card's own paints (环先实:
+                        // solid by 80% of the size progress — never a
+                        // fade-then-grow). It must NOT ride an Opacity
+                        // layer: a layer-composited partial-alpha card at
+                        // the window transparency boundary composites
+                        // DARK on device — a card-shaped ghost exactly
+                        // while the card is semi-transparent (小修 18,
+                        // E1 fade-off experiment killed it). Direct
+                        // partial-alpha pixels are the device-proven
+                        // path (the orb aura paints the same way). The
+                        // content ink fades on its own later phase (the
+                        // Opacity below) — always over the opaque card,
+                        // never at partial alpha across the boundary.
+                        color: fade == 1.0
+                            ? pal.surface
+                            : pal.surface.withValues(
+                                alpha: pal.surface.a * paintedFade,
                               ),
-                            ),
-                            LayoutId(
-                              id: _PinnedChromeLayout._body,
-                              child: widget.body,
-                            ),
-                            if (widget.rawBlock != null)
+                        borderRadius: BorderRadius.circular(SrRadius.panel),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(SrRadius.panel),
+                        // The ink band. Zero while the surface is still
+                        // fading (paints nothing), 1 at rest (no layer at
+                        // all) — a layer exists only over the solid card.
+                        child: Opacity(
+                          key: const Key('panel-content-fade'),
+                          opacity: contentFade,
+                          child: CustomMultiChildLayout(
+                            delegate: _PinnedChromeLayout(),
+                            children: [
                               LayoutId(
-                                id: _PinnedChromeLayout._raw,
-                                child: widget.rawBlock!,
-                              ),
-                            if (widget.footer != null)
-                              LayoutId(
-                                id: _PinnedChromeLayout._footer,
+                                id: _PinnedChromeLayout._header,
                                 child: KeyedSubtree(
-                                  key: const Key('panel-chrome-footer'),
-                                  child: widget.footer!,
+                                  key: const Key('panel-chrome-header'),
+                                  child: widget.header,
                                 ),
                               ),
-                            // Last in the list = painted on top of every
-                            // band; the marquee's own subtree ignores the
-                            // pointer, so the chrome keeps its hits.
-                            if (widget.overlay != null)
                               LayoutId(
-                                id: _PinnedChromeLayout._overlay,
-                                child: widget.overlay!,
+                                id: _PinnedChromeLayout._body,
+                                child: widget.body,
                               ),
-                          ],
+                              if (widget.rawBlock != null)
+                                LayoutId(
+                                  id: _PinnedChromeLayout._raw,
+                                  child: widget.rawBlock!,
+                                ),
+                              if (widget.footer != null)
+                                LayoutId(
+                                  id: _PinnedChromeLayout._footer,
+                                  child: KeyedSubtree(
+                                    key: const Key('panel-chrome-footer'),
+                                    child: widget.footer!,
+                                  ),
+                                ),
+                              // Last in the list = painted on top of every
+                              // band; the marquee's own subtree ignores the
+                              // pointer, so the chrome keeps its hits.
+                              if (widget.overlay != null)
+                                LayoutId(
+                                  id: _PinnedChromeLayout._overlay,
+                                  child: widget.overlay!,
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

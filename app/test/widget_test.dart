@@ -19,7 +19,8 @@ import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
 import 'package:spokenrectifier_app/src/rust/api/engine.dart'
-    show BridgeEvent,
+    show
+        BridgeEvent,
         BridgePlaceholderFill,
         BridgePrefillRow,
         BridgeSessionState;
@@ -186,7 +187,8 @@ class GatedStageWindow implements stage.StageWindow {
       inner.seatBoundsPhysical(physical);
 
   @override
-  Future<void> setCardRegion(Rect? windowRect) => inner.setCardRegion(windowRect);
+  Future<void> setCardRegion(Rect? windowRect) =>
+      inner.setCardRegion(windowRect);
 
   @override
   Offset? pointerOnScreen() => inner.pointerOnScreen();
@@ -4005,6 +4007,64 @@ void main() {
         }
         await windDown(tester, controller);
       });
+
+      testWidgets(
+        'the card outline paints above the constant soft cuts (小修 22) (${dir.name})',
+        (tester) async {
+          // 小修 22: the constant soft-cut bands (小修 13) are full-bleed
+          // and OPAQUE at the card's own top/bottom edges — a border
+          // painted as card BACKGROUND sits beneath them, and the
+          // hairline's verticals read buried inside the fade zones. The
+          // outline must paint FOREGROUND: one stroke above the whole
+          // content stack, both surfaces, every quadrant.
+          final controller = await pumpAtQuadrant(tester, dir: dir);
+          await pumpToRecording(tester, controller);
+
+          // The card's own decoration carries only the surface fill — a
+          // border there paints beneath the content stack.
+          final card =
+              tester
+                      .widget<DecoratedBox>(find.byKey(const Key('panel-card')))
+                      .decoration
+                  as BoxDecoration;
+          expect(card.border, isNull, reason: 'no border beneath content');
+
+          // The outline: a foreground-position stroke, concentric with
+          // the card's clip, and an ANCESTOR of every mounted fade — its
+          // paint pass lands above them all.
+          final outline = find.byKey(const Key('panel-card-outline'));
+          final outlineBox = tester.widget<DecoratedBox>(outline);
+          expect(outlineBox.position, DecorationPosition.foreground);
+          expect(
+            (outlineBox.decoration as BoxDecoration).borderRadius,
+            BorderRadius.circular(SrRadius.panel),
+          );
+          for (final fade in [
+            const Key('session-top-fade'),
+            const Key('session-bottom-fade'),
+          ]) {
+            expect(
+              find.descendant(of: outline, matching: find.byKey(fade)),
+              findsOneWidget,
+              reason: '$fade must paint beneath the outline',
+            );
+          }
+          await windDown(tester, controller);
+
+          // The quick panel rides the same card: whichever anchor fade
+          // is mounted inherits the guarantee by ancestry.
+          await pumpQuickOpen(tester, controller);
+          final quickFade = dir.growUp
+              ? const Key('quick-bottom-fade')
+              : const Key('quick-top-fade');
+          expect(
+            find.descendant(of: outline, matching: find.byKey(quickFade)),
+            findsOneWidget,
+            reason: '$quickFade must paint beneath the outline',
+          );
+          await windDown(tester, controller);
+        },
+      );
 
       testWidgets('session footer clears the orb (${dir.name})', (
         tester,
