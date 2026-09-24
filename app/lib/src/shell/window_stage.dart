@@ -98,7 +98,13 @@ abstract class StageWindow {
   /// restores the whole window (the orb stage, and any gesture whose
   /// moving card must paint beyond the stale slot — resize growth,
   /// anchor drag).
-  Future<void> setCardRegion(Rect? windowRect);
+  ///
+  /// 小修 23: [ellipse] narrows the SAME box to its inscribed ellipse
+  /// — the idle orb's footprint, whose square corners are visually
+  /// empty (the glow is alpha-zero past 46 of the 48 half-footprint)
+  /// yet swallowed clicks meant for whatever sits below. Every panel
+  /// and gesture push keeps the rect default.
+  Future<void> setCardRegion(Rect? windowRect, {bool ellipse = false});
 
   /// Every display's work area in the window's single coordinate space
   /// (17 号票: uniformly ÷ the window's dpr, so the rects tile the
@@ -150,7 +156,7 @@ class WindowManagerStageWindow implements StageWindow {
   }
 
   @override
-  Future<void> setCardRegion(Rect? windowRect) {
+  Future<void> setCardRegion(Rect? windowRect, {bool ellipse = false}) {
     // Logical window coordinates; the native side scales by its LIVE
     // dpr at execution time — a Dart-side × view-dpr multiplication
     // would ride the same lag the seating above sheds (17 号票).
@@ -163,6 +169,7 @@ class WindowManagerStageWindow implements StageWindow {
       'top': windowRect.top,
       'right': windowRect.right,
       'bottom': windowRect.bottom,
+      if (ellipse) 'shape': 'ellipse',
     });
   }
 
@@ -474,7 +481,13 @@ class _StageHostState extends State<StageHost>
     // wherever the ball rests (the same `!_grabArmed` gate the idle
     // prime already carries).
     if (widget.stageWindow != null && !_grabArmed) {
-      unawaited(_pushCardRegion(orbFootprintAt(_anchor).shift(-_rect.topLeft)));
+      // 小修 23: the resting orb goes out as the footprint's inscribed
+      // ellipse — the square's visually empty corners stop swallowing
+      // clicks meant for whatever sits below.
+      unawaited(_pushCardRegion(
+        orbFootprintAt(_anchor).shift(-_rect.topLeft),
+        ellipse: true,
+      ));
     }
     if (!mounted || seq != _seq) return;
     // 3. Back to the standalone ball.
@@ -892,10 +905,10 @@ class _StageHostState extends State<StageHost>
   /// growth, anchor drag). Mid-gesture pushes are pointless while the
   /// gesture holds the pointer capture; window MOVES don't change
   /// window coordinates.
-  Future<void> _pushCardRegion(Rect? region) async {
+  Future<void> _pushCardRegion(Rect? region, {bool ellipse = false}) async {
     final window = widget.stageWindow;
     if (window == null) return;
-    await window.setCardRegion(region);
+    await window.setCardRegion(region, ellipse: ellipse);
   }
 
   /// The stage's resting region (window coordinates): the card rect
@@ -903,7 +916,10 @@ class _StageHostState extends State<StageHost>
   /// window itself is ALWAYS the whole work area (ADR-0022), so the
   /// region is the only thing that ever narrows it. Pushed when the
   /// stage settles (idle prime, expand, resize release, drag release,
-  /// collapse end).
+  /// collapse end). At idle the box goes out as its INSCRIBED ELLIPSE
+  /// (小修 23, ADR-0017 修订): everything visible ends 2px inside it,
+  /// so the square's empty corners release their clicks to the
+  /// desktop; a panel's slot keeps the rect.
   Rect _stageRegion() {
     final size = _panelSize.value;
     if (size != null) {
@@ -912,7 +928,10 @@ class _StageHostState extends State<StageHost>
     return orbFootprintAt(_anchor).shift(-_rect.topLeft);
   }
 
-  Future<void> _pushStageRegion() => _pushCardRegion(_stageRegion());
+  Future<void> _pushStageRegion() {
+    final panel = _panelSize.value != null;
+    return _pushCardRegion(_stageRegion(), ellipse: !panel);
+  }
 
   /// The free-edge strips and the free-corner square, mirrored to the
   /// growth direction (handles sit on the edges AWAY from the anchor

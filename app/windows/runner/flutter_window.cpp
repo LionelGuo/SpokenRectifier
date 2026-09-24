@@ -74,9 +74,26 @@ bool FlutterWindow::OnCreate() {
                 return static_cast<int>(logical * dpr +
                                         (logical >= 0 ? 0.5 : -0.5));
               };
-              region = CreateRectRgn(scale(left->second), scale(top->second),
-                                     scale(right->second),
-                                     scale(bottom->second));
+              // Small-fix 23 (ADR-0017 revision): an optional "shape"
+              // narrows the same box to its inscribed ellipse - the
+              // idle orb's footprint square is visually empty past the
+              // glow (alpha hits exact zero 2px inside the box) yet
+              // its corners swallowed clicks meant for windows below.
+              // Absent or any other value keeps the rect every panel
+              // and gesture pushes.
+              const auto shape = args->find(flutter::EncodableValue("shape"));
+              const bool ellipse =
+                  shape != args->end() &&
+                  shape->second == flutter::EncodableValue("ellipse");
+              region = ellipse
+                           ? CreateEllipticRgn(scale(left->second),
+                                               scale(top->second),
+                                               scale(right->second),
+                                               scale(bottom->second))
+                           : CreateRectRgn(scale(left->second),
+                                           scale(top->second),
+                                           scale(right->second),
+                                           scale(bottom->second));
             }
           }
           // On success the system owns the region; on failure we do.

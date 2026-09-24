@@ -46,7 +46,7 @@ class FakeStageWindow implements stage.StageWindow {
   Future<Rect> seatBoundsPhysical(Rect physical) async => physical;
 
   @override
-  Future<void> setCardRegion(Rect? windowRect) async {}
+  Future<void> setCardRegion(Rect? windowRect, {bool ellipse = false}) async {}
 
   @override
   Future<stage.WorkAreas> workAreas() async => stage.WorkAreas(

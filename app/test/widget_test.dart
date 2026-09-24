@@ -104,6 +104,11 @@ class RecordingStageWindow implements stage.StageWindow {
   /// LOGICAL window coordinates since 17 号票.
   final regions = <Rect?>[];
 
+  /// 小修 23: parallel to [regions] — true when the push asked for the
+  /// box's inscribed ellipse (the idle orb footprint), false for the
+  /// rect (every panel slot and gesture push).
+  final regionEllipses = <bool>[];
+
   stage.WorkAreas get _areas => stage.WorkAreas(
     logical: screens,
     physical: screensPhysical.isEmpty ? screens : screensPhysical,
@@ -126,7 +131,10 @@ class RecordingStageWindow implements stage.StageWindow {
   }
 
   @override
-  Future<void> setCardRegion(Rect? windowRect) async => regions.add(windowRect);
+  Future<void> setCardRegion(Rect? windowRect, {bool ellipse = false}) async {
+    regions.add(windowRect);
+    regionEllipses.add(ellipse);
+  }
 
   @override
   Future<stage.WorkAreas> workAreas() async => _areas;
@@ -187,8 +195,8 @@ class GatedStageWindow implements stage.StageWindow {
       inner.seatBoundsPhysical(physical);
 
   @override
-  Future<void> setCardRegion(Rect? windowRect) =>
-      inner.setCardRegion(windowRect);
+  Future<void> setCardRegion(Rect? windowRect, {bool ellipse = false}) =>
+      inner.setCardRegion(windowRect, ellipse: ellipse);
 
   @override
   Offset? pointerOnScreen() => inner.pointerOnScreen();
@@ -2321,6 +2329,7 @@ void main() {
       // the anchor is what persists (松手即写).
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       expect(window.regions.last, const Rect.fromLTRB(1100, 500, 1196, 596));
+      expect(window.regionEllipses.last, isTrue); // 小修 23: inscribed ellipse
       expect(controller.orbAnchor, const Offset(1148, 548));
       expect(
         File('${dir.path}/$uiPrefsFile').readAsStringSync(),
@@ -2344,12 +2353,14 @@ void main() {
       // Expanded: card region, still the one startup bounds call.
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       expect(window.regions.last, const Rect.fromLTRB(676, 56, 1096, 596));
+      expect(window.regionEllipses.last, isFalse); // 小修 23: panel slots stay rect
 
       await controller.cancelSession();
       await tester.pump(const Duration(milliseconds: 1700));
       // Collapsed: footprint region, STILL the same single bounds call.
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regionEllipses.last, isTrue); // 小修 23: collapse tail = ellipse
 
       // A second cycle (the quick panel this time) adds nothing either.
       controller.orbSecondary();
@@ -2360,6 +2371,23 @@ void main() {
       await tester.pump(const Duration(milliseconds: 700));
       expect(window.bounds.single, const Rect.fromLTRB(0, 0, 1920, 1080));
       expect(window.regions.last, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regionEllipses.last, isTrue); // 小修 23: collapse tail = ellipse
+    });
+
+    testWidgets('the startup idle prime rests the orb on its footprint ellipse (小修 23)', (
+      tester,
+    ) async {
+      // ADR-0017's single-rect passthrough left the idle orb on its
+      // FULL 96×96 footprint square — visually empty past the glow
+      // (alpha-zero at 46 of the 48 half-footprint), yet its corners
+      // swallowed clicks meant for whatever sits below. The prime's
+      // push keeps the same box but goes out as its inscribed ellipse;
+      // the expand/collapse/release companions live in the tests above.
+      final window = RecordingStageWindow();
+      await pumpGeometry(tester, window: window, dir: scratch());
+      await tester.pump(); // flush the prime's unawaited region push
+      expect(window.regions.first, const Rect.fromLTRB(1000, 500, 1096, 596));
+      expect(window.regionEllipses.first, isTrue);
     });
 
     testWidgets('a collapse that lands mid-drag never re-clips the orb', (
