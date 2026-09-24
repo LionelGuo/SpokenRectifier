@@ -10,7 +10,9 @@
 //! window holding the foreground is the user's latest chosen point and
 //! is pasted into directly, while the target remembered at session start
 //! (`note_target`) is only activated when our own window holds the
-//! foreground (editing the preview hands it to us). The mode/pacing
+//! foreground (editing the preview hands it to us) — and the switch is
+//! polled to confirmation before any keystroke follows, because
+//! activation itself is asynchronous. The mode/pacing
 //! config is swapped at runtime by the settings window's advanced form
 //! (`set_config`); each insert snapshots it up front, so a save applies
 //! from the next insert on and never tears a running insert apart.
@@ -22,6 +24,7 @@ use async_trait::async_trait;
 use spokenrectifier_engine::provider::inserter::{InsertError, TextInserter};
 
 use crate::config::{InsertionConfig, InsertionMode};
+use crate::diag::DiagLog;
 use crate::os::InputOs;
 
 pub struct TargetInserter {
@@ -38,14 +41,20 @@ impl TargetInserter {
         }
     }
 
-    /// The production OS layer: Win32 on Windows; a stub that fails every
+    /// The production OS layer: Win32 on Windows — recording its
+    /// OS-level decisions into `diag` — and a stub that fails every
     /// operation elsewhere (the WSL build exists for tests and headless
     /// demos).
-    pub fn production(config: InsertionConfig) -> Self {
+    pub fn production(config: InsertionConfig, diag: DiagLog) -> Self {
         #[cfg(windows)]
-        let os: Arc<dyn InputOs> = Arc::new(crate::windows::Win32Os::new());
+        let os: Arc<dyn InputOs> = Arc::new(crate::windows::Win32Os::new(diag));
         #[cfg(not(windows))]
-        let os: Arc<dyn InputOs> = Arc::new(crate::os::UnsupportedOs);
+        let os: Arc<dyn InputOs> = {
+            // Off Windows there is no Win32 seam for the record to
+            // observe; the sink is consumed so the signature stays one.
+            let _ = diag;
+            Arc::new(crate::os::UnsupportedOs)
+        };
         Self::new(os, config)
     }
 
@@ -136,6 +145,7 @@ impl TargetInserter {
         }
         self.os.note_target();
         if self.os.activate_target() {
+            self.await_focus_handed_over();
             return Ok(());
         }
         Err(InsertError(
@@ -145,7 +155,31 @@ impl TargetInserter {
                 .into(),
         ))
     }
+
+    /// Wait for the activation to become a fact. `SetForegroundWindow`
+    /// only requests the switch: a heavy target (restoring, resuming)
+    /// can take longer than it, and keystrokes sent mid-switch land in
+    /// the window losing the keyboard — the panel's own confirm used to
+    /// paste into itself and silently insert nothing while the user's
+    /// later manual Ctrl+V worked (25 号票). Bounded polling, and past
+    /// the deadline the paste proceeds anyway: it is no worse than the
+    /// unwaited attempt, and the diagnostic record's paste line shows
+    /// where the keyboard actually was.
+    fn await_focus_handed_over(&self) {
+        for _ in 0..ACTIVATION_CONFIRM_POLLS {
+            if self.os.foreground_is_remembered_target() {
+                return;
+            }
+            self.os.wait_ms(ACTIVATION_CONFIRM_POLL_MS);
+        }
+    }
 }
+
+/// How often the activation confirmation polls, and at what cadence —
+/// the budget is the product: 50 × 10 ms, spent only while the switch
+/// is genuinely still in flight.
+const ACTIVATION_CONFIRM_POLL_MS: u64 = 10;
+const ACTIVATION_CONFIRM_POLLS: usize = 50;
 
 #[async_trait]
 impl TextInserter for TargetInserter {
@@ -197,7 +231,8 @@ mod tests {
     }
 
     /// Records every call; programmable own/main foreground, sub-window
-    /// visibility, and activate results, and one-shot failures per
+    /// visibility, activate results, how many confirmation checks pass
+    /// before the target takes the keyboard, and one-shot failures per
     /// operation name.
     struct FakeOs {
         calls: std::sync::Mutex<Vec<OsCall>>,
@@ -205,6 +240,7 @@ mod tests {
         own_foreground: AtomicBool,
         main_foreground: AtomicBool,
         subwindow_visible: AtomicBool,
+        fg_target_after_checks: std::sync::atomic::AtomicUsize,
         failures: std::sync::Mutex<VecDeque<(&'static str, String)>>,
     }
 
@@ -216,6 +252,7 @@ mod tests {
                 own_foreground: AtomicBool::new(false),
                 main_foreground: AtomicBool::new(false),
                 subwindow_visible: AtomicBool::new(false),
+                fg_target_after_checks: std::sync::atomic::AtomicUsize::new(0),
                 failures: std::sync::Mutex::new(VecDeque::new()),
             }
         }
@@ -273,6 +310,19 @@ mod tests {
 
         fn own_subwindow_visible(&self) -> bool {
             self.subwindow_visible.load(Ordering::SeqCst)
+        }
+
+        fn foreground_is_remembered_target(&self) -> bool {
+            // A query, not an action: the count is the check itself. Zero
+            // (the default) confirms on the first check; N confirms on
+            // the Nth check — N-1 poll-waits before it.
+            let mut remaining = self.fg_target_after_checks.load(Ordering::SeqCst);
+            if remaining > 0 {
+                remaining -= 1;
+                self.fg_target_after_checks
+                    .store(remaining, Ordering::SeqCst);
+            }
+            remaining == 0
         }
 
         fn send_paste(&self) -> Result<(), String> {
@@ -369,7 +419,9 @@ mod tests {
         // The preview field still holds the keyboard (an orb confirm):
         // the remembered target is re-noted first — the live tracker may
         // name a window the user focused after the session began — then
-        // activated, and only then does the clipboard work begin.
+        // activated (the switch confirming on the first check, as a
+        // settled window does), and only then does the clipboard work
+        // begin.
         let fake = Arc::new(FakeOs::new());
         fake.own_foreground.store(true, Ordering::SeqCst);
         insert(&fake, InsertionMode::Paste, "话").await.unwrap();
@@ -385,6 +437,57 @@ mod tests {
                 OsCall::Wait(250),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_slow_activation_is_waited_out_before_the_clipboard_work() {
+        // SetForegroundWindow returned success, but the target has not
+        // taken the keyboard yet (a heavy window mid-restore). The paste
+        // must not go out until the switch is confirmed — keystrokes
+        // sent mid-switch land in the window losing the keyboard, which
+        // is the "normal flow inserts nothing, a later manual Ctrl+V
+        // works" failure (25 号票).
+        let fake = Arc::new(FakeOs::new());
+        fake.own_foreground.store(true, Ordering::SeqCst);
+        fake.fg_target_after_checks.store(4, Ordering::SeqCst);
+        insert(&fake, InsertionMode::Paste, "话").await.unwrap();
+
+        let mut expected = vec![
+            OsCall::NoteTarget,
+            OsCall::Activate(true),
+            // Three unconfirmed checks: one poll-wait each.
+            OsCall::Wait(ACTIVATION_CONFIRM_POLL_MS),
+            OsCall::Wait(ACTIVATION_CONFIRM_POLL_MS),
+            OsCall::Wait(ACTIVATION_CONFIRM_POLL_MS),
+        ];
+        expected.extend([
+            OsCall::SetText("话".into()),
+            OsCall::Wait(50),
+            OsCall::Paste,
+            OsCall::Wait(250),
+        ]);
+        assert_eq!(fake.calls(), expected);
+    }
+
+    #[tokio::test]
+    async fn an_unconfirming_activation_pastes_after_the_bounded_wait() {
+        // The switch never confirms (the deadline passed): the paste
+        // proceeds anyway — no worse than the unwaited attempt would
+        // have been — after exactly the bounded budget of poll-waits,
+        // never an unbounded hang.
+        let fake = Arc::new(FakeOs::new());
+        fake.own_foreground.store(true, Ordering::SeqCst);
+        fake.fg_target_after_checks
+            .store(usize::MAX, Ordering::SeqCst);
+        insert(&fake, InsertionMode::Paste, "话").await.unwrap();
+
+        let polls = fake
+            .calls()
+            .iter()
+            .filter(|call| **call == OsCall::Wait(ACTIVATION_CONFIRM_POLL_MS))
+            .count();
+        assert_eq!(polls, ACTIVATION_CONFIRM_POLLS, "the bounded budget");
+        assert!(fake.calls().contains(&OsCall::Paste), "the paste went out");
     }
 
     #[tokio::test]

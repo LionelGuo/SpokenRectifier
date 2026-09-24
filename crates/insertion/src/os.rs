@@ -20,6 +20,15 @@ pub trait InputOs: Send + Sync + 'static {
     /// whether a target was remembered and activation was attempted.
     fn activate_target(&self) -> bool;
 
+    /// Whether the foreground window IS the remembered target right now.
+    /// Activation is asynchronous — `SetForegroundWindow` returning
+    /// success only means the switch was requested, not that the target
+    /// has the keyboard yet — so the paste flow waits on this check
+    /// before its keystrokes go out (keystrokes sent mid-switch land in
+    /// the window losing the foreground: the panel's own confirm used
+    /// to paste into itself and silently insert nothing).
+    fn foreground_is_remembered_target(&self) -> bool;
+
     /// Whether the window currently holding the foreground belongs to
     /// this process. With no remembered target and our own window in the
     /// foreground, there is nothing to insert into — the flows refuse
@@ -118,6 +127,10 @@ impl InputOs for UnsupportedOs {
     fn note_target(&self) {}
 
     fn activate_target(&self) -> bool {
+        false
+    }
+
+    fn foreground_is_remembered_target(&self) -> bool {
         false
     }
 

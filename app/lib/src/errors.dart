@@ -23,9 +23,14 @@ void logRawError(String site, Object error) {
 
 /// Classifies an engine-side raw message (or exception) into the
 /// on-screen short sentence. Order is timeout → audio → credentials
-/// → network → other, matching the inventory's 0.1 table: `rectify
-/// timed out` must beat the network `timed out` substring, and
-/// `device` must beat a later network match.
+/// → insert → network → other, matching the inventory's 0.1 table:
+/// `rectify timed out` must beat the network `timed out` substring,
+/// and `device` must beat a later network match. The insert buckets
+/// (小修 25) keep the three failure faces distinct — no target found
+/// (nothing touched), a failed paste (the text IS on the clipboard,
+/// the manual Ctrl+V fallback is live), and everything else insertion
+/// touches — because「服务出错」 on an insert failure sends the user
+/// hunting a network that is fine.
 String classifyEngineError(Object error) {
   final haystack = error.toString().toLowerCase();
   if (haystack.contains('rectify timed out')) {
@@ -52,6 +57,18 @@ String classifyEngineError(Object error) {
     'credential',
   ])) {
     return '凭据无效，请检查密钥';
+  }
+  if (haystack.contains('no target window')) {
+    return '未找到插入目标，请先点选目标窗口';
+  }
+  if (haystack.contains('paste keystroke failed')) {
+    return '插入失败，可手动 Ctrl+V';
+  }
+  if (_matches(haystack, const [
+    'clipboard set failed',
+    'typing failed',
+  ])) {
+    return '插入失败，请重试';
   }
   if (_matches(haystack, const [
     'timed out',

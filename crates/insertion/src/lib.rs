@@ -10,6 +10,7 @@
 //! recording fake; the Win32 layer is `cfg(windows)`.
 
 mod config;
+mod diag;
 mod inserter;
 mod os;
 #[cfg(windows)]
@@ -19,5 +20,6 @@ pub use config::{
     InsertionConfig, InsertionConfigError, InsertionMode, load_insertion_config,
     save_insertion_timing,
 };
+pub use diag::DiagLog;
 pub use inserter::TargetInserter;
 pub use os::{InjectedKey, InputOs, paced_paste_script};

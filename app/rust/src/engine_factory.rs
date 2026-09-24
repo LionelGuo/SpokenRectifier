@@ -15,7 +15,7 @@ use spokenrectifier_asr::schema::{load_asr_config, AsrProviderKind};
 use spokenrectifier_audio::{MicVadAsr, VadConfig};
 use spokenrectifier_engine::provider::asr::AsrProvider;
 use spokenrectifier_engine::RectifyLlm;
-use spokenrectifier_insertion::{load_insertion_config, TargetInserter};
+use spokenrectifier_insertion::{load_insertion_config, DiagLog, TargetInserter};
 use spokenrectifier_tencent::TencentAsr;
 use spokenrectifier_volcengine::VolcengineAsr;
 
@@ -66,10 +66,13 @@ pub fn llm_choice(dirs: &[PathBuf]) -> anyhow::Result<LlmChoice> {
 }
 
 /// The production inserter for the real engine: the `[insertion]` config
-/// over the Win32 layer (an erroring stub off Windows).
+/// over the Win32 layer (an erroring stub off Windows), recording its
+/// OS-level decisions into the insert diagnostic log beside the exe
+/// (the perf log's sibling — the real machine has no console).
 pub fn production_inserter(dirs: &[PathBuf]) -> anyhow::Result<Arc<TargetInserter>> {
     let config = load_insertion_config(dirs).map_err(|err| anyhow!("insertion {}", err.0))?;
-    Ok(Arc::new(TargetInserter::production(config)))
+    let diag = DiagLog::open_in(dirs);
+    Ok(Arc::new(TargetInserter::production(config, diag)))
 }
 
 /// Rebuild BOTH connection collaborators from the layer files — the one

@@ -7,7 +7,7 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND, LPARAM};
+use windows::Win32::Foundation::{GetLastError, HANDLE, HGLOBAL, HWND, LPARAM};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
@@ -24,6 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetForegroundWindow, SetTimer, TranslateMessage, WINEVENT_OUTOFCONTEXT, WM_TIMER,
 };
 
+use crate::diag::DiagLog;
 use crate::os::{InjectedKey, InputOs, paced_paste_script};
 
 // The Unicode-text clipboard format id (a documented Win32 constant,
@@ -35,20 +36,25 @@ pub struct Win32Os {
     /// The remembered target window handle. Stored as `usize`: `HWND`
     /// wraps a pointer, which is not `Send`, and the OS seam must be.
     target: Mutex<Option<usize>>,
+    /// The diagnostic record (25 号票): one fact line per OS-level
+    /// decision, beside the exe the real machine has no console on.
+    diag: DiagLog,
 }
 
 impl Win32Os {
-    pub fn new() -> Self {
+    pub fn new(diag: DiagLog) -> Self {
         track_last_foreign_foreground();
         Self {
             target: Mutex::new(None),
+            diag,
         }
     }
 
     /// Wait until no modifier is physically held (the hotkey that fired
     /// this confirm may still be pressed). On timeout, release whatever is
     /// still held synthetically so the paste chord goes out clean.
-    fn await_physical_modifiers_up(&self, timeout_ms: u64) {
+    /// Returns how long the gate actually held the script.
+    fn await_physical_modifiers_up(&self, timeout_ms: u64) -> u64 {
         let started = std::time::Instant::now();
         while PHYSICAL_MODIFIERS.iter().any(|vk| physical_down(*vk)) {
             if started.elapsed() >= std::time::Duration::from_millis(timeout_ms) {
@@ -59,16 +65,32 @@ impl Win32Os {
                         let _ = send_inputs(&[key_input(vk, KEYEVENTF_KEYUP)]);
                     }
                 }
-                return;
+                return started.elapsed().as_millis() as u64;
             }
             self.wait_ms(10);
         }
+        started.elapsed().as_millis() as u64
+    }
+
+    /// The paste line of the diagnostic record: where the keyboard
+    /// actually was when the chord went out — the fact every
+    /// "nothing inserted, manual Ctrl+V works" report turns on.
+    fn log_paste(&self, gate_ms: u64, sends: &[String], err: Option<&str>) {
+        let fg = unsafe { GetForegroundWindow() };
+        let on_target = self.foreground_is_remembered_target();
+        self.diag.log(&format!(
+            "paste gate_ms={gate_ms} sends={} fg={} fg_is_target={} err={}",
+            sends.join(","),
+            describe_window(fg),
+            on_target as u8,
+            err.unwrap_or("-")
+        ));
     }
 }
 
 impl Default for Win32Os {
     fn default() -> Self {
-        Self::new()
+        Self::new(DiagLog::disabled())
     }
 }
 
@@ -78,7 +100,7 @@ impl InputOs for Win32Os {
         units.push(0); // CF_UNICODETEXT is NUL-terminated
         let bytes =
             unsafe { std::slice::from_raw_parts(units.as_ptr().cast::<u8>(), units.len() * 2) };
-        with_clipboard(|| {
+        let outcome = with_clipboard(|| {
             win_call(unsafe { EmptyClipboard() }, "EmptyClipboard")?;
             let handle = write_global(bytes)?;
             let placed = unsafe { SetClipboardData(CF_UNICODETEXT, Some(HANDLE(handle.0))) };
@@ -91,13 +113,26 @@ impl InputOs for Win32Os {
                 return Err(format!("SetClipboardData failed: {err}"));
             }
             Ok(())
-        })
+        });
+        match outcome {
+            Ok(((), tries)) => {
+                self.diag
+                    .log(&format!("clipboard ok tries={tries} bytes={}", bytes.len()));
+                Ok(())
+            }
+            Err((tries, err)) => {
+                self.diag.log(&format!("clipboard err tries={tries} msg={err}"));
+                Err(err)
+            }
+        }
     }
 
     fn note_target(&self) {
         let hwnd = unsafe { GetForegroundWindow() };
         if !(hwnd.is_invalid() || window_belongs_to_us(hwnd)) {
             *self.target.lock().unwrap() = Some(hwnd.0 as usize);
+            self.diag
+                .log(&format!("note source=foreground {}", describe_window(hwnd)));
             return;
         }
         // Our own window is foreground — the session started from a click
@@ -110,22 +145,43 @@ impl InputOs for Win32Os {
             .get()
             .and_then(|cell| *cell.lock().unwrap())
         else {
+            self.diag.log("note source=none");
             return;
         };
-        if unsafe { IsWindow(Some(HWND(last as *mut core::ffi::c_void))) }.as_bool() {
+        let hwnd = HWND(last as *mut core::ffi::c_void);
+        if unsafe { IsWindow(Some(hwnd)) }.as_bool() {
             *self.target.lock().unwrap() = Some(last);
+            self.diag
+                .log(&format!("note source=tracker {}", describe_window(hwnd)));
+        } else {
+            self.diag.log("note source=none (tracker window gone)");
         }
     }
 
     fn activate_target(&self) -> bool {
         let Some(handle) = *self.target.lock().unwrap() else {
+            self.diag.log("activate target=none ret=0");
             return false;
         };
         let hwnd = HWND(handle as *mut core::ffi::c_void);
         // Handing foreground away is permitted while we hold it (the
         // preview window had focus for editing). A refused call leaves
         // the current foreground alone, which the paste flow tolerates.
-        unsafe { SetForegroundWindow(hwnd) }.as_bool()
+        let activated = unsafe { SetForegroundWindow(hwnd) }.as_bool();
+        self.diag.log(&format!(
+            "activate {} ret={}",
+            describe_window(hwnd),
+            activated as u8
+        ));
+        activated
+    }
+
+    fn foreground_is_remembered_target(&self) -> bool {
+        let Some(handle) = *self.target.lock().unwrap() else {
+            return false;
+        };
+        let fg = unsafe { GetForegroundWindow() };
+        !fg.is_invalid() && fg.0 as usize == handle
     }
 
     fn foreground_is_own_process(&self) -> bool {
@@ -146,21 +202,31 @@ impl InputOs for Win32Os {
         // Paced per the script's batches: the modifier must land before the
         // key it modifies goes out, or the target can see a bare 'v'
         // instead of Ctrl+V (see `paced_paste_script` for the measurement).
+        let mut gate_ms = 0;
+        let mut sends: Vec<String> = Vec::new();
         for (keys, settle_ms) in paced_paste_script() {
             if keys
                 .iter()
                 .any(|k| matches!(k, InjectedKey::AwaitPhysicalModifiersUp))
             {
-                self.await_physical_modifiers_up(MODIFIER_RELEASE_TIMEOUT_MS);
+                gate_ms = self.await_physical_modifiers_up(MODIFIER_RELEASE_TIMEOUT_MS);
             }
             let inputs: Vec<INPUT> = keys.iter().filter_map(injected_to_input).collect();
             if !inputs.is_empty() {
-                send_inputs(&inputs)?;
+                let (sent, err) = send_inputs_counted(&inputs);
+                sends.push(format!("{sent}/{}", inputs.len()));
+                if let Some(err) = err {
+                    // Fail fast — with the modifier undelivered, the rest
+                    // of the chord would type a bare 'v' into the target.
+                    self.log_paste(gate_ms, &sends, Some(&err));
+                    return Err(err);
+                }
             }
             if settle_ms > 0 {
                 self.wait_ms(settle_ms);
             }
         }
+        self.log_paste(gate_ms, &sends, None);
         Ok(())
     }
 
@@ -205,13 +271,30 @@ const SUBWINDOW_CLASS: &str = "FLUTTER_MULTI_WINDOW_WIN32_WINDOW";
 
 /// Whether `hwnd`'s window class is `name` (an ASCII/UTF-16-safe compare).
 fn window_class_is(hwnd: HWND, name: &str) -> bool {
+    window_class(hwnd).as_deref() == Some(name)
+}
+
+/// The window class name, or `None` when the read came back empty.
+fn window_class(hwnd: HWND) -> Option<String> {
     let mut buffer = [0u16; 64];
     let copied = unsafe { GetClassNameW(hwnd, &mut buffer) };
     if copied <= 0 {
-        return false;
+        return None;
     }
-    let actual = String::from_utf16_lossy(&buffer[..copied as usize]);
-    actual == name
+    Some(String::from_utf16_lossy(&buffer[..copied as usize]))
+}
+
+/// A one-line identification of a window for the diagnostic record:
+/// handle, owning pid, class. Enough to tell "pasted into the toast"
+/// from "pasted into the target" when a report comes in.
+fn describe_window(hwnd: HWND) -> String {
+    if hwnd.is_invalid() {
+        return "hwnd=(none)".into();
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    let class = window_class(hwnd).unwrap_or_else(|| "?".into());
+    format!("hwnd=0x{:x} pid={pid} class=\"{class}\"", hwnd.0 as usize)
 }
 
 /// Whether `hwnd` belongs to this process.
@@ -361,17 +444,19 @@ fn physical_down(vk: VIRTUAL_KEY) -> bool {
 // -- clipboard plumbing ------------------------------------------------------
 
 /// Run `body` with the clipboard open, retrying briefly: the clipboard is
-/// a shared resource another app may be holding.
-fn with_clipboard<T>(body: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+/// a shared resource another app may be holding. Reports the attempts
+/// used alongside the outcome, for the diagnostic record.
+fn with_clipboard<T>(body: impl FnOnce() -> Result<T, String>) -> Result<(T, u32), (u32, String)> {
     for attempt in 0..8 {
         if unsafe { OpenClipboard(None) }.is_ok() {
             let result = body();
             unsafe { CloseClipboard() }.ok();
-            return result;
+            let tries = attempt + 1;
+            return result.map_err(|err| (tries, err)).map(|value| (value, tries));
         }
-        std::thread::sleep(std::time::Duration::from_millis(25 * (attempt + 1)));
+        std::thread::sleep(std::time::Duration::from_millis(25 * u64::from(attempt + 1)));
     }
-    Err("the clipboard stayed busy (another app holds it)".into())
+    Err((8, "the clipboard stayed busy (another app holds it)".into()))
 }
 
 /// Map a fallible Win32 call to a `String` error, naming the API.
@@ -445,13 +530,29 @@ fn unicode_input(unit: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 }
 
 fn send_inputs(inputs: &[INPUT]) -> Result<(), String> {
+    match send_inputs_counted(inputs) {
+        (_, None) => Ok(()),
+        (_, Some(err)) => Err(err),
+    }
+}
+
+/// `SendInput` with the delivery count and, on a short delivery, the
+/// error string carrying the system's error code (5 = access denied:
+/// the foreground belongs to a higher-integrity — elevated — process,
+/// which silently blocks injected input; the code lets an elevation
+/// report be told apart from a race).
+fn send_inputs_counted(inputs: &[INPUT]) -> (u32, Option<String>) {
     let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
     if sent == inputs.len() as u32 {
-        Ok(())
+        (sent, None)
     } else {
-        Err(format!(
-            "SendInput delivered {sent} of {} events",
-            inputs.len()
-        ))
+        let code = unsafe { GetLastError().0 } as u32;
+        (
+            sent,
+            Some(format!(
+                "SendInput delivered {sent} of {} events (GetLastError {code})",
+                inputs.len()
+            )),
+        )
     }
 }

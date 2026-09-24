@@ -68,6 +68,36 @@ void main() {
       expect(classifyEngineError('connection failed: dns error'), '网络异常，请检查连接');
     });
 
+    test('insertion: the three failure faces stay distinct (小修 25)', () {
+      // No target: the flow refused before touching anything — the fix
+      // is the user's, not a retry's.
+      expect(
+        classifyEngineError(
+          'no target window to insert into: focus the window you type in',
+        ),
+        '未找到插入目标，请先点选目标窗口',
+      );
+      // A failed paste leaves the text on the clipboard: the manual
+      // Ctrl+V fallback is live and worth naming on screen.
+      expect(
+        classifyEngineError(
+          'paste keystroke failed: SendInput delivered 0 of 1 events '
+          '(GetLastError 5)',
+        ),
+        '插入失败，可手动 Ctrl+V',
+      );
+      // The clipboard never took the text (or typing mode died): there is
+      // nothing to fall back to, so a plain retry.
+      expect(
+        classifyEngineError('clipboard set failed: the clipboard stayed busy'),
+        '插入失败，请重试',
+      );
+      expect(
+        classifyEngineError("typing failed at '你': input queue full"),
+        '插入失败，请重试',
+      );
+    });
+
     test('unrecognized messages fall to the other bucket', () {
       expect(
         classifyEngineError('ASR provider "tencent" has no adapter'),
