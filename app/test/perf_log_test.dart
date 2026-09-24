@@ -104,6 +104,71 @@ void main() {
     expect(frameSlowLine(frame(8000, 12000)), isNull); // 20ms total
   });
 
+  test('a recording window summarizes both sides of the storm', () {
+    FrameTiming frame(int vsyncUs, int buildUs, int rasterUs) => FrameTiming(
+      vsyncStart: vsyncUs,
+      buildStart: vsyncUs,
+      buildFinish: vsyncUs + buildUs,
+      rasterStart: vsyncUs + buildUs,
+      rasterFinish: vsyncUs + buildUs + rasterUs,
+      rasterFinishWallTime: vsyncUs + buildUs + rasterUs,
+    );
+    // Two frames spanning 5s of vsync: 2ms/20ms build, 3ms/30ms raster.
+    final line = recordingWindowLine(
+      frames: [frame(0, 2000, 3000), frame(5000000, 20000, 30000)],
+      notifies: 101,
+    )!;
+    expect(line, startsWith('[sr-perf][recording_window] 5000ms '));
+    expect(line, contains('frames=2 notifies=101'));
+    expect(line, contains('build_avg=11000us build_max=20000us'));
+    expect(line, contains('raster_avg=16500us raster_max=30000us'));
+    // An empty window writes nothing at all.
+    expect(recordingWindowLine(frames: const [], notifies: 0), isNull);
+  });
+
+  test('the watch closes windows by wall time and a partial one at stop', () {
+    final home = dir('watch');
+    attachPerfLog([home.path]);
+    FrameTiming frame(int vsyncUs, int buildUs, int rasterUs) => FrameTiming(
+      vsyncStart: vsyncUs,
+      buildStart: vsyncUs,
+      buildFinish: vsyncUs + buildUs,
+      rasterStart: vsyncUs + buildUs,
+      rasterFinish: vsyncUs + buildUs + rasterUs,
+      rasterFinishWallTime: vsyncUs + buildUs + rasterUs,
+    );
+
+    var count = 0;
+    startRecordingWatch(() => count);
+    // Under the window length: nothing written yet.
+    count = 40;
+    feedRecordingFrames([frame(0, 1000, 1000), frame(1000000, 1000, 1000)]);
+    expect(
+      File('${home.path}/$perfLogFile').readAsLinesSync().where(
+            (l) => l.contains('recording_window'),
+          ),
+      isEmpty,
+    );
+    // Past it: one line lands, and the next window counts notifies from
+    // the close, not from the start.
+    count = 100;
+    feedRecordingFrames([frame(5200000, 1000, 1000)]);
+    final first = File('${home.path}/$perfLogFile')
+        .readAsLinesSync()
+        .lastWhere((l) => l.contains('recording_window'));
+    expect(first, contains('frames=3 notifies=100'));
+    // Stop writes the partial window that was open since.
+    count = 130;
+    feedRecordingFrames([frame(5400000, 1000, 1000)]);
+    stopRecordingWatch();
+    final last = File('${home.path}/$perfLogFile')
+        .readAsLinesSync()
+        .lastWhere((l) => l.contains('recording_window'));
+    expect(last, contains('frames=1 notifies=30'));
+    // A stop without a start stays quiet.
+    stopRecordingWatch();
+  });
+
   test('nothing writable leaves the seam console-only and quiet', () {
     // A file standing where a directory was claimed: every open fails.
     final blocker = File('${tmp.path}/blocker')..writeAsStringSync('');

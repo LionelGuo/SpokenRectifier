@@ -205,6 +205,11 @@ class SpeechController extends ChangeNotifier {
   /// reports a speaking boolean, so liveliness is synthesized from it.
   double micLevel = 0;
 
+  /// Every [notifyListeners] call bumps this (17 号票): the recording
+  /// steady-state watch reads the storm's cause-side count off the real
+  /// machine's log.
+  int notifyCount = 0;
+
   /// When the current recording started (header timer); null outside one.
   DateTime? recordStartedAt;
 
@@ -1113,6 +1118,9 @@ class SpeechController extends ChangeNotifier {
           recordStartedAt = DateTime.now();
           _logSessionPerf('perf_session_recording');
           _startMicBreath();
+          // The 挂卡 steady-state watch (17 号票): every window summary
+          // lands in the perf log until this recording ends.
+          startRecordingWatch(() => notifyCount);
           // A leftover true would skip this session's pin arm; the
           // previous Recording→* already cleared it, this is the belt.
           quickMarked = false;
@@ -1123,6 +1131,7 @@ class SpeechController extends ChangeNotifier {
           // observation window with it; the next start arms a fresh one.
           _perfSessionStart = null;
           _stopMicBreath();
+          stopRecordingWatch();
           // Listening ended by any path — stop session or cancel alike:
           // the chord goes back to the system at once (its Alt+B roles
           // elsewhere — bookmark menus, undo — stay ours-free at idle).
@@ -1225,6 +1234,15 @@ class SpeechController extends ChangeNotifier {
         _setLastError(classifyEngineError(message));
     }
     notifyListeners();
+  }
+
+  /// The steady-state watch's cause-side tap (17 号票): counting here is
+  /// the whole point — the counter IS the measurement, no behavior
+  /// change rides along.
+  @override
+  void notifyListeners() {
+    notifyCount += 1;
+    super.notifyListeners();
   }
 
   @override

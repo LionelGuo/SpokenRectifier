@@ -12,6 +12,7 @@
 library;
 
 import 'dart:io';
+import 'dart:ui' show FramePhase;
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/scheduler.dart'
@@ -90,7 +91,110 @@ void observeFrameJank() {
       final line = frameSlowLine(timing);
       if (line != null) _write(line);
     }
+    feedRecordingFrames(timings);
   });
+}
+
+// ---- the recording steady-state watch (17 号票) ----------------------------
+//
+// The 挂卡 render story has a cause side (controller notifies: the 20Hz
+// synthesized level tick plus the envelope events) and an effect side
+// (frames scheduled, and each frame's build/raster cost). Both sides go
+// into one summary line per window while a recording is under way, so
+// the real machine's log carries the before/after numbers of the
+// repaint-storm fix without DevTools in the loop.
+
+/// How much recording wall time one summary line covers.
+const recordingWindowLength = Duration(seconds: 5);
+
+/// True while the watch runs — the recording state transitions own
+/// this (start on entering Recording, stop on leaving it).
+bool _recordingWatch = false;
+
+/// The frames bucketed into the window currently open, and the notify
+/// count the window opened at (the delta is the cause side).
+final List<FrameTiming> _recordingFrames = [];
+int _recordingNotifies0 = 0;
+
+/// Where the cause side is read from (the controller's own counter).
+int Function() _recordingNotifyCount = () => 0;
+
+/// Starts (or restarts) the steady-state watch. The controller calls
+/// this on entering Recording with its notify counter; harmless in
+/// tests, where the log stays console-only.
+void startRecordingWatch(int Function() notifyCount) {
+  _recordingWatch = true;
+  _recordingNotifyCount = notifyCount;
+  _recordingNotifies0 = notifyCount();
+  _recordingFrames.clear();
+}
+
+/// Stops the watch and writes whatever partial window is open.
+void stopRecordingWatch() {
+  if (!_recordingWatch) return;
+  _recordingWatch = false;
+  _writeRecordingWindow();
+  _recordingFrames.clear();
+}
+
+/// The timings callback's tap into the watch (the same registration
+/// [observeFrameJank] already owns): buckets the batch, closes the
+/// window when it has covered its wall length.
+void feedRecordingFrames(List<FrameTiming> timings) {
+  if (!_recordingWatch || timings.isEmpty) return;
+  _recordingFrames.addAll(timings);
+  final windowStart = _recordingFrames.first.timestampInMicroseconds(
+    FramePhase.vsyncStart,
+  );
+  final windowEnd = timings.last.timestampInMicroseconds(
+    FramePhase.vsyncStart,
+  );
+  if (Duration(microseconds: windowEnd - windowStart) >=
+      recordingWindowLength) {
+    _writeRecordingWindow();
+    _recordingFrames.clear();
+  }
+}
+
+void _writeRecordingWindow() {
+  final line = recordingWindowLine(
+    frames: _recordingFrames,
+    notifies: _recordingNotifyCount() - _recordingNotifies0,
+  );
+  if (line != null) _write(line);
+  // The next window (or the final partial one) counts from here.
+  _recordingNotifies0 = _recordingNotifyCount();
+}
+
+/// Formats one window's summary, or null when no frame landed in it —
+/// the testable core of the watch.
+String? recordingWindowLine({
+  required List<FrameTiming> frames,
+  required int notifies,
+}) {
+  if (frames.isEmpty) return null;
+  final window = Duration(
+    microseconds:
+        frames.last.timestampInMicroseconds(FramePhase.vsyncStart) -
+        frames.first.timestampInMicroseconds(FramePhase.vsyncStart),
+  );
+  var buildTotal = Duration.zero;
+  var buildMax = Duration.zero;
+  var rasterTotal = Duration.zero;
+  var rasterMax = Duration.zero;
+  for (final t in frames) {
+    buildTotal += t.buildDuration;
+    if (t.buildDuration > buildMax) buildMax = t.buildDuration;
+    rasterTotal += t.rasterDuration;
+    if (t.rasterDuration > rasterMax) rasterMax = t.rasterDuration;
+  }
+  String us(Duration d) => d.inMicroseconds.toString();
+  return '[sr-perf][recording_window] ${window.inMilliseconds}ms '
+      'frames=${frames.length} notifies=$notifies '
+      'build_avg=${us(buildTotal ~/ frames.length)}us '
+      'build_max=${us(buildMax)}us '
+      'raster_avg=${us(rasterTotal ~/ frames.length)}us '
+      'raster_max=${us(rasterMax)}us';
 }
 
 /// Stamps [site] with the wall clock (ms since epoch). The settings
