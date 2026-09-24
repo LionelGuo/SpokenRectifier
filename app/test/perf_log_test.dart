@@ -60,9 +60,8 @@ void main() {
     // both sit inside the writing window, and neither reads as a
     // duration.
     for (final (i, site) in ['settings_click', 'settings_entry'].indexed) {
-      final match = RegExp(
-        r'^\[sr-perf\]\[([\w]+)\] @(\d+)$',
-      ).firstMatch(lines[i + 1])!;
+      final match = RegExp(r'^\[sr-perf\]\[([\w]+)\] @(\d+)$')
+          .firstMatch(lines[i + 1])!;
       expect(match.group(1), site);
       final at = int.parse(match.group(2)!);
       expect(at, greaterThanOrEqualTo(before));
@@ -77,9 +76,8 @@ void main() {
     logPerfMem('settings_frame');
     final lines = File('${home.path}/$perfLogFile').readAsLinesSync();
     for (final (i, site) in ['main_entry', 'settings_frame'].indexed) {
-      final match = RegExp(
-        r'^\[sr-perf\]\[([\w]+)\] rss=(\d+)B$',
-      ).firstMatch(lines[i + 1])!;
+      final match = RegExp(r'^\[sr-perf\]\[([\w]+)\] rss=(\d+)B$')
+          .firstMatch(lines[i + 1])!;
       expect(match.group(1), site);
       // The two engines' stamps must be comparable: both parse as plain
       // byte counts (the delta between them is the second engine).
@@ -144,9 +142,9 @@ void main() {
     count = 40;
     feedRecordingFrames([frame(0, 1000, 1000), frame(1000000, 1000, 1000)]);
     expect(
-      File('${home.path}/$perfLogFile').readAsLinesSync().where(
-            (l) => l.contains('recording_window'),
-          ),
+      File('${home.path}/$perfLogFile')
+          .readAsLinesSync()
+          .where((l) => l.contains('recording_window')),
       isEmpty,
     );
     // Past it: one line lands, and the next window counts notifies from

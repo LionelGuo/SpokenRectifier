@@ -60,8 +60,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../app_state.dart';
 import '../design/toast.dart';
 import '../design/tokens.dart';
-import '../rust/api/engine.dart'
-    show BridgeSessionState;
+import '../rust/api/engine.dart' show BridgeSessionState;
 import '../settings/rectify_store.dart';
 import '../settings/settings_domain.dart';
 import 'orb_button.dart';
@@ -298,12 +297,17 @@ class _StageHostState extends State<StageHost>
   /// (it lands when the form settles).
   bool _regionAfterMotion = false;
 
+  /// The orb visibility build last painted from (17 号票): flipping the
+  /// tray checkbox must repaint the stage even without a stage change.
+  bool _orbVisibleShown = true;
+
   SpeechController get c => widget.controller;
 
   @override
   void initState() {
     super.initState();
     c.addListener(_onChanged);
+    _orbVisibleShown = c.orbVisible;
     _form = PanelForm(this)..addListener(_onFormSettled);
     // Prime the geometry cache for the gestures (work areas + current
     // window rect); they run synchronously against it from here on.
@@ -319,6 +323,7 @@ class _StageHostState extends State<StageHost>
     // newcomer's own world.
     oldWidget.controller.removeListener(_onChanged);
     c.addListener(_onChanged);
+    _orbVisibleShown = c.orbVisible;
     _settling = StageKind.orb;
     _displayed = StageKind.orb;
     _exiting = false;
@@ -370,6 +375,15 @@ class _StageHostState extends State<StageHost>
       _keyboardNode.requestFocus();
     }
     _keyboardPhase = c.phase;
+
+    // The tray's visibility toggle repaints the stage without a stage
+    // change — the orb-less rest branch lives in build. The app shell's
+    // per-notify rebuild used to carry this silently; it now listens to
+    // the theme feed alone (17 号票), so the stage owns its own seam.
+    if (c.orbVisible != _orbVisibleShown) {
+      _orbVisibleShown = c.orbVisible;
+      setState(() {});
+    }
 
     final target = c.stage;
     if (target == _settling) return; // already on it (or underway)
@@ -1089,41 +1103,49 @@ class _StageHostState extends State<StageHost>
             KeyedSubtree(
               key: const Key('stage-panel-slot'),
               child: _panelSlot(
-                child: Stack(
-                  children: [
-                    // The panel stage's toast layer (ui-copy toast spec):
-                    // bottom-center IN the card, fixed — never flipped by
-                    // the growth direction. The scope wraps the panel at
-                    // the slot, so the slot edge is the card's outer
-                    // bounds (the card paints its 8px margin inside) and
-                    // 72 parks the capsule above the session footer band
-                    // and the quick panel's bottom content — the value
-                    // the verdict was judged on in the prototype.
-                    Positioned.fill(
-                      child: SrToastScope(
-                        anchor: SrToastAnchor.bottom,
-                        clearance: 72,
-                        child: _displayed == StageKind.session
-                            ? SessionPanel(
-                                controller: c,
-                                exiting: _exiting,
-                                form: _form,
-                              )
-                            : QuickPanel(
-                                controller: c,
-                                exiting: _exiting,
-                                onOpenSettings: widget.onOpenSettings,
-                                onRevealed: widget.onPanelRevealed,
-                                form: _form,
-                                rectifyStore: widget.rectifyStore,
-                              ),
+                // The card is its own layer (17 号票, R1's invisible-
+                // stays-undrawn): the work-area window had exactly one
+                // picture — the orb's 20Hz level ring re-rastered the
+                // whole card with it, and any card dirt re-rastered the
+                // orb and the transparent margins. One boundary splits
+                // the two; each repaints itself only.
+                child: RepaintBoundary(
+                  child: Stack(
+                    children: [
+                      // The panel stage's toast layer (ui-copy toast spec):
+                      // bottom-center IN the card, fixed — never flipped by
+                      // the growth direction. The scope wraps the panel at
+                      // the slot, so the slot edge is the card's outer
+                      // bounds (the card paints its 8px margin inside) and
+                      // 72 parks the capsule above the session footer band
+                      // and the quick panel's bottom content — the value
+                      // the verdict was judged on in the prototype.
+                      Positioned.fill(
+                        child: SrToastScope(
+                          anchor: SrToastAnchor.bottom,
+                          clearance: 72,
+                          child: _displayed == StageKind.session
+                              ? SessionPanel(
+                                  controller: c,
+                                  exiting: _exiting,
+                                  form: _form,
+                                )
+                              : QuickPanel(
+                                  controller: c,
+                                  exiting: _exiting,
+                                  onOpenSettings: widget.onOpenSettings,
+                                  onRevealed: widget.onPanelRevealed,
+                                  form: _form,
+                                  rectifyStore: widget.rectifyStore,
+                                ),
+                        ),
                       ),
-                    ),
-                    // The resize affordances ride above the panel, flush to
-                    // the slot's free edges (the shared footprint resizes
-                    // as one — 一调俱调).
-                    if (_gesturesLive) ..._resizeHandles(),
-                  ],
+                      // The resize affordances ride above the panel, flush to
+                      // the slot's free edges (the shared footprint resizes
+                      // as one — 一调俱调).
+                      if (_gesturesLive) ..._resizeHandles(),
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -44,8 +44,14 @@ class SpokenRectifierApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
+    return ListenableBuilder(
+      // The shell listens to the THEME alone (17 号票): it used to
+      // rebuild per controller notify — MaterialApp, both themes and
+      // the whole stage re-resolved twenty times a second so the
+      // recording level ring could read one double. The theme feed is
+      // the only controller state this build consumes; every surface
+      // below owns its own listener for what it paints.
+      listenable: controller.themeFeed,
       builder: (context, _) => MaterialApp(
         title: 'SpokenRectifier',
         debugShowCheckedModeBanner: false,

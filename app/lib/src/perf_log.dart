@@ -15,8 +15,7 @@ import 'dart:io';
 import 'dart:ui' show FramePhase;
 
 import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:flutter/scheduler.dart'
-    show FrameTiming, SchedulerBinding;
+import 'package:flutter/scheduler.dart' show FrameTiming, SchedulerBinding;
 
 /// The record file's name, resolved inside the ui prefs search dirs —
 /// the working directory first, then the exe's directory (dev runs vs a
@@ -146,9 +145,7 @@ void feedRecordingFrames(List<FrameTiming> timings) {
   final windowStart = _recordingFrames.first.timestampInMicroseconds(
     FramePhase.vsyncStart,
   );
-  final windowEnd = timings.last.timestampInMicroseconds(
-    FramePhase.vsyncStart,
-  );
+  final windowEnd = timings.last.timestampInMicroseconds(FramePhase.vsyncStart);
   if (Duration(microseconds: windowEnd - windowStart) >=
       recordingWindowLength) {
     _writeRecordingWindow();

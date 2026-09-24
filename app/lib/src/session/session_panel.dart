@@ -21,9 +21,7 @@ import '../design/tokens.dart';
 import '../preview/slot_document.dart';
 import '../preview/slot_editor.dart';
 import '../preview/slot_surface.dart';
-import '../rust/api/engine.dart'
-    show BridgePlaceholderFill,
-        BridgeSessionState;
+import '../rust/api/engine.dart' show BridgePlaceholderFill, BridgeSessionState;
 import 'thinking_marquee.dart';
 import '../shell/history_retrieval.dart'
     show DefaultRegisterPick, NamedScenarioPick;
@@ -274,8 +272,17 @@ class _SessionPanelState extends State<SessionPanel> {
       // the chrome while the attempt walks a thinking channel. Mounted
       // only while something paints — the mount gate retires it after
       // the handover fade; a thinking-less attempt never mounts it.
+      // The fade's END fires the overlay's own onGone (17 号票): with
+      // the per-notify whole-tree rebuilds retired, no later notify is
+      // guaranteed to re-evaluate the gate, so the panel re-evaluates
+      // itself when the machine says it is done.
       overlay: c.thinking != null && c.thinking!.hasVisual
-          ? ThinkingMarqueeOverlay(machine: c.thinking!)
+          ? ThinkingMarqueeOverlay(
+              machine: c.thinking!,
+              onGone: () {
+                if (mounted) setState(() {});
+              },
+            )
           : null,
     );
   }
@@ -482,9 +489,7 @@ class _SessionPanelState extends State<SessionPanel> {
         // Straight-edge body content: contentInset (below the corner
         // band), horizontal only — the vertical pads live inside the
         // scroll views now.
-        padding: const EdgeInsets.symmetric(
-          horizontal: SrSpace.contentInset,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: SrSpace.contentInset),
         child: content,
       ),
       builder: (context, inner) => Stack(
@@ -725,24 +730,31 @@ class _PhaseDotState extends State<_PhaseDot>
     }
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (context, _) => Container(
-        key: const Key('session-phase-dot'),
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: widget.color.withValues(
-            alpha: phaseDotValleyAlpha +
-                _ctrl.value * (1.0 - phaseDotValleyAlpha),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: widget.color.withValues(
-                alpha: phaseDotGlowPeakAlpha * _ctrl.value,
-              ),
-              blurRadius: 6,
+      // The breath is an always-on ticker for as long as the panel is
+      // live (17 号票): its repaints stay inside this boundary — a
+      // ~20px re-raster every frame instead of the whole card layer
+      // the single-picture window used to pay.
+      builder: (context, _) => RepaintBoundary(
+        child: Container(
+          key: const Key('session-phase-dot'),
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: widget.color.withValues(
+              alpha:
+                  phaseDotValleyAlpha +
+                  _ctrl.value * (1.0 - phaseDotValleyAlpha),
             ),
-          ],
+            boxShadow: [
+              BoxShadow(
+                color: widget.color.withValues(
+                  alpha: phaseDotGlowPeakAlpha * _ctrl.value,
+                ),
+                blurRadius: 6,
+              ),
+            ],
+          ),
         ),
       ),
     );

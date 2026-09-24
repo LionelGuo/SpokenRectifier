@@ -19,7 +19,8 @@ import 'package:spokenrectifier_app/app_state.dart';
 import 'package:spokenrectifier_app/src/design/tokens.dart';
 import 'package:spokenrectifier_app/src/preview/slot_surface.dart';
 import 'package:spokenrectifier_app/src/rust/api/engine.dart'
-    show BridgeEvent,
+    show
+        BridgeEvent,
         BridgePlaceholderFill,
         BridgePrefillRow,
         BridgeSessionState;
@@ -186,7 +187,8 @@ class GatedStageWindow implements stage.StageWindow {
       inner.seatBoundsPhysical(physical);
 
   @override
-  Future<void> setCardRegion(Rect? windowRect) => inner.setCardRegion(windowRect);
+  Future<void> setCardRegion(Rect? windowRect) =>
+      inner.setCardRegion(windowRect);
 
   @override
   Offset? pointerOnScreen() => inner.pointerOnScreen();
@@ -425,12 +427,33 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(controller.speaking, isTrue);
     // The synthesized loudness rose off its silent floor.
-    expect(controller.micLevel, greaterThan(0.2));
+    expect(controller.micLevel.value, greaterThan(0.2));
 
     gateway.emit(const BridgeEvent.speechActivityChanged(speaking: false));
     await tester.pump(const Duration(milliseconds: 300));
     expect(controller.speaking, isFalse);
-    expect(controller.micLevel, lessThan(0.15));
+    expect(controller.micLevel.value, lessThan(0.15));
+    await windDown(tester, controller);
+  });
+
+  testWidgets('the level breath rides its feed, not controller notifies', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    final controller = await pumpController(tester, gateway);
+    await pumpToRecording(tester, controller);
+
+    // A silent stretch of recording: the breath keeps feeding the ring
+    // (the level still moves every tick) while the controller itself
+    // goes quiet — the 20Hz whole-tree notify storm (17 号票) is gone;
+    // an envelope event still notifies, a converged level alone never
+    // does.
+    final level0 = controller.micLevel.value;
+    final notifies0 = controller.notifyCount;
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(controller.micLevel.value, isNot(equals(level0)));
+    expect(controller.notifyCount, notifies0);
+
     await windDown(tester, controller);
   });
 

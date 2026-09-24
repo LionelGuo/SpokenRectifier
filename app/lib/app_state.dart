@@ -203,7 +203,13 @@ class SpeechController extends ChangeNotifier {
   /// Synthesized mic loudness, 0..1, while recording — drives the orb's
   /// level ring and glow (non-size recording dynamics). The engine only
   /// reports a speaking boolean, so liveliness is synthesized from it.
-  double micLevel = 0;
+  ///
+  /// A feed of its own (17 号票): the level's ONLY consumers are the
+  /// orb's two painters, so the 20Hz breath rides this notifier and
+  /// repaints that one box — it no longer notifyListeners the whole
+  /// controller (MaterialApp, panels and orb subtree rebuilt twenty
+  /// times a second for a ring that reads one field).
+  final ValueNotifier<double> micLevel = ValueNotifier(0);
 
   /// Every [notifyListeners] call bumps this (17 号票): the recording
   /// steady-state watch reads the storm's cause-side count off the real
@@ -247,6 +253,14 @@ class SpeechController extends ChangeNotifier {
   /// file = follow the system). The quick panel's tri-state switcher
   /// repaints it at once and writes it back — the read/write loop.
   ThemeMode themeMode;
+
+  /// The theme's narrow broadcast (17 号票): the app shell is the ONE
+  /// listener that rebuilds on a theme flip alone — it watches this
+  /// feed instead of the whole controller, so the recording-phase
+  /// notify storm no longer rebuilds MaterialApp with it. [setThemeMode]
+  /// writes both; the flip itself still notifies the controller too
+  /// (the settings-window sync rides that path).
+  late final ValueNotifier<ThemeMode> themeFeed = ValueNotifier(themeMode);
 
   /// Where the theme write-back lands (the app-owned prefs file's search
   /// directories); injectable so tests point it at a scratch directory.
@@ -929,6 +943,7 @@ class SpeechController extends ChangeNotifier {
   /// keeps the on-screen mode: the user sees what they got.
   Future<void> setThemeMode(ThemeMode mode) async {
     themeMode = mode;
+    themeFeed.value = mode;
     notifyListeners();
     try {
       saveUiThemeMode(uiPrefsDirs, mode);
@@ -1061,21 +1076,23 @@ class SpeechController extends ChangeNotifier {
 
   /// Non-size recording dynamics: a fast tick breathing the level ring
   /// and glow (voice steps set `speaking` on bursts). The engine reports
-  /// only a speaking boolean, so the loudness curve is synthesized.
+  /// only a speaking boolean, so the loudness curve is synthesized. The
+  /// curve and cadence are exactly what they were (17 号票 only changed
+  /// WHO hears them): the tick writes the feed, not the controller —
+  /// and a converged silent value stops firing on its own.
   void _startMicBreath() {
     _stopMicBreath();
-    micLevel = 0.08;
+    micLevel.value = 0.08;
     _micBreathTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       final target = speaking ? 0.35 + _rand.nextDouble() * 0.6 : 0.06;
-      micLevel += (target - micLevel) * 0.35;
-      notifyListeners();
+      micLevel.value += (target - micLevel.value) * 0.35;
     });
   }
 
   void _stopMicBreath() {
     _micBreathTimer?.cancel();
     _micBreathTimer = null;
-    micLevel = 0;
+    micLevel.value = 0;
   }
 
   /// The header's 思考中 elapsed label needs repaints while the
@@ -1249,6 +1266,8 @@ class SpeechController extends ChangeNotifier {
   void dispose() {
     _stopScriptedSpeech();
     _stopMicBreath();
+    micLevel.dispose();
+    themeFeed.dispose();
     _flashTimer?.cancel();
     _thinkingTimer?.cancel();
     _previewPushDebounce?.cancel();

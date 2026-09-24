@@ -14,13 +14,13 @@ library;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart' show kPrimaryButton;
 import 'package:flutter/material.dart';
 
 import '../../app_state.dart';
 import '../design/tokens.dart';
-import '../rust/api/engine.dart'
-    show BridgeSessionState;
+import '../rust/api/engine.dart' show BridgeSessionState;
 import 'session_flow.dart' show StageKind;
 
 /// Visual overshoot of decorations beyond the 56px core (socket, ring,
@@ -122,6 +122,19 @@ class _OrbButtonState extends State<OrbButton> {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      // The orb owns its controller dependency (17 号票): the app shell
+      // used to rebuild the whole tree per notify, which kept this
+      // look, tooltip and cursor fresh as a side effect. Notifies are
+      // event-rate now — the 20Hz level tick rides the painters' own
+      // repaint feed below, it never notifies — so the orb listening
+      // for itself is cheap and complete.
+      listenable: c,
+      builder: (context, _) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
     final pal = srPalette(context);
     final look = _OrbLook.of(c);
 
@@ -154,18 +167,26 @@ class _OrbButtonState extends State<OrbButton> {
             child: SizedBox(
               width: SrGeometry.orbFootprint.width,
               height: SrGeometry.orbFootprint.height,
-              child: AnimatedScale(
-                // Micro-feedback only; the core never breathes by scale.
-                // 1.04 keeps even the aura's outermost alpha (46px) inside
-                // the footprint (46 * 1.04 = 47.8 < 48).
-                scale: _pressing
-                    ? 0.96
-                    : (_hover && look.clickable ? 1.04 : 1.0),
-                duration: SrMotion.fast,
-                curve: SrMotion.curveMicro,
-                child: AnimatedBuilder(
-                  animation: c,
-                  builder: (context, _) => Stack(
+              // The orb is its own layer (17 号票): its two level-driven
+              // paints run at the breath's 20Hz, and the work-area window
+              // had one picture — every tick re-rastered the open card.
+              // The boundary holds the tick's raster cost to this box;
+              // the card's dirt stops reaching the orb and the margins.
+              child: RepaintBoundary(
+                child: AnimatedScale(
+                  // Micro-feedback only; the core never breathes by scale.
+                  // 1.04 keeps even the aura's outermost alpha (46px) inside
+                  // the footprint (46 * 1.04 = 47.8 < 48).
+                  scale: _pressing
+                      ? 0.96
+                      : (_hover && look.clickable ? 1.04 : 1.0),
+                  duration: SrMotion.fast,
+                  curve: SrMotion.curveMicro,
+                  // The bare stack: the ListenableBuilder above already
+                  // rebuilds this per controller event — one listen
+                  // path, not two (the level's own 20Hz never comes
+                  // through here at all).
+                  child: Stack(
                     clipBehavior: Clip.none,
                     children: [
                       // Ambient shadow + recording glow, gradient-painted
@@ -176,6 +197,11 @@ class _OrbButtonState extends State<OrbButton> {
                       // saveLayer box) — see _OrbAura.
                       Positioned.fill(
                         child: CustomPaint(
+                          // The painter's repaint listenable (17 号票):
+                          // the level feed re-PAINTS this box alone at
+                          // 20Hz — no widget rebuild, no layout, no
+                          // controller notify. The painter reads the
+                          // value at paint time.
                           painter: _OrbAura(
                             pal: pal,
                             glow: look.glow,
@@ -214,6 +240,8 @@ class _OrbButtonState extends State<OrbButton> {
                           width: SrGeometry.orbBall + 2 * _overshoot,
                           height: SrGeometry.orbBall + 2 * _overshoot,
                           child: CustomPaint(
+                            // The aura's twin seam: the feed repaints
+                            // the ring alone, at the breath's cadence.
                             painter: _LevelRing(pal: pal, level: c.micLevel),
                           ),
                         ),
@@ -268,20 +296,25 @@ class _OrbButtonState extends State<OrbButton> {
 /// square saveLayer boundary showed up as hard square cuts in preview
 /// rounds. A gradient that ends at zero has no tail to cut.
 class _OrbAura extends CustomPainter {
-  const _OrbAura({required this.pal, required this.glow, required this.level});
+  const _OrbAura({required this.pal, required this.glow, required this.level})
+    : super(repaint: level);
 
   final SrPalette pal;
 
   /// Recording glow halo.
   final bool glow;
 
-  /// Mic loudness, 0..1 (synthesized from the speaking boolean).
-  final double level;
+  /// Mic loudness, 0..1 (synthesized from the speaking boolean). Read at
+  /// PAINT time from the feed (17 号票): the same listenable is this
+  /// painter's repaint trigger (super), handing it the 20Hz breath
+  /// without a widget rebuild — the level never appears in
+  /// [shouldRepaint], the feed covers it.
+  final ValueListenable<double> level;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final lvl = level.clamp(0.0, 1.0);
+    final lvl = level.value.clamp(0.0, 1.0);
     final budget = SrGeometry.orbMaskFadeEnd;
 
     // Ambient shadow: soft disc offset downward like the old BoxShadow.
@@ -326,20 +359,21 @@ class _OrbAura extends CustomPainter {
 
   @override
   bool shouldRepaint(_OrbAura oldDelegate) =>
-      oldDelegate.glow != glow ||
-      oldDelegate.level != level ||
-      oldDelegate.pal != pal;
+      oldDelegate.glow != glow || oldDelegate.pal != pal;
 }
 
 /// Mic-level gauge: faint circular track plus a live arc whose sweep
 /// follows the synthesized loudness. Painted outside the ball core.
 class _LevelRing extends CustomPainter {
-  const _LevelRing({required this.pal, required this.level});
+  const _LevelRing({required this.pal, required this.level})
+    : super(repaint: level);
 
   final SrPalette pal;
 
-  /// Mic loudness, 0..1.
-  final double level;
+  /// Mic loudness, 0..1 — read at PAINT time from the feed (the aura's
+  /// twin seam, 17 号票): the repaint listenable drives the 20Hz sweep,
+  /// [shouldRepaint] never sees the value.
+  final ValueListenable<double> level;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -359,14 +393,14 @@ class _LevelRing extends CustomPainter {
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       -math.pi / 2,
-      level.clamp(0.0, 1.0) * math.pi * 5 / 3,
+      level.value.clamp(0.0, 1.0) * math.pi * 5 / 3,
       false,
       arc,
     );
   }
 
   @override
-  bool shouldRepaint(_LevelRing old) => old.level != level;
+  bool shouldRepaint(_LevelRing old) => old.pal != pal;
 }
 
 // ---------------------------------------------------------------------------
